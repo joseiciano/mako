@@ -3,6 +3,12 @@
 
 The following is useful information when working specifically in the backend. 
 
+### API Documentation
+
+1. All routes must support an OpenAPI specification. 
+2. Use tools like `zod-to-openapi` (if using Hono) or built-in decorators to ensure types and schemas are automatically synchronized with the documentation.
+3. Every endpoint should have a clear description, request/response schemas, and possible error states documented.
+
 ### Controller-Service-Repository Pattern
 
 Within a package: 

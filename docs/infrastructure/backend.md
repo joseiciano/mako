@@ -12,6 +12,10 @@ This document goes over all the tools we will be using for our backend services
 
 - **Hono**: Hono for defining the routes within the cloudflare worker. As it was built to support workers, this is a very useful tool.
 - **Postgres**: We will use a postgres database to handle our data collection. This postgres instance is hosted on [Neon](https://neon.com/docs/introduction). 
-- **Better Auth**: We will use better auth to handle authentication as well as email verification. 
+- **Better Auth**: We will use better auth to handle authentication as well as email verification. It uses **HTTP-only cookies** for secure session management by default.
 - **Zod**: Zod is used for defining data schemas. This is to be used for things like API request shapes.
+- **zod-openapi**: (or `hono-openapi`) We use this to automatically generate OpenAPI specifications from our Zod schemas and Hono routes, ensuring the documentation stays in sync with the code.
+- **Excalidraw MCP**: Used by the AI interviewer to interact with and analyze the whiteboard during system design interviews.
 
+
+**NOTE**: We are speaking to our postgres database directly with SQL queries, speaking to it with Cloudflare Hyperdrive. We are not, and never will be using an orm. Never recommend an orm, never use an orm, never mention an orm. 

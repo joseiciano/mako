@@ -6,4 +6,5 @@
 - **Tanstack Query**: You use Tanstack query (formerly React Query) to handle data fetching from the backend. 
 - **Tailwind CSS**: Tailwind CSS handles any styling related.
 - **Lucia**: We use Lucia for generating any icons we may use on our website
+- **Excalidraw**: Used for the collaborative whiteboard in system design interviews.
 

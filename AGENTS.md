@@ -49,3 +49,12 @@ Use in app if you see the logic you are building is unique to this one applicati
 
 When creating types, you prefer to use `type` over `interface`. You only use `interface` when handling classes. 
 
+## Infrastructure
+
+Reference `../docs/infrastructure/backend.md` for backend services. 
+
+Reference `../docs/infrastructure/frontend.md` for frontend services.
+
+**NOTE**: We are speaking to our postgres database directly with SQL queries, speaking to it with Cloudflare Hyperdrive. We are not, and never will be using an orm. Never recommend an orm, never use an orm, never mention an orm. 
+
+
