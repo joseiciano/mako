@@ -1,0 +1,61 @@
+#!/bin/bash
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+
+usage() {
+    echo "Usage: $0 <target-directory> [--init-new-git]"
+    echo ""
+    echo "Arguments:"
+    echo "  <target-directory>  Directory to copy the template to"
+    echo "  --init-new-git      Initialize a new git repository instead of keeping the existing one"
+    exit 1
+}
+
+if [ $# -lt 1 ]; then
+    usage
+fi
+
+TARGET_DIR="$1"
+INIT_NEW_GIT=false
+
+if [ $# -ge 2 ] && [ "$2" = "--init-new-git" ]; then
+    INIT_NEW_GIT=true
+fi
+
+# Resolve to absolute path
+TARGET_DIR="$(cd "$(dirname "$TARGET_DIR")" 2>/dev/null && pwd)/$(basename "$TARGET_DIR")" || TARGET_DIR="$TARGET_DIR"
+
+echo "Copying template from $ROOT_DIR to $TARGET_DIR..."
+
+# Create target directory
+mkdir -p "$TARGET_DIR"
+
+# Copy files, excluding git-related and unnecessary files
+rsync -av --progress \
+    --exclude='.git/' \
+    --exclude='.gitignore' \
+    --exclude='node_modules/' \
+    --exclude='dist/' \
+    --exclude='build/' \
+    --exclude='*.log' \
+    --exclude='.DS_Store' \
+    --exclude='Thumbs.db' \
+    "$ROOT_DIR/" "$TARGET_DIR/"
+
+# Handle git initialization based on flag
+if [ "$INIT_NEW_GIT" = true ]; then
+    echo "Initializing new git repository..."
+    cd "$TARGET_DIR"
+    git init
+    git add .
+    git commit -m "Initial commit from template"
+else
+    # Keep existing git history by copying .git
+    echo "Preserving git history..."
+    rsync -av --progress "$ROOT_DIR/.git/" "$TARGET_DIR/.git/"
+fi
+
+echo "Template copied successfully to $TARGET_DIR!"
