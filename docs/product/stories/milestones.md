@@ -11,7 +11,9 @@ This document outlines the high-level milestones for the Mako platform, breaking
 - **Infrastructure 1.4: CI/CD & Secrets Management**: Automate quality gates and deployments via GitHub Actions and Terraform.
 - **Infrastructure 1.5: Developer Experience (DX)**: Configure local emulation (Wrangler) and root-level dev scripts.
 - **User Authentication**: Implement Better Auth for sign-up, sign-in, and session management.
-- **Account Management**: Build the basic profile and settings pages (name, email, basic metadata).
+- **Account 2-1: User Profile & Quotas**: Build the core profile page with identity details and interview balance.
+- **Account 2-2: Professional History Management**: Implement the company history tracking and verification metadata.
+- **Account 2-3: Account Security & Deletion**: Develop the 'Danger Zone' with high-friction account deletion.
 - **Core Layout**: Develop the application shell, including navigation and responsive layout.
 
 ## Milestone 2: Interview Scheduling & Dashboard
