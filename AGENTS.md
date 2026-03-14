@@ -37,6 +37,10 @@ When developing:
 * Try to keep commits small. If you are working on two components for a feature, for example, split them into two commits. 
 * Have commit names be concise and detailed. I, as the reviewer, should have a good idea of what is being done in the commits. 
 
+### Never Push Commits or Create Pull Requests Without Permission
+
+When developing, you may create commits for the worktree you are working on. However, **NEVER** push the commits. Wait for human review to approve and do it manually or to approve you to push it and create a Pull Request.
+
 ### Packages vs In-App
 
 Use packages for the followed:
