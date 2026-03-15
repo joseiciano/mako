@@ -5,7 +5,12 @@ node_modules/
 # Build outputs
 dist/
 build/
+.output/
 *.local
+
+# Cloudflare/TanStack generated
+.wrangler/
+.tanstack/
 
 # Logs
 *.log

@@ -1,0 +1,22 @@
+{
+  "name": "@mako/backend-rest",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "cf-typegen": "wrangler types --env-interface WorkerBindings"
+  },
+  "dependencies": {
+    "@mako/shared": "workspace:*",
+    "@mako/shared-backend": "workspace:*",
+    "hono": "^4.12.8"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "latest",
+    "typescript": "^5.8.2",
+    "wrangler": "^4.4.0"
+  }
+}
