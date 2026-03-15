@@ -63,6 +63,31 @@ Core entity for tracking mock sessions and AI-led interviews.
 - **`created_at`**: `timestamptz`
 - **`updated_at`**: `timestamptz`
 
+### Availability_Requests
+
+Groups a set of time blocks where a user is available for matching, with a maximum quota.
+
+- **`id`**: `uuid` (Primary Key)
+- **`user_id`**: `uuid` (Foreign Key -> `users.id`)
+- **`max_matches`**: `integer` - Maximum number of interviews the user wants for this request.
+- **`current_matches`**: `integer` (Default: 0) - Number of matches already made for this request.
+- **`interview_type`**: `enum` ('system_design', 'coding', 'behavioral')
+- **`status`**: `enum` ('active', 'fulfilled', 'cancelled')
+- **`created_at`**: `timestamptz`
+- **`updated_at`**: `timestamptz`
+
+### Availability_Slots
+
+Individual 60-minute time blocks associated with an Availability Request.
+
+- **`id`**: `uuid` (Primary Key)
+- **`request_id`**: `uuid` (Foreign Key -> `Availability_Requests.id`)
+- **`start_time`**: `timestamptz` - The start of the 60-minute window.
+- **`end_time`**: `timestamptz` - The end of the 60-minute window.
+- **`status`**: `enum` ('available', 'matched', 'cancelled')
+- **`created_at`**: `timestamptz`
+- **`updated_at`**: `timestamptz`
+
 ### Credit_Transactions
 
 Logs for financial history and credit fulfillment via Stripe.

@@ -96,11 +96,25 @@
   - **Response Body**: `{ session_id: string, token: string }`
   - **Query Params**: None
 
-- **`GET /api/interviews/:id`**
+- **GET /api/interviews/:id**
   - **Description**: Retrieves full details of a specific interview, including feedback and recording URLs if available.
   - **Request Body**: None
   - **Response Body**: `{ interview: Interview }`
   - **Query Params**: None
+
+### Availability
+- **`POST /api/availability`**
+  - **Description**: Submits a new availability request with multiple time slots.
+  - **Request Body**: `{ interview_type: string, max_matches: number, slots: Array<{ start_time: string, end_time: string }> }`
+  - **Response Body**: `{ request: Availability_Request, slots: Availability_Slot[] }`
+
+- **`GET /api/availability`**
+  - **Description**: Lists active availability requests for the current user.
+  - **Response Body**: `{ requests: Array<Availability_Request & { slots: Availability_Slot[] }> }`
+
+- **`DELETE /api/availability/:id`**
+  - **Description**: Cancels an active availability request and its associated slots.
+  - **Response Body**: `{ success: boolean }`
 
 ### Companies
 - **`POST /api/companies`**
