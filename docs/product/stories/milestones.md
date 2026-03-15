@@ -20,6 +20,8 @@ This document outlines the high-level milestones for the Mako platform, breaking
 **Objective**: Enable users to book, view, and manage their interview sessions.
 
 - **Interview CRUD**: Implement backend logic and API routes for creating, listing, and cancelling interviews.
+- **Availability Management**: Build the UI and API for users to set time blocks and matching quotas.
+- **Matching Engine (Greedy Matcher)**: Develop the background worker and database logic for automated availability-based matching.
 - **Dashboard UI**: Build the central hub for users to see upcoming sessions and quick stats.
 - **Scheduling Flow**: Create the multi-step form for selecting interview type, mode (P2P/AI), and timing.
 - **Notification Service**: Set up Cloudflare Workflows for email confirmations and reminders.

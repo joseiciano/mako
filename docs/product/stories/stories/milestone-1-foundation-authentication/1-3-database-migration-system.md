@@ -11,7 +11,7 @@
 - [ ] Create a standard workflow for developers to create and apply new migrations.
 
 ### 2. Initial Schema Implementation
-- [ ] Implement the `Users`, `User_Companies`, and initial foundation tables in SQL.
+- [ ] Implement the `Users`, `User_Companies`, `Availability_Requests`, and `Availability_Slots` initial foundation tables in SQL.
 - [ ] Ensure all database interactions maintain strict manual type safety in the shared packages.
 
 ## End Goal

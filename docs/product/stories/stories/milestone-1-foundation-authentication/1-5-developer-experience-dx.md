@@ -7,7 +7,7 @@
 ## What Needs to Be Done
 
 ### 1. Local Emulation
-- [ ] Set up `wrangler` for local emulation of Cloudflare Workers, R2, and Hyperdrive.
+- [ ] Set up `wrangler` for local emulation of Cloudflare Workers, R2, Queues, and Hyperdrive.
 
 ### 2. Configuration & Bootstrapping
 - [ ] Create a comprehensive `.env.example` file documenting all required local variables.
