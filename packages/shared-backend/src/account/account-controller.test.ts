@@ -1,5 +1,4 @@
-import assert from 'node:assert/strict'
-import test from 'node:test'
+import { describe, expect, it } from 'vitest'
 import { Hono } from 'hono'
 import { AccountRepository, createInMemoryAccountDataSource } from './account-repository'
 import {
@@ -39,57 +38,56 @@ function createApp() {
   return app
 }
 
-test('GET /api/account returns seeded account profile', async function run() {
-  const app = createApp()
-  const response = await app.request('/api/account')
-  const payload = await response.json()
+describe('AccountController', function suite() {
+  it('GET /api/account returns seeded account profile', async function run() {
+    const app = createApp()
+    const response = await app.request('/api/account')
+    const payload = await response.json()
 
-  assert.equal(response.status, 200)
-  assert.equal(payload.id, 'demo-user')
-  assert.equal(payload.displayName, 'Demo Candidate')
-})
-
-test('PATCH /api/account updates display name', async function run() {
-  const app = createApp()
-
-  const patchResponse = await app.request('/api/account', {
-    method: 'PATCH',
-    headers: {
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({ displayName: 'Updated Demo' }),
-  })
-  const patchPayload = await patchResponse.json()
-
-  assert.equal(patchResponse.status, 200)
-  assert.equal(patchPayload.displayName, 'Updated Demo')
-
-  const getResponse = await app.request('/api/account')
-  const getPayload = await getResponse.json()
-  assert.equal(getPayload.displayName, 'Updated Demo')
-})
-
-test('GET /api/account returns 401 when session is invalid', async function run() {
-  const app = new Hono<{ Bindings: Record<string, unknown> }>()
-  const accountService = new AccountService(
-    new AccountRepository(createInMemoryAccountDataSource([])),
-  )
-
-  registerAccountController(app, {
-    createService: function createService() {
-      return accountService
-    },
-    resolveSession: function resolveSession() {
-      return null
-    },
+    expect(response.status).toBe(200)
+    expect(payload.id).toBe('demo-user')
+    expect(payload.displayName).toBe('Demo Candidate')
   })
 
-  const response = await app.request('/api/account')
-  const payload = await response.json()
+  it('PATCH /api/account updates display name', async function run() {
+    const app = createApp()
 
-  assert.equal(response.status, 401)
-  assert.equal(
-    payload.error,
-    'You must be authenticated to access this resource.',
-  )
+    const patchResponse = await app.request('/api/account', {
+      method: 'PATCH',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ displayName: 'Updated Demo' }),
+    })
+    const patchPayload = await patchResponse.json()
+
+    expect(patchResponse.status).toBe(200)
+    expect(patchPayload.displayName).toBe('Updated Demo')
+
+    const getResponse = await app.request('/api/account')
+    const getPayload = await getResponse.json()
+    expect(getPayload.displayName).toBe('Updated Demo')
+  })
+
+  it('GET /api/account returns 401 when session is invalid', async function run() {
+    const app = new Hono<{ Bindings: Record<string, unknown> }>()
+    const accountService = new AccountService(
+      new AccountRepository(createInMemoryAccountDataSource([])),
+    )
+
+    registerAccountController(app, {
+      createService: function createService() {
+        return accountService
+      },
+      resolveSession: function resolveSession() {
+        return null
+      },
+    })
+
+    const response = await app.request('/api/account')
+    const payload = await response.json()
+
+    expect(response.status).toBe(401)
+    expect(payload.error).toBe('You must be authenticated to access this resource.')
+  })
 })

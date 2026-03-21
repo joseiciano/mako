@@ -1,9 +1,5 @@
-import assert from 'node:assert/strict'
-import test from 'node:test'
-import {
-  fetchAccount,
-  updateAccountProfile,
-} from '#/hooks/use-account'
+import { describe, expect, it } from 'vitest'
+import { fetchAccount, updateAccountProfile } from './use-account'
 
 const accountFixture = {
   id: 'demo-user',
@@ -15,69 +11,65 @@ const accountFixture = {
   createdAt: '2026-01-01T00:00:00.000Z',
 }
 
-test('fetchAccount parses successful API responses', async function run() {
-  const result = await fetchAccount(async function mockFetch(input, init) {
-    assert.equal(input, '/api/account')
-    assert.equal(init?.method, undefined)
+describe('use-account hooks', function suite() {
+  it('fetchAccount parses successful API responses', async function run() {
+    const result = await fetchAccount(async function mockFetch(input, init) {
+      expect(input).toBe('/api/account')
+      expect(init?.method).toBeUndefined()
 
-    return new Response(JSON.stringify(accountFixture), {
-      status: 200,
-      headers: {
-        'content-type': 'application/json',
-      },
+      return new Response(JSON.stringify(accountFixture), {
+        status: 200,
+        headers: {
+          'content-type': 'application/json',
+        },
+      })
     })
+
+    expect(result.id).toBe(accountFixture.id)
+    expect(result.displayName).toBe(accountFixture.displayName)
   })
 
-  assert.equal(result.id, accountFixture.id)
-  assert.equal(result.displayName, accountFixture.displayName)
-})
+  it('updateAccountProfile sends PATCH payload and parses response', async function run() {
+    const result = await updateAccountProfile(
+      { displayName: 'Updated Name' },
+      async function mockFetch(input, init) {
+        expect(input).toBe('/api/account')
+        expect(init?.method).toBe('PATCH')
+        expect(readHeader(init?.headers, 'content-type')).toBe('application/json')
 
-test('updateAccountProfile sends PATCH payload and parses response', async function run() {
-  const result = await updateAccountProfile(
-    { displayName: 'Updated Name' },
-    async function mockFetch(input, init) {
-      assert.equal(input, '/api/account')
-      assert.equal(init?.method, 'PATCH')
-      assert.equal(readHeader(init?.headers, 'content-type'), 'application/json')
+        const body = JSON.parse(String(init?.body))
+        expect(body.displayName).toBe('Updated Name')
 
-      const body = JSON.parse(String(init?.body))
-      assert.equal(body.displayName, 'Updated Name')
-
-      return new Response(
-        JSON.stringify({
-          ...accountFixture,
-          displayName: 'Updated Name',
-        }),
-        {
-          status: 200,
-          headers: {
-            'content-type': 'application/json',
+        return new Response(
+          JSON.stringify({
+            ...accountFixture,
+            displayName: 'Updated Name',
+          }),
+          {
+            status: 200,
+            headers: {
+              'content-type': 'application/json',
+            },
           },
-        },
-      )
-    },
-  )
+        )
+      },
+    )
 
-  assert.equal(result.displayName, 'Updated Name')
-})
+    expect(result.displayName).toBe('Updated Name')
+  })
 
-test('fetchAccount surfaces backend error messages', async function run() {
-  await assert.rejects(
-    async function shouldThrow() {
-      await fetchAccount(async function mockFetch() {
+  it('fetchAccount surfaces backend error messages', async function run() {
+    await expect(
+      fetchAccount(async function mockFetch() {
         return new Response(JSON.stringify({ error: 'Unauthorized' }), {
           status: 401,
           headers: {
             'content-type': 'application/json',
           },
         })
-      })
-    },
-    function matcher(error) {
-      assert.equal((error as Error).message, 'Unauthorized')
-      return true
-    },
-  )
+      }),
+    ).rejects.toThrow('Unauthorized')
+  })
 })
 
 function readHeader(

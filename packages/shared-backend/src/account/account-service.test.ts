@@ -1,5 +1,4 @@
-import assert from 'node:assert/strict'
-import test from 'node:test'
+import { describe, expect, it } from 'vitest'
 import { AccountRepository, createInMemoryAccountDataSource } from './account-repository'
 import { AccountService } from './account-service'
 import {
@@ -32,63 +31,58 @@ function createService() {
   return new AccountService(accountRepository)
 }
 
-test('getAccount returns active account profile', async function run() {
-  const service = createService()
+describe('AccountService', function suite() {
+  it('getAccount returns active account profile', async function run() {
+    const service = createService()
 
-  const profile = await service.getAccount(activeSession)
+    const profile = await service.getAccount(activeSession)
 
-  assert.equal(profile.id, 'user-1')
-  assert.equal(profile.email, 'candidate@mako.dev')
-  assert.equal(profile.displayName, 'Candidate One')
-})
-
-test('getAccount requires authenticated session', async function run() {
-  const service = createService()
-
-  await assert.rejects(
-    async function rejectUnauthorized() {
-      await service.getAccount(null)
-    },
-    AccountUnauthorizedError,
-  )
-})
-
-test('updateProfile persists display name updates', async function run() {
-  const service = createService()
-
-  const updatedProfile = await service.updateProfile(activeSession, {
-    displayName: '  Updated Name  ',
+    expect(profile.id).toBe('user-1')
+    expect(profile.email).toBe('candidate@mako.dev')
+    expect(profile.displayName).toBe('Candidate One')
   })
 
-  assert.equal(updatedProfile.displayName, 'Updated Name')
+  it('getAccount requires authenticated session', async function run() {
+    const service = createService()
 
-  const refreshedProfile = await service.getAccount(activeSession)
-  assert.equal(refreshedProfile.displayName, 'Updated Name')
-})
+    await expect(
+      service.getAccount(null),
+    ).rejects.toBeInstanceOf(AccountUnauthorizedError)
+  })
 
-test('updateProfile validates display name input', async function run() {
-  const service = createService()
+  it('updateProfile persists display name updates', async function run() {
+    const service = createService()
 
-  await assert.rejects(
-    async function rejectInvalidInput() {
-      await service.updateProfile(activeSession, {
+    const updatedProfile = await service.updateProfile(activeSession, {
+      displayName: '  Updated Name  ',
+    })
+
+    expect(updatedProfile.displayName).toBe('Updated Name')
+
+    const refreshedProfile = await service.getAccount(activeSession)
+    expect(refreshedProfile.displayName).toBe('Updated Name')
+  })
+
+  it('updateProfile validates display name input', async function run() {
+    const service = createService()
+
+    await expect(
+      service.updateProfile(activeSession, {
         displayName: '   ',
-      })
-    },
-    AccountValidationError,
-  )
-})
+      }),
+    ).rejects.toBeInstanceOf(AccountValidationError)
+  })
 
-test('updateProfile throws not found when account is missing', async function run() {
-  const accountRepository = new AccountRepository(createInMemoryAccountDataSource([]))
-  const service = new AccountService(accountRepository)
+  it('updateProfile throws not found when account is missing', async function run() {
+    const accountRepository = new AccountRepository(
+      createInMemoryAccountDataSource([]),
+    )
+    const service = new AccountService(accountRepository)
 
-  await assert.rejects(
-    async function rejectMissingAccount() {
-      await service.updateProfile(activeSession, {
+    await expect(
+      service.updateProfile(activeSession, {
         displayName: 'Any Name',
-      })
-    },
-    AccountNotFoundError,
-  )
+      }),
+    ).rejects.toBeInstanceOf(AccountNotFoundError)
+  })
 })

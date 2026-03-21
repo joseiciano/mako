@@ -65,3 +65,5 @@ Reference `../docs/infrastructure/frontend.md` for frontend services.
 ## Git
 
 Reference `./docs/system/system-design/ci-cd.md` on how to use Git and create Pull Requests
+
+**ALWAYS REFERENCE THIS GIT FILE WHEN CREATING COMMITS OR PULL REQUESTS**

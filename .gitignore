@@ -6,6 +6,7 @@ node_modules/
 dist/
 build/
 .output/
+coverage/
 *.local
 
 # Cloudflare/TanStack generated
@@ -29,5 +30,21 @@ Thumbs.db
 
 # Environment
 .env
+.env.test
 .env.local
 .env.*.local
+*/http-client.env.json
+
+# Terraform
+**/.terraform/
+**/terraform.tfvars
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+infrastructure/backend.tf
+infrastructure/backend-r2.hcl

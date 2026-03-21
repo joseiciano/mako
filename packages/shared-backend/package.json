@@ -9,12 +9,19 @@
     ".": "./src/index.ts"
   },
   "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit",
-    "test": "tsx --test src/**/*.test.ts"
+    "db:test:reset": "node ./scripts/reset-test-database.mjs && node ./scripts/run-migrations.mjs",
+    "db:migrate": "node ./scripts/run-migrations.mjs",
+    "db:migration:create": "node ./scripts/create-migration.mjs"
   },
   "dependencies": {
     "@mako/shared": "workspace:*",
-    "hono": "^4.12.8"
+    "hono": "^4.12.8",
+    "pg": "^8.16.3",
+    "zod": "^3.24.2"
   },
   "devDependencies": {
     "typescript": "^5.8.2"

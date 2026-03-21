@@ -10,6 +10,7 @@ This document outlines the high-level milestones for the Mako platform, breaking
 - **Infrastructure 1.3: Database Migration System**: Implement lightweight SQL migration tool and initial foundation schemas.
 - **Infrastructure 1.4: CI/CD & Secrets Management**: Automate quality gates and deployments via GitHub Actions and Terraform.
 - **Infrastructure 1.5: Developer Experience (DX)**: Configure local emulation (Wrangler) and root-level dev scripts.
+- **Infrastructure 1.6: Local Testing Environment**: Standardize local test tooling, isolated test configuration, and developer test workflows.
 - **User Authentication**: Implement Better Auth for sign-up, sign-in, and session management.
 - **Account 2-1: User Profile & Quotas**: Build the core profile page with identity details and interview balance.
 - **Account 2-2: Professional History Management**: Implement the company history tracking and verification metadata.
