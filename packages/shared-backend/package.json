@@ -19,6 +19,7 @@
   },
   "dependencies": {
     "@mako/shared": "workspace:*",
+    "hono": "^4.12.8",
     "pg": "^8.16.3",
     "zod": "^3.24.2"
   },

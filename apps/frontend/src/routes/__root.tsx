@@ -4,6 +4,7 @@ import {
   Scripts,
   createRootRoute,
 } from '@tanstack/react-router'
+import { AppQueryProvider } from '../components/query-provider'
 
 import appCss from '../styles.css?url'
 
@@ -42,7 +43,9 @@ function RootDocument() {
         <HeadContent />
       </head>
       <body className="bg-slate-950 text-slate-100 antialiased">
-        <Outlet />
+        <AppQueryProvider>
+          <Outlet />
+        </AppQueryProvider>
         <Scripts />
       </body>
     </html>
