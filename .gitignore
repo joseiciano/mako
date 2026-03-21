@@ -6,6 +6,7 @@ node_modules/
 dist/
 build/
 .output/
+coverage/
 *.local
 
 # Cloudflare/TanStack generated
@@ -29,6 +30,7 @@ Thumbs.db
 
 # Environment
 .env
+.env.test
 .env.local
 .env.*.local
 */http-client.env.json

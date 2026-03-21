@@ -12,12 +12,21 @@
     "build": "pnpm -r --if-present run build",
     "typecheck": "pnpm -r --if-present run typecheck",
     "test": "pnpm -r --if-present run test",
+    "test:watch": "pnpm -r --parallel --if-present run test:watch",
+    "test:coverage": "pnpm -r --if-present run test:coverage",
+    "test:stack": "node ./scripts/test-env/test-stack.mjs",
+    "test:stack:up": "pnpm run test:stack up",
+    "test:stack:down": "pnpm run test:stack down",
+    "test:stack:reset": "pnpm run test:stack reset",
     "lint": "pnpm -r --if-present run lint",
     "clean": "pnpm -r --if-present run clean",
+    "db:test:reset": "pnpm --filter @mako/shared-backend run db:test:reset",
     "db:migrate": "pnpm --filter @mako/shared-backend run db:migrate",
     "db:migration:create": "pnpm --filter @mako/shared-backend run db:migration:create"
   },
   "devDependencies": {
+    "@vitest/coverage-v8": "^3.2.4",
+    "vitest": "^3.2.4",
     "typescript": "^5.8.2"
   }
 }

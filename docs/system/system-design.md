@@ -45,6 +45,9 @@ Reference `docs/system/system-design/ai-feedback-pipeline.md`
 ## CI/CD & Development Workflow
 Reference `docs/system/system-design/ci-cd.md`
 
+## Local Testing
+Reference `docs/system/local-testing.md`
+
 ## Frontend Pages
 Reference `docs/system/system-design/frontend-pages.md`
 
