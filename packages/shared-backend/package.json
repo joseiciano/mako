@@ -9,10 +9,14 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "db:migrate": "node ./scripts/run-migrations.mjs",
+    "db:migration:create": "node ./scripts/create-migration.mjs"
   },
   "dependencies": {
-    "@mako/shared": "workspace:*"
+    "@mako/shared": "workspace:*",
+    "pg": "^8.16.3",
+    "zod": "^3.24.2"
   },
   "devDependencies": {
     "typescript": "^5.8.2"
