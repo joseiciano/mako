@@ -9,10 +9,12 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "tsx --test src/**/*.test.ts"
   },
   "dependencies": {
-    "@mako/shared": "workspace:*"
+    "@mako/shared": "workspace:*",
+    "hono": "^4.12.8"
   },
   "devDependencies": {
     "typescript": "^5.8.2"

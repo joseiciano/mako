@@ -11,3 +11,9 @@ export function createHealthResponse(service: string): HealthResponse {
     timestamp: new Date().toISOString(),
   }
 }
+
+export {
+  accountProfileSchema,
+  updateAccountProfileInputSchema,
+} from './account'
+export type { AccountProfile, UpdateAccountProfileInput } from './account'

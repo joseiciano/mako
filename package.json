@@ -16,6 +16,8 @@
     "clean": "pnpm -r --if-present run clean"
   },
   "devDependencies": {
+    "@types/node": "^22.18.11",
+    "tsx": "^4.20.6",
     "typescript": "^5.8.2"
   }
 }
