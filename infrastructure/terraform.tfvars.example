@@ -1,0 +1,32 @@
+cloudflare_account_id = "<your-cloudflare-account-id>"
+
+# Cloudflare API token must be account-scoped for the account above and include
+# write/edit permissions for resources managed by this stack:
+# - Workers scripts/bindings
+# - Workers Cron triggers
+# - Queues and Queue consumers
+# - R2 buckets
+# - Hyperdrive configs
+# - Workflows
+# plus Account read permissions.
+cloudflare_api_token  = "<your-cloudflare-api-token>"
+
+# Realtime app metadata is managed outside Terraform (RealtimeKit/API).
+# This value is injected into worker bindings as REALTIME_APP_ID.
+realtime_app_id      = "<your-realtime-app-id>"
+
+neon_api_key  = "<your-neon-api-key>"
+neon_org_id   = "<optional-neon-org-id>"
+neon_region_id = "aws-us-east-1"
+
+project_name = "mako"
+
+# Requires Cloudflare token permission: Account -> AI Gateway -> Run
+# Optional: if configured, this is exposed to workers as AI_GATEWAY_BASE_URL
+ai_gateway_name = ""
+
+# Optional overrides
+# recordings_bucket_name = "mako-recordings"
+# screenshots_bucket_name = "mako-screenshots"
+# interview_provisioning_queue_name = "interview-provisioning"
+# greedy_matcher_cron = "*/10 * * * *"

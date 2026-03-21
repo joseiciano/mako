@@ -1,0 +1,179 @@
+variable "cloudflare_account_id" {
+  description = "Cloudflare account ID where resources will be provisioned."
+  type        = string
+}
+
+variable "cloudflare_api_token" {
+  description = "Cloudflare API token with account-level permissions for Workers, Queues, R2, Hyperdrive, and Workflows."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "neon_api_key" {
+  description = "Neon API key used by the Terraform Neon provider."
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "neon_org_id" {
+  description = "Optional Neon organization ID."
+  type        = string
+  default     = ""
+}
+
+variable "project_name" {
+  description = "Base project slug used for naming resources."
+  type        = string
+  default     = "mako"
+}
+
+variable "workers_compatibility_date" {
+  description = "Cloudflare Workers compatibility date."
+  type        = string
+  default     = "2026-03-15"
+}
+
+variable "backend_worker_script_name" {
+  description = "Script name for the main backend API Worker."
+  type        = string
+  default     = "mako-backend-rest"
+}
+
+variable "greedy_matcher_worker_script_name" {
+  description = "Script name for the cron-triggered greedy matcher Worker."
+  type        = string
+  default     = "mako-greedy-matcher"
+}
+
+variable "interview_provisioner_worker_script_name" {
+  description = "Script name for the queue-triggered interview provisioner Worker."
+  type        = string
+  default     = "mako-interview-provisioner"
+}
+
+variable "realtime_app_id" {
+  description = "Cloudflare Realtime app identifier injected into worker bindings."
+  type        = string
+}
+
+variable "interview_workflow_name" {
+  description = "Workflow name used for interview lifecycle orchestration."
+  type        = string
+  default     = "interview-lifecycle"
+}
+
+variable "interview_workflow_class_name" {
+  description = "Workflow class exported by the interview provisioner Worker script."
+  type        = string
+  default     = "InterviewLifecycleWorkflow"
+}
+
+variable "recordings_bucket_name" {
+  description = "R2 bucket name for interview recordings."
+  type        = string
+  default     = "mako-recordings"
+}
+
+variable "screenshots_bucket_name" {
+  description = "R2 bucket name for screenshots and whiteboard captures."
+  type        = string
+  default     = "mako-screenshots"
+}
+
+variable "r2_location" {
+  description = "R2 bucket location hint (apac, eeur, enam, weur, wnam, oc)."
+  type        = string
+  default     = "enam"
+}
+
+variable "interview_provisioning_queue_name" {
+  description = "Queue name for interview provisioning hand-off."
+  type        = string
+  default     = "interview-provisioning"
+}
+
+variable "greedy_matcher_cron" {
+  description = "Cron expression for the Greedy Matcher Worker."
+  type        = string
+  default     = "*/10 * * * *"
+}
+
+variable "ai_gateway_name" {
+  description = "Optional Cloudflare AI Gateway name used to construct an API base URL binding."
+  type        = string
+  default     = ""
+}
+
+variable "neon_region_id" {
+  description = "Neon region ID for database projects."
+  type        = string
+  default     = "aws-us-east-1"
+}
+
+variable "neon_pg_version" {
+  description = "Postgres major version for Neon projects."
+  type        = number
+  default     = 17
+}
+
+variable "neon_database_name" {
+  description = "Application database name created in each Neon project."
+  type        = string
+  default     = "mako"
+}
+
+variable "neon_app_role_name" {
+  description = "Application role created in each Neon project."
+  type        = string
+  default     = "mako_app"
+}
+
+variable "hyperdrive_connection_limit" {
+  description = "Soft limit on origin connections Hyperdrive can open."
+  type        = number
+  default     = 20
+}
+
+variable "hyperdrive_cache_max_age_seconds" {
+  description = "Hyperdrive SQL cache max-age in seconds."
+  type        = number
+  default     = 60
+}
+
+variable "hyperdrive_cache_stale_seconds" {
+  description = "Hyperdrive stale-while-revalidate in seconds."
+  type        = number
+  default     = 15
+}
+
+variable "queue_batch_size" {
+  description = "Maximum messages per queue consumer batch."
+  type        = number
+  default     = 10
+}
+
+variable "queue_max_wait_time_ms" {
+  description = "Queue consumer max wait time to form a batch."
+  type        = number
+  default     = 1000
+}
+
+variable "queue_max_retries" {
+  description = "Maximum retries per queue message."
+  type        = number
+  default     = 3
+}
+
+variable "queue_retry_delay_seconds" {
+  description = "Delay between queue consumer retries."
+  type        = number
+  default     = 30
+}
+
+variable "queue_visibility_timeout_ms" {
+  description = "Queue message visibility timeout in milliseconds."
+  type        = number
+  default     = 30000
+}

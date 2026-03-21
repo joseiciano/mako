@@ -1,0 +1,7 @@
+### 
+
+# curl -X GET "https://api.cloudflare.com/client/v4/user/tokens/permission_groups" -H "Authorization: Bearer <EXISTING_TOKEN>" -H "Content-Type: application/json"
+
+GET https://api.cloudflare.com/client/v4/user/tokens/permission_groups HTTP/1.1
+Authorization: Bearer <EXISTING_TOKEN>
+Content-Type: application/json
