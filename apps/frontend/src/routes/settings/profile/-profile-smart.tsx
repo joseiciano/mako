@@ -4,7 +4,7 @@ import {
   useUpdateProfile,
   updateAccountProfile,
 } from '#/hooks/use-account'
-import { ProfileDumb } from './profile-dumb'
+import { ProfileDumb } from './-profile-dumb'
 
 type ProfileFormPayload = Parameters<typeof updateAccountProfile>[0]
 
