@@ -4,8 +4,11 @@ import {
   Scripts,
   createRootRoute,
 } from '@tanstack/react-router'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import appCss from '../styles.css?url'
+
+const queryClient = new QueryClient()
 
 export const rootRoute = createRootRoute({
   head: function head() {
@@ -42,7 +45,9 @@ function RootDocument() {
         <HeadContent />
       </head>
       <body className="bg-slate-950 text-slate-100 antialiased">
-        <Outlet />
+        <QueryClientProvider client={queryClient}>
+          <Outlet />
+        </QueryClientProvider>
         <Scripts />
       </body>
     </html>
