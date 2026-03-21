@@ -17,6 +17,8 @@ export {
   type UserRow,
 } from './database/foundation-schemas'
 
+export * from './account'
+
 export const backendRuntime = 'cloudflare-workers'
 
 export function toBackendHealth(service: string): HealthResponse {
