@@ -1,0 +1,14 @@
+bucket = "mako-terraform-state"
+key    = "terraform/mako-foundation.tfstate"
+region = "auto"
+
+endpoint = "https://<cloudflare-account-id>.r2.cloudflarestorage.com"
+
+access_key = "<r2-access-key-id>"
+secret_key = "<r2-secret-access-key>"
+
+skip_credentials_validation = true
+skip_region_validation      = true
+skip_requesting_account_id  = true
+skip_metadata_api_check     = true
+use_path_style              = true

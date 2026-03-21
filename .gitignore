@@ -31,3 +31,18 @@ Thumbs.db
 .env
 .env.local
 .env.*.local
+*/http-client.env.json
+
+# Terraform
+**/.terraform/
+**/terraform.tfvars
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+infrastructure/backend.tf
+infrastructure/backend-r2.hcl
