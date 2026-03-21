@@ -157,6 +157,6 @@ DOCUMENTATION
 
 When creating a pull request make sure the following is **ALWAYS** done.
 
-- [ ] Pull the latest version from main, handling any rebase errors
+- [ ] Pull the latest version from main, handling any rebase errors. If you are not sure how to handle a case, ask for confirmation on what to do.
 - [ ] Pnpm lint returns no warnings/errors
 - [ ] In the related ticket document in @stories, set the `status` to `done`

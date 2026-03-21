@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 1: Foundation & Authentication
 **Description**: Automate the build, test, and deployment pipelines using GitHub Actions.
-**Status**: Completed
+**Status**: done
 
 ## What Needs to Be Done
 
