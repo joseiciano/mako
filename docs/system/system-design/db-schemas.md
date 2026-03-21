@@ -1,3 +1,25 @@
+## Migration Workflow
+
+All schema changes must be created as versioned raw SQL migrations in:
+
+- `packages/shared-backend/migrations/*.sql`
+
+Use the migration scripts to keep a consistent workflow:
+
+1. Create a migration file:
+
+```bash
+pnpm db:migration:create -- <migration_name>
+```
+
+2. Apply pending migrations to a Postgres instance:
+
+```bash
+DATABASE_URL=<postgres_connection_string> pnpm db:migrate
+```
+
+Migrations are tracked in the `schema_migrations` table.
+
 ### Users
 
 The user schema extends the default **Better Auth** requirements to include platform-specific metadata.
@@ -8,24 +30,37 @@ The user schema extends the default **Better Auth** requirements to include plat
 - **`credits`**: `integer` (Default: 0) - Current balance of interview credits.
 - **`free_standard_interviews`**: `integer` (Default: 1) - Remaining free standard (random) peer interviews.
 - **`free_ai_interviews`**: `integer` (Default: 1) - Remaining free AI-led interviews.
-- **`companies`**: `string` (Default: false) - Flag indicating if the user is authorized to conduct interviews.
+- **`companies`**: `boolean` (Default: false) - Flag indicating if the user is authorized to conduct interviews.
 - **`created_at`**: `timestamptz` - Account creation date.
 - **`updated_at`**: `timestamptz` - Last profile update.
 - **`deleted_at`**: `timestamptz`
+
+Constraints:
+
+- `email` is unique.
+- `credits >= 0`
+- `free_standard_interviews >= 0`
+- `free_ai_interviews >= 0`
 
 ### User_Companies
 
 This schema is to store company information. This allows them to be filtered based on company if needed
 
 - **`id`**: `uuid` (Primary Key)
-- **`user_id`**: `uuid` (foreign key to `users.id`)
-- **`company`**: `string` (lowercase) - name of company 
-- **`joined`**: `timestamptz` - time joined company 
+- **`user_id`**: `uuid` (Foreign Key -> `users.id`, On Delete Cascade)
+- **`company`**: `string` (lowercase) - name of company
+- **`joined`**: `timestamptz` - time joined company
 - **`created_at`**: `timestamptz`
 - **`updated_at`**: `timestamptz`
 - **`deleted_at`**: `timestamptz`
 
-ON CASCADE DELETE
+Constraints:
+
+- `company = lower(company)`
+
+Indexes:
+
+- `idx_user_companies_user_id` on (`user_id`)
 
 ### User_Interviewer_Applications
 
@@ -68,25 +103,43 @@ Core entity for tracking mock sessions and AI-led interviews.
 Groups a set of time blocks where a user is available for matching, with a maximum quota.
 
 - **`id`**: `uuid` (Primary Key)
-- **`user_id`**: `uuid` (Foreign Key -> `users.id`)
+- **`user_id`**: `uuid` (Foreign Key -> `users.id`, On Delete Cascade)
 - **`max_matches`**: `integer` - Maximum number of interviews the user wants for this request.
 - **`current_matches`**: `integer` (Default: 0) - Number of matches already made for this request.
-- **`interview_type`**: `enum` ('system_design', 'coding', 'behavioral')
-- **`status`**: `enum` ('active', 'fulfilled', 'cancelled')
+- **`interview_type`**: `text` with CHECK (`system_design`, `coding`, `behavioral`)
+- **`status`**: `text` with CHECK (`active`, `fulfilled`, `cancelled`)
 - **`created_at`**: `timestamptz`
 - **`updated_at`**: `timestamptz`
+
+Constraints:
+
+- `max_matches > 0`
+- `current_matches >= 0`
+
+Indexes:
+
+- `idx_availability_requests_user_id_status` on (`user_id`, `status`)
 
 ### Availability_Slots
 
 Individual 60-minute time blocks associated with an Availability Request.
 
 - **`id`**: `uuid` (Primary Key)
-- **`request_id`**: `uuid` (Foreign Key -> `Availability_Requests.id`)
+- **`request_id`**: `uuid` (Foreign Key -> `availability_requests.id`, On Delete Cascade)
 - **`start_time`**: `timestamptz` - The start of the 60-minute window.
 - **`end_time`**: `timestamptz` - The end of the 60-minute window.
-- **`status`**: `enum` ('available', 'matched', 'cancelled')
+- **`status`**: `text` with CHECK (`available`, `matched`, `cancelled`)
 - **`created_at`**: `timestamptz`
 - **`updated_at`**: `timestamptz`
+
+Constraints:
+
+- `availability_slots_time_window_check`: `start_time < end_time`
+- `availability_slots_unique_window`: unique (`request_id`, `start_time`, `end_time`)
+
+Indexes:
+
+- `idx_availability_slots_request_id_status` on (`request_id`, `status`)
 
 ### Credit_Transactions
 
