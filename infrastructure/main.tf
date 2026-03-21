@@ -138,6 +138,7 @@ resource "cloudflare_workers_script" "backend_api" {
         type          = "workflow"
         name          = "INTERVIEW_WORKFLOW"
         workflow_name = cloudflare_workflow.interview_lifecycle.workflow_name
+        script_name   = cloudflare_workers_script.interview_provisioner.script_name
       },
       {
         type = "plain_text"
@@ -195,10 +196,9 @@ resource "cloudflare_queue_consumer" "interview_provisioner" {
   script_name = cloudflare_workers_script.interview_provisioner.script_name
 
   settings = {
-    batch_size            = var.queue_batch_size
-    max_wait_time_ms      = var.queue_max_wait_time_ms
-    max_retries           = var.queue_max_retries
-    retry_delay           = var.queue_retry_delay_seconds
-    visibility_timeout_ms = var.queue_visibility_timeout_ms
+    batch_size       = var.queue_batch_size
+    max_wait_time_ms = var.queue_max_wait_time_ms
+    max_retries      = var.queue_max_retries
+    retry_delay      = var.queue_retry_delay_seconds
   }
 }
