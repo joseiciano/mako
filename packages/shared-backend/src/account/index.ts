@@ -1,16 +1,21 @@
 export {
-  type AddCompanyRecordInput,
   AccountRepository,
-  type AccountRepositoryPort,
+  createInMemoryAccountDataSource,
+  type AddCompanyRecordInput,
   type QueryResult,
   type SqlQueryExecutor,
 } from './account-repository'
-export {
-  type AccountControllerOptions,
-  registerAccountController,
-} from './account-controller'
 export { AccountService } from './account-service'
 export {
+  createHeaderSessionResolver,
+  registerAccountController,
+  type AccountControllerOptions,
+} from './account-controller'
+export type { AccountRepositoryDataSource } from './account-repository'
+export {
+  AccountNotFoundError,
+  AccountUnauthorizedError,
+  AccountValidationError,
   addCompanyRequestSchema,
   addCompanyResponseSchema,
   authenticatedUserIdSchema,
@@ -20,6 +25,8 @@ export {
   toUserCompany,
   userCompanyRowSchema,
   userCompanySchema,
+  type AccountProfileRecord,
+  type AccountSession,
   type AddCompanyResponse,
   type GetCompaniesResponse,
   type UserCompany,

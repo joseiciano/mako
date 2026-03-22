@@ -1,4 +1,10 @@
 import {
+  accountProfileSchema,
+  updateAccountProfileInputSchema,
+  type AccountProfile,
+  type UpdateAccountProfileInput,
+} from '@mako/shared'
+import {
   useMutation,
   useQuery,
   useQueryClient,
@@ -33,12 +39,46 @@ type MutationContext = {
   optimisticCompanyId: string
 }
 
+const accountQueryKey = ['account'] as const
 export const accountCompaniesQueryKey = ['account', 'companies'] as const
 
-export function useCompanies(): UseQueryResult<Company[]> {
+const demoSessionHeaders = {
+  'x-user-id': '11111111-1111-4111-8111-111111111111',
+  'x-user-email': 'demo@mako.dev',
+}
+
+export function useAccount(): UseQueryResult<AccountProfile, Error> {
+  return useQuery({
+    queryKey: accountQueryKey,
+    queryFn: function getAccountQuery() {
+      return fetchAccount()
+    },
+  })
+}
+
+export function useUpdateProfile(): UseMutationResult<
+  AccountProfile,
+  Error,
+  UpdateAccountProfileInput
+> {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: function updateProfileMutation(input) {
+      return updateAccountProfile(input)
+    },
+    onSuccess: function onSuccess(updatedAccount) {
+      queryClient.setQueryData(accountQueryKey, updatedAccount)
+    },
+  })
+}
+
+export function useCompanies(): UseQueryResult<Company[], Error> {
   return useQuery({
     queryKey: accountCompaniesQueryKey,
-    queryFn: fetchCompanies,
+    queryFn: function getCompaniesQuery() {
+      return fetchCompanies()
+    },
   })
 }
 
@@ -51,7 +91,9 @@ export function useAddCompany(): UseMutationResult<
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: postCompany,
+    mutationFn: function addCompanyMutation(payload) {
+      return postCompany(payload)
+    },
     onMutate: async function onMutate(nextCompanyPayload) {
       await queryClient.cancelQueries({ queryKey: accountCompaniesQueryKey })
 
@@ -59,11 +101,12 @@ export function useAddCompany(): UseMutationResult<
         queryClient.getQueryData<Company[]>(accountCompaniesQueryKey) ?? []
       const optimisticCompany = createOptimisticCompany(nextCompanyPayload)
 
-      queryClient.setQueryData<Company[]>(accountCompaniesQueryKey, function setData(
-        companies,
-      ) {
-        return [optimisticCompany, ...(companies ?? [])]
-      })
+      queryClient.setQueryData<Company[]>(
+        accountCompaniesQueryKey,
+        function setData(companies) {
+          return [optimisticCompany, ...(companies ?? [])]
+        },
+      )
 
       return {
         previousCompanies,
@@ -78,31 +121,32 @@ export function useAddCompany(): UseMutationResult<
       queryClient.setQueryData(accountCompaniesQueryKey, context.previousCompanies)
     },
     onSuccess: function onSuccess(response, _variables, context) {
-      queryClient.setQueryData<Company[]>(accountCompaniesQueryKey, function setData(
-        companies,
-      ) {
-        if (!companies) {
-          return [response.company]
-        }
-
-        const didReplaceOptimisticRecord = context
-          ? companies.some(function hasOptimisticId(company) {
-              return company.id === context.optimisticCompanyId
-            })
-          : false
-
-        if (!didReplaceOptimisticRecord) {
-          return [response.company, ...companies]
-        }
-
-        return companies.map(function replaceOptimisticRecord(company) {
-          if (company.id === context?.optimisticCompanyId) {
-            return response.company
+      queryClient.setQueryData<Company[]>(
+        accountCompaniesQueryKey,
+        function setData(companies) {
+          if (!companies) {
+            return [response.company]
           }
 
-          return company
-        })
-      })
+          const didReplaceOptimisticRecord = context
+            ? companies.some(function hasOptimisticId(company) {
+                return company.id === context.optimisticCompanyId
+              })
+            : false
+
+          if (!didReplaceOptimisticRecord) {
+            return [response.company, ...companies]
+          }
+
+          return companies.map(function replaceOptimisticRecord(company) {
+            if (company.id === context?.optimisticCompanyId) {
+              return response.company
+            }
+
+            return company
+          })
+        },
+      )
     },
     onSettled: async function onSettled() {
       await queryClient.invalidateQueries({ queryKey: accountCompaniesQueryKey })
@@ -110,26 +154,71 @@ export function useAddCompany(): UseMutationResult<
   })
 }
 
-export async function fetchCompanies(): Promise<Company[]> {
-  const response = await fetch('/api/companies', {
-    method: 'GET',
+export async function fetchAccount(
+  fetchImpl: typeof fetch = fetch,
+): Promise<AccountProfile> {
+  const response = await fetchImpl('/api/account', {
+    headers: demoSessionHeaders,
   })
 
+  const payload = await parseResponse(response)
+
   if (!response.ok) {
-    throw new Error('Failed to fetch companies')
+    throw new Error(readErrorMessage(payload, 'Unable to fetch account profile.'))
   }
 
-  const payload = (await response.json()) as CompaniesResponse
-  return payload.companies
+  return accountProfileSchema.parse(payload)
+}
+
+export async function updateAccountProfile(
+  input: UpdateAccountProfileInput,
+  fetchImpl: typeof fetch = fetch,
+): Promise<AccountProfile> {
+  const parsedInput = updateAccountProfileInputSchema.parse(input)
+  const response = await fetchImpl('/api/account', {
+    method: 'PATCH',
+    headers: {
+      'content-type': 'application/json',
+      ...demoSessionHeaders,
+    },
+    body: JSON.stringify(parsedInput),
+  })
+
+  const payload = await parseResponse(response)
+
+  if (!response.ok) {
+    throw new Error(readErrorMessage(payload, 'Unable to update profile.'))
+  }
+
+  return accountProfileSchema.parse(payload)
+}
+
+export async function fetchCompanies(
+  fetchImpl: typeof fetch = fetch,
+): Promise<Company[]> {
+  const response = await fetchImpl('/api/companies', {
+    method: 'GET',
+    headers: demoSessionHeaders,
+  })
+
+  const payload = await parseResponse(response)
+
+  if (!response.ok) {
+    throw new Error(readErrorMessage(payload, 'Failed to fetch companies'))
+  }
+
+  return (payload as CompaniesResponse).companies
 }
 
 export async function postCompany(
   payload: AddCompanyPayload,
+  fetchImpl: typeof fetch = fetch,
 ): Promise<AddCompanyResponse> {
-  const response = await fetch('/api/companies', {
+  const response = await fetchImpl('/api/companies', {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
+      ...demoSessionHeaders,
     },
     body: JSON.stringify({
       company: payload.company,
@@ -137,11 +226,13 @@ export async function postCompany(
     }),
   })
 
+  const responsePayload = await parseResponse(response)
+
   if (!response.ok) {
-    throw new Error('Failed to add company')
+    throw new Error(readErrorMessage(responsePayload, 'Failed to add company'))
   }
 
-  return (await response.json()) as AddCompanyResponse
+  return responsePayload as AddCompanyResponse
 }
 
 export function createOptimisticCompany(payload: AddCompanyPayload): Company {
@@ -156,4 +247,25 @@ export function createOptimisticCompany(payload: AddCompanyPayload): Company {
     createdAt: normalizedJoined,
     updatedAt: normalizedJoined,
   }
+}
+
+async function parseResponse(response: Response): Promise<unknown> {
+  try {
+    return await response.json()
+  } catch {
+    return null
+  }
+}
+
+function readErrorMessage(payload: unknown, fallbackMessage: string): string {
+  if (!payload || typeof payload !== 'object') {
+    return fallbackMessage
+  }
+
+  const maybeError = (payload as Record<string, unknown>).error
+  if (typeof maybeError === 'string' && maybeError.length > 0) {
+    return maybeError
+  }
+
+  return fallbackMessage
 }

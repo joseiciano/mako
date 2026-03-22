@@ -4,11 +4,10 @@ import {
   Scripts,
   createRootRoute,
 } from '@tanstack/react-router'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClientProvider } from '@tanstack/react-query'
 
 import appCss from '../styles.css?url'
-
-const queryClient = new QueryClient()
+import { getQueryClient } from '../lib/query-client'
 
 export const rootRoute = createRootRoute({
   head: function head() {
@@ -39,6 +38,8 @@ export const rootRoute = createRootRoute({
 export const Route = rootRoute
 
 function RootDocument() {
+  const queryClient = getQueryClient()
+
   return (
     <html lang="en">
       <head>

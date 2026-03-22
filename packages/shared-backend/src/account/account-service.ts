@@ -1,23 +1,59 @@
+import type { AccountProfile, UpdateAccountProfileInput } from '@mako/shared'
+import { AccountRepository } from './account-repository'
 import {
+  AccountNotFoundError,
+  AccountUnauthorizedError,
   addCompanyRequestSchema,
   authenticatedUserIdSchema,
+  parseProfileUpdateInput,
+  type AccountSession,
   type UserCompany,
 } from './types'
-import { type AccountRepositoryPort } from './account-repository'
 
 export class AccountService {
-  constructor(private readonly accountRepository: AccountRepositoryPort) {}
+  constructor(private readonly accountRepository: AccountRepository) {}
 
-  async getCompaniesByUserId(authenticatedUserId: string): Promise<UserCompany[]> {
-    const userId = authenticatedUserIdSchema.parse(authenticatedUserId)
+  async getAccount(session: AccountSession | null): Promise<AccountProfile> {
+    const userSession = this.requireSession(session)
+    const accountProfile = await this.accountRepository.getProfile(userSession.userId)
+
+    if (!accountProfile) {
+      throw new AccountNotFoundError()
+    }
+
+    return accountProfile
+  }
+
+  async updateProfile(
+    session: AccountSession | null,
+    input: unknown,
+  ): Promise<AccountProfile> {
+    const userSession = this.requireSession(session)
+    const parsedInput = parseProfileUpdateInput(input)
+    const updatedAccount = await this.accountRepository.updateProfile(
+      userSession.userId,
+      normalizeProfileInput(parsedInput).displayName,
+    )
+
+    if (!updatedAccount) {
+      throw new AccountNotFoundError()
+    }
+
+    return updatedAccount
+  }
+
+  async getCompaniesByUserId(session: AccountSession | null): Promise<UserCompany[]> {
+    const userSession = this.requireSession(session)
+    const userId = authenticatedUserIdSchema.parse(userSession.userId)
     return this.accountRepository.getCompaniesByUserId(userId)
   }
 
   async addCompanyRecord(
-    authenticatedUserId: string,
+    session: AccountSession | null,
     requestBody: unknown,
   ): Promise<UserCompany> {
-    const userId = authenticatedUserIdSchema.parse(authenticatedUserId)
+    const userSession = this.requireSession(session)
+    const userId = authenticatedUserIdSchema.parse(userSession.userId)
     const payload = addCompanyRequestSchema.parse(requestBody)
 
     return this.accountRepository.addCompanyRecord({
@@ -25,5 +61,21 @@ export class AccountService {
       company: payload.company,
       joined: payload.joined,
     })
+  }
+
+  private requireSession(session: AccountSession | null): AccountSession {
+    if (!session) {
+      throw new AccountUnauthorizedError()
+    }
+
+    return session
+  }
+}
+
+function normalizeProfileInput(
+  input: UpdateAccountProfileInput,
+): UpdateAccountProfileInput {
+  return {
+    displayName: input.displayName.trim(),
   }
 }

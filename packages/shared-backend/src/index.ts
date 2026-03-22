@@ -40,3 +40,16 @@ export function toBackendHealth(service: string): HealthResponse {
     timestamp: new Date().toISOString(),
   }
 }
+
+export {
+  AccountRepository,
+  AccountService,
+  createHeaderSessionResolver,
+  createInMemoryAccountDataSource,
+  registerAccountController,
+} from './account'
+export type {
+  AccountControllerOptions,
+  AccountRepositoryDataSource,
+  AccountSession,
+} from './account'

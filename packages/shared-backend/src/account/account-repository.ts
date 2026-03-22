@@ -1,5 +1,10 @@
 import type { SqlQuery } from '../index'
-import { toUserCompany, type UserCompany, type UserCompanyRow } from './types'
+import {
+  toUserCompany,
+  type AccountProfileRecord,
+  type UserCompany,
+  type UserCompanyRow,
+} from './types'
 
 export type QueryResult<Row> = {
   rows: Row[]
@@ -9,19 +14,57 @@ export type SqlQueryExecutor = {
   query<Row>(query: SqlQuery): Promise<QueryResult<Row>>
 }
 
+export interface AccountRepositoryDataSource {
+  getByUserId(userId: string): Promise<AccountProfileRecord | null>
+  updateDisplayName(
+    userId: string,
+    displayName: string,
+  ): Promise<AccountProfileRecord | null>
+}
+
 export type AddCompanyRecordInput = {
   userId: string
   company: string
   joined: string
 }
 
-export type AccountRepositoryPort = {
-  getCompaniesByUserId(userId: string): Promise<UserCompany[]>
-  addCompanyRecord(input: AddCompanyRecordInput): Promise<UserCompany>
+type AccountRepositoryDependencies = {
+  dataSource?: AccountRepositoryDataSource
+  queryExecutor?: SqlQueryExecutor
 }
 
-export class AccountRepository implements AccountRepositoryPort {
-  constructor(private readonly queryExecutor: SqlQueryExecutor) {}
+type AccountRepositoryConstructorInput =
+  | AccountRepositoryDataSource
+  | SqlQueryExecutor
+  | AccountRepositoryDependencies
+
+export class AccountRepository {
+  private readonly dependencies: AccountRepositoryDependencies
+
+  constructor(input: AccountRepositoryConstructorInput) {
+    if (isDataSource(input)) {
+      this.dependencies = { dataSource: input }
+      return
+    }
+
+    if (isQueryExecutor(input)) {
+      this.dependencies = { queryExecutor: input }
+      return
+    }
+
+    this.dependencies = input
+  }
+
+  async getProfile(userId: string): Promise<AccountProfileRecord | null> {
+    return this.getDataSource().getByUserId(userId)
+  }
+
+  async updateProfile(
+    userId: string,
+    displayName: string,
+  ): Promise<AccountProfileRecord | null> {
+    return this.getDataSource().updateDisplayName(userId, displayName)
+  }
 
   async getCompaniesByUserId(userId: string): Promise<UserCompany[]> {
     const query: SqlQuery = {
@@ -42,7 +85,7 @@ export class AccountRepository implements AccountRepositoryPort {
       values: [userId],
     }
 
-    const result = await this.queryExecutor.query<UserCompanyRow>(query)
+    const result = await this.getQueryExecutor().query<UserCompanyRow>(query)
 
     return result.rows.map(function mapRowToUserCompany(row) {
       return toUserCompany(row)
@@ -69,7 +112,7 @@ export class AccountRepository implements AccountRepositoryPort {
       values: [input.userId, input.company, input.joined],
     }
 
-    const result = await this.queryExecutor.query<UserCompanyRow>(query)
+    const result = await this.getQueryExecutor().query<UserCompanyRow>(query)
     const [createdRow] = result.rows
 
     if (!createdRow) {
@@ -78,4 +121,83 @@ export class AccountRepository implements AccountRepositoryPort {
 
     return toUserCompany(createdRow)
   }
+
+  private getDataSource(): AccountRepositoryDataSource {
+    const dataSource = this.dependencies.dataSource
+
+    if (!dataSource) {
+      throw new Error('Account profile data source is not configured')
+    }
+
+    return dataSource
+  }
+
+  private getQueryExecutor(): SqlQueryExecutor {
+    const queryExecutor = this.dependencies.queryExecutor
+
+    if (!queryExecutor) {
+      throw new Error('Account company query executor is not configured')
+    }
+
+    return queryExecutor
+  }
+}
+
+export function createInMemoryAccountDataSource(
+  seedProfiles: readonly AccountProfileRecord[],
+): AccountRepositoryDataSource {
+  const profileById = new Map<string, AccountProfileRecord>()
+
+  for (const profile of seedProfiles) {
+    profileById.set(profile.id, structuredClone(profile))
+  }
+
+  return {
+    async getByUserId(userId: string): Promise<AccountProfileRecord | null> {
+      const profile = profileById.get(userId)
+      return profile ? structuredClone(profile) : null
+    },
+    async updateDisplayName(
+      userId: string,
+      displayName: string,
+    ): Promise<AccountProfileRecord | null> {
+      const existingProfile = profileById.get(userId)
+
+      if (!existingProfile) {
+        return null
+      }
+
+      const updatedProfile = {
+        ...existingProfile,
+        displayName,
+      }
+
+      profileById.set(userId, updatedProfile)
+      return structuredClone(updatedProfile)
+    },
+  }
+}
+
+function isDataSource(
+  input: AccountRepositoryConstructorInput,
+): input is AccountRepositoryDataSource {
+  return (
+    typeof input === 'object' &&
+    input !== null &&
+    'getByUserId' in input &&
+    typeof input.getByUserId === 'function' &&
+    'updateDisplayName' in input &&
+    typeof input.updateDisplayName === 'function'
+  )
+}
+
+function isQueryExecutor(
+  input: AccountRepositoryConstructorInput,
+): input is SqlQueryExecutor {
+  return (
+    typeof input === 'object' &&
+    input !== null &&
+    'query' in input &&
+    typeof input.query === 'function'
+  )
 }
