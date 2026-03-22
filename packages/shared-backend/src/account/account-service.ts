@@ -3,8 +3,11 @@ import { AccountRepository } from './account-repository'
 import {
   AccountNotFoundError,
   AccountUnauthorizedError,
-  type AccountSession,
+  addCompanyRequestSchema,
+  authenticatedUserIdSchema,
   parseProfileUpdateInput,
+  type AccountSession,
+  type UserCompany,
 } from './types'
 
 export class AccountService {
@@ -37,6 +40,27 @@ export class AccountService {
     }
 
     return updatedAccount
+  }
+
+  async getCompaniesByUserId(session: AccountSession | null): Promise<UserCompany[]> {
+    const userSession = this.requireSession(session)
+    const userId = authenticatedUserIdSchema.parse(userSession.userId)
+    return this.accountRepository.getCompaniesByUserId(userId)
+  }
+
+  async addCompanyRecord(
+    session: AccountSession | null,
+    requestBody: unknown,
+  ): Promise<UserCompany> {
+    const userSession = this.requireSession(session)
+    const userId = authenticatedUserIdSchema.parse(userSession.userId)
+    const payload = addCompanyRequestSchema.parse(requestBody)
+
+    return this.accountRepository.addCompanyRecord({
+      userId,
+      company: payload.company,
+      joined: payload.joined,
+    })
   }
 
   private requireSession(session: AccountSession | null): AccountSession {

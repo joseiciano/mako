@@ -12,10 +12,38 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query'
 
+export type Company = {
+  id: string
+  userId: string
+  company: string
+  joined: string
+  createdAt: string
+  updatedAt: string
+}
+
+export type AddCompanyPayload = {
+  company: string
+  joined: string
+}
+
+type CompaniesResponse = {
+  companies: Company[]
+}
+
+type AddCompanyResponse = {
+  company: Company
+}
+
+type MutationContext = {
+  previousCompanies: Company[]
+  optimisticCompanyId: string
+}
+
 const accountQueryKey = ['account'] as const
+export const accountCompaniesQueryKey = ['account', 'companies'] as const
 
 const demoSessionHeaders = {
-  'x-user-id': 'demo-user',
+  'x-user-id': '11111111-1111-4111-8111-111111111111',
   'x-user-email': 'demo@mako.dev',
 }
 
@@ -41,6 +69,87 @@ export function useUpdateProfile(): UseMutationResult<
     },
     onSuccess: function onSuccess(updatedAccount) {
       queryClient.setQueryData(accountQueryKey, updatedAccount)
+    },
+  })
+}
+
+export function useCompanies(): UseQueryResult<Company[], Error> {
+  return useQuery({
+    queryKey: accountCompaniesQueryKey,
+    queryFn: function getCompaniesQuery() {
+      return fetchCompanies()
+    },
+  })
+}
+
+export function useAddCompany(): UseMutationResult<
+  AddCompanyResponse,
+  Error,
+  AddCompanyPayload,
+  MutationContext
+> {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: function addCompanyMutation(payload) {
+      return postCompany(payload)
+    },
+    onMutate: async function onMutate(nextCompanyPayload) {
+      await queryClient.cancelQueries({ queryKey: accountCompaniesQueryKey })
+
+      const previousCompanies =
+        queryClient.getQueryData<Company[]>(accountCompaniesQueryKey) ?? []
+      const optimisticCompany = createOptimisticCompany(nextCompanyPayload)
+
+      queryClient.setQueryData<Company[]>(
+        accountCompaniesQueryKey,
+        function setData(companies) {
+          return [optimisticCompany, ...(companies ?? [])]
+        },
+      )
+
+      return {
+        previousCompanies,
+        optimisticCompanyId: optimisticCompany.id,
+      }
+    },
+    onError: function onError(_error, _variables, context) {
+      if (!context) {
+        return
+      }
+
+      queryClient.setQueryData(accountCompaniesQueryKey, context.previousCompanies)
+    },
+    onSuccess: function onSuccess(response, _variables, context) {
+      queryClient.setQueryData<Company[]>(
+        accountCompaniesQueryKey,
+        function setData(companies) {
+          if (!companies) {
+            return [response.company]
+          }
+
+          const didReplaceOptimisticRecord = context
+            ? companies.some(function hasOptimisticId(company) {
+                return company.id === context.optimisticCompanyId
+              })
+            : false
+
+          if (!didReplaceOptimisticRecord) {
+            return [response.company, ...companies]
+          }
+
+          return companies.map(function replaceOptimisticRecord(company) {
+            if (company.id === context?.optimisticCompanyId) {
+              return response.company
+            }
+
+            return company
+          })
+        },
+      )
+    },
+    onSettled: async function onSettled() {
+      await queryClient.invalidateQueries({ queryKey: accountCompaniesQueryKey })
     },
   })
 }
@@ -82,6 +191,62 @@ export async function updateAccountProfile(
   }
 
   return accountProfileSchema.parse(payload)
+}
+
+export async function fetchCompanies(
+  fetchImpl: typeof fetch = fetch,
+): Promise<Company[]> {
+  const response = await fetchImpl('/api/companies', {
+    method: 'GET',
+    headers: demoSessionHeaders,
+  })
+
+  const payload = await parseResponse(response)
+
+  if (!response.ok) {
+    throw new Error(readErrorMessage(payload, 'Failed to fetch companies'))
+  }
+
+  return (payload as CompaniesResponse).companies
+}
+
+export async function postCompany(
+  payload: AddCompanyPayload,
+  fetchImpl: typeof fetch = fetch,
+): Promise<AddCompanyResponse> {
+  const response = await fetchImpl('/api/companies', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...demoSessionHeaders,
+    },
+    body: JSON.stringify({
+      company: payload.company,
+      joined: payload.joined,
+    }),
+  })
+
+  const responsePayload = await parseResponse(response)
+
+  if (!response.ok) {
+    throw new Error(readErrorMessage(responsePayload, 'Failed to add company'))
+  }
+
+  return responsePayload as AddCompanyResponse
+}
+
+export function createOptimisticCompany(payload: AddCompanyPayload): Company {
+  const normalizedCompany = payload.company.trim().toLowerCase()
+  const normalizedJoined = new Date(payload.joined).toISOString()
+
+  return {
+    id: `optimistic-${crypto.randomUUID()}`,
+    userId: 'optimistic-user',
+    company: normalizedCompany,
+    joined: normalizedJoined,
+    createdAt: normalizedJoined,
+    updatedAt: normalizedJoined,
+  }
 }
 
 async function parseResponse(response: Response): Promise<unknown> {

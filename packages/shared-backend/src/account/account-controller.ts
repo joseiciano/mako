@@ -2,8 +2,8 @@ import {
   accountProfileSchema,
   updateAccountProfileInputSchema,
 } from '@mako/shared'
-import type { Context } from 'hono'
-import type { Hono } from 'hono'
+import type { Context, Hono } from 'hono'
+import { ZodError } from 'zod'
 import { AccountService } from './account-service'
 import {
   AccountNotFoundError,
@@ -14,8 +14,8 @@ import {
 
 type ControllerBindings = Record<string, unknown>
 
-export interface AccountControllerOptions<Bindings extends ControllerBindings> {
-  createService: () => AccountService
+export type AccountControllerOptions<Bindings extends ControllerBindings> = {
+  createService: (context: { bindings: Bindings }) => AccountService
   resolveSession: (
     context: Context<{ Bindings: Bindings }>,
   ) => Promise<AccountSession | null> | AccountSession | null
@@ -26,7 +26,7 @@ export function registerAccountController<Bindings extends ControllerBindings>(
   options: AccountControllerOptions<Bindings>,
 ): void {
   app.get('/api/account', async function getAccountHandler(c) {
-    const accountService = options.createService()
+    const accountService = options.createService({ bindings: c.env })
     const session = await options.resolveSession(c)
 
     try {
@@ -38,7 +38,7 @@ export function registerAccountController<Bindings extends ControllerBindings>(
   })
 
   app.patch('/api/account', async function patchAccountHandler(c) {
-    const accountService = options.createService()
+    const accountService = options.createService({ bindings: c.env })
     const session = await options.resolveSession(c)
     const jsonBody = await readRequestBody(c)
 
@@ -54,11 +54,38 @@ export function registerAccountController<Bindings extends ControllerBindings>(
       return toErrorResponse(c, error)
     }
   })
+
+  app.get('/api/companies', async function getCompaniesHandler(c) {
+    const accountService = options.createService({ bindings: c.env })
+    const session = await options.resolveSession(c)
+
+    try {
+      const companies = await accountService.getCompaniesByUserId(session)
+      return c.json({ companies }, 200)
+    } catch (error) {
+      return toErrorResponse(c, error)
+    }
+  })
+
+  app.post('/api/companies', async function addCompanyHandler(c) {
+    const accountService = options.createService({ bindings: c.env })
+    const session = await options.resolveSession(c)
+    const jsonBody = await readRequestBody(c)
+
+    if (jsonBody === null) {
+      return c.json({ error: 'Request body must be valid JSON.' }, 400)
+    }
+
+    try {
+      const company = await accountService.addCompanyRecord(session, jsonBody)
+      return c.json({ company }, 201)
+    } catch (error) {
+      return toErrorResponse(c, error)
+    }
+  })
 }
 
-async function readRequestBody(
-  context: Context,
-): Promise<unknown | null> {
+async function readRequestBody(context: Context): Promise<unknown | null> {
   try {
     return await context.req.json()
   } catch {
@@ -66,10 +93,17 @@ async function readRequestBody(
   }
 }
 
-function toErrorResponse(
-  context: Context,
-  error: unknown,
-) {
+function toErrorResponse(context: Context, error: unknown) {
+  if (error instanceof ZodError) {
+    return context.json(
+      {
+        error: 'Invalid request payload',
+        details: error.issues,
+      },
+      400,
+    )
+  }
+
   if (error instanceof AccountUnauthorizedError) {
     return context.json({ error: error.message }, 401)
   }

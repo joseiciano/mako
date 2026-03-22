@@ -1,5 +1,11 @@
-import { describe, expect, it } from 'vitest'
-import { fetchAccount, updateAccountProfile } from './use-account'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import {
+  createOptimisticCompany,
+  fetchAccount,
+  fetchCompanies,
+  postCompany,
+  updateAccountProfile,
+} from './use-account'
 
 const accountFixture = {
   id: 'demo-user',
@@ -11,7 +17,11 @@ const accountFixture = {
   createdAt: '2026-01-01T00:00:00.000Z',
 }
 
-describe('use-account hooks', function suite() {
+describe('use-account hooks', function useAccountHooksSuite() {
+  afterEach(function afterEachTest() {
+    vi.restoreAllMocks()
+  })
+
   it('fetchAccount parses successful API responses', async function run() {
     const result = await fetchAccount(async function mockFetch(input, init) {
       expect(input).toBe('/api/account')
@@ -69,6 +79,61 @@ describe('use-account hooks', function suite() {
         })
       }),
     ).rejects.toThrow('Unauthorized')
+  })
+
+  it('fetchCompanies returns companies payload', async function shouldFetchCompanies() {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async function fetchMock() {
+        return new Response(
+          JSON.stringify({
+            companies: [
+              {
+                id: 'company-id',
+                userId: 'user-id',
+                company: 'mako',
+                joined: '2024-01-01T00:00:00.000Z',
+                createdAt: '2024-01-01T00:00:00.000Z',
+                updatedAt: '2024-01-01T00:00:00.000Z',
+              },
+            ],
+          }),
+          { status: 200 },
+        )
+      }),
+    )
+
+    const companies = await fetchCompanies()
+
+    expect(companies).toHaveLength(1)
+    expect(companies[0]?.company).toBe('mako')
+  })
+
+  it('postCompany throws when request fails', async function shouldThrowOnFailedPost() {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async function fetchMock() {
+        return new Response(JSON.stringify({ error: 'boom' }), { status: 500 })
+      }),
+    )
+
+    await expect(
+      postCompany({
+        company: 'Mako',
+        joined: '2023-02-10',
+      }),
+    ).rejects.toThrow('boom')
+  })
+
+  it('creates an optimistic company record', function shouldCreateOptimisticRecord() {
+    const optimisticCompany = createOptimisticCompany({
+      company: ' Stripe ',
+      joined: '2022-06-01',
+    })
+
+    expect(optimisticCompany.id.startsWith('optimistic-')).toBe(true)
+    expect(optimisticCompany.company).toBe('stripe')
+    expect(optimisticCompany.joined).toBe('2022-06-01T00:00:00.000Z')
   })
 })
 

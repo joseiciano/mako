@@ -1,5 +1,6 @@
 import type { AccountProfile } from '@mako/shared'
 import type { FormEvent } from 'react'
+import { CompanyList } from '#/components/profile/company-list'
 
 export type ProfileDumbProps = {
   account: AccountProfile | null
@@ -120,6 +121,8 @@ export function ProfileDumb(props: ProfileDumbProps) {
           </div>
         </article>
       </section>
+
+      <CompanyList />
     </main>
   )
 }
