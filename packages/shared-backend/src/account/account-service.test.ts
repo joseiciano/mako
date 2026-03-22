@@ -1,65 +1,150 @@
 import { describe, expect, it, vi } from 'vitest'
+import type { SqlQuery } from '../index'
 import {
-  AccountDeletionNotFoundError,
-  AccountDeletionUnauthorizedError,
-  AccountService,
-  type AccountDeletionRepository,
-} from './account-service'
+  AccountRepository,
+  createInMemoryAccountDataSource,
+  type SqlQueryExecutor,
+} from './account-repository'
+import { AccountService } from './account-service'
+import {
+  AccountNotFoundError,
+  AccountUnauthorizedError,
+  AccountValidationError,
+  type AccountSession,
+} from './types'
 
-function createRepositoryMock(): AccountDeletionRepository {
-  return {
-    deleteAccount: vi.fn(async function deleteAccount() {
-      return true
-    }),
-    invalidateSessions: vi.fn(async function invalidateSessions() {}),
-    cancelUpcomingInterviews: vi.fn(async function cancelUpcomingInterviews() {}),
-  }
+const activeSession: AccountSession = {
+  userId: '11111111-1111-4111-8111-111111111111',
+  email: 'candidate@mako.dev',
 }
 
-describe('AccountService', function accountServiceSuite() {
-  it('rejects unauthenticated deletions', async function testUnauthorizedDelete() {
-    const repository = createRepositoryMock()
-    const service = new AccountService(repository)
+function createProfileService() {
+  const accountRepository = new AccountRepository(
+    createInMemoryAccountDataSource([
+      {
+        id: activeSession.userId,
+        email: activeSession.email,
+        displayName: 'Candidate One',
+        credits: 10,
+        freeStandardInterviews: 1,
+        freeAiInterviews: 1,
+        createdAt: '2026-01-02T00:00:00.000Z',
+      },
+    ]),
+  )
 
-    await expect(service.deleteAccount(null)).rejects.toBeInstanceOf(
-      AccountDeletionUnauthorizedError,
+  return new AccountService(accountRepository)
+}
+
+describe('AccountService', function suite() {
+  it('getAccount returns active account profile', async function run() {
+    const service = createProfileService()
+
+    const profile = await service.getAccount(activeSession)
+
+    expect(profile.id).toBe(activeSession.userId)
+    expect(profile.email).toBe(activeSession.email)
+    expect(profile.displayName).toBe('Candidate One')
+  })
+
+  it('getAccount requires authenticated session', async function run() {
+    const service = createProfileService()
+
+    await expect(service.getAccount(null)).rejects.toBeInstanceOf(
+      AccountUnauthorizedError,
     )
   })
 
-  it('deletes account and runs cleanup operations', async function testDeleteFlow() {
-    const repository = createRepositoryMock()
-    const cleanupWorkflow = vi.fn(async function cleanupWorkflow() {})
-    const service = new AccountService(repository, cleanupWorkflow)
+  it('updateProfile persists display name updates', async function run() {
+    const service = createProfileService()
 
-    const result = await service.deleteAccount(
-      '6dc33758-c165-430f-8fc4-5388fdf9b000',
-    )
-
-    expect(result).toEqual({ success: true })
-    expect(repository.deleteAccount).toHaveBeenCalledWith(
-      '6dc33758-c165-430f-8fc4-5388fdf9b000',
-    )
-    expect(repository.invalidateSessions).toHaveBeenCalledWith(
-      '6dc33758-c165-430f-8fc4-5388fdf9b000',
-    )
-    expect(repository.cancelUpcomingInterviews).toHaveBeenCalledWith(
-      '6dc33758-c165-430f-8fc4-5388fdf9b000',
-    )
-    expect(cleanupWorkflow).toHaveBeenCalledWith(
-      '6dc33758-c165-430f-8fc4-5388fdf9b000',
-    )
-  })
-
-  it('throws not found if the account cannot be deleted', async function testNotFoundDelete() {
-    const repository = createRepositoryMock()
-    repository.deleteAccount = vi.fn(async function deleteAccount() {
-      return false
+    const updatedProfile = await service.updateProfile(activeSession, {
+      displayName: '  Updated Name  ',
     })
 
-    const service = new AccountService(repository)
+    expect(updatedProfile.displayName).toBe('Updated Name')
+
+    const refreshedProfile = await service.getAccount(activeSession)
+    expect(refreshedProfile.displayName).toBe('Updated Name')
+  })
+
+  it('updateProfile validates display name input', async function run() {
+    const service = createProfileService()
 
     await expect(
-      service.deleteAccount('d3f778ec-1765-46f5-ac00-8d291c2cfdf0'),
-    ).rejects.toBeInstanceOf(AccountDeletionNotFoundError)
+      service.updateProfile(activeSession, {
+        displayName: '   ',
+      }),
+    ).rejects.toBeInstanceOf(AccountValidationError)
+  })
+
+  it('updateProfile throws not found when account is missing', async function run() {
+    const service = new AccountService(
+      new AccountRepository(createInMemoryAccountDataSource([])),
+    )
+
+    await expect(
+      service.updateProfile(activeSession, {
+        displayName: 'Any Name',
+      }),
+    ).rejects.toBeInstanceOf(AccountNotFoundError)
+  })
+
+  it('deleteAccount rejects unauthenticated requests', async function run() {
+    const service = new AccountService(
+      new AccountRepository({
+        dataSource: createInMemoryAccountDataSource([]),
+        queryExecutor: createDeleteQueryExecutor({ didDelete: true }),
+      }),
+    )
+
+    await expect(service.deleteAccount(null)).rejects.toBeInstanceOf(
+      AccountUnauthorizedError,
+    )
+  })
+
+  it('deleteAccount runs cleanup workflow and returns success', async function run() {
+    const cleanupWorkflow = vi.fn(async function cleanupWorkflow() {})
+    const service = new AccountService(
+      new AccountRepository({
+        dataSource: createInMemoryAccountDataSource([]),
+        queryExecutor: createDeleteQueryExecutor({ didDelete: true }),
+      }),
+      cleanupWorkflow,
+    )
+
+    const result = await service.deleteAccount(activeSession)
+
+    expect(result).toEqual({ success: true })
+    expect(cleanupWorkflow).toHaveBeenCalledWith(activeSession.userId)
+  })
+
+  it('deleteAccount throws not found when user is missing', async function run() {
+    const service = new AccountService(
+      new AccountRepository({
+        dataSource: createInMemoryAccountDataSource([]),
+        queryExecutor: createDeleteQueryExecutor({ didDelete: false }),
+      }),
+    )
+
+    await expect(service.deleteAccount(activeSession)).rejects.toBeInstanceOf(
+      AccountNotFoundError,
+    )
   })
 })
+
+function createDeleteQueryExecutor(options: { didDelete: boolean }): SqlQueryExecutor {
+  return {
+    async query<Row>(queryInput: SqlQuery) {
+      if (queryInput.text.includes('UPDATE users')) {
+        return {
+          rows: options.didDelete ? ([{ id: activeSession.userId }] as Row[]) : [],
+        }
+      }
+
+      return {
+        rows: [] as Row[],
+      }
+    },
+  }
+}

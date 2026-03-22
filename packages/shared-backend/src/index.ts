@@ -1,4 +1,5 @@
 import type { HealthResponse } from '@mako/shared'
+
 export {
   availabilityRequestRowSchema,
   availabilityRequestStatusSchema,
@@ -18,8 +19,6 @@ export {
 } from './database/foundation-schemas'
 export * from './account'
 
-export const backendRuntime = 'cloudflare-workers'
-
 export type SqlQuery = {
   text: string
   values: readonly unknown[]
@@ -31,6 +30,8 @@ export function createSqlQuery(
 ): SqlQuery {
   return { text, values }
 }
+
+export const backendRuntime = 'cloudflare-workers'
 
 export function toBackendHealth(service: string): HealthResponse {
   return {

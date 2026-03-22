@@ -1,56 +1,59 @@
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import type { SqlQuery } from '../index'
 import { AccountRepository } from './account-repository'
 
+const userId = '11111111-1111-4111-8111-111111111111'
+const companyId = '22222222-2222-4222-8222-222222222222'
+
 describe('AccountRepository', function accountRepositorySuite() {
-  it('soft deletes account by setting deleted_at', async function testDeleteAccount() {
-    const query = vi.fn(async function query() {
-      return { rowCount: 1 }
-    })
+  it('soft deletes account by setting deleted_at', async function shouldDeleteAccount() {
+    const executedQueries: SqlQuery[] = []
+    async function query<Row>(queryInput: SqlQuery) {
+      executedQueries.push(queryInput)
+      return {
+        rows: [{ id: userId }] as Row[],
+      }
+    }
 
     const repository = new AccountRepository({ query })
-
-    const didDelete = await repository.deleteAccount(
-      'c2e12f95-6db4-46d4-8f22-0e59261458cf',
-    )
+    const didDelete = await repository.deleteAccount(userId)
 
     expect(didDelete).toBe(true)
-    expect(query).toHaveBeenCalledOnce()
-    expect(query).toHaveBeenCalledWith(
+    expect(executedQueries).toHaveLength(1)
+    expect(executedQueries[0]).toEqual(
       expect.objectContaining({
         text: expect.stringContaining('SET deleted_at = NOW()'),
-        values: ['c2e12f95-6db4-46d4-8f22-0e59261458cf'],
+        values: [userId],
       }),
     )
   })
 
-  it('returns false when account is already deleted', async function testDeleteAccountNotFound() {
-    const query = vi.fn(async function query() {
-      return { rowCount: 0 }
-    })
+  it('returns false when account is already deleted', async function shouldReturnFalseWhenNotFound() {
+    async function query<Row>() {
+      return {
+        rows: [] as Row[],
+      }
+    }
 
     const repository = new AccountRepository({ query })
-
-    const didDelete = await repository.deleteAccount(
-      '8e8f2886-ce8f-4bcc-a2d7-1b95f0e9bb3c',
-    )
+    const didDelete = await repository.deleteAccount(userId)
 
     expect(didDelete).toBe(false)
   })
 
-  it('invalidates sessions and cancels upcoming interviews', async function testCleanupQueries() {
+  it('invalidates sessions and cancels upcoming interviews', async function shouldExecuteCleanupQueries() {
     const capturedQueries: SqlQuery[] = []
-    const query = vi.fn(async function query(sqlQuery: SqlQuery) {
+    async function query<Row>(sqlQuery: SqlQuery) {
       capturedQueries.push(sqlQuery)
-      return { rowCount: 1 }
-    })
+      return { rows: [] as Row[] }
+    }
 
     const repository = new AccountRepository({ query })
 
-    await repository.invalidateSessions('8e8f2886-ce8f-4bcc-a2d7-1b95f0e9bb3c')
-    await repository.cancelUpcomingInterviews('8e8f2886-ce8f-4bcc-a2d7-1b95f0e9bb3c')
+    await repository.invalidateSessions(userId)
+    await repository.cancelUpcomingInterviews(userId)
 
-    expect(query).toHaveBeenCalledTimes(2)
+    expect(capturedQueries).toHaveLength(2)
     expect(capturedQueries[0]).toEqual(
       expect.objectContaining({
         text: expect.stringContaining('DELETE FROM "session"'),
@@ -61,5 +64,85 @@ describe('AccountRepository', function accountRepositorySuite() {
         text: expect.stringContaining('UPDATE interviews'),
       }),
     )
+  })
+
+  it('queries company history by user id', async function shouldQueryByUserId() {
+    const executedQueries: Array<{ text: string; values: readonly unknown[] }> = []
+
+    const repository = new AccountRepository({
+      query: async function query<Row>(queryInput: SqlQuery) {
+        executedQueries.push(queryInput)
+
+        return {
+          rows: [
+            {
+              id: companyId,
+              user_id: userId,
+              company: 'mako',
+              joined: '2023-01-01T00:00:00.000Z',
+              created_at: '2023-01-01T00:00:00.000Z',
+              updated_at: '2023-01-01T00:00:00.000Z',
+              deleted_at: null,
+            },
+          ] as Row[],
+        }
+      },
+    })
+
+    const companies = await repository.getCompaniesByUserId(userId)
+
+    expect(executedQueries).toHaveLength(1)
+    expect(executedQueries[0]?.text).toContain('FROM "User_Companies"')
+    expect(executedQueries[0]?.values).toEqual([userId])
+    expect(companies).toEqual([
+      {
+        id: companyId,
+        userId,
+        company: 'mako',
+        joined: '2023-01-01T00:00:00.000Z',
+        createdAt: '2023-01-01T00:00:00.000Z',
+        updatedAt: '2023-01-01T00:00:00.000Z',
+      },
+    ])
+  })
+
+  it('inserts a company record for a user', async function shouldInsertCompany() {
+    const executedQueries: Array<{ text: string; values: readonly unknown[] }> = []
+
+    const repository = new AccountRepository({
+      query: async function query<Row>(queryInput: SqlQuery) {
+        executedQueries.push(queryInput)
+
+        return {
+          rows: [
+            {
+              id: companyId,
+              user_id: userId,
+              company: 'stripe',
+              joined: '2022-05-01T00:00:00.000Z',
+              created_at: '2022-05-01T00:00:00.000Z',
+              updated_at: '2022-05-01T00:00:00.000Z',
+              deleted_at: null,
+            },
+          ] as Row[],
+        }
+      },
+    })
+
+    const company = await repository.addCompanyRecord({
+      userId,
+      company: 'stripe',
+      joined: '2022-05-01T00:00:00.000Z',
+    })
+
+    expect(executedQueries).toHaveLength(1)
+    expect(executedQueries[0]?.text).toContain('INSERT INTO "User_Companies"')
+    expect(executedQueries[0]?.values).toEqual([
+      userId,
+      'stripe',
+      '2022-05-01T00:00:00.000Z',
+    ])
+    expect(company.company).toBe('stripe')
+    expect(company.userId).toBe(userId)
   })
 })

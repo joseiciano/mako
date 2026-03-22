@@ -1,72 +1,310 @@
 import type {
-  AccountResponse,
   DeleteAccountResponse,
-  UpdateAccountRequest,
 } from '@mako/shared'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import {
+  accountProfileSchema,
+  updateAccountProfileInputSchema,
+  type AccountProfile,
+  type UpdateAccountProfileInput,
+} from '@mako/shared'
+import {
+  useMutation,
+  useQuery,
+  useQueryClient,
+  type UseMutationResult,
+  type UseQueryResult,
+} from '@tanstack/react-query'
 
-const ACCOUNT_QUERY_KEY = ['account'] as const
+export type Company = {
+  id: string
+  userId: string
+  company: string
+  joined: string
+  createdAt: string
+  updatedAt: string
+}
 
-async function requestJson<TResponse>(
-  url: string,
-  init?: RequestInit,
-): Promise<TResponse> {
-  const response = await fetch(url, {
-    credentials: 'include',
-    ...init,
-    headers: {
-      'content-type': 'application/json',
-      ...(init?.headers ?? {}),
+export type AddCompanyPayload = {
+  company: string
+  joined: string
+}
+
+type CompaniesResponse = {
+  companies: Company[]
+}
+
+type AddCompanyResponse = {
+  company: Company
+}
+
+type MutationContext = {
+  previousCompanies: Company[]
+  optimisticCompanyId: string
+}
+
+const accountQueryKey = ['account'] as const
+export const accountCompaniesQueryKey = ['account', 'companies'] as const
+
+const demoSessionHeaders = {
+  'x-user-id': '11111111-1111-4111-8111-111111111111',
+  'x-user-email': 'demo@mako.dev',
+}
+
+export function useAccount(): UseQueryResult<AccountProfile, Error> {
+  return useQuery({
+    queryKey: accountQueryKey,
+    queryFn: function getAccountQuery() {
+      return fetchAccount()
     },
   })
+}
+
+export function useUpdateProfile(): UseMutationResult<
+  AccountProfile,
+  Error,
+  UpdateAccountProfileInput
+> {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: function updateProfileMutation(input) {
+      return updateAccountProfile(input)
+    },
+    onSuccess: function onSuccess(updatedAccount) {
+      queryClient.setQueryData(accountQueryKey, updatedAccount)
+    },
+  })
+}
+
+export function useCompanies(): UseQueryResult<Company[], Error> {
+  return useQuery({
+    queryKey: accountCompaniesQueryKey,
+    queryFn: function getCompaniesQuery() {
+      return fetchCompanies()
+    },
+  })
+}
+
+export function useAddCompany(): UseMutationResult<
+  AddCompanyResponse,
+  Error,
+  AddCompanyPayload,
+  MutationContext
+> {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: function addCompanyMutation(payload) {
+      return postCompany(payload)
+    },
+    onMutate: async function onMutate(nextCompanyPayload) {
+      await queryClient.cancelQueries({ queryKey: accountCompaniesQueryKey })
+
+      const previousCompanies =
+        queryClient.getQueryData<Company[]>(accountCompaniesQueryKey) ?? []
+      const optimisticCompany = createOptimisticCompany(nextCompanyPayload)
+
+      queryClient.setQueryData<Company[]>(
+        accountCompaniesQueryKey,
+        function setData(companies) {
+          return [optimisticCompany, ...(companies ?? [])]
+        },
+      )
+
+      return {
+        previousCompanies,
+        optimisticCompanyId: optimisticCompany.id,
+      }
+    },
+    onError: function onError(_error, _variables, context) {
+      if (!context) {
+        return
+      }
+
+      queryClient.setQueryData(accountCompaniesQueryKey, context.previousCompanies)
+    },
+    onSuccess: function onSuccess(response, _variables, context) {
+      queryClient.setQueryData<Company[]>(
+        accountCompaniesQueryKey,
+        function setData(companies) {
+          if (!companies) {
+            return [response.company]
+          }
+
+          const didReplaceOptimisticRecord = context
+            ? companies.some(function hasOptimisticId(company) {
+                return company.id === context.optimisticCompanyId
+              })
+            : false
+
+          if (!didReplaceOptimisticRecord) {
+            return [response.company, ...companies]
+          }
+
+          return companies.map(function replaceOptimisticRecord(company) {
+            if (company.id === context?.optimisticCompanyId) {
+              return response.company
+            }
+
+            return company
+          })
+        },
+      )
+    },
+    onSettled: async function onSettled() {
+      await queryClient.invalidateQueries({ queryKey: accountCompaniesQueryKey })
+    },
+  })
+}
+
+export async function fetchAccount(
+  fetchImpl: typeof fetch = fetch,
+): Promise<AccountProfile> {
+  const response = await fetchImpl('/api/account', {
+    headers: demoSessionHeaders,
+  })
+
+  const payload = await parseResponse(response)
 
   if (!response.ok) {
-    const errorText = await response.text()
-    throw new Error(errorText || `Request failed with status ${response.status}.`)
+    throw new Error(readErrorMessage(payload, 'Unable to fetch account profile.'))
   }
 
-  return (await response.json()) as TResponse
+  return accountProfileSchema.parse(payload)
 }
 
-export function useAccount() {
-  return useQuery({
-    queryKey: ACCOUNT_QUERY_KEY,
-    queryFn: function fetchAccount() {
-      return requestJson<AccountResponse>('/api/account', {
-        method: 'GET',
-      })
+export async function updateAccountProfile(
+  input: UpdateAccountProfileInput,
+  fetchImpl: typeof fetch = fetch,
+): Promise<AccountProfile> {
+  const parsedInput = updateAccountProfileInputSchema.parse(input)
+  const response = await fetchImpl('/api/account', {
+    method: 'PATCH',
+    headers: {
+      'content-type': 'application/json',
+      ...demoSessionHeaders,
     },
+    body: JSON.stringify(parsedInput),
   })
+
+  const payload = await parseResponse(response)
+
+  if (!response.ok) {
+    throw new Error(readErrorMessage(payload, 'Unable to update profile.'))
+  }
+
+  return accountProfileSchema.parse(payload)
 }
 
-export function useUpdateProfile() {
+export async function fetchCompanies(
+  fetchImpl: typeof fetch = fetch,
+): Promise<Company[]> {
+  const response = await fetchImpl('/api/companies', {
+    method: 'GET',
+    headers: demoSessionHeaders,
+  })
+
+  const payload = await parseResponse(response)
+
+  if (!response.ok) {
+    throw new Error(readErrorMessage(payload, 'Failed to fetch companies'))
+  }
+
+  return (payload as CompaniesResponse).companies
+}
+
+export async function postCompany(
+  payload: AddCompanyPayload,
+  fetchImpl: typeof fetch = fetch,
+): Promise<AddCompanyResponse> {
+  const response = await fetchImpl('/api/companies', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      ...demoSessionHeaders,
+    },
+    body: JSON.stringify({
+      company: payload.company,
+      joined: payload.joined,
+    }),
+  })
+
+  const responsePayload = await parseResponse(response)
+
+  if (!response.ok) {
+    throw new Error(readErrorMessage(responsePayload, 'Failed to add company'))
+  }
+
+  return responsePayload as AddCompanyResponse
+}
+
+export function createOptimisticCompany(payload: AddCompanyPayload): Company {
+  const normalizedCompany = payload.company.trim().toLowerCase()
+  const normalizedJoined = new Date(payload.joined).toISOString()
+
+  return {
+    id: `optimistic-${crypto.randomUUID()}`,
+    userId: 'optimistic-user',
+    company: normalizedCompany,
+    joined: normalizedJoined,
+    createdAt: normalizedJoined,
+    updatedAt: normalizedJoined,
+  }
+}
+
+async function parseResponse(response: Response): Promise<unknown> {
+  try {
+    return await response.json()
+  } catch {
+    return null
+  }
+}
+
+function readErrorMessage(payload: unknown, fallbackMessage: string): string {
+  if (!payload || typeof payload !== 'object') {
+    return fallbackMessage
+  }
+
+  const maybeError = (payload as Record<string, unknown>).error
+  if (typeof maybeError === 'string' && maybeError.length > 0) {
+    return maybeError
+  }
+
+  return fallbackMessage
+}
+
+export function useDeleteAccount(): UseMutationResult<
+  DeleteAccountResponse,
+  Error,
+  void
+> {
   const queryClient = useQueryClient()
 
   return useMutation({
-    mutationFn: function updateProfile(payload: UpdateAccountRequest) {
-      return requestJson<AccountResponse>('/api/account', {
-        method: 'PATCH',
-        body: JSON.stringify(payload),
-      })
+    mutationFn: function deleteAccountMutation() {
+      return deleteAccount()
     },
-    onSuccess: async function onUpdateProfileSuccess() {
-      await queryClient.invalidateQueries({ queryKey: ACCOUNT_QUERY_KEY })
-    },
-  })
-}
-
-export function useDeleteAccount() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: function deleteAccount() {
-      return requestJson<DeleteAccountResponse>('/api/account', {
-        method: 'DELETE',
-      })
-    },
-    onSuccess: async function onDeleteAccountSuccess() {
-      queryClient.removeQueries({ queryKey: ACCOUNT_QUERY_KEY })
+    onSuccess: async function onDeleteSuccess() {
+      queryClient.removeQueries({ queryKey: accountQueryKey })
+      queryClient.removeQueries({ queryKey: accountCompaniesQueryKey })
       await queryClient.cancelQueries()
     },
   })
+}
+
+export async function deleteAccount(
+  fetchImpl: typeof fetch = fetch,
+): Promise<DeleteAccountResponse> {
+  const response = await fetchImpl('/api/account', {
+    method: 'DELETE',
+    headers: demoSessionHeaders,
+  })
+
+  const payload = await parseResponse(response)
+
+  if (!response.ok) {
+    throw new Error(readErrorMessage(payload, 'Unable to delete account.'))
+  }
+
+  return payload as DeleteAccountResponse
 }
