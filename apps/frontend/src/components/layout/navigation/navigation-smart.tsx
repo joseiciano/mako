@@ -1,13 +1,20 @@
 import {
   BarChart3,
-  CreditCard,
   LayoutDashboard,
   Settings2,
 } from 'lucide-react'
 import { useRouterState } from '@tanstack/react-router'
-import { NavigationDumb, type NavigationDumbItem } from './navigation-dumb'
+import {
+  NavigationDumb,
+  type NavigationDumbChildItem,
+  type NavigationDumbItem,
+} from './navigation-dumb'
 
-type NavigationDefinition = Omit<NavigationDumbItem, 'isActive'>
+type NavigationDefinitionChild = Omit<NavigationDumbChildItem, 'isActive'>
+
+type NavigationDefinition = Omit<NavigationDumbItem, 'isActive' | 'children'> & {
+  children?: NavigationDefinitionChild[]
+}
 
 const navigationDefinitions: NavigationDefinition[] = [
   {
@@ -21,20 +28,19 @@ const navigationDefinitions: NavigationDefinition[] = [
     icon: BarChart3,
   },
   {
-    href: '/billing',
-    label: 'Billing',
-    icon: CreditCard,
-  },
-  {
     href: '/settings',
     label: 'Settings',
     icon: Settings2,
+    children: [
+      {
+        href: '/billing',
+        label: 'Billing',
+      },
+    ],
   },
 ]
 
-export type NavigationProps = {
-  isCollapsed: boolean
-}
+export type NavigationProps = {}
 
 export function isNavigationItemActive(pathname: string, href: string) {
   if (pathname === '/' && href === '/dashboard') {
@@ -46,14 +52,29 @@ export function isNavigationItemActive(pathname: string, href: string) {
 
 export function createNavigationItems(pathname: string): NavigationDumbItem[] {
   return navigationDefinitions.map(function mapNavigationDefinition(item) {
+    const children = item.children?.map(function mapChildItem(childItem) {
+      return {
+        ...childItem,
+        isActive: isNavigationItemActive(pathname, childItem.href),
+      }
+    })
+
+    const hasActiveChild =
+      children?.some(function someChildren(childItem) {
+        return childItem.isActive
+      }) ?? false
+
     return {
-      ...item,
-      isActive: isNavigationItemActive(pathname, item.href),
+      href: item.href,
+      label: item.label,
+      icon: item.icon,
+      children,
+      isActive: isNavigationItemActive(pathname, item.href) || hasActiveChild,
     }
   })
 }
 
-export function Navigation(props: NavigationProps) {
+export function Navigation(_: NavigationProps) {
   const pathname = useRouterState({
     select: function selectPathname(state) {
       return state.location.pathname
@@ -62,5 +83,5 @@ export function Navigation(props: NavigationProps) {
 
   const items = createNavigationItems(pathname)
 
-  return <NavigationDumb items={items} isCollapsed={props.isCollapsed} />
+  return <NavigationDumb items={items} />
 }

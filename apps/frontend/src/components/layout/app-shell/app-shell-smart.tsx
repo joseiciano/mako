@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { useRouterState } from '@tanstack/react-router'
 import { getRouteHeaderContent } from '#/components/layout/header'
 import { Navigation } from '#/components/layout/navigation'
@@ -10,7 +10,6 @@ export type AppShellProps = {
 }
 
 export function AppShell(props: AppShellProps) {
-  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false)
   const pathname = useRouterState({
     select: function selectPathname(state) {
       return state.location.pathname
@@ -19,20 +18,12 @@ export function AppShell(props: AppShellProps) {
 
   const headerContent = getRouteHeaderContent(pathname)
 
-  function handleSidebarToggle() {
-    setIsSidebarCollapsed(function toggleSidebar(currentValue) {
-      return !currentValue
-    })
-  }
-
   return (
     <AppShellDumb
       title={headerContent.title}
       breadcrumbs={headerContent.breadcrumbs}
       userName={props.userName ?? 'Mako User'}
-      isSidebarCollapsed={isSidebarCollapsed}
-      onSidebarToggle={handleSidebarToggle}
-      navigation={<Navigation isCollapsed={isSidebarCollapsed} />}
+      navigation={<Navigation />}
     >
       {props.children}
     </AppShellDumb>

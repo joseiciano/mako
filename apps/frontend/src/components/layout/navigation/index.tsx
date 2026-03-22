@@ -4,6 +4,7 @@ export {
   isNavigationItemActive,
 } from './navigation-smart'
 export type {
+  NavigationDumbChildItem,
   NavigationDumbItem,
   NavigationDumbProps,
 } from './navigation-dumb'

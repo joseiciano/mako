@@ -22,7 +22,6 @@ describe('navigation smart logic', function () {
     expect(items.map(function mapItem(item) { return item.label })).toEqual([
       'Dashboard',
       'Interviews',
-      'Billing',
       'Settings',
     ])
 
@@ -32,6 +31,11 @@ describe('navigation smart logic', function () {
 
     expect(activeItems).toHaveLength(1)
     expect(activeItems[0]).toMatchObject({
+      href: '/settings',
+      isActive: true,
+    })
+
+    expect(items[2].children?.[0]).toMatchObject({
       href: '/billing',
       isActive: true,
     })
