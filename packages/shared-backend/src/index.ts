@@ -19,6 +19,18 @@ export {
 
 export * from './account'
 
+export type SqlQuery = {
+  text: string
+  values: readonly unknown[]
+}
+
+export function createSqlQuery(
+  text: string,
+  values: readonly unknown[] = [],
+): SqlQuery {
+  return { text, values }
+}
+
 export const backendRuntime = 'cloudflare-workers'
 
 export function toBackendHealth(service: string): HealthResponse {

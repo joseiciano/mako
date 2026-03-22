@@ -1,6 +1,6 @@
 import { z } from 'zod'
 
-export const authenticatedUserIdSchema = z.uuid()
+export const authenticatedUserIdSchema = z.string().uuid()
 
 export const companyNameSchema = z
   .string()
@@ -28,8 +28,8 @@ export const addCompanyRequestSchema = z.object({
 })
 
 export const userCompanyRowSchema = z.object({
-  id: z.uuid(),
-  user_id: z.uuid(),
+  id: z.string().uuid(),
+  user_id: z.string().uuid(),
   company: z.string(),
   joined: z.string(),
   created_at: z.string(),
@@ -40,8 +40,8 @@ export const userCompanyRowSchema = z.object({
 export type UserCompanyRow = z.infer<typeof userCompanyRowSchema>
 
 export const userCompanySchema = z.object({
-  id: z.uuid(),
-  userId: z.uuid(),
+  id: z.string().uuid(),
+  userId: z.string().uuid(),
   company: z.string(),
   joined: z.string(),
   createdAt: z.string(),
