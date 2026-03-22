@@ -9,6 +9,8 @@ export type HeaderProps = {
   pathname: string
   navigation: ReactNode
   userName: string
+  isMobileNavOpen?: boolean
+  onOpenMobileNav?: () => void
 }
 
 const routeTitleMap: Record<string, string> = {
@@ -77,6 +79,8 @@ export function Header(props: HeaderProps) {
       breadcrumbs={headerContent.breadcrumbs}
       navigation={props.navigation}
       userName={props.userName}
+      isMobileNavOpen={props.isMobileNavOpen}
+      onOpenMobileNav={props.onOpenMobileNav}
     />
   )
 }
