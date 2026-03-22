@@ -20,6 +20,26 @@ function HomePage() {
         TanStack Start is configured for Cloudflare Workers and can import from
         shared workspace packages.
       </p>
+      <div className="mt-2 flex flex-wrap gap-3 text-sm">
+        <a
+          href="/auth/login"
+          className="rounded-lg border border-slate-700 px-3 py-2 text-slate-100 hover:border-slate-500"
+        >
+          Log in
+        </a>
+        <a
+          href="/auth/signup"
+          className="rounded-lg border border-slate-700 px-3 py-2 text-slate-100 hover:border-slate-500"
+        >
+          Sign up
+        </a>
+        <a
+          href="/dashboard"
+          className="rounded-lg border border-slate-700 px-3 py-2 text-slate-100 hover:border-slate-500"
+        >
+          Dashboard
+        </a>
+      </div>
       <pre className="mt-3 rounded-lg border border-slate-800 bg-slate-900 p-4 text-sm text-emerald-200">
         {healthLabel}
       </pre>
