@@ -21,11 +21,7 @@ export type WorkerBindings = {
   DB?: DatabaseBinding
 }
 
-export type WorkerVariables = {
-  authUserId?: string
-}
-
-const app = new Hono<{ Bindings: WorkerBindings; Variables: WorkerVariables }>()
+const app = new Hono<{ Bindings: WorkerBindings }>()
 
 const demoSession = {
   userId: '11111111-1111-4111-8111-111111111111',
