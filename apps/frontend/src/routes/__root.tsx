@@ -4,6 +4,7 @@ import {
   Scripts,
   createRootRoute,
 } from '@tanstack/react-router'
+import { AppShell } from '#/components/layout/app-shell'
 
 import appCss from '../styles.css?url'
 
@@ -42,7 +43,9 @@ function RootDocument() {
         <HeadContent />
       </head>
       <body className="bg-slate-950 text-slate-100 antialiased">
-        <Outlet />
+        <AppShell>
+          <Outlet />
+        </AppShell>
         <Scripts />
       </body>
     </html>
