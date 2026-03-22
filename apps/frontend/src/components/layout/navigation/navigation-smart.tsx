@@ -37,6 +37,10 @@ export type NavigationProps = {
 }
 
 export function isNavigationItemActive(pathname: string, href: string) {
+  if (pathname === '/' && href === '/dashboard') {
+    return true
+  }
+
   return pathname === href || pathname.startsWith(`${href}/`)
 }
 

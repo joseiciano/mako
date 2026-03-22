@@ -7,6 +7,7 @@ import {
 describe('navigation smart logic', function () {
   it('marks direct route matches as active', function () {
     expect(isNavigationItemActive('/dashboard', '/dashboard')).toBe(true)
+    expect(isNavigationItemActive('/', '/dashboard')).toBe(true)
     expect(isNavigationItemActive('/dashboard', '/billing')).toBe(false)
   })
 
