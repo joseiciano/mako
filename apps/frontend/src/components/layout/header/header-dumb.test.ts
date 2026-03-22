@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatPathSegment, getRouteHeaderContent } from './header-dumb'
+import { formatPathSegment, getRouteHeaderContent } from './header-smart'
 
 describe('header dumb helpers', function () {
   it('formats route path segments into readable labels', function () {

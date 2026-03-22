@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react'
 import { useRouterState } from '@tanstack/react-router'
-import { getRouteHeaderContent } from '#/components/layout/header'
+import { Header } from '#/components/layout/header'
 import { Navigation } from '#/components/layout/navigation'
 import { AppShellDumb } from './app-shell-dumb'
 
@@ -16,14 +16,15 @@ export function AppShell(props: AppShellProps) {
     },
   })
 
-  const headerContent = getRouteHeaderContent(pathname)
-
   return (
     <AppShellDumb
-      title={headerContent.title}
-      breadcrumbs={headerContent.breadcrumbs}
-      userName={props.userName ?? 'Mako User'}
-      navigation={<Navigation />}
+      header={
+        <Header
+          pathname={pathname}
+          userName={props.userName ?? 'Mako User'}
+          navigation={<Navigation />}
+        />
+      }
     >
       {props.children}
     </AppShellDumb>

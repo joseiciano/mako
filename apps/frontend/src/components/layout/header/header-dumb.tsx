@@ -17,59 +17,8 @@ export type HeaderDumbProps = {
   userName: string
 }
 
-const routeTitleMap: Record<string, string> = {
-  '/': 'Dashboard',
-  '/dashboard': 'Dashboard',
-  '/interviews': 'Interviews',
-  '/billing': 'Billing',
-  '/settings': 'Settings',
-}
-
-export function formatPathSegment(segment: string) {
-  return segment
-    .split('-')
-    .filter(Boolean)
-    .map(function formatWord(word) {
-      return word[0]?.toUpperCase() + word.slice(1)
-    })
-    .join(' ')
-}
-
-export function getRouteHeaderContent(pathname: string): HeaderContent {
-  const segments = pathname.split('/').filter(Boolean)
-
-  if (segments.length === 0) {
-    return {
-      title: 'Dashboard',
-      breadcrumbs: [],
-    }
-  }
-
-  if (segments.length === 1) {
-    const routePath = `/${segments[0]}`
-
-    return {
-      title: routeTitleMap[routePath] ?? formatPathSegment(segments[0]),
-      breadcrumbs: [],
-    }
-  }
-
-  const breadcrumbs = segments.map(function mapSegment(segment, index) {
-    const href = `/${segments.slice(0, index + 1).join('/')}`
-
-    return {
-      href,
-      label: routeTitleMap[href] ?? formatPathSegment(segment),
-    }
-  })
-
-  const title = breadcrumbs[breadcrumbs.length - 1].label
-
-  return {
-    title,
-    breadcrumbs,
-  }
-}
+const headerActionButtonClassName =
+  'inline-flex h-9 select-none items-center gap-2 rounded-md border border-slate-700 px-3 text-sm font-medium text-slate-200 transition-colors hover:border-slate-500 hover:text-white'
 
 export function HeaderDumb(props: HeaderDumbProps) {
   return (
@@ -81,7 +30,7 @@ export function HeaderDumb(props: HeaderDumbProps) {
             disabled
             title="Mobile menu toggle will be implemented in story 1.7"
             aria-label="Open mobile navigation menu (coming soon)"
-            className="inline-flex size-9 items-center justify-center rounded-md border border-slate-700 text-slate-400 lg:hidden"
+            className="inline-flex size-9 items-center justify-center rounded-md border border-slate-700 text-slate-400 transition-colors hover:border-slate-500 hover:text-white disabled:cursor-not-allowed disabled:hover:border-slate-700 disabled:hover:text-slate-400 lg:hidden"
           >
             ☰
           </button>
@@ -129,15 +78,15 @@ export function HeaderDumb(props: HeaderDumbProps) {
           <div className="hidden items-center lg:flex">{props.navigation}</div>
 
           <details className="relative shrink-0">
-            <summary className="list-none">
-              <span className="inline-flex cursor-pointer select-none items-center gap-2 rounded-md border border-slate-700 px-3 py-2 text-sm text-slate-200 transition-colors hover:border-slate-500 hover:text-white">
-                <span className="hidden sm:inline">{props.userName}</span>
-                <span
-                  aria-hidden
-                  className="flex size-7 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-semibold text-emerald-300"
-                >
-                  {props.userName[0]?.toUpperCase() ?? 'U'}
-                </span>
+            <summary
+              className={`${headerActionButtonClassName} list-none cursor-pointer`}
+            >
+              <span className="hidden sm:inline">{props.userName}</span>
+              <span
+                aria-hidden
+                className="flex size-6 items-center justify-center rounded-full bg-emerald-500/20 text-xs font-semibold text-emerald-300"
+              >
+                {props.userName[0]?.toUpperCase() ?? 'U'}
               </span>
             </summary>
             <div className="absolute right-0 mt-2 w-56 rounded-lg border border-slate-700 bg-slate-900 p-2 shadow-xl">
