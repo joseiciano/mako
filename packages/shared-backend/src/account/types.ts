@@ -119,3 +119,9 @@ export function toUserCompany(rowInput: unknown): UserCompany {
     updatedAt: row.updated_at,
   }
 }
+
+export const deleteAccountResponseSchema = z.object({
+  success: z.literal(true),
+})
+
+export type DeleteAccountResponse = z.infer<typeof deleteAccountResponseSchema>

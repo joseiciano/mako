@@ -1,4 +1,5 @@
 import type { HealthResponse } from '@mako/shared'
+
 export {
   availabilityRequestRowSchema,
   availabilityRequestStatusSchema,
@@ -16,7 +17,6 @@ export {
   type UserCompanyRow,
   type UserRow,
 } from './database/foundation-schemas'
-
 export * from './account'
 
 export type SqlQuery = {
@@ -40,16 +40,3 @@ export function toBackendHealth(service: string): HealthResponse {
     timestamp: new Date().toISOString(),
   }
 }
-
-export {
-  AccountRepository,
-  AccountService,
-  createHeaderSessionResolver,
-  createInMemoryAccountDataSource,
-  registerAccountController,
-} from './account'
-export type {
-  AccountControllerOptions,
-  AccountRepositoryDataSource,
-  AccountSession,
-} from './account'

@@ -9,6 +9,7 @@ import {
   AccountNotFoundError,
   AccountUnauthorizedError,
   AccountValidationError,
+  deleteAccountResponseSchema,
   type AccountSession,
 } from './types'
 
@@ -50,6 +51,18 @@ export function registerAccountController<Bindings extends ControllerBindings>(
       const parsedBody = updateAccountProfileInputSchema.parse(jsonBody)
       const updatedAccount = await accountService.updateProfile(session, parsedBody)
       return c.json(accountProfileSchema.parse(updatedAccount), 200)
+    } catch (error) {
+      return toErrorResponse(c, error)
+    }
+  })
+
+  app.delete('/api/account', async function deleteAccountHandler(c) {
+    const accountService = options.createService({ bindings: c.env })
+    const session = await options.resolveSession(c)
+
+    try {
+      const deleteResponse = await accountService.deleteAccount(session)
+      return c.json(deleteAccountResponseSchema.parse(deleteResponse), 200)
     } catch (error) {
       return toErrorResponse(c, error)
     }

@@ -8,6 +8,7 @@ import {
 
 export type QueryResult<Row> = {
   rows: Row[]
+  rowCount?: number
 }
 
 export type SqlQueryExecutor = {
@@ -64,6 +65,56 @@ export class AccountRepository {
     displayName: string,
   ): Promise<AccountProfileRecord | null> {
     return this.getDataSource().updateDisplayName(userId, displayName)
+  }
+
+  async deleteAccount(userId: string): Promise<boolean> {
+    const query: SqlQuery = {
+      text: `
+        UPDATE users
+        SET deleted_at = NOW(),
+            updated_at = NOW()
+        WHERE id = $1
+          AND deleted_at IS NULL
+        RETURNING id;
+      `,
+      values: [userId],
+    }
+
+    const result = await this.getQueryExecutor().query<{ id: string }>(query)
+
+    if (typeof result.rowCount === 'number') {
+      return result.rowCount > 0
+    }
+
+    return result.rows.length > 0
+  }
+
+  async invalidateSessions(userId: string): Promise<void> {
+    const query: SqlQuery = {
+      text: `
+        DELETE FROM "session"
+        WHERE "userId" = $1;
+      `,
+      values: [userId],
+    }
+
+    await this.getQueryExecutor().query(query)
+  }
+
+  async cancelUpcomingInterviews(userId: string): Promise<void> {
+    const query: SqlQuery = {
+      text: `
+        UPDATE interviews
+        SET status = 'cancelled',
+            updated_at = NOW()
+        WHERE status = 'scheduled'
+          AND scheduled_at > NOW()
+          AND (scheduler_id = $1 OR interviewer_id = $1);
+      `,
+      values: [userId],
+    }
+
+    await this.getQueryExecutor().query(query)
   }
 
   async getCompaniesByUserId(userId: string): Promise<UserCompany[]> {

@@ -2,12 +2,12 @@ import { z } from 'zod'
 
 export const accountProfileSchema = z.object({
   id: z.string().min(1),
-  email: z.email(),
+  email: z.string().email(),
   displayName: z.string().min(1),
   credits: z.number().int().nonnegative(),
   freeStandardInterviews: z.number().int().nonnegative(),
   freeAiInterviews: z.number().int().nonnegative(),
-  createdAt: z.iso.datetime(),
+  createdAt: z.string().datetime(),
 })
 
 export const updateAccountProfileInputSchema = z.object({

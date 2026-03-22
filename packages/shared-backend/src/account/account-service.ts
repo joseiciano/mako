@@ -1,4 +1,5 @@
 import type { AccountProfile, UpdateAccountProfileInput } from '@mako/shared'
+import type { DeleteAccountResponse } from './types'
 import { AccountRepository } from './account-repository'
 import {
   AccountNotFoundError,
@@ -10,8 +11,14 @@ import {
   type UserCompany,
 } from './types'
 
+export type AccountCleanupWorkflow = (userId: string) => Promise<void>
+
 export class AccountService {
-  constructor(private readonly accountRepository: AccountRepository) {}
+  constructor(
+    private readonly accountRepository: AccountRepository,
+    private readonly runAccountCleanupWorkflow: AccountCleanupWorkflow =
+      async function noopCleanupWorkflow() {},
+  ) {}
 
   async getAccount(session: AccountSession | null): Promise<AccountProfile> {
     const userSession = this.requireSession(session)
@@ -40,6 +47,31 @@ export class AccountService {
     }
 
     return updatedAccount
+  }
+
+  async deleteAccount(
+    session: AccountSession | null,
+  ): Promise<DeleteAccountResponse> {
+    const userSession = this.requireSession(session)
+    const didDeleteAccount = await this.accountRepository.deleteAccount(
+      userSession.userId,
+    )
+
+    if (!didDeleteAccount) {
+      throw new AccountNotFoundError(
+        'Unable to delete account because it does not exist or is already deleted.',
+      )
+    }
+
+    await Promise.all([
+      this.accountRepository.invalidateSessions(userSession.userId),
+      this.accountRepository.cancelUpcomingInterviews(userSession.userId),
+      this.runAccountCleanupWorkflow(userSession.userId),
+    ])
+
+    return {
+      success: true,
+    }
   }
 
   async getCompaniesByUserId(session: AccountSession | null): Promise<UserCompany[]> {

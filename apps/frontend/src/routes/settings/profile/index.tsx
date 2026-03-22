@@ -1,10 +1,6 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { ProfileSmart } from './-profile-smart'
+import { Profile } from './profile-smart'
 
 export const Route = createFileRoute('/settings/profile/')({
-  component: SettingsProfileRoute,
+  component: Profile,
 })
-
-function SettingsProfileRoute() {
-  return <ProfileSmart />
-}

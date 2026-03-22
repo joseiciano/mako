@@ -1,3 +1,6 @@
+import type {
+  DeleteAccountResponse,
+} from '@mako/shared'
 import {
   accountProfileSchema,
   updateAccountProfileInputSchema,
@@ -268,4 +271,40 @@ function readErrorMessage(payload: unknown, fallbackMessage: string): string {
   }
 
   return fallbackMessage
+}
+
+export function useDeleteAccount(): UseMutationResult<
+  DeleteAccountResponse,
+  Error,
+  void
+> {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: function deleteAccountMutation() {
+      return deleteAccount()
+    },
+    onSuccess: async function onDeleteSuccess() {
+      queryClient.removeQueries({ queryKey: accountQueryKey })
+      queryClient.removeQueries({ queryKey: accountCompaniesQueryKey })
+      await queryClient.cancelQueries()
+    },
+  })
+}
+
+export async function deleteAccount(
+  fetchImpl: typeof fetch = fetch,
+): Promise<DeleteAccountResponse> {
+  const response = await fetchImpl('/api/account', {
+    method: 'DELETE',
+    headers: demoSessionHeaders,
+  })
+
+  const payload = await parseResponse(response)
+
+  if (!response.ok) {
+    throw new Error(readErrorMessage(payload, 'Unable to delete account.'))
+  }
+
+  return payload as DeleteAccountResponse
 }

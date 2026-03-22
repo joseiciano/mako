@@ -5,7 +5,7 @@ export {
   type QueryResult,
   type SqlQueryExecutor,
 } from './account-repository'
-export { AccountService } from './account-service'
+export { AccountService, type AccountCleanupWorkflow } from './account-service'
 export {
   createHeaderSessionResolver,
   registerAccountController,
@@ -20,6 +20,7 @@ export {
   addCompanyResponseSchema,
   authenticatedUserIdSchema,
   companyNameSchema,
+  deleteAccountResponseSchema,
   getCompaniesResponseSchema,
   joinedDateInputSchema,
   toUserCompany,
@@ -28,6 +29,7 @@ export {
   type AccountProfileRecord,
   type AccountSession,
   type AddCompanyResponse,
+  type DeleteAccountResponse,
   type GetCompaniesResponse,
   type UserCompany,
   type UserCompanyRow,

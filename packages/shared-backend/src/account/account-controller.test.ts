@@ -49,7 +49,7 @@ describe('AccountController', function accountControllerSuite() {
   })
 
   it('GET /api/account returns 401 when session is invalid', async function run() {
-    const app = new Hono<{ Bindings: Record<string, unknown> }>()
+    const app = new Hono<{ Bindings: TestBindings }>()
     const accountService = new AccountService(
       new AccountRepository(createInMemoryAccountDataSource([])),
     )
@@ -68,6 +68,38 @@ describe('AccountController', function accountControllerSuite() {
 
     expect(response.status).toBe(401)
     expect(payload.error).toBe('You must be authenticated to access this resource.')
+  })
+
+  it('DELETE /api/account returns 401 without authenticated session', async function run() {
+    const app = createDeletionApp({
+      resolveSession: function resolveSession() {
+        return null
+      },
+    })
+
+    const response = await app.request('/api/account', {
+      method: 'DELETE',
+    })
+
+    expect(response.status).toBe(401)
+    await expect(response.json()).resolves.toEqual({
+      error: 'You must be authenticated to access this resource.',
+    })
+  })
+
+  it('DELETE /api/account deletes authenticated account', async function run() {
+    const app = createDeletionApp()
+
+    const response = await app.request('/api/account', {
+      method: 'DELETE',
+      headers: {
+        'x-user-id': authenticatedUserId,
+        'x-user-email': 'user@mako.dev',
+      },
+    })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({ success: true })
   })
 
   it('returns unauthorized without session for companies', async function shouldRejectUnauthedCalls() {
@@ -190,6 +222,38 @@ function createAccountApp() {
   return app
 }
 
+function createDeletionApp(options?: {
+  resolveSession?: Parameters<typeof registerAccountController<TestBindings>>[1]['resolveSession']
+}) {
+  const app = new Hono<{ Bindings: TestBindings }>()
+  const accountService = new AccountService(
+    new AccountRepository({
+      queryExecutor: createDeleteQueryExecutor(),
+      dataSource: createInMemoryAccountDataSource([]),
+    }),
+  )
+
+  registerAccountController(app, {
+    createService: function createService() {
+      return accountService
+    },
+    resolveSession:
+      options?.resolveSession ??
+      function resolveSession(context) {
+        const userId = context.req.header('x-user-id')
+        const email = context.req.header('x-user-email')
+
+        if (!userId || !email) {
+          return null
+        }
+
+        return { userId, email }
+      },
+  })
+
+  return app
+}
+
 function createCompaniesApp() {
   const app = new Hono<{ Bindings: TestBindings }>()
   const accountService = new AccountService(
@@ -216,6 +280,22 @@ function createCompaniesApp() {
   })
 
   return app
+}
+
+function createDeleteQueryExecutor(): SqlQueryExecutor {
+  return {
+    async query<Row>(queryInput: SqlQuery) {
+      if (queryInput.text.includes('UPDATE users')) {
+        return {
+          rows: [{ id: authenticatedUserId }] as Row[],
+        }
+      }
+
+      return {
+        rows: [] as Row[],
+      }
+    },
+  }
 }
 
 function createCompanyQueryExecutor(): SqlQueryExecutor {
