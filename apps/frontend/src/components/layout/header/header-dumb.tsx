@@ -15,6 +15,8 @@ export type HeaderDumbProps = {
   breadcrumbs: BreadcrumbItem[]
   navigation: ReactNode
   userName: string
+  isMobileNavOpen?: boolean
+  onOpenMobileNav?: () => void
 }
 
 const headerActionButtonClassName =
@@ -23,14 +25,15 @@ const headerActionButtonClassName =
 export function HeaderDumb(props: HeaderDumbProps) {
   return (
     <header className="sticky top-0 z-20 border-b border-slate-800 bg-slate-950/95 backdrop-blur">
-      <div className="flex h-16 items-center justify-between gap-3 px-4 sm:gap-4 sm:px-6">
+      <div className="flex h-16 items-center justify-between gap-3 px-4 sm:gap-4 sm:px-6 lg:px-10">
         <div className="flex min-w-0 items-center gap-3 sm:gap-4">
           <button
             type="button"
-            disabled
-            title="Mobile menu toggle will be implemented in story 1.7"
-            aria-label="Open mobile navigation menu (coming soon)"
-            className="inline-flex size-9 items-center justify-center rounded-md border border-slate-700 text-slate-400 transition-colors hover:border-slate-500 hover:text-white disabled:cursor-not-allowed disabled:hover:border-slate-700 disabled:hover:text-slate-400 lg:hidden"
+            aria-controls="mobile-navigation-drawer"
+            aria-expanded={props.isMobileNavOpen ?? false}
+            aria-label="Open navigation menu"
+            onClick={props.onOpenMobileNav}
+            className="inline-flex size-9 items-center justify-center rounded-md border border-slate-700 text-slate-200 transition-colors hover:border-slate-500 hover:text-white lg:hidden"
           >
             ☰
           </button>
