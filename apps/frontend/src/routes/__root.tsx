@@ -4,7 +4,6 @@ import {
   Scripts,
   createRootRoute,
 } from '@tanstack/react-router'
-import { AppShell } from '#/components/layout/app-shell'
 import { QueryClientProvider } from '@tanstack/react-query'
 
 import appCss from '../styles.css?url'
@@ -48,9 +47,7 @@ function RootDocument() {
       </head>
       <body className="bg-slate-950 text-slate-100 antialiased">
         <QueryClientProvider client={queryClient}>
-          <AppShell>
-            <Outlet />
-          </AppShell>
+          <Outlet />
         </QueryClientProvider>
         <Scripts />
       </body>
