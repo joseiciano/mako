@@ -1,6 +1,9 @@
 import { renderToString } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { CORE_NAV_ITEMS } from '../navigation/nav-items'
+import {
+  CORE_NAV_ITEMS,
+  isCoreNavigationItemActive,
+} from '../navigation/nav-items'
 import { MobileNavDumb } from './mobile-nav-dumb'
 
 describe('mobile-nav-dumb', function () {
@@ -9,6 +12,8 @@ describe('mobile-nav-dumb', function () {
       <MobileNavDumb
         isOpen={false}
         navigationItems={CORE_NAV_ITEMS}
+        pathname="/dashboard"
+        isItemActive={isCoreNavigationItemActive}
         onClose={function onClose() {}}
       />,
     )
@@ -22,6 +27,8 @@ describe('mobile-nav-dumb', function () {
         isOpen
         title="Dashboard"
         navigationItems={CORE_NAV_ITEMS}
+        pathname="/dashboard"
+        isItemActive={isCoreNavigationItemActive}
         onClose={function onClose() {}}
       />,
     )
