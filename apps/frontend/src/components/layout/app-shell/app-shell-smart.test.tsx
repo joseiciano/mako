@@ -7,6 +7,22 @@ vi.mock('@tanstack/react-router', function mockTanstackRouter() {
     useRouterState: function useRouterState() {
       return '/dashboard'
     },
+    useNavigate: function useNavigate() {
+      return vi.fn()
+    },
+  }
+})
+
+vi.mock('#/hooks/use-auth', function mockUseAuth() {
+  return {
+    useAuth: function useAuth() {
+      return {
+        session: { id: 'test-session' },
+        user: { id: 'test-user' },
+        isPending: false,
+        error: null,
+      }
+    },
   }
 })
 
