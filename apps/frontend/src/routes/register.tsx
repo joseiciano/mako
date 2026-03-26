@@ -1,7 +1,10 @@
-import { createFileRoute, redirect } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
+import { SignupSmart } from './auth/signup/signup-smart'
 
 export const Route = createFileRoute('/register')({
-  beforeLoad: function redirectToAuthSignup() {
-    throw redirect({ to: '/auth/signup' })
-  },
+  component: RegisterPage,
 })
+
+function RegisterPage() {
+  return <SignupSmart />
+}

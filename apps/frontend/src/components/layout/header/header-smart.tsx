@@ -11,6 +11,8 @@ export type HeaderProps = {
   userName: string
   isMobileNavOpen?: boolean
   onOpenMobileNav?: () => void
+  isSigningOut?: boolean
+  onSignOut?: () => void
 }
 
 const routeTitleMap: Record<string, string> = {
@@ -81,6 +83,8 @@ export function Header(props: HeaderProps) {
       userName={props.userName}
       isMobileNavOpen={props.isMobileNavOpen}
       onOpenMobileNav={props.onOpenMobileNav}
+      isSigningOut={props.isSigningOut}
+      onSignOut={props.onSignOut}
     />
   )
 }

@@ -83,7 +83,7 @@ export function LoginDumb(props: LoginDumbProps) {
 
         <p className="mt-6 text-sm text-slate-300">
           New to Mako?{' '}
-          <a href="/auth/signup" className="font-semibold text-emerald-300">
+          <a href="/register" className="font-semibold text-emerald-300">
             Create an account
           </a>
           .

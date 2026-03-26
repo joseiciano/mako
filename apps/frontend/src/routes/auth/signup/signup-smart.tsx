@@ -1,11 +1,12 @@
-import { authClient } from '@mako/shared-frontend'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { useState, type FormEvent } from 'react'
 import {
   getAuthErrorMessage,
   handleAuthSuccess,
+  throwIfAuthResultHasError,
 } from '#/routes/auth/shared/auth-flow'
+import { authClient } from '#/lib/auth-client'
 import {
   SignupDumb,
   type SignupFormErrors,
@@ -43,7 +44,6 @@ export function hasSignupErrors(errors: SignupFormErrors): boolean {
 }
 
 export function SignupSmart() {
-  const queryClient = useQueryClient()
   const navigate = useNavigate()
 
   const [values, setValues] = useState<SignupFormValues>({
@@ -55,11 +55,14 @@ export function SignupSmart() {
   const [formError, setFormError] = useState<string | null>(null)
 
   const signupMutation = useMutation({
-    mutationFn: function signUpWithEmail(input: SignupFormValues) {
-      return authClient.signUp.email(input)
+    mutationFn: async function signUpWithEmail(input: SignupFormValues) {
+      const result = await authClient.signUp.email(input)
+      throwIfAuthResultHasError(result)
+
+      return result
     },
     onSuccess: async function onSignupSuccess() {
-      await handleAuthSuccess(queryClient, function navigateToDashboard(path) {
+      await handleAuthSuccess(function navigateToDashboard(path) {
         return navigate({ to: path })
       })
     },

@@ -102,7 +102,7 @@ export function SignupDumb(props: SignupDumbProps) {
 
         <p className="mt-6 text-sm text-slate-300">
           Already have an account?{' '}
-          <a href="/auth/login" className="font-semibold text-emerald-300">
+          <a href="/login" className="font-semibold text-emerald-300">
             Log in
           </a>
           .
