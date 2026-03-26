@@ -1,7 +1,8 @@
+import { useNavigate, useRouterState } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 import { useEffect, useState } from 'react'
-import { useRouterState } from '@tanstack/react-router'
 import { Header, getRouteHeaderContent } from '#/components/layout/header'
+import { useAuth } from '#/hooks/use-auth'
 import { AppShellDumb } from './app-shell-dumb'
 import { MobileNavDumb } from '../mobile-nav/mobile-nav-dumb'
 import {
@@ -15,13 +16,47 @@ export type AppShellProps = {
   userName?: string
 }
 
+export type RedirectToLoginState = {
+  session: unknown | null
+  isSessionPending: boolean
+}
+
+export function shouldRedirectToLogin(state: RedirectToLoginState): boolean {
+  if (state.isSessionPending) {
+    return false
+  }
+
+  return state.session === null
+}
+
 export function AppShell(props: AppShellProps) {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false)
+  const navigate = useNavigate()
   const pathname = useRouterState({
     select: function selectPathname(state) {
       return state.location.pathname
     },
   })
+  const { isPending: isSessionPending, session } = useAuth()
+
+  const redirectToLogin = shouldRedirectToLogin({
+    session,
+    isSessionPending,
+  })
+
+  useEffect(
+    function redirectMissingSession() {
+      if (!redirectToLogin) {
+        return
+      }
+
+      void navigate({
+        to: '/login',
+        replace: true,
+      })
+    },
+    [navigate, redirectToLogin],
+  )
 
   useEffect(
     function closeMobileNavigationOnRouteChange() {
@@ -49,6 +84,7 @@ export function AppShell(props: AppShellProps) {
           isItemActive={isCoreNavigationItemActive}
         />
       }
+      isAuthLoading={isSessionPending || redirectToLogin}
       header={
         <Header
           pathname={pathname}
