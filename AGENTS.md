@@ -62,6 +62,8 @@ Reference `../docs/infrastructure/frontend.md` for frontend services.
 
 **NOTE**: We are speaking to our postgres database directly with SQL queries, speaking to it with Cloudflare Hyperdrive. We are not, and never will be using an orm. Never recommend an orm, never use an orm, never mention an orm.
 
+**NOTE**: If we ever need to add a new service that requires a new secret to be added to our github deployment actions, update `./scripts/set-github-env-secrets.sh` to include this new value. This script is to be used to manually setup the secrets, as well as to act as documentation for what is needed. 
+
 ## Git
 
 Reference `./docs/system/system-design/ci-cd.md` on how to use Git and create Pull Requests

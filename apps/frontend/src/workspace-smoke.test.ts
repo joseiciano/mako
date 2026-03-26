@@ -8,7 +8,7 @@ describe('frontend workspace smoke tests', function () {
     const renderHomePage = Route.options.component as () => ReactElement
     const html = renderToString(renderHomePage())
 
-    expect(html).toContain('Mako Frontend')
+    expect(html).toContain('Mako Interview Practice')
     expect(html).toContain('frontend • ok')
   })
 })

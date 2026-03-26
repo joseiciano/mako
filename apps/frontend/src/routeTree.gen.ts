@@ -11,10 +11,13 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as DashboardIndexRouteImport } from './routes/dashboard/index'
-import { Route as AuthSignupIndexRouteImport } from './routes/auth/signup/index'
-import { Route as AuthLoginIndexRouteImport } from './routes/auth/login/index'
+import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated.settings'
+import { Route as AuthenticatedInterviewsRouteImport } from './routes/_authenticated.interviews'
+import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated.dashboard'
+import { Route as AuthenticatedBillingRouteImport } from './routes/_authenticated.billing'
+import { Route as AuthenticatedSettingsProfileRouteImport } from './routes/_authenticated.settings.profile'
 
 const RegisterRoute = RegisterRouteImport.update({
   id: '/register',
@@ -26,51 +29,73 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AuthenticatedRoute = AuthenticatedRouteImport.update({
+  id: '/_authenticated',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
-const DashboardIndexRoute = DashboardIndexRouteImport.update({
-  id: '/dashboard/',
-  path: '/dashboard/',
-  getParentRoute: () => rootRouteImport,
+const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AuthenticatedRoute,
 } as any)
-const AuthSignupIndexRoute = AuthSignupIndexRouteImport.update({
-  id: '/auth/signup/',
-  path: '/auth/signup/',
-  getParentRoute: () => rootRouteImport,
+const AuthenticatedInterviewsRoute = AuthenticatedInterviewsRouteImport.update({
+  id: '/interviews',
+  path: '/interviews',
+  getParentRoute: () => AuthenticatedRoute,
 } as any)
-const AuthLoginIndexRoute = AuthLoginIndexRouteImport.update({
-  id: '/auth/login/',
-  path: '/auth/login/',
-  getParentRoute: () => rootRouteImport,
+const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
+  id: '/dashboard',
+  path: '/dashboard',
+  getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedBillingRoute = AuthenticatedBillingRouteImport.update({
+  id: '/billing',
+  path: '/billing',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedSettingsProfileRoute =
+  AuthenticatedSettingsProfileRouteImport.update({
+    id: '/profile',
+    path: '/profile',
+    getParentRoute: () => AuthenticatedSettingsRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
-  '/dashboard/': typeof DashboardIndexRoute
-  '/auth/login/': typeof AuthLoginIndexRoute
-  '/auth/signup/': typeof AuthSignupIndexRoute
+  '/billing': typeof AuthenticatedBillingRoute
+  '/dashboard': typeof AuthenticatedDashboardRoute
+  '/interviews': typeof AuthenticatedInterviewsRoute
+  '/settings': typeof AuthenticatedSettingsRouteWithChildren
+  '/settings/profile': typeof AuthenticatedSettingsProfileRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
-  '/dashboard': typeof DashboardIndexRoute
-  '/auth/login': typeof AuthLoginIndexRoute
-  '/auth/signup': typeof AuthSignupIndexRoute
+  '/billing': typeof AuthenticatedBillingRoute
+  '/dashboard': typeof AuthenticatedDashboardRoute
+  '/interviews': typeof AuthenticatedInterviewsRoute
+  '/settings': typeof AuthenticatedSettingsRouteWithChildren
+  '/settings/profile': typeof AuthenticatedSettingsProfileRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
-  '/dashboard/': typeof DashboardIndexRoute
-  '/auth/login/': typeof AuthLoginIndexRoute
-  '/auth/signup/': typeof AuthSignupIndexRoute
+  '/_authenticated/billing': typeof AuthenticatedBillingRoute
+  '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
+  '/_authenticated/interviews': typeof AuthenticatedInterviewsRoute
+  '/_authenticated/settings': typeof AuthenticatedSettingsRouteWithChildren
+  '/_authenticated/settings/profile': typeof AuthenticatedSettingsProfileRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -78,34 +103,39 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/register'
-    | '/dashboard/'
-    | '/auth/login/'
-    | '/auth/signup/'
+    | '/billing'
+    | '/dashboard'
+    | '/interviews'
+    | '/settings'
+    | '/settings/profile'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/login'
     | '/register'
+    | '/billing'
     | '/dashboard'
-    | '/auth/login'
-    | '/auth/signup'
+    | '/interviews'
+    | '/settings'
+    | '/settings/profile'
   id:
     | '__root__'
     | '/'
+    | '/_authenticated'
     | '/login'
     | '/register'
-    | '/dashboard/'
-    | '/auth/login/'
-    | '/auth/signup/'
+    | '/_authenticated/billing'
+    | '/_authenticated/dashboard'
+    | '/_authenticated/interviews'
+    | '/_authenticated/settings'
+    | '/_authenticated/settings/profile'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
   LoginRoute: typeof LoginRoute
   RegisterRoute: typeof RegisterRoute
-  DashboardIndexRoute: typeof DashboardIndexRoute
-  AuthLoginIndexRoute: typeof AuthLoginIndexRoute
-  AuthSignupIndexRoute: typeof AuthSignupIndexRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -124,6 +154,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_authenticated': {
+      id: '/_authenticated'
+      path: ''
+      fullPath: '/'
+      preLoaderRoute: typeof AuthenticatedRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/': {
       id: '/'
       path: '/'
@@ -131,37 +168,80 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/dashboard/': {
-      id: '/dashboard/'
+    '/_authenticated/settings': {
+      id: '/_authenticated/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AuthenticatedSettingsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/interviews': {
+      id: '/_authenticated/interviews'
+      path: '/interviews'
+      fullPath: '/interviews'
+      preLoaderRoute: typeof AuthenticatedInterviewsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/dashboard': {
+      id: '/_authenticated/dashboard'
       path: '/dashboard'
-      fullPath: '/dashboard/'
-      preLoaderRoute: typeof DashboardIndexRouteImport
-      parentRoute: typeof rootRouteImport
+      fullPath: '/dashboard'
+      preLoaderRoute: typeof AuthenticatedDashboardRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/auth/signup/': {
-      id: '/auth/signup/'
-      path: '/auth/signup'
-      fullPath: '/auth/signup/'
-      preLoaderRoute: typeof AuthSignupIndexRouteImport
-      parentRoute: typeof rootRouteImport
+    '/_authenticated/billing': {
+      id: '/_authenticated/billing'
+      path: '/billing'
+      fullPath: '/billing'
+      preLoaderRoute: typeof AuthenticatedBillingRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
-    '/auth/login/': {
-      id: '/auth/login/'
-      path: '/auth/login'
-      fullPath: '/auth/login/'
-      preLoaderRoute: typeof AuthLoginIndexRouteImport
-      parentRoute: typeof rootRouteImport
+    '/_authenticated/settings/profile': {
+      id: '/_authenticated/settings/profile'
+      path: '/profile'
+      fullPath: '/settings/profile'
+      preLoaderRoute: typeof AuthenticatedSettingsProfileRouteImport
+      parentRoute: typeof AuthenticatedSettingsRoute
     }
   }
 }
 
+interface AuthenticatedSettingsRouteChildren {
+  AuthenticatedSettingsProfileRoute: typeof AuthenticatedSettingsProfileRoute
+}
+
+const AuthenticatedSettingsRouteChildren: AuthenticatedSettingsRouteChildren = {
+  AuthenticatedSettingsProfileRoute: AuthenticatedSettingsProfileRoute,
+}
+
+const AuthenticatedSettingsRouteWithChildren =
+  AuthenticatedSettingsRoute._addFileChildren(
+    AuthenticatedSettingsRouteChildren,
+  )
+
+interface AuthenticatedRouteChildren {
+  AuthenticatedBillingRoute: typeof AuthenticatedBillingRoute
+  AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
+  AuthenticatedInterviewsRoute: typeof AuthenticatedInterviewsRoute
+  AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRouteWithChildren
+}
+
+const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
+  AuthenticatedBillingRoute: AuthenticatedBillingRoute,
+  AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
+  AuthenticatedInterviewsRoute: AuthenticatedInterviewsRoute,
+  AuthenticatedSettingsRoute: AuthenticatedSettingsRouteWithChildren,
+}
+
+const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
+  AuthenticatedRouteChildren,
+)
+
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  AuthenticatedRoute: AuthenticatedRouteWithChildren,
   LoginRoute: LoginRoute,
   RegisterRoute: RegisterRoute,
-  DashboardIndexRoute: DashboardIndexRoute,
-  AuthLoginIndexRoute: AuthLoginIndexRoute,
-  AuthSignupIndexRoute: AuthSignupIndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

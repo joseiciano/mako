@@ -1,93 +1,33 @@
 import { describe, expect, it, vi } from 'vitest'
-import {
-  AuthClientError,
-  createAuthClient,
-  type AuthSessionPayload,
-} from './auth-client'
 
-describe('authClient', function () {
-  it('calls sign-up endpoint with email payload', async function () {
-    const expectedPayload: AuthSessionPayload = {
-      user: {
-        email: 'jose@example.com',
-        name: 'Jose',
-      },
-      session: {
-        id: 'session_123',
-      },
-    }
+const createAuthClientMock = vi.fn()
 
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response(JSON.stringify(expectedPayload), {
-        status: 200,
-      }),
-    )
+vi.mock('better-auth/react', function () {
+  return {
+    createAuthClient: createAuthClientMock,
+  }
+})
 
-    const client = createAuthClient(fetchMock)
+describe('auth client', function () {
+  it('creates the shared auth client with default options', async function () {
+    createAuthClientMock.mockReturnValue({ getSession: vi.fn() })
 
-    const result = await client.signUp.email({
-      name: 'Jose',
-      email: 'jose@example.com',
-      password: 'password123',
-    })
+    const module = await import('./auth-client')
 
-    expect(result).toEqual(expectedPayload)
-    expect(fetchMock).toHaveBeenCalledWith('/api/auth/sign-up', {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-      },
-      body: JSON.stringify({
-        name: 'Jose',
-        email: 'jose@example.com',
-        password: 'password123',
-      }),
-      credentials: 'include',
-    })
+    expect(module.authClient).toBeDefined()
+    expect(createAuthClientMock).toHaveBeenCalledWith({})
   })
 
-  it('throws an AuthClientError for failed auth requests', async function () {
-    expect.assertions(2)
+  it('allows creating a client with a custom base URL', async function () {
+    createAuthClientMock.mockClear()
+    createAuthClientMock.mockReturnValue({ getSession: vi.fn() })
 
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response(JSON.stringify({ message: 'Invalid credentials' }), {
-        status: 401,
-      }),
-    )
+    const module = await import('./auth-client')
 
-    const client = createAuthClient(fetchMock)
+    module.createMakoAuthClient({ baseURL: 'http://localhost:8787' })
 
-    try {
-      await client.signIn.email({
-        email: 'jose@example.com',
-        password: 'wrong-password',
-      })
-    } catch (error) {
-      expect(error).toBeInstanceOf(AuthClientError)
-      expect(error).toMatchObject({
-        message: 'Invalid credentials',
-        status: 401,
-      })
-    }
-  })
-
-  it('returns null when the session endpoint responds with null', async function () {
-    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response('null', {
-        status: 200,
-      }),
-    )
-
-    const client = createAuthClient(fetchMock)
-
-    const session = await client.getSession()
-
-    expect(session).toBeNull()
-    expect(fetchMock).toHaveBeenCalledWith('/api/auth/get-session', {
-      method: 'GET',
-      headers: undefined,
-      body: undefined,
-      credentials: 'include',
+    expect(createAuthClientMock).toHaveBeenCalledWith({
+      baseURL: 'http://localhost:8787',
     })
   })
 })

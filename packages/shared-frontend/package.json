@@ -15,7 +15,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@mako/shared": "workspace:*"
+    "@mako/shared": "workspace:*",
+    "better-auth": "latest"
   },
   "devDependencies": {
     "typescript": "^5.8.2"

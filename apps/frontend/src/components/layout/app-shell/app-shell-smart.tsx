@@ -1,52 +1,114 @@
-import { authClient } from '@mako/shared-frontend'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { useNavigate } from '@tanstack/react-router'
+import { useNavigate, useRouterState } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
+import { useEffect, useState } from 'react'
+import { Header, getRouteHeaderContent } from '#/components/layout/header'
 import { useAuth } from '#/hooks/use-auth'
-import {
-  getAuthErrorMessage,
-  handleSignOutSuccess,
-} from '#/routes/auth/shared/auth-flow'
 import { AppShellDumb } from './app-shell-dumb'
+import { MobileNavDumb } from '../mobile-nav/mobile-nav-dumb'
+import {
+  CORE_NAV_ITEMS,
+  isCoreNavigationItemActive,
+} from '../navigation/nav-items'
+import { SidebarDumb } from '../sidebar/sidebar-dumb'
 
-type AppShellProps = {
-  pageTitle: string
+export type AppShellProps = {
   children: ReactNode
+  userName?: string
+}
+
+export type RedirectToLoginState = {
+  session: unknown | null
+  isSessionPending: boolean
+}
+
+export function shouldRedirectToLogin(state: RedirectToLoginState): boolean {
+  if (state.isSessionPending) {
+    return false
+  }
+
+  return state.session === null
 }
 
 export function AppShell(props: AppShellProps) {
-  const queryClient = useQueryClient()
+  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false)
   const navigate = useNavigate()
-  const auth = useAuth()
-
-  const signOutMutation = useMutation({
-    mutationFn: function signOut() {
-      return authClient.signOut()
-    },
-    onSuccess: async function onSignOutSuccess() {
-      await handleSignOutSuccess(queryClient, function navigateToLogin(path) {
-        return navigate({ to: path })
-      })
+  const pathname = useRouterState({
+    select: function selectPathname(state) {
+      return state.location.pathname
     },
   })
+  const { isPending: isSessionPending, session } = useAuth()
+
+  const redirectToLogin = shouldRedirectToLogin({
+    session,
+    isSessionPending,
+  })
+
+  useEffect(
+    function redirectMissingSession() {
+      if (!redirectToLogin) {
+        return
+      }
+
+      void navigate({
+        to: '/login',
+        replace: true,
+      })
+    },
+    [navigate, redirectToLogin],
+  )
+
+  useEffect(
+    function closeMobileNavigationOnRouteChange() {
+      setIsMobileNavOpen(false)
+    },
+    [pathname],
+  )
+
+  function openMobileNav() {
+    setIsMobileNavOpen(true)
+  }
+
+  function closeMobileNav() {
+    setIsMobileNavOpen(false)
+  }
+
+  const headerContent = getRouteHeaderContent(pathname)
 
   return (
-    <>
-      <AppShellDumb
-        pageTitle={props.pageTitle}
-        userName={auth.user?.name ?? auth.user?.email ?? 'Account'}
-        isSigningOut={signOutMutation.isPending}
-        onSignOut={function onSignOut() {
-          signOutMutation.mutate()
-        }}
-      >
-        {props.children}
-      </AppShellDumb>
-      {signOutMutation.error ? (
-        <p className="fixed bottom-6 right-6 rounded-lg border border-rose-900 bg-rose-950/90 px-4 py-2 text-sm text-rose-200 shadow-xl shadow-slate-950/40">
-          {getAuthErrorMessage(signOutMutation.error)}
-        </p>
-      ) : null}
-    </>
+    <AppShellDumb
+      sidebar={
+        <SidebarDumb
+          navigationItems={CORE_NAV_ITEMS}
+          pathname={pathname}
+          isItemActive={isCoreNavigationItemActive}
+        />
+      }
+      isAuthLoading={isSessionPending || redirectToLogin}
+      header={
+        <Header
+          pathname={pathname}
+          userName={props.userName ?? 'Mako User'}
+          navigation={null}
+          isMobileNavOpen={isMobileNavOpen}
+          onOpenMobileNav={openMobileNav}
+        />
+      }
+      mobileNavigation={
+        <MobileNavDumb
+          isOpen={isMobileNavOpen}
+          navigationItems={CORE_NAV_ITEMS}
+          onClose={closeMobileNav}
+          title={headerContent.title}
+          pathname={pathname}
+          isItemActive={isCoreNavigationItemActive}
+        />
+      }
+    >
+      {props.children}
+    </AppShellDumb>
   )
 }
+
+export type AppShellSmartProps = AppShellProps
+export const AppShellSmart = AppShell
