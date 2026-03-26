@@ -17,6 +17,8 @@ export type HeaderDumbProps = {
   userName: string
   isMobileNavOpen?: boolean
   onOpenMobileNav?: () => void
+  isSigningOut?: boolean
+  onSignOut?: () => void
 }
 
 const headerActionButtonClassName =
@@ -104,9 +106,11 @@ export function HeaderDumb(props: HeaderDumbProps) {
               </a>
               <button
                 type="button"
+                onClick={props.onSignOut}
+                disabled={props.isSigningOut}
                 className="mt-1 w-full rounded-md px-3 py-2 text-left text-sm text-rose-300 transition-colors hover:bg-rose-950/40 hover:text-rose-200"
               >
-                Logout
+                {props.isSigningOut ? 'Signing out...' : 'Logout'}
               </button>
             </div>
           </details>

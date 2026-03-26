@@ -2,6 +2,18 @@ import { renderToString } from 'react-dom/server'
 import { describe, expect, it, vi } from 'vitest'
 import { AppShellSmart } from './app-shell-smart'
 
+vi.mock('@tanstack/react-query', function mockReactQuery() {
+  return {
+    useMutation: function useMutation() {
+      return {
+        isPending: false,
+        error: null,
+        mutate: vi.fn(),
+      }
+    },
+  }
+})
+
 vi.mock('@tanstack/react-router', function mockTanstackRouter() {
   return {
     useRouterState: function useRouterState() {
@@ -22,6 +34,14 @@ vi.mock('#/hooks/use-auth', function mockUseAuth() {
         isPending: false,
         error: null,
       }
+    },
+  }
+})
+
+vi.mock('#/lib/auth-client', function mockAuthClient() {
+  return {
+    authClient: {
+      signOut: vi.fn(),
     },
   }
 })
