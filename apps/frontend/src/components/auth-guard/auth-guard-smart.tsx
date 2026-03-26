@@ -35,7 +35,7 @@ export function AuthGuardSmart(props: AuthGuardProps) {
 
   const viewState = resolveAuthGuardViewState({
     pathname: location.pathname,
-    isLoading: auth.isLoading,
+    isLoading: auth.isPending,
     isAuthenticated: auth.isAuthenticated,
   })
 

@@ -1,57 +1,33 @@
-import {
-  authClient,
-  type AuthClientSession,
-  type AuthClientSessionData,
-  type AuthClientUser,
-} from '@mako/shared-frontend'
-import { queryOptions, useQuery } from '@tanstack/react-query'
+import { authClient } from '../lib/auth-client'
 
-export const authSessionQueryKey = ['auth', 'session'] as const
-
-export async function fetchAuthSession(): Promise<AuthClientSessionData | null> {
-  const response = await authClient.getSession()
-
-  if (response.error) {
-    throw new Error(response.error.message)
-  }
-
-  return response.data ?? null
+type SessionPayload = {
+  session: unknown
+  user: unknown
 }
 
-export const authSessionQueryOptions = queryOptions({
-  queryKey: authSessionQueryKey,
-  queryFn: fetchAuthSession,
-  staleTime: 60_000,
-})
-
-export type AuthState = {
-  session: AuthClientSession | null
-  user: AuthClientUser | null
+export type UseAuthResult = {
+  session: unknown | null
+  user: unknown | null
+  isPending: boolean
   isAuthenticated: boolean
+  error: unknown
 }
 
-export function getAuthState(data: AuthClientSessionData | null): AuthState {
-  if (!data) {
-    return {
-      session: null,
-      user: null,
-      isAuthenticated: false,
-    }
-  }
-
+export function getAuthState(payload: SessionPayload | null | undefined) {
   return {
-    session: data.session,
-    user: data.user,
-    isAuthenticated: true,
+    session: payload?.session ?? null,
+    user: payload?.user ?? null,
+    isAuthenticated: payload?.session != null,
   }
 }
 
-export function useAuth() {
-  const query = useQuery(authSessionQueryOptions)
-  const authState = getAuthState(query.data ?? null)
+export function useAuth(): UseAuthResult {
+  const { data, error, isPending } = authClient.useSession()
+  const authState = getAuthState(data as SessionPayload | null | undefined)
 
   return {
-    ...query,
     ...authState,
+    isPending,
+    error: error ?? null,
   }
 }
