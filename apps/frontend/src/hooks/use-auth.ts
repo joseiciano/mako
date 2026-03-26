@@ -9,16 +9,24 @@ export type UseAuthResult = {
   session: unknown | null
   user: unknown | null
   isPending: boolean
+  isAuthenticated: boolean
   error: unknown
+}
+
+export function getAuthState(payload: SessionPayload | null | undefined) {
+  return {
+    session: payload?.session ?? null,
+    user: payload?.user ?? null,
+    isAuthenticated: payload?.session != null,
+  }
 }
 
 export function useAuth(): UseAuthResult {
   const { data, error, isPending } = authClient.useSession()
-  const sessionPayload = data as SessionPayload | null | undefined
+  const authState = getAuthState(data as SessionPayload | null | undefined)
 
   return {
-    session: sessionPayload?.session ?? null,
-    user: sessionPayload?.user ?? null,
+    ...authState,
     isPending,
     error: error ?? null,
   }
