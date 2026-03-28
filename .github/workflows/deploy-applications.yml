@@ -117,4 +117,4 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           packageManager: pnpm
           workingDirectory: apps/frontend
-          command: deploy --config wrangler.jsonc
+          command: deploy
