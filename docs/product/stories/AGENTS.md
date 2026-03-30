@@ -58,4 +58,4 @@ Story tickets must:
 2. Be small in scope. If you find that it's a lot of functionality for one ticket, break it down. 
 3. Be sequential. Milestone 2 should follow 1 in its naming, and so on. 
 4. Be detailed. Instead of saying "define X feature", when possible link the file that references it. For example, do not do "define the db table for users," instead do "define the db table defined in (link to file)." If it does not exist yet, mention that we need to detail it in the design documents first. 
-5. **Always** be checked to prevent drifts in details. Analyze previous stories, and design docs in `../../infastructure/` and `../system-pitch.md` to make sure that the stories are aligned with our detailed API routes, database schemas, and methodologies. 
+5. **Always** make sure story/subtasks are aligned with existing details. Always check previous stories, and design docs in `../../infastructure/` and `../system-pitch.md` to make sure that the stories are aligned with our detailed API routes, database schemas, and methodologies. **Note:** Do not put this as a separate subtask for a story, it should be done for each subtask as it is being written.  

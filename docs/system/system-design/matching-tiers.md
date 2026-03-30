@@ -1,9 +1,16 @@
-The system supports multiple interview "tiers" with a hierarchical credit cost structure:
+The system supports two scheduling channels, with account-level quota/credit policies controlling usage:
 
-- **Premium Tier**: Verified professional interviewer. Highest credit cost.
-- **Standard Tier (Availability Matching)**: Peer-to-peer matching between users.
+- **Standard (Availability Matching)**: Peer-to-peer matching between users.
     - **Logic**: Users provide availability in 60-minute "slots."
     - **Quotas**: Users can specify a maximum number of interviews (`max_matches`) they want to be matched for within a set of slots.
     - **Double-Blind**: Matching is performed by a background "Greedy Matcher" worker that finds overlapping slots and automatically creates sessions.
-    - **Credits**: Mid-range credit cost. Users receive a limited number of **free Standard sessions** upon account creation.
-- **AI-Led Tier**: Session led by AI. **Lowest credit cost**. Users receive a limited number of **free AI sessions** upon account creation.
+    - **Creation Path**: Standard peer-to-peer sessions are created by the matcher, not direct `POST /api/interviews` calls.
+
+- **AI-Led**: Session led by AI.
+    - **Creation Path**: Created directly through `POST /api/interviews`.
+    - **Immediate Mode**: `scheduled_at: 'now'` is valid for AI-led immediate sessions.
+
+- **Account Policy (Free/Premium, quotas, credits)**:
+    - Policy determines how many interviews an account can run (for example using `free_standard_interviews`, `free_ai_interviews`, and credit balance).
+    - "Premium" is currently a configurable limit-policy concept and does not introduce a separate scheduling path in Milestone 2 Interview CRUD.
+    - Limit values are configuration-driven and may be tuned over time without changing route shapes.

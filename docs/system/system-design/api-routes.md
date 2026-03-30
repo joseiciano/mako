@@ -27,13 +27,24 @@
 - **`GET /api/account`**
   - **Description**: Retrieves the current authenticated user's profile, credit balance, and remaining free interview quotas.
   - **Request Body**: None
-  - **Response Body**: `{ user: User, free_standard_remaining: number, free_ai_remaining: number }`
+  - **Response Body**:
+    ```json
+    {
+      "id": "uuid",
+      "email": "user@example.com",
+      "displayName": "Jane Candidate",
+      "credits": 8,
+      "freeStandardInterviews": 1,
+      "freeAiInterviews": 1,
+      "createdAt": "2026-01-01T00:00:00.000Z"
+    }
+    ```
   - **Query Params**: None
 
 - **`PATCH /api/account`**
-  - **Description**: Updates user profile information (name).
-  - **Request Body**: `{ name?: string }`
-  - **Response Body**: `{ user: User }`
+  - **Description**: Updates user profile information (display name).
+  - **Request Body**: `{ displayName: string }`
+  - **Response Body**: Same shape as `GET /api/account`.
   - **Query Params**: None
 
 - **`DELETE /api/account`**
@@ -70,11 +81,16 @@
 
 ### Interviews
 - **`POST /api/interviews`**
-  - **Description**: Schedules or initializes a new interview session (Peer-to-peer or AI-led).
+  - **Description**: Schedules or initializes a new interview session.
+  - **Current Milestone 2 Contract**:
+    - Direct creation is supported for **AI-led** sessions.
+    - Direct **peer-to-peer** creation is not supported; peer-to-peer Standard sessions are created by the Availability + Greedy Matcher flow.
+    - `tier` is treated as a limit-policy input (account/quota policy), not as a separate create flow.
+    - `interviewer_id` is out of scope for this route contract and must not be provided.
   - **Workflow**:
     - **Scheduled Sessions**: Triggers an immediate confirmation email and queues a reminder email for 30 minutes prior to the `scheduled_at` time.
-    - **Immediate AI Sessions**: If `mode: 'ai_led'` and `scheduled_at` is set to 'now', the session is provisioned immediately, and the user can join right away.
-  - **Request Body**: `{ type: 'system_design' | 'coding' | 'behavioral', mode: 'peer_to_peer' | 'ai_led', tier: 'standard' | 'premium', scheduled_at: string | 'now', interviewer_id?: string }`
+    - **Immediate AI Sessions**: If `mode: 'ai_led'` and `scheduled_at` is set to `'now'`, the session is provisioned immediately, and the user can join right away.
+  - **Request Body**: `{ type: 'system_design' | 'coding' | 'behavioral', mode: 'ai_led', tier: 'standard' | 'premium', scheduled_at: string | 'now' }`
   - **Response Body**: `{ interview: Interview }`
   - **Query Params**: None
 
