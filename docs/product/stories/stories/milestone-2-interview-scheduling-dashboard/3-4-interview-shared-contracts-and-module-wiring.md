@@ -29,10 +29,5 @@
 - [ ] Add/update controller/service/repository/schema integration tests as modules are introduced.
 - [ ] Verify route-level request/response validation uses shared schemas consistently.
 
-### 5. Drift-prevention checks (required)
-- [ ] Confirm no discrepancy with backend module patterns from account implementation in `packages/shared-backend/src/account/*`.
-- [ ] Confirm no discrepancy with OpenAPI support requirement in `docs/system/system-design/api-routes.md`.
-- [ ] If any discrepancy is found, update story/docs/contracts before implementation.
-
 ## End Goal
 Interview CRUD shared contracts and backend module wiring are in place and test-covered, enabling route behavior implementation with consistent layering and schema boundaries.

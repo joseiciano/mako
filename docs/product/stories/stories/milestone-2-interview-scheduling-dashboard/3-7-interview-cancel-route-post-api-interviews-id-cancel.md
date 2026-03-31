@@ -19,7 +19,8 @@
 - [ ] Enforce cancellation transitions exactly as defined in `docs/system/system-design/state-management-lifecycle.md`:
   - allowed: `scheduled -> cancelled`
   - idempotent retry: `cancelled -> cancelled` (success semantics, no extra mutation)
-  - rejected: `provisioning|ongoing|completed -> cancelled`
+  - rejected: `ongoing|completed -> cancelled`
+  - note: join-time provisioning is a runtime phase, not a persisted interview `status` value
 - [ ] Document and test allowed, idempotent, and rejected transition behavior in route/service logic.
 
 ### 3. Atomic cancellation write behavior
@@ -38,15 +39,6 @@
   - valid and invalid state transitions
   - atomic update behavior
   - idempotent retry semantics
-
-### 6. Drift-prevention checks (required)
-- [ ] Confirm no discrepancy with lifecycle docs:
-  - `docs/system/system-design/state-management-lifecycle.md`
-  - `docs/system/system-design/diagrams.md`
-- [ ] Confirm no discrepancy with notification contract expectations in:
-  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-2-notification-event-contract-and-producer-ownership.md`
-  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-5-cancellation-reminder-suppression-rules.md`
-- [ ] If any discrepancy is found, update story/docs before implementation.
 
 ## End Goal
 `POST /api/interviews/:id/cancel` is participant-safe, lifecycle-valid, atomic, and idempotent, with explicit behavior validated by route/service tests.

@@ -20,10 +20,5 @@
 ### 4. Operational metrics
 - [ ] Expose lightweight operational metrics/log counters (slots scanned, pairs attempted, matches created, transaction conflicts/retries).
 
-### 5. Drift-prevention checks (required)
-- [ ] Confirm no discrepancy with previous stories and milestone scope in `docs/product/stories/milestones.md`.
-- [ ] Confirm no discrepancy with `docs/system/system-design/concurrency-data-integrity.md`, `docs/system/system-design/db-schemas.md`, and `docs/system/local-testing.md`.
-- [ ] If any discrepancy is found, update story details before implementation.
-
 ## End Goal
 The matcher is proven safe under race conditions, failures are fully atomic, and production operations can monitor throughput and contention with minimal overhead.

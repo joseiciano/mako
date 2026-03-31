@@ -23,7 +23,7 @@
   - `status = 'scheduled'` at creation
   - `scheduler_id` from authenticated user
   - `scheduled_at` handling for ISO timestamp vs `'now'` based on resolved contract
-  - `tier` consumed as policy input for limit checks only
+  - effective `tier`/policy resolved server-side from account state for limit checks (not client input)
   - alias fields handled by explicit mode/tier rules (no implicit behavior)
 
 ### 4. Alias policy centralization
@@ -34,14 +34,9 @@
 - [ ] Add/update create-path tests for:
   - auth rejection
   - request schema validation
-  - mode/tier matrix acceptance/rejection
+  - mode/account-policy matrix acceptance/rejection
   - deterministic write behavior
   - alias generation behavior
-
-### 6. Drift-prevention checks (required)
-- [ ] Confirm no discrepancy with `docs/system/system-design/matching-tiers.md` and matcher-owned Standard creation path.
-- [ ] Confirm no discrepancy with lifecycle boundaries in `docs/system/system-design/state-management-lifecycle.md` and `docs/system/system-design/diagrams.md`.
-- [ ] If any discrepancy is found, update story/docs before implementation.
 
 ## End Goal
 `POST /api/interviews` supports only Story 3-approved AI-led creation behavior with deterministic writes, explicit errors for unsupported paths, and shared alias policy compatibility.

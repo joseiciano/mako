@@ -26,10 +26,5 @@
 - [ ] Increment `current_matches` for both requests.
 - [ ] Keep all writes atomic so partial match state cannot persist.
 
-### 4. Drift-prevention checks (required)
-- [ ] Confirm no discrepancy with previous stories: `docs/product/stories/stories/milestone-1-foundation-authentication/1-3-database-migration-system.md` and `docs/product/stories/milestones.md`.
-- [ ] Confirm no discrepancy with `docs/system/system-design/db-schemas.md`, `docs/system/system-design/concurrency-data-integrity.md`, and `docs/system/system-design/api-routes.md`.
-- [ ] If any discrepancy is found, update story details before implementation.
-
 ## End Goal
 Every successful pair is committed atomically as a single scheduled Standard peer-to-peer interview with deterministic role assignment and consistent slot/request state transitions.

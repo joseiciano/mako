@@ -17,9 +17,10 @@ The platform manages interview state across frontend and backend with explicit r
   - Notifications are sent after commit and reminder notifications are queued for delivery timing.
   - UI shows interview details and renders "Join" when user is eligible to start.
 
-- **Provisioning**
+- **Join-time provisioning (runtime phase, not persisted interview status)**
   - Triggered by participant action on the join flow (`POST /api/interviews/:id/provision`).
   - Realtime/whiteboard session resources are initialized in this join-time route boundary.
+  - This phase is **not** stored as a `status` value on the interview row.
   - This is **not** queue-triggered provisioning.
 
 - **Ongoing**
@@ -38,7 +39,6 @@ The platform manages interview state across frontend and backend with explicit r
 | --- | --- | --- | --- |
 | `scheduled` | Yes | `cancelled` | Atomic status update + `updated_at` mutation; post-commit cancel event emitted for notification suppression. |
 | `cancelled` | Idempotent retry | `cancelled` (unchanged) | Return success semantics without additional state mutation. |
-| `provisioning` | No | unchanged | Reject as invalid transition (no partial mutation). |
 | `ongoing` | No | unchanged | Reject as invalid transition (session already live). |
 | `completed` | No | unchanged | Reject as invalid transition (terminal complete state). |
 

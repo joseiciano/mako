@@ -23,7 +23,9 @@ Flow is as follows:
 Cancellation transition behavior (must stay aligned with `state-management-lifecycle.md`):
 - `scheduled -> cancelled`: allowed
 - `cancelled -> cancelled`: idempotent success (unchanged state)
-- `provisioning|ongoing|completed -> cancelled`: rejected invalid transition
+- `ongoing|completed -> cancelled`: rejected invalid transition
+
+Provisioning note: join-time provisioning is a runtime route phase (`POST /api/interviews/:id/provision`), not a persisted interview `status` value.
 
 ### Creating account/updating 
 

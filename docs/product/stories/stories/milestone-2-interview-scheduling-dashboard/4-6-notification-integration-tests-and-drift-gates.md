@@ -18,15 +18,23 @@
   - CRUD cancel -> `interview.cancelled`
   - matcher write -> `interview.match.created`
 - [ ] Validate payload contract shape, required fields, nullable fields, and event-type correctness.
+- [ ] Validate event-type participant-B requiredness matrix:
+  - `interview.created`: `interview.interviewer_id` / `participants.interviewer_user_id` nullable
+  - `interview.match.created`: `interview.interviewer_id` / `participants.interviewer_user_id` required non-null
+- [ ] Validate `interview.cancelled` participant-B field behavior mirrors persisted interview shape at cancellation time (non-null for peer-to-peer rows, nullable for AI-led rows).
+- [ ] Validate canonical/derived participant identity consistency when both are present (`interview.*` IDs must equal `participants.*` IDs).
 
 ### 2. Commit boundary correctness tests
 - [ ] Validate emit-after-commit behavior for create/cancel/match producer paths.
 - [ ] Validate no emission on transaction rollback/failure paths.
+- [ ] Validate cancel emits `interview.cancelled` on first successful `scheduled -> cancelled` transition.
+- [ ] Validate idempotent cancel retry (`cancelled -> cancelled`) does not emit a second `interview.cancelled` event.
 
 ### 3. Reliability and replay tests
 - [ ] Validate at-least-once replay handling does not duplicate side effects.
-- [ ] Validate repeated cancel events remain idempotent in downstream processing.
+- [ ] Validate duplicate/replayed delivery of the same emitted cancel event remains idempotent in downstream processing.
 - [ ] Validate transient failure retries preserve idempotency guarantees.
+- [ ] Validate deterministic `idempotency_key` generation and stable key reuse for retries/replays of the same lifecycle transition.
 
 ### 4. Workflow behavior correctness tests
 - [ ] Validate confirmation behavior for `interview.created` and `interview.match.created`.
@@ -44,17 +52,6 @@
   - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/3-7-interview-cancel-route-post-api-interviews-id-cancel.md`
   - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/3-8-interview-post-commit-events-and-notification-contract.md`
   - `docs/product/stories/milestones.md`
-
-### 6. Drift-prevention checks (required)
-- [ ] Confirm no discrepancy with design docs:
-  - `docs/infrastructure/backend.md`
-  - `docs/infrastructure/management.md`
-  - `docs/system/system-design/state-management-lifecycle.md`
-  - `docs/system/system-design/diagrams.md`
-  - `docs/system/system-design/api-routes.md`
-  - `docs/system/system-design/matching-tiers.md`
-  - `docs/system/system-design/db-schemas.md`
-- [ ] If any discrepancy is found, update story/docs before implementation.
 
 ## End Goal
 Notification orchestration is verified end-to-end with commit-safe producer boundaries, contract-stable event payloads, idempotent reliability behavior, and explicit drift gates across stories and system design docs.

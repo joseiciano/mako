@@ -24,8 +24,8 @@
   - scheduled time
   - counterpart alias (from interview alias fields, not profile identity fields)
 - [ ] Apply explicit counterpart alias selection rule in UI logic:
-  - if viewer user id matches `schedulerId`, display `interviewerAlias`
-  - otherwise display `schedulerAlias`
+  - if viewer user id matches `scheduler_id`, display `interviewer_alias`
+  - otherwise display `scheduler_alias`
 
 ### 3. Implement details affordance with safe fallback
 - [ ] For each interview row, render details affordance aligned to route availability.

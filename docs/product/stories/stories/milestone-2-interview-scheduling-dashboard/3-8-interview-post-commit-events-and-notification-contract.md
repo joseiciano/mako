@@ -6,8 +6,6 @@
 **Prerequisites**:
 - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/3-5-interview-create-route-post-api-interviews.md`
 - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/3-7-interview-cancel-route-post-api-interviews-id-cancel.md`
-- `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-1-notification-scope-and-lifecycle-boundary-lock.md`
-- `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-2-notification-event-contract-and-producer-ownership.md`
 
 ## What Needs to Be Done
 
@@ -40,14 +38,6 @@
   - event payload shape
   - emit-after-commit behavior
   - no emission on rollback
-
-### 6. Drift-prevention checks (required)
-- [ ] Confirm no discrepancy with matcher post-commit boundaries in `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/1-5-post-commit-events-and-lifecycle-boundaries.md`.
-- [ ] Confirm no discrepancy with lifecycle docs and route boundaries in:
-  - `docs/system/system-design/state-management-lifecycle.md`
-  - `docs/system/system-design/diagrams.md`
-  - `docs/system/system-design/api-routes.md`
-- [ ] If any discrepancy is found, update story/docs before implementation.
 
 ## End Goal
 Interview CRUD emits contract-stable lifecycle events only after successful commit, with payloads and runtime boundaries that integrate safely with notification orchestration.

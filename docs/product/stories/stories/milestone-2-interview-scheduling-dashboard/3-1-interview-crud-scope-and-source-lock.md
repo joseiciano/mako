@@ -32,15 +32,5 @@
 - [ ] Add/update route-contract tests so only the in-scope routes are implemented by this story split.
 - [ ] Add/update contract checks to prevent accidental inclusion of details/provision route logic in these subtasks.
 
-### 5. Drift-prevention checks (required)
-- [ ] Confirm no discrepancy with previous Milestone 2 lifecycle boundaries in:
-  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/1-1-matcher-scope-and-dependencies.md`
-  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/1-5-post-commit-events-and-lifecycle-boundaries.md`
-  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-1-notification-scope-and-lifecycle-boundary-lock.md`
-  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-2-notification-event-contract-and-producer-ownership.md`
-  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-3-notification-transport-reliability-and-idempotency.md`
-- [ ] Confirm no discrepancy with `docs/infrastructure/backend.md` and `docs/infrastructure/management.md` runtime boundaries.
-- [ ] If any discrepancy is found, update story/docs before implementation.
-
 ## End Goal
 Story 3 implementation scope is frozen to create/list/cancel only, with lifecycle boundaries and route ownership explicitly locked to system design documentation so no hidden scope creeps into implementation.

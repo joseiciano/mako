@@ -26,10 +26,6 @@
 - [ ] Explicitly document that this story does **not** provision Realtime/whiteboard sessions during matching; provisioning remains join-time via `POST /api/interviews/:id/provision`.
 - [ ] Explicitly document that Premium first-to-claim matching and AI-led scheduling are out of scope for this subtask.
 
-### 4. Drift-prevention checks (required)
-- [ ] Confirm no discrepancy with previous stories: `docs/product/stories/stories/milestone-1-foundation-authentication/1-2-cloud-infrastructure-iac.md`, `docs/product/stories/stories/milestone-1-foundation-authentication/1-3-database-migration-system.md`, and `docs/product/stories/milestones.md`.
-- [ ] Confirm no discrepancy with infrastructure and system design docs referenced by this subtask.
-- [ ] If any discrepancy is found, update story details before implementation.
 
 ## End Goal
 The Availability Matching Engine has a fully constrained Standard-tier scope and validated platform dependencies, preventing implementation drift before matcher logic is written.

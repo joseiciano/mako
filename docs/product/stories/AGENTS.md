@@ -12,7 +12,7 @@ Stories are to go in `./stories/<milestone-x>`, where each `<milestone-x>` is a 
 
 Each story should be sequential. Naming structure is `<story>-<subtask>-<title>`. For example: "milestone-2/2-1-Implement API" is for story 2 of milestone-2, but it is the *first* subtask needed to complete this story. 
 
-Stories can be multiple tickets. Each ticket should be the smallest unit of the feature needed toc omplete the story. For example, `milestone-1-foundation-authentication/` has ticket "1-1" to "1-6", each representing a part of what is needed to complete story 1. 
+For example on how to structure it, refer to `./stories/milestone-1-foundation-authentication/` and `./stories/milestone-2-interview-scheduling-dashboard/`
 
 Stories should be broken down to the smallest units. If you find that multiple changes are defined in different section of the codebase, make them separate subtasks under the same story. 
 
@@ -60,4 +60,15 @@ Story tickets must:
 4. Be detailed. Instead of saying "define X feature", when possible link the file that references it. For example, do not do "define the db table for users," instead do "define the db table defined in (link to file)." If it does not exist yet, mention that we need to detail it in the design documents first. 
 5. **Always** make sure story/subtasks are aligned with existing details. Always check previous stories, and design docs in `../../infrastructure/` and `../system-pitch.md` to make sure that the stories are aligned with our detailed API routes, database schemas, and methodologies.
    - Perform this alignment continuously while writing each subtask (not only at the end).
-   - A final **"Drift-prevention checks"** section is allowed as a quality gate, but it must only verify/cross-reference alignment and required doc updates. It should not introduce new implementation scope.
+   - If there are any contradictions, ask for clarifications and how we should resolve them. 
+
+**NOTE**: Do not have an explicit "drift check" in the final tickets. These should be implicitly done. Prior to planning tickets, check existing documentation to make sure there are no contradictions with the ticket details and existing documentation. 
+
+**BAD EXAMPLE, DO NOT DO**
+```
+...within a ticket.md
+### 4. Drift-prevention checks (required)
+- [ ] Confirm no discrepancy with previous stories: `docs/product/stories/stories/milestone-1-foundation-authentication/1-3-database-migration-system.md` and `docs/product/stories/milestones.md`.
+- [ ] Confirm no discrepancy with `docs/system/system-design/matching-tiers.md`, `docs/system/system-design/db-schemas.md`, and `docs/system/system-design/concurrency-data-integrity.md`.
+- [ ] If any discrepancy is found, update story details before implementation.
+```

@@ -41,19 +41,5 @@
   - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/3-8-interview-post-commit-events-and-notification-contract.md`
   - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/1-5-post-commit-events-and-lifecycle-boundaries.md`
 
-### 5. Drift-prevention checks (required)
-- [ ] Confirm no discrepancy with previous stories:
-  - `docs/product/stories/stories/milestone-1-foundation-authentication/1-2-cloud-infrastructure-iac.md`
-  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/1-5-post-commit-events-and-lifecycle-boundaries.md`
-  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/3-8-interview-post-commit-events-and-notification-contract.md`
-  - `docs/product/stories/milestones.md`
-- [ ] Confirm no discrepancy with design docs:
-  - `docs/infrastructure/backend.md`
-  - `docs/infrastructure/management.md`
-  - `docs/system/system-design/state-management-lifecycle.md`
-  - `docs/system/system-design/diagrams.md`
-  - `docs/system/system-design/api-routes.md`
-- [ ] If any discrepancy is found, update story/docs before implementation.
-
 ## End Goal
 Notification scope and lifecycle boundaries are explicitly locked so only post-commit events trigger orchestration, without leaking provisioning or transaction-owned responsibilities into notification workers.

@@ -40,14 +40,6 @@
   - suppression for late/past windows
   - AI immediate session reminder suppression behavior
 
-### 6. Drift-prevention checks (required)
-- [ ] Confirm no discrepancy with:
-  - `docs/system/system-design/api-routes.md`
-  - `docs/system/system-design/state-management-lifecycle.md`
-  - `docs/system/system-design/diagrams.md`
-  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/3-5-interview-create-route-post-api-interviews.md`
-  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/1-5-post-commit-events-and-lifecycle-boundaries.md`
-- [ ] If any discrepancy is found, update story/docs before implementation.
 
 ## End Goal
 Create/match confirmations and 30-minute reminders are specified with deterministic timing and recipient rules, including clear suppression behavior for immediate or past-due windows.

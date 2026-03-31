@@ -13,8 +13,10 @@
     - **Data**: `GET /api/account`, `PATCH /api/account`, `GET /api/interviewer/status`, `GET /api/companies`
 
 ### Interview Lifecycle
-- **Schedule Interview (`/interviews/new`)**: Configuration flow for type (System Design), mode (AI / P2P via availability), and tier.
+- **Schedule Interview (`/interviews/new`)**: Configuration flow for type (System Design), mode (AI / P2P via availability), and timing/availability details.
     - **Data**: `POST /api/interviews` (**AI-led only**), `POST /api/availability` (**P2P matching path**)
+    - **Policy Note**: Account tier/policy (for example free vs subscribed) is resolved server-side; scheduling UI does not submit a user-selected `tier` field.
+    - **Scope Note**: Current Story 5 UI implementation scope is `system_design` type selection. Additional API-documented interview types remain forward-compatible contract surface for later UI expansion.
 - **Interview Details (`/interviews/:id`)**: Comprehensive view of a specific interview's status and metadata.
     - **Implementation Status**: Documented target route. Treat behavior as story-gated until the dedicated details/session follow-up stories are completed.
     - **Features**: Recording playback, whiteboard screenshots, feedback summary, and participant info.

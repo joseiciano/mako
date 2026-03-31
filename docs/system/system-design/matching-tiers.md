@@ -11,7 +11,8 @@ The system supports two scheduling channels, with account-level quota/credit pol
     - **Creation Path**: Created directly through `POST /api/interviews`.
     - **Immediate Mode**: `scheduled_at: 'now'` is valid for AI-led immediate sessions.
 
-- **Account Policy (Free/Premium, quotas, credits)**:
+- **Account Policy (Free vs Subscribed, quotas, credits)**:
     - Policy determines how many interviews an account can run (for example using `free_standard_interviews`, `free_ai_interviews`, and credit balance).
-    - "Premium" is currently a configurable limit-policy concept and does not introduce a separate scheduling path in Milestone 2 Interview CRUD.
+    - Scheduling payloads do not carry a client-selected `tier`; effective tier/policy semantics are resolved server-side from account state.
+    - Any `standard` / `premium` labeling is an internal policy outcome and does not introduce separate client-facing scheduling paths in Milestone 2 Interview CRUD.
     - Limit values are configuration-driven and may be tuned over time without changing route shapes.

@@ -32,23 +32,19 @@
     {
       "id": "uuid",
       "email": "user@example.com",
-      "displayName": "Jane Candidate",
+      "display_name": "Jane Candidate",
       "credits": 8,
-      "freeStandardInterviews": 1,
-      "freeAiInterviews": 1,
-      "createdAt": "2026-01-01T00:00:00.000Z"
+      "free_standard_interviews": 1,
+      "free_ai_interviews": 1,
+      "created_at": "2026-01-01T00:00:00.000Z"
     }
     ```
-  - **Field Mapping (API camelCase ↔ DB snake_case)**:
-    - `displayName <- users.name`
-    - `freeStandardInterviews <- users.free_standard_interviews`
-    - `freeAiInterviews <- users.free_ai_interviews`
-    - `createdAt <- users.created_at`
+  - **Field Mapping**: API response uses snake_case and maps directly to DB columns.
   - **Query Params**: None
 
 - **`PATCH /api/account`**
   - **Description**: Updates user profile information (display name).
-  - **Request Body**: `{ displayName: string }`
+  - **Request Body**: `{ display_name: string }`
   - **Response Body**: Same shape as `GET /api/account`.
   - **Query Params**: None
 
@@ -74,8 +70,8 @@
 ### Payments & Credits
 - **`POST /api/payments/create-intent`**
   - **Description**: Generates a Stripe Payment Intent for purchasing interview credits.
-  - **Request Body**: `{ packageId: string }`
-  - **Response Body**: `{ clientSecret: string }`
+  - **Request Body**: `{ package_id: string }`
+  - **Response Body**: `{ client_secret: string }`
   - **Query Params**: None
 
 - **`POST /api/payments/webhook`**
@@ -90,12 +86,12 @@
   - **Current Milestone 2 Contract**:
     - Direct creation is supported for **AI-led** sessions.
     - Direct **peer-to-peer** creation is not supported; peer-to-peer Standard sessions are created by the Availability + Greedy Matcher flow.
-    - `tier` is treated as a limit-policy input (account/quota policy), not as a separate create flow.
+    - Client payload does **not** set `tier`; effective interview tier/policy is resolved server-side from account state (for example: free vs subscribed) and quota/credit rules.
     - `interviewer_id` is out of scope for this route contract and must not be provided.
   - **Workflow**:
-    - **Scheduled Sessions**: Triggers an immediate confirmation email and queues a reminder email for 30 minutes prior to the `scheduled_at` time.
-    - **Immediate AI Sessions**: If `mode: 'ai_led'` and `scheduled_at` is set to `'now'`, the session is provisioned immediately, and the user can join right away.
-  - **Request Body**: `{ type: 'system_design' | 'coding' | 'behavioral', mode: 'ai_led', tier: 'standard' | 'premium', scheduled_at: string | 'now' }`
+    - **Scheduled Sessions**: After successful commit, triggers confirmation notification orchestration and queues reminder orchestration for 30 minutes prior to `scheduled_at` when applicable.
+    - **Immediate AI Sessions**: If `mode: 'ai_led'` and `scheduled_at` is set to `'now'`, the interview is created with immediate timing semantics, but realtime/whiteboard provisioning remains join-time via `POST /api/interviews/:id/provision` (not in create-route transaction scope).
+  - **Request Body**: `{ type: 'system_design' | 'coding' | 'behavioral', mode: 'ai_led', scheduled_at: ISO-8601 timestamp string | 'now' }`
   - **Response Body**: `{ interview: Interview }`
   - **Query Params**: None
 
@@ -108,32 +104,25 @@
       "interviews": [
         {
           "id": "uuid",
-          "schedulerId": "uuid",
-          "schedulerAlias": "Candidate-Blue",
-          "interviewerId": null,
-          "interviewerAlias": "Interviewer-Red",
+          "scheduler_id": "uuid",
+          "scheduler_alias": "Candidate-Blue",
+          "interviewer_id": null,
+          "interviewer_alias": "Interviewer-Red",
           "type": "system_design",
           "mode": "peer_to_peer",
           "tier": "standard",
           "status": "scheduled",
-          "scheduledAt": "2026-01-01T12:00:00.000Z",
-          "createdAt": "2026-01-01T00:00:00.000Z",
-          "updatedAt": "2026-01-01T00:00:00.000Z"
+          "scheduled_at": "2026-01-01T12:00:00.000Z",
+          "created_at": "2026-01-01T00:00:00.000Z",
+          "updated_at": "2026-01-01T00:00:00.000Z"
         }
       ]
     }
     ```
-  - **Field Mapping (API camelCase ↔ DB snake_case)**:
-    - `schedulerId <- interviews.scheduler_id`
-    - `schedulerAlias <- interviews.scheduler_alias`
-    - `interviewerId <- interviews.interviewer_id` (nullable for AI-led sessions)
-    - `interviewerAlias <- interviews.interviewer_alias`
-    - `scheduledAt <- interviews.scheduled_at`
-    - `createdAt <- interviews.created_at`
-    - `updatedAt <- interviews.updated_at`
+  - **Field Mapping**: API response uses snake_case and maps directly to DB columns.
   - **Role Semantics**:
-    - For matcher-created peer-to-peer interviews, `schedulerId` / `interviewerId` are assigned deterministically from matched request order `(created_at ASC, id ASC)`.
-    - For direct route-created sessions in Milestone 2, `schedulerId` is the authenticated creator.
+    - For matcher-created peer-to-peer interviews, `scheduler_id` / `interviewer_id` are assigned deterministically from matched request order `(created_at ASC, id ASC)`.
+    - For direct route-created sessions in Milestone 2, `scheduler_id` is the authenticated creator.
   - **Query Params**: `status?: 'scheduled' | 'ongoing' | 'completed' | 'cancelled'`, `limit?: number`, `offset?: number`
 
 - **`POST /api/interviews/:id/cancel`**
@@ -157,7 +146,7 @@
 ### Availability
 - **`POST /api/availability`**
   - **Description**: Submits a new availability request with multiple time slots.
-  - **Request Body**: `{ interview_type: string, max_matches: number, slots: Array<{ start_time: string, end_time: string }> }`
+  - **Request Body**: `{ interview_type: 'system_design' | 'coding' | 'behavioral', max_matches: number, slots: Array<{ start_time: string, end_time: string }> }`
   - **Response Body**: `{ request: Availability_Request, slots: Availability_Slot[] }`
   - **Validation Rules**:
     - Each slot must be exactly 60 minutes (`end_time = start_time + 60m`).

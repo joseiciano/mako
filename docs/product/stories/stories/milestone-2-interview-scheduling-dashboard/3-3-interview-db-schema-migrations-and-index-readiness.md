@@ -28,12 +28,5 @@
 - [ ] Add/update repository tests validating schema assumptions used by create/list/cancel.
 - [ ] Add/update repository query behavior tests for list filters, participant scoping, and cancellation update behavior.
 
-### 5. Drift-prevention checks (required)
-- [ ] Confirm no discrepancy with existing data-integrity constraints in:
-  - `docs/system/system-design/concurrency-data-integrity.md`
-  - `docs/product/stories/stories/milestone-1-foundation-authentication/1-3-database-migration-system.md`
-- [ ] Confirm no discrepancy with direct SQL + Hyperdrive architecture in `docs/infrastructure/backend.md`.
-- [ ] If any discrepancy is found, update story/docs before implementation.
-
 ## End Goal
 Interview CRUD is backed by schema-accurate migrations and index-aware query foundations, with repository-level tests validating DB assumptions and behavior.

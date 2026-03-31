@@ -25,10 +25,6 @@
 - [ ] Use a stable tie-breaker order (`request.created_at`, then stable IDs) so reruns are predictable.
 - [ ] Ensure the same input state always yields the same pair-attempt order.
 
-### 4. Drift-prevention checks (required)
-- [ ] Confirm no discrepancy with previous stories: `docs/product/stories/stories/milestone-1-foundation-authentication/1-3-database-migration-system.md` and `docs/product/stories/milestones.md`.
-- [ ] Confirm no discrepancy with `docs/system/system-design/matching-tiers.md`, `docs/system/system-design/db-schemas.md`, and `docs/system/system-design/concurrency-data-integrity.md`.
-- [ ] If any discrepancy is found, update story details before implementation.
 
 ## End Goal
 The matcher candidate set and pair-attempt order are deterministic, fair, and aligned with documented eligibility and slot constraints.

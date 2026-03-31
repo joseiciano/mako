@@ -16,10 +16,5 @@
 - [ ] Ensure no additional matches can be produced from fulfilled/cancelled requests in the same cron run.
 - [ ] Ensure no additional matches can be produced from fulfilled/cancelled requests in later cron runs.
 
-### 4. Drift-prevention checks (required)
-- [ ] Confirm no discrepancy with previous stories: `docs/product/stories/stories/milestone-1-foundation-authentication/1-3-database-migration-system.md` and `docs/product/stories/milestones.md`.
-- [ ] Confirm no discrepancy with `docs/system/system-design/db-schemas.md` and `docs/system/system-design/concurrency-data-integrity.md`.
-- [ ] If any discrepancy is found, update story details before implementation.
-
 ## End Goal
 Quota exhaustion is enforced strictly and atomically, and fulfilled requests can no longer produce redundant or duplicate future matches.

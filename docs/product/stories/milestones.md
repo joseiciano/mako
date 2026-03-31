@@ -25,7 +25,7 @@ This document outlines the high-level milestones for the Mako platform, breaking
 - **Matching Engine (Greedy Matcher)**: Develop the background worker and database logic for automated availability-based matching.
 - **Dashboard UI**: Build the central hub for users to see upcoming sessions and quick stats.
 - **Scheduling Flow**: Create the multi-step form for selecting interview type, mode (P2P/AI), and timing.
-- **Notification Service**: Set up Cloudflare Workflows for email confirmations and reminders.
+- **Notification Service**: Set up queue-driven notification orchestration (Cloudflare Queues + queue consumer worker) for post-commit confirmations and reminders.
 
 ## Milestone 3: The Interview Experience (P2P Core)
 **Objective**: Build the real-time environment for peer-to-peer system design interviews.

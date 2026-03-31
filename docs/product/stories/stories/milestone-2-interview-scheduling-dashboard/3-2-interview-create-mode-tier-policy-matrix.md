@@ -1,17 +1,17 @@
-# Story 3.2: Interview Create Mode/Tier Policy Matrix
+# Story 3.2: Interview Create Mode/Account-Policy Matrix
 
 **Milestone**: Milestone 2: Interview Scheduling & Dashboard
-**Description**: Lock and encode the create-path product rules for mode/tier behavior so supported and unsupported interview creation combinations are deterministic.
+**Description**: Lock and encode create-path product rules for mode and account-policy behavior so supported and unsupported interview creation combinations are deterministic.
 **Status**: Todo
 **Prerequisites**:
 - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/3-1-interview-crud-scope-and-source-lock.md`
 
 ## What Needs to Be Done
 
-### 1. Lock mode/tier product rules
+### 1. Lock mode/account-policy product rules
 - [ ] Implement against these rules for Story 3:
   - AI-led interviews are quota/credit-gated by account limits (`free_ai_interviews` / credits).
-  - Premium is treated as configurable account limit-policy input, not as a separate scheduling flow.
+  - Client does not submit `tier`; effective tier/policy is resolved server-side from account state (for example free vs subscribed) and quota/credit rules.
   - `interviewer_id` is out of scope for direct create route behavior in this story.
   - Free-user scheduling paths are:
     - AI-led via `POST /api/interviews`
@@ -19,7 +19,7 @@
   - Direct peer-to-peer creation through `POST /api/interviews` is not supported.
 
 ### 2. Define and document creation matrix
-- [ ] Encode the valid creation matrix for `(mode, tier, interviewer_id, scheduled_at)` in shared schema + service validation.
+- [ ] Encode the valid creation matrix for `(mode, account policy, interviewer_id, scheduled_at)` in shared schema + service validation.
 - [ ] Ensure unsupported combinations fail predictably with explicit validation/business-rule errors.
 - [ ] Include both accepted and rejected matrix examples in tests and docs.
 
@@ -34,14 +34,7 @@
 - [ ] Add/update service validation tests for the full matrix:
   - supported combinations
   - unsupported combinations
-  - premium policy configuration behavior (not hardcoded)
-
-### 5. Drift-prevention checks (required)
-- [ ] Confirm no discrepancy with matcher ownership and deterministic Standard session creation in:
-  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/1-3-transactional-match-and-interview-write.md`
-  - `docs/system/system-design/db-schemas.md`
-- [ ] Confirm no discrepancy with Milestone 2 scope in `docs/product/stories/milestones.md`.
-- [ ] If any discrepancy is found, update story/docs before implementation.
+  - account-policy configuration behavior (not hardcoded)
 
 ## End Goal
-The create-path mode/tier behavior is fully locked, documented, and testable, preventing direct peer-to-peer drift and preserving matcher ownership for Standard sessions.
+The create-path mode/account-policy behavior is fully locked, documented, and testable, preventing direct peer-to-peer drift and preserving matcher ownership for Standard sessions.

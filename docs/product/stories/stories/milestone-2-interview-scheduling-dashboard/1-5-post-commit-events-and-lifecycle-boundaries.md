@@ -27,10 +27,5 @@
   - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-6-notification-integration-tests-and-drift-gates.md`
 - [ ] Ensure event transport is compatible with the queue/worker hand-off infrastructure defined in `docs/product/stories/stories/milestone-1-foundation-authentication/1-2-cloud-infrastructure-iac.md`.
 
-### 4. Drift-prevention checks (required)
-- [ ] Confirm no discrepancy with previous stories: `docs/product/stories/stories/milestone-1-foundation-authentication/1-2-cloud-infrastructure-iac.md` and `docs/product/stories/milestones.md`.
-- [ ] Confirm no discrepancy with `docs/system/system-design/state-management-lifecycle.md`, `docs/system/system-design/diagrams.md`, and `docs/system/system-design/api-routes.md`.
-- [ ] If any discrepancy is found, update story details before implementation.
-
 ## End Goal
 Successful matches trigger downstream orchestration safely after commit, while Realtime/whiteboard provisioning remains strictly outside the matcher and tied to the join flow.

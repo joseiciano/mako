@@ -30,12 +30,5 @@
   - deterministic ordering
   - pagination determinism
 
-### 5. Drift-prevention checks (required)
-- [ ] Confirm no discrepancy with dashboard dependencies in:
-  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/2-1-dashboard-scope-and-contract-lock.md`
-  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/2-3-dashboard-data-hooks-and-query-contracts.md`
-- [ ] Confirm no discrepancy with role semantics documented in `docs/system/system-design/api-routes.md` and `docs/system/system-design/db-schemas.md`.
-- [ ] If any discrepancy is found, update story/docs before implementation.
-
 ## End Goal
 `GET /api/interviews` returns contract-aligned, participant-scoped data with deterministic ordering and pagination behavior that downstream dashboard/history consumers can rely on.

@@ -21,14 +21,14 @@
 ### 2. Delivery semantics and retry assumptions
 - [ ] Keep delivery assumptions explicit:
   - at-least-once delivery
-  - consumer-side idempotency keyed by `idempotency_key`
+  - consumer-side idempotency keyed by `idempotency_key` as the single canonical dedupe key
   - safe retry behavior for transient failures
 - [ ] Define transient vs terminal processing failures and expected retry behavior for each category.
 - [ ] Ensure failed processing does not silently drop events.
 
 ### 3. Idempotent processing behavior
 - [ ] Ensure replay/retry of the same logical event does not produce duplicate downstream side effects.
-- [ ] Ensure repeated `interview.cancelled` signals (idempotent cancel retries) do not produce duplicate reminder suppression/cancellation actions.
+- [ ] Ensure replayed/duplicate delivery of the same emitted `interview.cancelled` event does not produce duplicate reminder suppression/cancellation actions.
 - [ ] Ensure idempotency behavior is deterministic across worker restarts/retries.
 
 ### 4. Lifecycle state ownership guardrails
@@ -45,15 +45,6 @@
   - retries
   - terminal failures
 - [ ] Keep observability expectations compatible with `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/1-6-reliability-tests-and-observability.md`.
-
-### 6. Drift-prevention checks (required)
-- [ ] Confirm no discrepancy with:
-  - `docs/product/stories/stories/milestone-1-foundation-authentication/1-2-cloud-infrastructure-iac.md`
-  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/1-5-post-commit-events-and-lifecycle-boundaries.md`
-  - `docs/system/system-design/state-management-lifecycle.md`
-  - `docs/infrastructure/backend.md`
-  - `docs/infrastructure/management.md`
-- [ ] If any discrepancy is found, update story/docs before implementation.
 
 ## End Goal
 Queue transport reliability boundaries are explicit, retry/replay behavior is safe under at-least-once delivery, and notification processing remains idempotent without violating lifecycle ownership.
