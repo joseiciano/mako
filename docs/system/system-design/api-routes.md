@@ -102,7 +102,38 @@
 - **`GET /api/interviews`**
   - **Description**: Lists interviews for the current user.
   - **Request Body**: None
-  - **Response Body**: `{ interviews: Interview[] }`
+  - **Response Body**:
+    ```json
+    {
+      "interviews": [
+        {
+          "id": "uuid",
+          "schedulerId": "uuid",
+          "schedulerAlias": "Candidate-Blue",
+          "interviewerId": null,
+          "interviewerAlias": "Interviewer-Red",
+          "type": "system_design",
+          "mode": "peer_to_peer",
+          "tier": "standard",
+          "status": "scheduled",
+          "scheduledAt": "2026-01-01T12:00:00.000Z",
+          "createdAt": "2026-01-01T00:00:00.000Z",
+          "updatedAt": "2026-01-01T00:00:00.000Z"
+        }
+      ]
+    }
+    ```
+  - **Field Mapping (API camelCase ↔ DB snake_case)**:
+    - `schedulerId <- interviews.scheduler_id`
+    - `schedulerAlias <- interviews.scheduler_alias`
+    - `interviewerId <- interviews.interviewer_id` (nullable for AI-led sessions)
+    - `interviewerAlias <- interviews.interviewer_alias`
+    - `scheduledAt <- interviews.scheduled_at`
+    - `createdAt <- interviews.created_at`
+    - `updatedAt <- interviews.updated_at`
+  - **Role Semantics**:
+    - For matcher-created peer-to-peer interviews, `schedulerId` / `interviewerId` are assigned deterministically from matched request order `(created_at ASC, id ASC)`.
+    - For direct route-created sessions in Milestone 2, `schedulerId` is the authenticated creator.
   - **Query Params**: `status?: 'scheduled' | 'ongoing' | 'completed' | 'cancelled'`, `limit?: number`, `offset?: number`
 
 - **`POST /api/interviews/:id/cancel`**
@@ -128,6 +159,9 @@
   - **Description**: Submits a new availability request with multiple time slots.
   - **Request Body**: `{ interview_type: string, max_matches: number, slots: Array<{ start_time: string, end_time: string }> }`
   - **Response Body**: `{ request: Availability_Request, slots: Availability_Slot[] }`
+  - **Validation Rules**:
+    - Each slot must be exactly 60 minutes (`end_time = start_time + 60m`).
+    - `start_time < end_time`.
 
 - **`GET /api/availability`**
   - **Description**: Lists active availability requests for the current user.

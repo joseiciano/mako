@@ -8,6 +8,8 @@ We use **Terraform** to manage all persistent infrastructure components. This al
 
 ### Managed Resources
 - **Cloudflare Workers**: Provisioning the worker scripts and their associated bindings.
+- **Cloudflare Worker Cron Triggers**: Provisioning scheduled executions for background workers (e.g., matcher runs).
+- **Cloudflare Queues**: Provisioning queue producers/consumers and bindings for async worker hand-off.
 - **Cloudflare R2**: Bucket creation, CORS configurations, and lifecycle rules.
 - **Cloudflare Hyperdrive**: Database connection pooling and configuration for Neon/Postgres.
 - **Cloudflare AI Gateway**: Analytics and caching configurations for AI providers.

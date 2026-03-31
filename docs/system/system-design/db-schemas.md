@@ -80,9 +80,9 @@ Used to track the verification flow for users wanting to become interviewers.
 Core entity for tracking mock sessions and AI-led interviews.
 
 - **`id`**: `uuid` (Primary Key)
-- **`scheduler_id`**: `uuid` (Foreign Key -> `users.id`) - The user who booked the interview.
+- **`scheduler_id`**: `uuid` (Foreign Key -> `users.id`) - Interview participant "A". For direct route-created sessions this is the authenticated creator; for matcher-created peer-to-peer sessions this is assigned deterministically (see rule below).
 - **`scheduler_alias`**: `text` - Anonymous name for the scheduler during the session.
-- **`interviewer_id`**: `uuid` (Optional, Foreign Key -> `users.id`) - The assigned interviewer (null if AI-led).
+- **`interviewer_id`**: `uuid` (Optional, Foreign Key -> `users.id`) - Interview participant "B" for peer-to-peer sessions; null for AI-led sessions in Milestone 2.
 - **`interviewer_alias`**: `text` - Anonymous name for the interviewer during the session.
 - **`type`**: `enum` ('system_design', 'coding', 'behavioral') - Category of the interview.
 - **`mode`**: `enum` ('peer_to_peer', 'ai_led') - Whether it's a mock with another user or AI.
@@ -97,6 +97,13 @@ Core entity for tracking mock sessions and AI-led interviews.
 - **`feedback`**: `jsonb` (Optional) - Stores AI-generated feedback, scores, and improvement areas.
 - **`created_at`**: `timestamptz`
 - **`updated_at`**: `timestamptz`
+
+Matcher-created role assignment rule (Standard peer-to-peer):
+
+- Order the two matched `availability_requests` by `(created_at ASC, id ASC)`.
+- First request's `user_id` -> `interviews.scheduler_id`.
+- Second request's `user_id` -> `interviews.interviewer_id`.
+- This rule must be stable so reruns over the same input state always assign roles identically.
 
 ### Availability_Requests
 
@@ -135,6 +142,7 @@ Individual 60-minute time blocks associated with an Availability Request.
 Constraints:
 
 - `availability_slots_time_window_check`: `start_time < end_time`
+- `availability_slots_exact_60_minutes_check`: `end_time = start_time + interval '60 minutes'`
 - `availability_slots_unique_window`: unique (`request_id`, `start_time`, `end_time`)
 
 Indexes:

@@ -5,6 +5,7 @@ The system supports two scheduling channels, with account-level quota/credit pol
     - **Quotas**: Users can specify a maximum number of interviews (`max_matches`) they want to be matched for within a set of slots.
     - **Double-Blind**: Matching is performed by a background "Greedy Matcher" worker that finds overlapping slots and automatically creates sessions.
     - **Creation Path**: Standard peer-to-peer sessions are created by the matcher, not direct `POST /api/interviews` calls.
+    - **Deterministic Role Assignment**: For matcher-created sessions, participant roles are assigned by matched request order `(created_at ASC, id ASC)` to keep reruns stable (`scheduler_id` first, `interviewer_id` second).
 
 - **AI-Led**: Session led by AI.
     - **Creation Path**: Created directly through `POST /api/interviews`.

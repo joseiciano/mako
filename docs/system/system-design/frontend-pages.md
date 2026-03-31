@@ -3,7 +3,7 @@
 - **Login / Sign Up (`/login`, `/register`)**: Authentication forms handled via Better Auth.
 
 ### Dashboard & Account
-- **Dashboard (`/dashboard`)**: Central hub showing upcoming interviews and quick stats (credits).
+- **Dashboard (`/dashboard`)**: Central hub showing upcoming interviews and quick stats (credits + free Standard/AI balances).
     - **Data**: `GET /api/account`, `GET /api/interviews?status=scheduled`
 - **Interviews History (`/interviews`)**: A comprehensive list of all past and upcoming sessions.
     - **Data**: `GET /api/interviews`

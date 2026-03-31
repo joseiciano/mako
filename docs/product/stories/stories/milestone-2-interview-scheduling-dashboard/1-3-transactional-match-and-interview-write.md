@@ -18,7 +18,7 @@
   - `tier = 'standard'`
   - `status = 'scheduled'`
   - `scheduled_at` from matched slot start time
-  - `scheduler_id` / `interviewer_id` assigned deterministically (document rule in code comments)
+  - `scheduler_id` / `interviewer_id` assigned using documented deterministic request ordering rule (`created_at`, then `id`) from `docs/system/system-design/db-schemas.md` and `docs/system/system-design/matching-tiers.md`
   - alias fields populated using the same alias policy used by Interview CRUD implementation
 
 ### 3. Post-write state updates
