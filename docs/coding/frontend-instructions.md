@@ -30,6 +30,8 @@ When creating a new page:
 |  - foo-dumb.tsx // <-- Rendering logic for the page. 
 ```
 
+For authenticated file-based routes (TanStack Start), route entrypoints may also live as `_authenticated.<route>.tsx` and delegate to `routes/<route>/<route>-smart.tsx` + `routes/<route>/<route>-dumb.tsx`.
+
 When creating components
 ```typescript
 |/components

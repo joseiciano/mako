@@ -1,11 +1,15 @@
 # Story 3.1: App Shell & Desktop Navigation (Layout 3-1)
 
 **Milestone**: Milestone 1: Foundation & Authentication
-**Description**: Build the foundational desktop application shell with a top header bar and global navigation.
+**Description**: Build the foundational desktop application shell with a top header bar and initial desktop global navigation baseline.
 **Status**: Completed
-**Prerequisite**: [Account Management](./account-management.md)
+**Prerequisites**:
+- [Story: User Profile & Quotas](./2-1-user-profile-quotas.md)
+- [Story: Professional History Management](./2-2-professional-history-management.md)
+- [Story: Account Security & Deletion](./2-3-account-security-deletion.md)
+**Last reconciled**: 2026-03-30 (Documentation Drift Resolution Plan)
 
-## Implementation Plan
+## What Needs to Be Done
 
 ### 1. App Shell Architecture (Frontend)
 - [x] **Define Responsive App Shell Architecture**
@@ -25,16 +29,17 @@
         - [x] List links for core features: Dashboard (`/dashboard`), Interviews (`/interviews`), and Settings (`/settings`) with Billing nested under Settings.
         - [x] Integrate **Lucide** icons for each navigation item.
 
-- [x] **Implement Header Navigation Bar (Desktop)**
-    - [x] Keep global navigation in the top header bar for desktop views.
+- [x] **Implement Header Navigation Bar (Desktop Baseline)**
+    - [x] Keep global navigation in the top header bar for this initial desktop baseline.
     - [x] Include application logo and primary navigation links in header context.
+    - [x] Migration note: Story 3.2 moves the canonical desktop global navigation to a persistent sidebar while retaining the top header for page context and user controls.
 
 ### 3. Header & User Menu
 - [x] **Integrate Header/Top Bar**
     - [x] Create `apps/frontend/src/components/layout/header/` directory.
     - [x] Implement `header-dumb.tsx`:
         - [x] Display page title or Breadcrumbs based on the current route.
-        - [x] Add a placeholder for the "Hamburger" button (to be implemented in 1.7).
+        - [x] Add a placeholder for the "Hamburger" button (implemented in Story 3.2).
         - [x] Add a `UserMenu` component (dropdown) containing the user's name, profile link, and a Logout button.
 
 ## Files to be Added/Changed
@@ -49,4 +54,4 @@
     - `apps/frontend/src/components/layout/header/header-dumb.test.ts`
 
 ## End Goal
-A functional desktop shell with a top header bar containing global navigation and a user menu. Navigation items are clearly visible, Billing is grouped under Settings, and the current active page is indicated.
+A functional desktop shell baseline with a top header bar, global navigation, and a user menu. Story 3.2 then finalizes the canonical desktop navigation architecture as a persistent sidebar with mobile drawer parity.

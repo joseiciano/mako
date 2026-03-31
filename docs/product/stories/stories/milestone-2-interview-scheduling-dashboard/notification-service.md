@@ -8,7 +8,9 @@
 
 ### 1. Trigger boundaries and source-of-truth alignment
 - [ ] Treat this story as the source-of-truth for Milestone 2 notification orchestration compatibility used by:
-  - `interview-crud.md`
+  - `3-5-interview-create-route-post-api-interviews.md`
+  - `3-7-interview-cancel-route-post-api-interviews-id-cancel.md`
+  - `3-8-interview-post-commit-events-and-notification-contract.md`
   - `1-5-post-commit-events-and-lifecycle-boundaries.md`
 - [ ] Accept only **post-commit** interview lifecycle signals as notification triggers.
 - [ ] Keep lifecycle boundaries aligned with:
@@ -50,7 +52,7 @@
 ### 5. Drift-prevention checks (required)
 - [ ] Confirm no discrepancy with previous stories:
   - `docs/product/stories/stories/milestone-1-foundation-authentication/1-2-cloud-infrastructure-iac.md`
-  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/interview-crud.md`
+  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/3-8-interview-post-commit-events-and-notification-contract.md`
   - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/1-5-post-commit-events-and-lifecycle-boundaries.md`
   - `docs/product/stories/milestones.md`
 - [ ] Confirm no discrepancy with design docs:

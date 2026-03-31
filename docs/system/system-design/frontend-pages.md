@@ -16,6 +16,7 @@
 - **Schedule Interview (`/interviews/new`)**: Configuration flow for type (System Design), mode (AI / P2P via availability), and tier.
     - **Data**: `POST /api/interviews` (**AI-led only**), `POST /api/availability` (**P2P matching path**)
 - **Interview Details (`/interviews/:id`)**: Comprehensive view of a specific interview's status and metadata.
+    - **Implementation Status**: Documented target route. Treat behavior as story-gated until the dedicated details/session follow-up stories are completed.
     - **Features**: Recording playback, whiteboard screenshots, feedback summary, and participant info.
     - **Data**: `GET /api/interviews/:id`
 - **Interview Session (`/interviews/:id/session`)**: The immersive interview environment.
@@ -27,5 +28,5 @@
     - **Data**: `GET /api/interviews/:id`
 
 ### Route/Story Tracking Note
-- `GET /api/interviews/:id` and `POST /api/interviews/:id/provision` are documented system routes but explicitly out of scope in Story 3 (`docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/interview-crud.md`).
+- `GET /api/interviews/:id` and `POST /api/interviews/:id/provision` are documented system routes but explicitly out of scope in Story 3.1 (`docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/3-1-interview-crud-scope-and-source-lock.md`).
 - Keep them tied to dedicated follow-up stories before full rollout of details/session pages.
