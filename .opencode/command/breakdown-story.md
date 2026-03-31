@@ -14,3 +14,5 @@ Checklist:
 - [ ] Is it clear? We are not leaving thing intentionally ambiguous? 
 - [ ] Are we losing anything in breaking it down into small subtasks? We should not lose any details from the original story file. 
 
+Do not delete the original file we pass in. However, do create the new subtask files. Do not reference them within the original file. Do not change the original file. 
+
