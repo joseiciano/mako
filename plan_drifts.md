@@ -50,5 +50,5 @@
 - [x] **Track route-story gap explicitly**
   - `GET /api/interviews/:id` and `POST /api/interviews/:id/provision` appear in system docs/frontend pages but are out of scope in Story 3.
   - Add dedicated story tickets or “future ticket references” in:
-    - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/interview-crud.md`
+    - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/3-1-interview-crud-scope-and-source-lock.md`
     - `docs/system/system-design/frontend-pages.md`
