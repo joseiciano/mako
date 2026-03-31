@@ -5,7 +5,7 @@
 **Status**: Todo
 **Prerequisites**:
 - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/5-1-scheduling-flow-scope-and-ownership-lock.md`
-- `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/6-1-availability-route-post-api-availability.md`
+- `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/5-4-availability-route-post-api-availability.md`
 - `docs/system/system-design/frontend-pages.md`
 - `docs/system/system-design/api-routes.md`
 - `docs/system/system-design/matching-tiers.md`

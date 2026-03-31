@@ -7,7 +7,7 @@
 - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/3-2-interview-create-mode-tier-policy-matrix.md`
 - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/3-4-interview-shared-contracts-and-module-wiring.md`
 - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/3-5-interview-create-route-post-api-interviews.md`
-- `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/6-1-availability-route-post-api-availability.md`
+- `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/5-4-availability-route-post-api-availability.md`
 - `docs/system/system-design/frontend-pages.md`
 - `docs/system/system-design/api-routes.md`
 - `docs/system/system-design/matching-tiers.md`
@@ -22,7 +22,7 @@
 
 ### 2. Ownership boundary lock (no backend drift)
 - [ ] Keep backend write ownership for `POST /api/interviews` in Story `3-5` and shared interview contracts in Story `3-4`.
-- [ ] Keep backend write + contract ownership for `POST /api/availability` in Story `6-1`.
+- [ ] Keep backend write + contract ownership for `POST /api/availability` in Story `5-4`.
 - [ ] Keep Standard P2P creation ownership with availability + matcher flow per:
   - `docs/system/system-design/frontend-pages.md`
   - `docs/system/system-design/api-routes.md`
@@ -33,7 +33,7 @@
 - [ ] Explicitly lock Scheduling Flow to two submission channels only:
   - AI-led scheduling path -> `POST /api/interviews`
   - P2P availability path -> `POST /api/availability`
-- [ ] Treat Story `6-1` as the dependency gate for P2P availability contracts/ownership before Scheduling Flow submission wiring.
+- [ ] Treat Story `5-4` as the dependency gate for P2P availability contracts/ownership before Scheduling Flow submission wiring.
 
 ### 4. Explicit out-of-scope guardrails
 - [ ] Keep notification transport/orchestration ownership in Story 4 (`4-1` through `4-6`), not in Scheduling Flow tickets.

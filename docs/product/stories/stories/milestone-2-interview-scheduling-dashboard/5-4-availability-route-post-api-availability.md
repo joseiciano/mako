@@ -1,4 +1,4 @@
-# Story 6.1: Availability Create Route (`POST /api/availability`)
+# Story 5.4: Availability Create Route (`POST /api/availability`)
 
 **Milestone**: Milestone 2: Interview Scheduling & Dashboard
 **Description**: Implement authenticated availability submission with explicit contract ownership for the Standard peer-to-peer matcher path.
@@ -13,7 +13,7 @@
 ## What Needs to Be Done
 
 ### 1. Scope and ownership lock for `POST /api/availability`
-- [ ] Lock Story 6 ownership for Standard availability request creation via `POST /api/availability`.
+- [ ] Lock Story 5.4 ownership for Standard availability request creation via `POST /api/availability`.
 - [ ] Keep matcher-owned interview creation boundaries intact: availability route writes availability request/slots only and does not directly create interview rows.
 - [ ] Keep AI-led create ownership in Story 3 (`POST /api/interviews`) unchanged.
 

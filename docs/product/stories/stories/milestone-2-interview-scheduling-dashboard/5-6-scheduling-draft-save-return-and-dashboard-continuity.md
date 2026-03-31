@@ -1,10 +1,10 @@
-# Story 5.5: Scheduling Draft/Resume and Dashboard Continuity
+# Story 5.6: Scheduling Draft/Resume and Dashboard Continuity
 
 **Milestone**: Milestone 2: Interview Scheduling & Dashboard
 **Description**: Define leave-and-return behavior for in-progress scheduling and post-submit continuity back to dashboard/interview surfaces.
 **Status**: Todo
 **Prerequisites**:
-- `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/5-4-scheduling-api-contract-integration-boundaries.md`
+- `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/5-5-scheduling-api-contract-integration-boundaries.md`
 - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/2-1-dashboard-scope-and-contract-lock.md`
 - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/2-3-dashboard-data-hooks-and-query-contracts.md`
 - `docs/system/system-design/frontend-pages.md`

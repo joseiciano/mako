@@ -33,7 +33,7 @@
   - AI or P2P payloads carrying client-selected `tier`
   - AI direct-create payloads outside Story `3-2` matrix for `(mode, account policy, interviewer_id, scheduled_at)`
   - P2P availability payloads outside the documented `POST /api/availability` contract
-- [ ] If Story `6-1` is not yet implemented, keep P2P submission on a contract-shaped frontend stub path (no live backend write) and surface explicit temporary-unavailable UX for final submit.
+- [ ] If Story `5-4` is not yet implemented, keep P2P submission on a contract-shaped frontend stub path (no live backend write) and surface explicit temporary-unavailable UX for final submit.
 - [ ] Keep guardrails explicit in UX copy so users understand why an action is unavailable.
 
 ### 3. Define user-facing error semantics

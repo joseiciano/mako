@@ -1,4 +1,4 @@
-# Story 5.4: Scheduling API Contract Integration Boundaries
+# Story 5.5: Scheduling API Contract Integration Boundaries
 
 **Milestone**: Milestone 2: Interview Scheduling & Dashboard
 **Description**: Bind Scheduling Flow submissions to documented API contracts for AI create and P2P availability while preserving route/lifecycle ownership boundaries.
@@ -7,7 +7,7 @@
 - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/5-3-scheduling-validation-and-guardrail-behavior.md`
 - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/3-4-interview-shared-contracts-and-module-wiring.md`
 - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/3-5-interview-create-route-post-api-interviews.md`
-- `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/6-1-availability-route-post-api-availability.md`
+- `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/5-4-availability-route-post-api-availability.md`
 - `docs/system/system-design/api-routes.md`
 - `docs/system/system-design/frontend-pages.md`
 - `docs/system/system-design/state-management-lifecycle.md`
@@ -21,7 +21,7 @@
 
 ### 2. Contract/schema binding requirements
 - [ ] Bind AI create payload to shared interview contracts owned by Story `3-4`.
-- [ ] Bind P2P availability payload to shared availability contracts owned by Story `6-1`.
+- [ ] Bind P2P availability payload to shared availability contracts owned by Story `5-4`.
 - [ ] Do not include client-selected `tier` in Scheduling Flow submission payloads; account policy/tier resolution is backend-owned.
 - [ ] Ensure frontend payload parsing/typing and server response handling stay aligned with documented route fields and enum values.
 
