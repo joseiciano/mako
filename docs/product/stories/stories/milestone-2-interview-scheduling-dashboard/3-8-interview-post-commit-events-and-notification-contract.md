@@ -6,12 +6,16 @@
 **Prerequisites**:
 - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/3-5-interview-create-route-post-api-interviews.md`
 - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/3-7-interview-cancel-route-post-api-interviews-id-cancel.md`
-- `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/notification-service.md`
+- `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-1-notification-scope-and-lifecycle-boundary-lock.md`
+- `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-2-notification-event-contract-and-producer-ownership.md`
 
 ## What Needs to Be Done
 
 ### 1. Post-commit integration boundary
-- [ ] Keep create/cancel orchestration integration-compatible with `notification-service.md`.
+- [ ] Keep create/cancel orchestration integration-compatible with Story 4 notification subtasks, especially:
+  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-1-notification-scope-and-lifecycle-boundary-lock.md`
+  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-2-notification-event-contract-and-producer-ownership.md`
+  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-3-notification-transport-reliability-and-idempotency.md`
 - [ ] Emit only after successful commit; do not emit lifecycle events when transaction fails/rolls back.
 
 ### 2. Event payload compatibility contract

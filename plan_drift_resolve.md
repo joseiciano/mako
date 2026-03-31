@@ -45,7 +45,9 @@ Error 8: Lifecycle docs do not define cancel transition matrix required by Story
 Error 9: Queue purpose drift between IaC story and current lifecycle/notification architecture
 - File 1: `docs/product/stories/stories/milestone-1-foundation-authentication/1-2-cloud-infrastructure-iac.md` (lines 17, 19) defines queue usage as interview provisioning hand-off.
 - File 2: `docs/infrastructure/backend.md` (line 10) defines queues for post-commit worker hand-off (matcher/API -> notification/provisioning workers).
-- File 3: `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/notification-service.md` (lines 21-33, 37-47) defines queue contract for post-commit lifecycle events.
+- File 3: Story 4 notification subtasks define queue/post-commit contracts for lifecycle events:
+  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-2-notification-event-contract-and-producer-ownership.md`
+  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-3-notification-transport-reliability-and-idempotency.md`
 - File 4: `docs/system/system-design/state-management-lifecycle.md` (line 10) and `docs/system/system-design/diagrams.md` (line 7) define session provisioning as join-time API behavior.
 - Reason why this is a drift: One source says queues drive provisioning, while newer docs treat queues as post-commit orchestration transport and provisioning as join-time route behavior.
 
@@ -79,7 +81,7 @@ Error 9: Queue purpose drift between IaC story and current lifecycle/notificatio
 7. **Unify queue/provisioning architecture language**
    - Update Story 1.2 IaC wording so queue purpose matches current post-commit orchestration model.
    - If provisioning worker still exists, document whether it is route-invoked, queue-invoked, or both, and under which conditions.
-   - Ensure `backend.md`, `management.md`, `notification-service.md`, and lifecycle docs use consistent transport boundaries.
+   - Ensure `backend.md`, `management.md`, Story 4 notification subtasks (`4-1` through `4-6`), and lifecycle docs use consistent transport boundaries.
 
 8. **Run a docs consistency pass after edits**
    - Validate all internal links in changed story files.

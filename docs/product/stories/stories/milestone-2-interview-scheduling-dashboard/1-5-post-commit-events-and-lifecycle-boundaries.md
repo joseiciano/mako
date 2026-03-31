@@ -18,7 +18,13 @@
   - `docs/system/system-design/api-routes.md`
 
 ### 3. Downstream integration compatibility
-- [ ] Ensure notification/reminder orchestration is integration-compatible with Milestone 2 notification work (`notification-service.md`).
+- [ ] Ensure notification/reminder orchestration is integration-compatible with Milestone 2 Story 4 notification subtasks:
+  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-1-notification-scope-and-lifecycle-boundary-lock.md`
+  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-2-notification-event-contract-and-producer-ownership.md`
+  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-3-notification-transport-reliability-and-idempotency.md`
+  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-4-confirmation-and-reminder-workflow-rules.md`
+  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-5-cancellation-reminder-suppression-rules.md`
+  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-6-notification-integration-tests-and-drift-gates.md`
 - [ ] Ensure event transport is compatible with the queue/worker hand-off infrastructure defined in `docs/product/stories/stories/milestone-1-foundation-authentication/1-2-cloud-infrastructure-iac.md`.
 
 ### 4. Drift-prevention checks (required)

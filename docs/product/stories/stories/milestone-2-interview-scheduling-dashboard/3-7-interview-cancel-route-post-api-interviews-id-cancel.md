@@ -43,7 +43,9 @@
 - [ ] Confirm no discrepancy with lifecycle docs:
   - `docs/system/system-design/state-management-lifecycle.md`
   - `docs/system/system-design/diagrams.md`
-- [ ] Confirm no discrepancy with notification contract expectations in `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/notification-service.md`.
+- [ ] Confirm no discrepancy with notification contract expectations in:
+  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-2-notification-event-contract-and-producer-ownership.md`
+  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-5-cancellation-reminder-suppression-rules.md`
 - [ ] If any discrepancy is found, update story/docs before implementation.
 
 ## End Goal

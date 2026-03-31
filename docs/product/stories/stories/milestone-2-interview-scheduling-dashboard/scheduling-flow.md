@@ -46,7 +46,8 @@
   - `docs/system/system-design/state-management-lifecycle.md`
   - `docs/system/system-design/diagrams.md`
 - [ ] Confirm no discrepancy with queue/notification ownership in:
-  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/notification-service.md`
+  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-1-notification-scope-and-lifecycle-boundary-lock.md`
+  - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-3-notification-transport-reliability-and-idempotency.md`
 - [ ] If discrepancies exist, update docs before implementation.
 
 ## End Goal
