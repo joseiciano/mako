@@ -39,6 +39,11 @@
       "createdAt": "2026-01-01T00:00:00.000Z"
     }
     ```
+  - **Field Mapping (API camelCase ↔ DB snake_case)**:
+    - `displayName <- users.name`
+    - `freeStandardInterviews <- users.free_standard_interviews`
+    - `freeAiInterviews <- users.free_ai_interviews`
+    - `createdAt <- users.created_at`
   - **Query Params**: None
 
 - **`PATCH /api/account`**

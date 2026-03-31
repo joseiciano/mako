@@ -13,8 +13,8 @@
     - **Data**: `GET /api/account`, `PATCH /api/account`, `GET /api/interviewer/status`, `GET /api/companies`
 
 ### Interview Lifecycle
-- **Schedule Interview (`/interviews/new`)**: Configuration flow for type (System Design), mode (AI/P2P), and tier.
-    - **Data**: `POST /api/interviews`
+- **Schedule Interview (`/interviews/new`)**: Configuration flow for type (System Design), mode (AI / P2P via availability), and tier.
+    - **Data**: `POST /api/interviews` (**AI-led only**), `POST /api/availability` (**P2P matching path**)
 - **Interview Details (`/interviews/:id`)**: Comprehensive view of a specific interview's status and metadata.
     - **Features**: Recording playback, whiteboard screenshots, feedback summary, and participant info.
     - **Data**: `GET /api/interviews/:id`
@@ -25,3 +25,7 @@
 - **Post-Interview Feedback (`/interviews/:id/feedback`)**: Detailed report and AI-driven insights.
     - **Features**: Performance scores, transcript, and whiteboard captures.
     - **Data**: `GET /api/interviews/:id`
+
+### Route/Story Tracking Note
+- `GET /api/interviews/:id` and `POST /api/interviews/:id/provision` are documented system routes but explicitly out of scope in Story 3 (`docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/interview-crud.md`).
+- Keep them tied to dedicated follow-up stories before full rollout of details/session pages.

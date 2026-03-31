@@ -86,7 +86,7 @@ Core entity for tracking mock sessions and AI-led interviews.
 - **`interviewer_alias`**: `text` - Anonymous name for the interviewer during the session.
 - **`type`**: `enum` ('system_design', 'coding', 'behavioral') - Category of the interview.
 - **`mode`**: `enum` ('peer_to_peer', 'ai_led') - Whether it's a mock with another user or AI.
-- **`tier`**: `enum` ('standard', 'premium') - 'premium' requires a verified interviewer; 'standard' is open to any user for random matching.
+- **`tier`**: `enum` ('standard', 'premium') - In Milestone 2, this is a policy label/input (quota/limits), not a separate creation flow. Verified-interviewer assignment behavior is future milestone scope.
 - **`status`**: `enum` ('scheduled', 'ongoing', 'completed', 'cancelled')
 - **`scheduled_at`**: `timestamptz` - Time the interview is set to start.
 - **`realtime_session_id`**: `text` (Optional) - Cloudflare Realtime session identifier.

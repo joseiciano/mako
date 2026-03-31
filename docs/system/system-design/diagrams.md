@@ -27,6 +27,6 @@ Key account flows include:
 - **CSRF Protection**: Better Auth provides built-in CSRF protection for session-based authentication.
 - **Persistence**: Sessions are persisted in the Neon Postgres database, allowing for features like "Sign out from all devices".
 
-2. **Profile Management:** Standard RESTful operations (GET/PUT/DELETE) handled by Hono workers with soft-deletion support.
+2. **Profile Management:** Standard RESTful operations (GET/PATCH/DELETE) handled by Hono workers with soft-deletion support.
 3. **Credit System:** A "pay-per-credit" model using **Stripe Elements** for checkout. Fulfillment is handled asynchronously via Stripe Webhooks (`payment_intent.succeeded`) to update user balances in Postgres.
 4. **Interviewer Onboarding:** A registration flow where users submit employment history, leading to a "Pending" state until an internal review (manual or AI-assisted) updates their interviewer status and triggers a notification via an email service (e.g., Resend).

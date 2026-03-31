@@ -12,6 +12,9 @@
   - `GET /api/interviews`
   - `POST /api/interviews/:id/cancel`
 - [ ] Keep `POST /api/interviews/:id/provision` and `GET /api/interviews/:id` out of scope for this story.
+- [ ] Track explicit follow-up story references for out-of-scope routes used by frontend interview lifecycle pages:
+  - `GET /api/interviews/:id` (Interview Details / Feedback data dependency)
+  - `POST /api/interviews/:id/provision` (Interview Session join/provision dependency)
 - [ ] Keep lifecycle boundaries aligned with `docs/system/system-design/state-management-lifecycle.md` and `docs/system/system-design/diagrams.md`:
   - interview creation/cancellation here is data-state management only
   - realtime session provisioning remains join-time behavior (`POST /api/interviews/:id/provision`)
