@@ -23,7 +23,7 @@ sequenceDiagram
 
     Note over User, Email: 2. Update/Delete Account
     User->>FE: Edit Profile / Delete Request
-    FE->>BE: PUT/DELETE /api/account
+    FE->>BE: PATCH/DELETE /api/account
     BE->>Auth: Validate Session
     BE->>DB: Update or Soft-Delete Record
     DB-->>BE: Ack

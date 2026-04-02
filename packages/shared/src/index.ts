@@ -7,23 +7,17 @@ export type HealthResponse = {
 export type AccountUser = {
   id: string
   email: string
-  name: string | null
+  displayName: string
   credits: number
-  free_standard_interviews: number
-  free_ai_interviews: number
-  created_at: string
-  updated_at: string
-  deleted_at: string | null
+  freeStandardInterviews: number
+  freeAiInterviews: number
+  createdAt: string
 }
 
-export type AccountResponse = {
-  user: AccountUser
-  free_standard_remaining: number
-  free_ai_remaining: number
-}
+export type AccountResponse = AccountUser
 
 export type UpdateAccountRequest = {
-  name: string
+  displayName: string
 }
 
 export type DeleteAccountResponse = {

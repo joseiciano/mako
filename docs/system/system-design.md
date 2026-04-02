@@ -11,10 +11,10 @@ For this initial design we are working on the following:
 3. Feedback and data generated upon completion 
 4. Creation of user accounts and payment for credits to do interviews 
 
-What we are not focusing on initially (but will be doing in follow ups):
-* Behavioral Interviews
-* Coding Interviews 
-* Learning Resources
+Milestone 2 UX focus:
+* System design interview scheduling and execution are the primary user-facing focus.
+* Coding and behavioral interview types are contract-ready in API/DB docs for follow-up milestones, but are not the primary Milestone 2 UX path.
+* Learning resources are out of scope for this milestone.
 
 ## Technologies 
 

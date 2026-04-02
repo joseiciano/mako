@@ -27,13 +27,25 @@
 - **`GET /api/account`**
   - **Description**: Retrieves the current authenticated user's profile, credit balance, and remaining free interview quotas.
   - **Request Body**: None
-  - **Response Body**: `{ user: User, free_standard_remaining: number, free_ai_remaining: number }`
+  - **Response Body**:
+    ```json
+    {
+      "id": "uuid",
+      "email": "user@example.com",
+      "display_name": "Jane Candidate",
+      "credits": 8,
+      "free_standard_interviews": 1,
+      "free_ai_interviews": 1,
+      "created_at": "2026-01-01T00:00:00.000Z"
+    }
+    ```
+  - **Field Mapping**: API response uses snake_case and maps directly to DB columns.
   - **Query Params**: None
 
 - **`PATCH /api/account`**
-  - **Description**: Updates user profile information (name).
-  - **Request Body**: `{ name?: string }`
-  - **Response Body**: `{ user: User }`
+  - **Description**: Updates user profile information (display name).
+  - **Request Body**: `{ display_name: string }`
+  - **Response Body**: Same shape as `GET /api/account`.
   - **Query Params**: None
 
 - **`DELETE /api/account`**
@@ -58,8 +70,8 @@
 ### Payments & Credits
 - **`POST /api/payments/create-intent`**
   - **Description**: Generates a Stripe Payment Intent for purchasing interview credits.
-  - **Request Body**: `{ packageId: string }`
-  - **Response Body**: `{ clientSecret: string }`
+  - **Request Body**: `{ package_id: string }`
+  - **Response Body**: `{ client_secret: string }`
   - **Query Params**: None
 
 - **`POST /api/payments/webhook`**
@@ -70,18 +82,47 @@
 
 ### Interviews
 - **`POST /api/interviews`**
-  - **Description**: Schedules or initializes a new interview session (Peer-to-peer or AI-led).
+  - **Description**: Schedules or initializes a new interview session.
+  - **Current Milestone 2 Contract**:
+    - Direct creation is supported for **AI-led** sessions.
+    - Direct **peer-to-peer** creation is not supported; peer-to-peer Standard sessions are created by the Availability + Greedy Matcher flow.
+    - Client payload does **not** set `tier`; effective interview tier/policy is resolved server-side from account state (for example: free vs subscribed) and quota/credit rules.
+    - `interviewer_id` is out of scope for this route contract and must not be provided.
   - **Workflow**:
-    - **Scheduled Sessions**: Triggers an immediate confirmation email and queues a reminder email for 30 minutes prior to the `scheduled_at` time.
-    - **Immediate AI Sessions**: If `mode: 'ai_led'` and `scheduled_at` is set to 'now', the session is provisioned immediately, and the user can join right away.
-  - **Request Body**: `{ type: 'system_design' | 'coding' | 'behavioral', mode: 'peer_to_peer' | 'ai_led', tier: 'standard' | 'premium', scheduled_at: string | 'now', interviewer_id?: string }`
+    - **Scheduled Sessions**: After successful commit, triggers confirmation notification orchestration and queues reminder orchestration for 30 minutes prior to `scheduled_at` when applicable.
+    - **Immediate AI Sessions**: If `mode: 'ai_led'` and `scheduled_at` is set to `'now'`, the interview is created with immediate timing semantics, but realtime/whiteboard provisioning remains join-time via `POST /api/interviews/:id/provision` (not in create-route transaction scope).
+  - **Request Body**: `{ type: 'system_design' | 'coding' | 'behavioral', mode: 'ai_led', scheduled_at: ISO-8601 timestamp string | 'now' }`
   - **Response Body**: `{ interview: Interview }`
   - **Query Params**: None
 
 - **`GET /api/interviews`**
   - **Description**: Lists interviews for the current user.
   - **Request Body**: None
-  - **Response Body**: `{ interviews: Interview[] }`
+  - **Response Body**:
+    ```json
+    {
+      "interviews": [
+        {
+          "id": "uuid",
+          "scheduler_id": "uuid",
+          "scheduler_alias": "Candidate-Blue",
+          "interviewer_id": null,
+          "interviewer_alias": "Interviewer-Red",
+          "type": "system_design",
+          "mode": "peer_to_peer",
+          "tier": "standard",
+          "status": "scheduled",
+          "scheduled_at": "2026-01-01T12:00:00.000Z",
+          "created_at": "2026-01-01T00:00:00.000Z",
+          "updated_at": "2026-01-01T00:00:00.000Z"
+        }
+      ]
+    }
+    ```
+  - **Field Mapping**: API response uses snake_case and maps directly to DB columns.
+  - **Role Semantics**:
+    - For matcher-created peer-to-peer interviews, `scheduler_id` / `interviewer_id` are assigned deterministically from matched request order `(created_at ASC, id ASC)`.
+    - For direct route-created sessions in Milestone 2, `scheduler_id` is the authenticated creator.
   - **Query Params**: `status?: 'scheduled' | 'ongoing' | 'completed' | 'cancelled'`, `limit?: number`, `offset?: number`
 
 - **`POST /api/interviews/:id/cancel`**
@@ -91,9 +132,56 @@
   - **Query Params**: None
 
 - **`POST /api/interviews/:id/provision`**
-  - **Description**: Provisions a Cloudflare Realtime session for an upcoming interview.
+  - **Description**: Provisions (or returns existing) Cloudflare Realtime + Excalidraw collaboration credentials for interview join.
   - **Request Body**: None
-  - **Response Body**: `{ session_id: string, token: string }`
+  - **Response Body**:
+    ```json
+    {
+      "mode": "peer_to_peer",
+      "realtime": {
+        "session_id": "rt_session_123",
+        "token": "rt_token_abc"
+      },
+      "whiteboard": {
+        "room_id": "wb_room_123",
+        "key": "wb_key_abc"
+      }
+    }
+    ```
+  - **Behavior Rules**:
+    - Route is participant-only (interview participants can provision/join; non-participants are rejected).
+    - Provisioning is join-time runtime behavior and does not introduce a separate persisted interview `status`.
+    - Retries/reconnects for the same active interview are idempotent and must reuse existing persisted values when present.
+    - `peer_to_peer`: both participants receive credentials for the same shared room/key pair.
+    - `ai_led`: return a single-user room/key pair scoped to the interview.
+  - **Query Params**: None
+
+- **`POST /api/interviews/:id/ai-chat`**
+  - **Description**: Submits a user chat turn for AI-led interviews and returns guidance/review grounded in chat context + Excalidraw canvas snapshot.
+  - **Request Body**:
+    ```json
+    {
+      "message": "What should I add next?",
+      "canvas_snapshot": {
+        "type": "excalidraw_scene",
+        "scene": {}
+      },
+      "guidance_mode": "review"
+    }
+    ```
+  - **Response Body**:
+    ```json
+    {
+      "reply": "You're missing a cache invalidation strategy between services A and B.",
+      "guidance_mode": "review",
+      "prompt_version": "ai-whiteboard-v1"
+    }
+    ```
+  - **Behavior Rules**:
+    - Route is only valid for `mode = 'ai_led'` interviews.
+    - Route is participant-only.
+    - Canvas input should be Excalidraw JSON (or server-side normalized derivative). Mermaid is optional downstream output, not required request input.
+    - Clients should send snapshots on explicit review actions and/or debounced intervals (not per-stroke).
   - **Query Params**: None
 
 - **GET /api/interviews/:id**
@@ -105,8 +193,11 @@
 ### Availability
 - **`POST /api/availability`**
   - **Description**: Submits a new availability request with multiple time slots.
-  - **Request Body**: `{ interview_type: string, max_matches: number, slots: Array<{ start_time: string, end_time: string }> }`
+  - **Request Body**: `{ interview_type: 'system_design' | 'coding' | 'behavioral', max_matches: number, slots: Array<{ start_time: string, end_time: string }> }`
   - **Response Body**: `{ request: Availability_Request, slots: Availability_Slot[] }`
+  - **Validation Rules**:
+    - Each slot must be exactly 60 minutes (`end_time = start_time + 60m`).
+    - `start_time < end_time`.
 
 - **`GET /api/availability`**
   - **Description**: Lists active availability requests for the current user.

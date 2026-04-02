@@ -1,11 +1,12 @@
 # Story 3.3: Layout Integration & Auth Guards (Layout 3-3)
 
 **Milestone**: Milestone 1: Foundation & Authentication
-**Description**: Integrate the App Shell into the main routing system and enforce authentication guards.
+**Description**: Integrate the App Shell (with canonical desktop sidebar + mobile drawer navigation) into the main routing system and enforce authentication guards.
 **Status**: In-Review
 **Prerequisite**: [Story 3.2: Mobile Responsive Navigation](./3-2-mobile-nav.md)
+**Last reconciled**: 2026-03-30 (Documentation Drift Resolution Plan)
 
-## Implementation Plan
+## What Needs to Be Done
 
 ### 1. Routing Integration
 - [x] **Refactor Route Tree for Layout Injection**
@@ -24,7 +25,7 @@
 ### 3. Navigation State Sync
 - [x] **Sync Navigation with Route Changes**
     - [x] Navigation active states now stay in sync with pathname updates and redirects.
-    - [x] Header/navigation context now renders only inside authenticated routes.
+    - [x] Header/sidebar/mobile-navigation context now renders only inside authenticated routes.
 
 ## Files to be Added/Changed
 - **New Files**:
