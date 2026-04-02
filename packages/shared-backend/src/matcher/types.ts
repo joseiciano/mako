@@ -27,6 +27,57 @@ export const matcherPairAttemptSchema = z.object({
 
 export type MatcherPairAttempt = z.infer<typeof matcherPairAttemptSchema>
 
+export const matcherLockedSlotRowSchema = z.object({
+  id: z.string().uuid(),
+  request_id: z.string().uuid(),
+  start_time: timestampSchema,
+  end_time: timestampSchema,
+  status: z.enum(['available', 'matched', 'cancelled']),
+})
+
+export type MatcherLockedSlotRow = z.infer<typeof matcherLockedSlotRowSchema>
+
+export const matcherLockedRequestRowSchema = z.object({
+  id: z.string().uuid(),
+  user_id: z.string().uuid(),
+  created_at: timestampSchema,
+  current_matches: z.number().int().nonnegative(),
+  max_matches: z.number().int().positive(),
+  interview_type: interviewTypeSchema,
+  status: z.enum(['active', 'fulfilled', 'cancelled']),
+})
+
+export type MatcherLockedRequestRow = z.infer<typeof matcherLockedRequestRowSchema>
+
+export type MatchAttemptWriteSkipReason =
+  | 'slots_not_found'
+  | 'requests_not_found'
+  | 'slot_not_available'
+  | 'request_not_active'
+  | 'request_quota_reached'
+  | 'users_not_distinct'
+  | 'interview_type_mismatch'
+
+export type MatchAttemptWriteResult =
+  | {
+      status: 'created'
+      interviewId: string
+    }
+  | {
+      status: 'skipped'
+      reason: MatchAttemptWriteSkipReason
+    }
+
 export function parseMatcherCandidateRow(row: unknown): MatcherCandidateRow {
   return matcherCandidateRowSchema.parse(row)
+}
+
+export function parseMatcherLockedSlotRow(row: unknown): MatcherLockedSlotRow {
+  return matcherLockedSlotRowSchema.parse(row)
+}
+
+export function parseMatcherLockedRequestRow(
+  row: unknown,
+): MatcherLockedRequestRow {
+  return matcherLockedRequestRowSchema.parse(row)
 }
