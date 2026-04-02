@@ -20,11 +20,15 @@ The platform manages interview state across frontend and backend with explicit r
 - **Join-time provisioning (runtime phase, not persisted interview status)**
   - Triggered by participant action on the join flow (`POST /api/interviews/:id/provision`).
   - Realtime/whiteboard session resources are initialized in this join-time route boundary.
+  - `peer_to_peer`: both participants share one interview-scoped whiteboard room/key pair.
+  - `ai_led`: a single-user interview-scoped whiteboard room/key pair is used.
+  - Retry/reconnect behavior must be idempotent (reuse existing room/key/session values for the active interview).
   - This phase is **not** stored as a `status` value on the interview row.
   - This is **not** queue-triggered provisioning.
 
 - **Ongoing**
   - Live audio/video/whiteboard state is synchronized via Cloudflare Realtime.
+  - For AI-led sessions, chat guidance runs as runtime interaction (for example via `POST /api/interviews/:id/ai-chat`) and does not alter lifecycle status ownership.
 
 - **Completion**
   - Triggered by workflow timer/manual end.

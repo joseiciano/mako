@@ -132,9 +132,56 @@
   - **Query Params**: None
 
 - **`POST /api/interviews/:id/provision`**
-  - **Description**: Provisions a Cloudflare Realtime session for an upcoming interview.
+  - **Description**: Provisions (or returns existing) Cloudflare Realtime + Excalidraw collaboration credentials for interview join.
   - **Request Body**: None
-  - **Response Body**: `{ session_id: string, token: string }`
+  - **Response Body**:
+    ```json
+    {
+      "mode": "peer_to_peer",
+      "realtime": {
+        "session_id": "rt_session_123",
+        "token": "rt_token_abc"
+      },
+      "whiteboard": {
+        "room_id": "wb_room_123",
+        "key": "wb_key_abc"
+      }
+    }
+    ```
+  - **Behavior Rules**:
+    - Route is participant-only (interview participants can provision/join; non-participants are rejected).
+    - Provisioning is join-time runtime behavior and does not introduce a separate persisted interview `status`.
+    - Retries/reconnects for the same active interview are idempotent and must reuse existing persisted values when present.
+    - `peer_to_peer`: both participants receive credentials for the same shared room/key pair.
+    - `ai_led`: return a single-user room/key pair scoped to the interview.
+  - **Query Params**: None
+
+- **`POST /api/interviews/:id/ai-chat`**
+  - **Description**: Submits a user chat turn for AI-led interviews and returns guidance/review grounded in chat context + Excalidraw canvas snapshot.
+  - **Request Body**:
+    ```json
+    {
+      "message": "What should I add next?",
+      "canvas_snapshot": {
+        "type": "excalidraw_scene",
+        "scene": {}
+      },
+      "guidance_mode": "review"
+    }
+    ```
+  - **Response Body**:
+    ```json
+    {
+      "reply": "You're missing a cache invalidation strategy between services A and B.",
+      "guidance_mode": "review",
+      "prompt_version": "ai-whiteboard-v1"
+    }
+    ```
+  - **Behavior Rules**:
+    - Route is only valid for `mode = 'ai_led'` interviews.
+    - Route is participant-only.
+    - Canvas input should be Excalidraw JSON (or server-side normalized derivative). Mermaid is optional downstream output, not required request input.
+    - Clients should send snapshots on explicit review actions and/or debounced intervals (not per-stroke).
   - **Query Params**: None
 
 - **GET /api/interviews/:id**

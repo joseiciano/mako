@@ -2,7 +2,7 @@
 
 **Last reconciled**: 2026-03-30 (Documentation Drift Resolution Plan)
 
-Refer to `./diagrams/realtime_interview.md`
+Refer to `../diagrams/realtime_interview.md`
 
 Flow is as follows:
 1. **Scheduling & Post-Commit Orchestration:** The Backend API Worker (Hono) schedules the interview and commits lifecycle state in Postgres.
@@ -17,8 +17,12 @@ Flow is as follows:
    - AI Feedback is generated using Cloudflare AI Gateway and LLM providers.
 9. **Collaboration Tools**:
    - For system design interviews, a **shared Excalidraw collaboration session** is provisioned. Both participants join this session using a unique Room ID and Encryption Key.
+   - For peer-to-peer interviews, both users join the same interview-scoped room/key pair.
+   - For AI-led interviews, the user gets a single interview-scoped room/key pair (no second human participant).
    - Whiteboard state synchronization is handled efficiently over **Cloudflare Realtime**, ensuring a low-latency collaborative experience without manual "streaming" of the canvas.
-   - For AI-led interviews, the AI interviewer utilizes the **Excalidraw MCP** (Model Context Protocol) to join the session, allowing it to "see" and interact with the whiteboard state in real-time.
+   - For AI-led guidance, the backend sends Excalidraw scene snapshots (JSON) with chat context/rubric prompts to the LLM.
+   - Mermaid can be produced as an optional derived artifact for reporting/export, but Excalidraw scene data remains the source-of-truth payload for AI guidance.
+   - If Excalidraw MCP is used for AI interviewer behavior, MCP access must be explicitly wired with the interview's room credentials; it does not gain implicit/global read access to sessions.
 
 Cancellation transition behavior (must stay aligned with `state-management-lifecycle.md`):
 - `scheduled -> cancelled`: allowed
@@ -26,10 +30,11 @@ Cancellation transition behavior (must stay aligned with `state-management-lifec
 - `ongoing|completed -> cancelled`: rejected invalid transition
 
 Provisioning note: join-time provisioning is a runtime route phase (`POST /api/interviews/:id/provision`), not a persisted interview `status` value.
+Provisioning should be idempotent for reconnect/retry behavior within the same active interview so room/key/session values are reused rather than regenerated.
 
 ### Creating account/updating 
 
-Refer to `./diagrams/crud.md`
+Refer to `../diagrams/crud.md`
 
 Key account flows include:
 1. **Authentication:** Managed via **Better Auth** and persisted in the Neon Postgres database.

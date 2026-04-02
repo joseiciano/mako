@@ -23,12 +23,17 @@
     - **Data**: `GET /api/interviews/:id`
 - **Interview Session (`/interviews/:id/session`)**: The immersive interview environment.
     - **Features**: Realtime Video/Audio, Shared Excalidraw Whiteboard, Session Timer.
-    - **Data**: `GET /api/interviews/:id`, `POST /api/interviews/:id/provision`
-    - **Notes**: Initially has a blank page and a join button, giving minimum details about the interview (i.e. "Scheduled System Design Interview With (Name)")
+    - **Data**: `GET /api/interviews/:id`, `POST /api/interviews/:id/provision`, `POST /api/interviews/:id/ai-chat` (**AI-led only**)
+    - **Notes**:
+      - Initial UX can be a minimal shell with interview context + explicit join CTA.
+      - `peer_to_peer` sessions share one room/key pair across both participants.
+      - `ai_led` sessions use a single-user room/key pair plus chat guidance.
+      - AI chat guidance uses Excalidraw JSON snapshots as source-of-truth input; Mermaid is optional derived output for reporting/export.
 - **Post-Interview Feedback (`/interviews/:id/feedback`)**: Detailed report and AI-driven insights.
     - **Features**: Performance scores, transcript, and whiteboard captures.
     - **Data**: `GET /api/interviews/:id`
 
 ### Route/Story Tracking Note
 - `GET /api/interviews/:id` and `POST /api/interviews/:id/provision` are documented system routes but explicitly out of scope in Story 3.1 (`docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/3-1-interview-crud-scope-and-source-lock.md`).
+- `POST /api/interviews/:id/ai-chat` is an AI-led interview route and should be delivered in dedicated AI-interviewer stories (Milestone 4 scope), starting with `docs/product/stories/stories/milestone-4-ai-interviewer-implementation/2-1-ai-chat-route-and-canvas-guidance.md`.
 - Keep them tied to dedicated follow-up stories before full rollout of details/session pages.
