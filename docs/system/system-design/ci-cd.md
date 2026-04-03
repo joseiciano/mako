@@ -111,8 +111,10 @@ To maintain a clean and traceable history, all pull requests must adhere to the 
 
 ### PR Title
 
-- **Format**: `[TICKET-ID/NAME] Short description of changes`
+- **Format**: `[MILESTONE-TICKETID] Short description of changes`
 - **Requirement**: The title must always include the relevant ticket number or name.
+
+Example: `[2-1.4]-Implementing API Route`
 
 ### PR Description
 
