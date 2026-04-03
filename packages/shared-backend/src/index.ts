@@ -12,12 +12,16 @@ export {
   parseUserRow,
   userCompanyRowSchema,
   userRowSchema,
+  type AvailabilityRequestStatus,
+  type AvailabilitySlotStatus,
   type AvailabilityRequestRow,
   type AvailabilitySlotRow,
+  type InterviewType,
   type UserCompanyRow,
   type UserRow,
 } from './database/foundation-schemas'
 export * from './account'
+export * from './matching'
 
 export type SqlQuery = {
   text: string
