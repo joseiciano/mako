@@ -18,6 +18,7 @@ export {
   type UserRow,
 } from './database/foundation-schemas'
 export * from './account'
+export * from './interview'
 export * from './matcher'
 
 export type SqlQuery = {
