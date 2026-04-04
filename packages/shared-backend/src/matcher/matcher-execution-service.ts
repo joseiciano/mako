@@ -1,4 +1,14 @@
-import type { MatcherCandidateRow, MatcherPairAttempt, MatchAttemptWriteResult } from './types'
+import {
+  buildMatcherMatchCreatedEvent,
+  type MatcherMatchCreatedEvent,
+  type MatcherPostCommitEventPublisher,
+} from './matcher-post-commit-event'
+import type {
+  MatcherCandidateRow,
+  MatcherCreatedInterview,
+  MatcherPairAttempt,
+  MatchAttemptWriteResult,
+} from './types'
 import { MatcherService } from './matcher-service'
 
 export type MatcherExecutionRepository = {
@@ -16,11 +26,30 @@ export type MatcherRunSummary = {
   createdInterviewIds: string[]
 }
 
+type MatcherExecutionServiceDependencies = {
+  postCommitEventPublisher?: MatcherPostCommitEventPublisher
+  buildMatchCreatedEvent?: (input: {
+    interview: MatcherCreatedInterview
+  }) => MatcherMatchCreatedEvent
+}
+
 export class MatcherExecutionService {
+  private readonly postCommitEventPublisher: MatcherPostCommitEventPublisher
+
+  private readonly buildMatchCreatedEvent: (input: {
+    interview: MatcherCreatedInterview
+  }) => MatcherMatchCreatedEvent
+
   constructor(
     private readonly matcherRepository: MatcherExecutionRepository,
     private readonly matcherService: MatcherService = new MatcherService(),
-  ) {}
+    dependencies: MatcherExecutionServiceDependencies = {},
+  ) {
+    this.postCommitEventPublisher =
+      dependencies.postCommitEventPublisher ?? missingMatcherPostCommitEventPublisher
+    this.buildMatchCreatedEvent =
+      dependencies.buildMatchCreatedEvent ?? buildMatcherMatchCreatedEvent
+  }
 
   async runMatchCycle(): Promise<MatcherRunSummary> {
     const candidateRows = await this.matcherRepository.listCandidateRows()
@@ -34,6 +63,11 @@ export class MatcherExecutionService {
       )
 
       if (writeResult.status === 'created') {
+        const matchCreatedEvent = this.buildMatchCreatedEvent({
+          interview: writeResult.interview,
+        })
+
+        await this.postCommitEventPublisher.publish(matchCreatedEvent)
         createdInterviewIds.push(writeResult.interviewId)
         continue
       }
@@ -49,4 +83,14 @@ export class MatcherExecutionService {
       createdInterviewIds,
     }
   }
+}
+
+const missingMatcherPostCommitEventPublisher: MatcherPostCommitEventPublisher = {
+  publish: publishMissingMatcherPostCommitEvent,
+}
+
+async function publishMissingMatcherPostCommitEvent(): Promise<void> {
+  throw new Error(
+    'MatcherExecutionService post-commit event publisher is not configured',
+  )
 }

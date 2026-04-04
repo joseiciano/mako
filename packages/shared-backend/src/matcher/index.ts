@@ -9,14 +9,26 @@ export {
   type MatcherRunSummary,
 } from './matcher-execution-service'
 export {
+  buildMatcherMatchCreatedEvent,
+  buildMatcherMatchCreatedIdempotencyKey,
+  createMatcherQueuePostCommitEventPublisher,
+  matcherMatchCreatedEventSchema,
+  matcherParticipantsSchema,
+  type MatcherMatchCreatedEvent,
+  type MatcherPostCommitEventPublisher,
+  type MatcherPostCommitQueueTransport,
+} from './matcher-post-commit-event'
+export {
   MatcherService,
   arePairingCandidatesEligible,
 } from './matcher-service'
 export {
+  matcherCreatedInterviewSchema,
   matcherCandidateRowSchema,
   matcherLockedRequestRowSchema,
   matcherLockedSlotRowSchema,
   matcherPairAttemptSchema,
+  type MatcherCreatedInterview,
   parseMatcherCandidateRow,
   parseMatcherLockedRequestRow,
   parseMatcherLockedSlotRow,

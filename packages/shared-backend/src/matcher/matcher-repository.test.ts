@@ -129,6 +129,16 @@ describe('MatcherRepository', function matcherRepositorySuite() {
     expect(result).toEqual({
       status: 'created',
       interviewId: '99999999-9999-4999-8999-999999999999',
+      interview: {
+        id: '99999999-9999-4999-8999-999999999999',
+        scheduler_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        interviewer_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        type: 'system_design',
+        mode: 'peer_to_peer',
+        tier: 'standard',
+        status: 'scheduled',
+        scheduled_at: '2026-04-10T10:30:00.000Z',
+      },
     })
 
     expect(executedQueries[0]?.text).toContain('BEGIN')
