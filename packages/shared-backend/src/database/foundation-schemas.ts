@@ -14,17 +14,25 @@ export const interviewTypeSchema = z.enum([
   'behavioral',
 ])
 
+export type InterviewType = z.infer<typeof interviewTypeSchema>
+
 export const availabilityRequestStatusSchema = z.enum([
   'active',
   'fulfilled',
   'cancelled',
 ])
 
+export type AvailabilityRequestStatus = z.infer<
+  typeof availabilityRequestStatusSchema
+>
+
 export const availabilitySlotStatusSchema = z.enum([
   'available',
   'matched',
   'cancelled',
 ])
+
+export type AvailabilitySlotStatus = z.infer<typeof availabilitySlotStatusSchema>
 
 export const userRowSchema = z.object({
   id: z.string().uuid(),
