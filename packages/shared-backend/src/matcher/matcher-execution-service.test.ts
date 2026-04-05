@@ -3,7 +3,7 @@ import { MatcherExecutionService } from './matcher-execution-service'
 import type { MatcherCandidateRow } from './types'
 
 describe('MatcherExecutionService', function matcherExecutionServiceSuite() {
-  it('runs deterministic pair attempts and summarizes write outcomes', async function shouldRunMatchCycle() {
+  it('runs deterministic pair attempts, emits post-commit events, and summarizes write outcomes', async function shouldRunMatchCycle() {
     const candidateRows = [
       createCandidateRow({
         requestId: '33333333-3333-4333-8333-333333333333',
@@ -32,29 +32,63 @@ describe('MatcherExecutionService', function matcherExecutionServiceSuite() {
     ]
 
     const attemptedPairKeys: string[] = []
-    const executionService = new MatcherExecutionService({
-      async listCandidateRows() {
-        return candidateRows
-      },
-      async executePairAttemptTransaction(pairAttempt) {
-        attemptedPairKeys.push(pairAttempt.attempt_key)
+    const publishedEvents: unknown[] = []
+    const executionService = new MatcherExecutionService(
+      {
+        async listCandidateRows() {
+          return candidateRows
+        },
+        async executePairAttemptTransaction(pairAttempt) {
+          attemptedPairKeys.push(pairAttempt.attempt_key)
 
-        if (
-          pairAttempt.attempt_key ===
-          '11111111-1111-4111-8111-111111111111:a1111111-1111-4111-8111-111111111111|22222222-2222-4222-8222-222222222222:a2222222-2222-4222-8222-222222222222'
-        ) {
-          return {
-            status: 'created',
-            interviewId: '99999999-9999-4999-8999-999999999999',
+          if (
+            pairAttempt.attempt_key ===
+            '11111111-1111-4111-8111-111111111111:a1111111-1111-4111-8111-111111111111|22222222-2222-4222-8222-222222222222:a2222222-2222-4222-8222-222222222222'
+          ) {
+            return {
+              status: 'created',
+              interviewId: '99999999-9999-4999-8999-999999999999',
+              interview: {
+                id: '99999999-9999-4999-8999-999999999999',
+                scheduler_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+                interviewer_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+                type: 'system_design',
+                mode: 'peer_to_peer',
+                tier: 'standard',
+                status: 'scheduled',
+                scheduled_at: '2026-04-10T10:30:00.000Z',
+              },
+            }
           }
-        }
 
-        return {
-          status: 'skipped',
-          reason: 'request_quota_reached',
-        }
+          return {
+            status: 'skipped',
+            reason: 'request_quota_reached',
+          }
+        },
       },
-    })
+      undefined,
+      {
+        postCommitEventPublisher: {
+          async publish(event) {
+            publishedEvents.push(event)
+          },
+        },
+        buildMatchCreatedEvent(input) {
+          return {
+            event_type: 'interview.match.created',
+            event_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+            idempotency_key: `interview.match.created:${input.interview.id}`,
+            occurred_at: '2026-04-01T15:00:00.000Z',
+            interview: input.interview,
+            participants: {
+              scheduler_user_id: input.interview.scheduler_id,
+              interviewer_user_id: input.interview.interviewer_id,
+            },
+          }
+        },
+      },
+    )
 
     const result = await executionService.runMatchCycle()
 
@@ -70,6 +104,163 @@ describe('MatcherExecutionService', function matcherExecutionServiceSuite() {
       skippedAttempts: 2,
       createdInterviewIds: ['99999999-9999-4999-8999-999999999999'],
     })
+
+    expect(publishedEvents).toEqual([
+      {
+        event_type: 'interview.match.created',
+        event_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+        idempotency_key: 'interview.match.created:99999999-9999-4999-8999-999999999999',
+        occurred_at: '2026-04-01T15:00:00.000Z',
+        interview: {
+          id: '99999999-9999-4999-8999-999999999999',
+          scheduler_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          interviewer_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          type: 'system_design',
+          mode: 'peer_to_peer',
+          tier: 'standard',
+          status: 'scheduled',
+          scheduled_at: '2026-04-10T10:30:00.000Z',
+        },
+        participants: {
+          scheduler_user_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          interviewer_user_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        },
+      },
+    ])
+  })
+
+  it('does not emit post-commit events for skipped match attempts', async function shouldSkipEventEmission() {
+    const publishedEvents: unknown[] = []
+    const executionService = new MatcherExecutionService(
+      {
+        async listCandidateRows() {
+          return [
+            createCandidateRow({
+              requestId: '11111111-1111-4111-8111-111111111111',
+              userId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+              requestCreatedAt: '2026-03-30T09:00:00.000Z',
+              slotId: 'a1111111-1111-4111-8111-111111111111',
+              slotStartTime: '2026-04-10T10:00:00.000Z',
+              slotEndTime: '2026-04-10T11:00:00.000Z',
+            }),
+            createCandidateRow({
+              requestId: '22222222-2222-4222-8222-222222222222',
+              userId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+              requestCreatedAt: '2026-03-30T09:00:00.000Z',
+              slotId: 'a2222222-2222-4222-8222-222222222222',
+              slotStartTime: '2026-04-10T10:30:00.000Z',
+              slotEndTime: '2026-04-10T11:30:00.000Z',
+            }),
+          ]
+        },
+        async executePairAttemptTransaction() {
+          return {
+            status: 'skipped',
+            reason: 'request_quota_reached',
+          }
+        },
+      },
+      undefined,
+      {
+        postCommitEventPublisher: {
+          async publish(event) {
+            publishedEvents.push(event)
+          },
+        },
+      },
+    )
+
+    const summary = await executionService.runMatchCycle()
+
+    expect(summary.matchesCreated).toBe(0)
+    expect(publishedEvents).toEqual([])
+  })
+
+  it('does not emit post-commit events when transaction write fails', async function shouldNotEmitWhenWriteFails() {
+    const publishedEvents: unknown[] = []
+    const executionService = new MatcherExecutionService(
+      {
+        async listCandidateRows() {
+          return [
+            createCandidateRow({
+              requestId: '11111111-1111-4111-8111-111111111111',
+              userId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+              requestCreatedAt: '2026-03-30T09:00:00.000Z',
+              slotId: 'a1111111-1111-4111-8111-111111111111',
+              slotStartTime: '2026-04-10T10:00:00.000Z',
+              slotEndTime: '2026-04-10T11:00:00.000Z',
+            }),
+            createCandidateRow({
+              requestId: '22222222-2222-4222-8222-222222222222',
+              userId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+              requestCreatedAt: '2026-03-30T09:00:00.000Z',
+              slotId: 'a2222222-2222-4222-8222-222222222222',
+              slotStartTime: '2026-04-10T10:30:00.000Z',
+              slotEndTime: '2026-04-10T11:30:00.000Z',
+            }),
+          ]
+        },
+        async executePairAttemptTransaction() {
+          throw new Error('transaction failed')
+        },
+      },
+      undefined,
+      {
+        postCommitEventPublisher: {
+          async publish(event) {
+            publishedEvents.push(event)
+          },
+        },
+      },
+    )
+
+    await expect(executionService.runMatchCycle()).rejects.toThrow('transaction failed')
+    expect(publishedEvents).toEqual([])
+  })
+
+  it('fails when a match is created without a configured post-commit publisher', async function shouldRequirePublisher() {
+    const executionService = new MatcherExecutionService({
+      async listCandidateRows() {
+        return [
+          createCandidateRow({
+            requestId: '11111111-1111-4111-8111-111111111111',
+            userId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            requestCreatedAt: '2026-03-30T09:00:00.000Z',
+            slotId: 'a1111111-1111-4111-8111-111111111111',
+            slotStartTime: '2026-04-10T10:00:00.000Z',
+            slotEndTime: '2026-04-10T11:00:00.000Z',
+          }),
+          createCandidateRow({
+            requestId: '22222222-2222-4222-8222-222222222222',
+            userId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+            requestCreatedAt: '2026-03-30T09:00:00.000Z',
+            slotId: 'a2222222-2222-4222-8222-222222222222',
+            slotStartTime: '2026-04-10T10:30:00.000Z',
+            slotEndTime: '2026-04-10T11:30:00.000Z',
+          }),
+        ]
+      },
+      async executePairAttemptTransaction() {
+        return {
+          status: 'created',
+          interviewId: '99999999-9999-4999-8999-999999999999',
+          interview: {
+            id: '99999999-9999-4999-8999-999999999999',
+            scheduler_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            interviewer_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+            type: 'system_design',
+            mode: 'peer_to_peer',
+            tier: 'standard',
+            status: 'scheduled',
+            scheduled_at: '2026-04-10T10:30:00.000Z',
+          },
+        }
+      },
+    })
+
+    await expect(executionService.runMatchCycle()).rejects.toThrow(
+      'MatcherExecutionService post-commit event publisher is not configured',
+    )
   })
 })
 

@@ -49,6 +49,19 @@ export const matcherLockedRequestRowSchema = z.object({
 
 export type MatcherLockedRequestRow = z.infer<typeof matcherLockedRequestRowSchema>
 
+export const matcherCreatedInterviewSchema = z.object({
+  id: z.string().uuid(),
+  scheduler_id: z.string().uuid(),
+  interviewer_id: z.string().uuid(),
+  type: interviewTypeSchema,
+  mode: z.literal('peer_to_peer'),
+  tier: z.literal('standard'),
+  status: z.literal('scheduled'),
+  scheduled_at: timestampSchema,
+})
+
+export type MatcherCreatedInterview = z.infer<typeof matcherCreatedInterviewSchema>
+
 export type MatchAttemptWriteSkipReason =
   | 'slots_not_found'
   | 'requests_not_found'
@@ -62,6 +75,7 @@ export type MatchAttemptWriteResult =
   | {
       status: 'created'
       interviewId: string
+      interview: MatcherCreatedInterview
     }
   | {
       status: 'skipped'

@@ -2,6 +2,7 @@ import { createSqlQuery, type SqlQuery } from '../index'
 import { buildInterviewAliases } from '../interview'
 import {
   parseMatcherCandidateRow,
+  matcherCreatedInterviewSchema,
   parseMatcherLockedRequestRow,
   parseMatcherLockedSlotRow,
   type MatcherCandidateRow,
@@ -107,6 +108,16 @@ export class MatcherRepository {
       const roleAssignment = assignDeterministicRoles(lockedRequests)
       const aliases = buildInterviewAliases('peer_to_peer')
       const scheduledAt = selectScheduledAtFromLockedSlots(lockedSlots)
+      const createdInterview = matcherCreatedInterviewSchema.parse({
+        id: interviewId,
+        scheduler_id: roleAssignment.schedulerId,
+        interviewer_id: roleAssignment.interviewerId,
+        type: roleAssignment.interviewType,
+        mode: 'peer_to_peer',
+        tier: 'standard',
+        status: 'scheduled',
+        scheduled_at: scheduledAt,
+      })
 
       await this.queryExecutor.query(
         createSqlQuery(
@@ -129,12 +140,12 @@ export class MatcherRepository {
           `,
           [
             interviewId,
-            roleAssignment.schedulerId,
+            createdInterview.scheduler_id,
             aliases.schedulerAlias,
-            roleAssignment.interviewerId,
+            createdInterview.interviewer_id,
             aliases.interviewerAlias,
-            roleAssignment.interviewType,
-            scheduledAt,
+            createdInterview.type,
+            createdInterview.scheduled_at,
             nowTimestamp,
           ],
         ),
@@ -179,6 +190,7 @@ export class MatcherRepository {
       return {
         status: 'created',
         interviewId,
+        interview: createdInterview,
       }
     } catch (error) {
       await this.rollbackTransactionSafely()
