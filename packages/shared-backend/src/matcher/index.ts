@@ -5,6 +5,7 @@ export {
 } from './matcher-repository'
 export {
   MatcherExecutionService,
+  type MatcherExecutionLogger,
   type MatcherExecutionRepository,
   type MatcherRunSummary,
 } from './matcher-execution-service'
@@ -28,6 +29,7 @@ export {
   matcherLockedRequestRowSchema,
   matcherLockedSlotRowSchema,
   matcherPairAttemptSchema,
+  type MatchAttemptWriteDiagnostics,
   type MatcherCreatedInterview,
   parseMatcherCandidateRow,
   parseMatcherLockedRequestRow,

@@ -8,7 +8,9 @@ import {
   type MatcherCandidateRow,
   type MatcherLockedRequestRow,
   type MatcherLockedSlotRow,
+  type MatcherCreatedInterview,
   type MatcherPairAttempt,
+  type MatchAttemptWriteDiagnostics,
   type MatchAttemptWriteSkipReason,
   type MatchAttemptWriteResult,
 } from './types'
@@ -21,9 +23,28 @@ export type MatcherQueryExecutor = {
   query<Row>(query: SqlQuery): Promise<MatcherQueryResult<Row>>
 }
 
+export type MatcherRepositoryLogger = {
+  info(event: string, context: Record<string, unknown>): void | Promise<void>
+  warn(event: string, context: Record<string, unknown>): void | Promise<void>
+  error(event: string, context: Record<string, unknown>): void | Promise<void>
+}
+
+type MatchAttemptWriteResultWithoutDiagnostics =
+  | {
+      status: 'created'
+      interviewId: string
+      interview: MatcherCreatedInterview
+    }
+  | {
+      status: 'skipped'
+      reason: MatchAttemptWriteSkipReason
+    }
+
 type MatcherRepositoryDependencies = {
   createId?: () => string
   now?: () => string
+  logger?: MatcherRepositoryLogger
+  maxTransactionRetries?: number
 }
 
 export class MatcherRepository {
@@ -31,12 +52,18 @@ export class MatcherRepository {
 
   private readonly now: () => string
 
+  private readonly logger: MatcherRepositoryLogger
+
+  private readonly maxTransactionRetries: number
+
   constructor(
     private readonly queryExecutor: MatcherQueryExecutor,
     dependencies: MatcherRepositoryDependencies = {},
   ) {
     this.createId = dependencies.createId ?? createDefaultId
     this.now = dependencies.now ?? createDefaultNow
+    this.logger = dependencies.logger ?? noOpMatcherRepositoryLogger
+    this.maxTransactionRetries = Math.max(0, dependencies.maxTransactionRetries ?? 2)
   }
 
   async listCandidateRows(): Promise<MatcherCandidateRow[]> {
@@ -73,7 +100,98 @@ export class MatcherRepository {
   async executePairAttemptTransaction(
     pairAttempt: MatcherPairAttempt,
   ): Promise<MatchAttemptWriteResult> {
+    const diagnostics: MatchAttemptWriteDiagnostics = {
+      transactionConflicts: 0,
+      transactionRetries: 0,
+    }
+
+    for (
+      let transactionAttempt = 1;
+      transactionAttempt <= this.maxTransactionRetries + 1;
+      transactionAttempt += 1
+    ) {
+      try {
+        const result = await this.executePairAttemptTransactionOnce(pairAttempt)
+
+        if (result.status === 'created') {
+          return {
+            status: 'created',
+            interviewId: result.interviewId,
+            interview: result.interview,
+            diagnostics,
+          }
+        }
+
+        return {
+          status: 'skipped',
+          reason: result.reason,
+          diagnostics,
+        }
+      } catch (error) {
+        const isTransactionConflict = isRetryableTransactionConflict(error)
+
+        if (!isTransactionConflict) {
+          await this.logSafely('error', 'matcher.transaction.failure', {
+            attempt_key: pairAttempt.attempt_key,
+            slot_ids: [pairAttempt.left.slot_id, pairAttempt.right.slot_id],
+            request_ids: [pairAttempt.left.request_id, pairAttempt.right.request_id],
+            transaction_attempt: transactionAttempt,
+            error_code: extractErrorCode(error),
+            error_message: extractErrorMessage(error),
+          })
+          throw error
+        }
+
+        diagnostics.transactionConflicts += 1
+
+        await this.logSafely('warn', 'matcher.transaction.conflict', {
+          attempt_key: pairAttempt.attempt_key,
+          slot_ids: [pairAttempt.left.slot_id, pairAttempt.right.slot_id],
+          request_ids: [pairAttempt.left.request_id, pairAttempt.right.request_id],
+          transaction_attempt: transactionAttempt,
+          max_transaction_attempts: this.maxTransactionRetries + 1,
+          error_code: extractErrorCode(error),
+          error_message: extractErrorMessage(error),
+        })
+
+        if (transactionAttempt <= this.maxTransactionRetries) {
+          diagnostics.transactionRetries += 1
+
+          await this.logSafely('info', 'matcher.transaction.retry', {
+            attempt_key: pairAttempt.attempt_key,
+            slot_ids: [pairAttempt.left.slot_id, pairAttempt.right.slot_id],
+            request_ids: [pairAttempt.left.request_id, pairAttempt.right.request_id],
+            retry_number: diagnostics.transactionRetries,
+            next_transaction_attempt: transactionAttempt + 1,
+          })
+          continue
+        }
+
+        await this.logSafely('warn', 'matcher.transaction.conflict_exhausted', {
+          attempt_key: pairAttempt.attempt_key,
+          slot_ids: [pairAttempt.left.slot_id, pairAttempt.right.slot_id],
+          request_ids: [pairAttempt.left.request_id, pairAttempt.right.request_id],
+          transaction_attempt: transactionAttempt,
+          max_transaction_attempts: this.maxTransactionRetries + 1,
+        })
+
+        return {
+          status: 'skipped',
+          reason: 'transaction_conflict',
+          diagnostics,
+        }
+      }
+    }
+
+    throw new Error('unreachable matcher transaction retry state')
+  }
+
+  private async executePairAttemptTransactionOnce(
+    pairAttempt: MatcherPairAttempt,
+  ): Promise<MatchAttemptWriteResultWithoutDiagnostics> {
     await this.queryExecutor.query(createSqlQuery('BEGIN;'))
+
+    let interviewIdForFailureContext: string | undefined
 
     try {
       const lockedSlots = await this.lockSlotsForAttempt(pairAttempt)
@@ -105,6 +223,7 @@ export class MatcherRepository {
 
       const nowTimestamp = this.now()
       const interviewId = this.createId()
+      interviewIdForFailureContext = interviewId
       const roleAssignment = assignDeterministicRoles(lockedRequests)
       const aliases = buildInterviewAliases('peer_to_peer')
       const scheduledAt = selectScheduledAtFromLockedSlots(lockedSlots)
@@ -193,8 +312,33 @@ export class MatcherRepository {
         interview: createdInterview,
       }
     } catch (error) {
-      await this.rollbackTransactionSafely()
+      const rollbackSucceeded = await this.rollbackTransactionSafely()
+
+      if (!isRetryableTransactionConflict(error)) {
+        await this.logSafely('error', 'matcher.transaction.rollback', {
+          attempt_key: pairAttempt.attempt_key,
+          slot_ids: [pairAttempt.left.slot_id, pairAttempt.right.slot_id],
+          request_ids: [pairAttempt.left.request_id, pairAttempt.right.request_id],
+          interview_id: interviewIdForFailureContext,
+          rollback_succeeded: rollbackSucceeded,
+          error_code: extractErrorCode(error),
+          error_message: extractErrorMessage(error),
+        })
+      }
+
       throw error
+    }
+  }
+
+  private async logSafely(
+    level: 'info' | 'warn' | 'error',
+    event: string,
+    context: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      await this.logger[level](event, context)
+    } catch {
+      // no-op: observability must not break matcher reliability
     }
   }
 
@@ -325,19 +469,57 @@ export class MatcherRepository {
     return undefined
   }
 
-  private async rollbackTransactionSafely(): Promise<void> {
+  private async rollbackTransactionSafely(): Promise<boolean> {
     try {
       await this.queryExecutor.query(createSqlQuery('ROLLBACK;'))
+      return true
     } catch {
       // no-op: preserve original query error
+      return false
     }
   }
+}
+
+const noOpMatcherRepositoryLogger: MatcherRepositoryLogger = {
+  info: async function infoNoOp() {
+    return undefined
+  },
+  warn: async function warnNoOp() {
+    return undefined
+  },
+  error: async function errorNoOp() {
+    return undefined
+  },
 }
 
 type DeterministicRoleAssignment = {
   schedulerId: string
   interviewerId: string
   interviewType: MatcherLockedRequestRow['interview_type']
+}
+
+function isRetryableTransactionConflict(error: unknown): boolean {
+  const errorCode = extractErrorCode(error)
+
+  return errorCode === '40001' || errorCode === '40P01'
+}
+
+function extractErrorCode(error: unknown): string | undefined {
+  if (!error || typeof error !== 'object') {
+    return undefined
+  }
+
+  const potentialCode = Reflect.get(error, 'code')
+
+  return typeof potentialCode === 'string' ? potentialCode : undefined
+}
+
+function extractErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message
+  }
+
+  return String(error)
 }
 
 function assignDeterministicRoles(
