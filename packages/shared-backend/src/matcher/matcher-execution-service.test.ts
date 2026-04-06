@@ -151,6 +151,15 @@ describe('MatcherExecutionService', function matcherExecutionServiceSuite() {
     ])
 
     expect(logEntries).toContainEqual({
+      event: 'matcher.run.started',
+      context: {
+        run_id: 'run-1',
+        slots_scanned: 3,
+        pairs_attempted: 3,
+      },
+    })
+
+    expect(logEntries).toContainEqual({
       event: 'matcher.run.completed',
       context: {
         run_id: 'run-1',

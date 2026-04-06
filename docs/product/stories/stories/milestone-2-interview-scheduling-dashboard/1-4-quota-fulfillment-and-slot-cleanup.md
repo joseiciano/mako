@@ -17,7 +17,7 @@
 - [x] Ensure no additional matches can be produced from fulfilled/cancelled requests in later cron runs.
 
 ## Implementation Notes
-- Added matcher repository/service implementation under `packages/shared-backend/src/matching/` with transaction-guarded quota updates and slot cleanup.
+- Added matcher repository/service implementation under `packages/shared-backend/src/matcher/` with transaction-guarded quota updates and slot cleanup.
 - Added tests covering quota boundary fulfillment + atomic slot cancellation and same-run/later-run match-prevention behavior.
 
 ## End Goal
