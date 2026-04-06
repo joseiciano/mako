@@ -33,6 +33,7 @@ describe('MatcherExecutionService', function matcherExecutionServiceSuite() {
 
     const attemptedPairKeys: string[] = []
     const publishedEvents: unknown[] = []
+    const logEntries: Array<{ event: string; context: Record<string, unknown> }> = []
     const executionService = new MatcherExecutionService(
       {
         async listCandidateRows() {
@@ -58,12 +59,20 @@ describe('MatcherExecutionService', function matcherExecutionServiceSuite() {
                 status: 'scheduled',
                 scheduled_at: '2026-04-10T10:30:00.000Z',
               },
+              diagnostics: {
+                transactionConflicts: 0,
+                transactionRetries: 0,
+              },
             }
           }
 
           return {
             status: 'skipped',
             reason: 'request_quota_reached',
+            diagnostics: {
+              transactionConflicts: 0,
+              transactionRetries: 0,
+            },
           }
         },
       },
@@ -87,6 +96,17 @@ describe('MatcherExecutionService', function matcherExecutionServiceSuite() {
             },
           }
         },
+        logger: {
+          async info(event, context) {
+            logEntries.push({ event, context })
+          },
+          async error(event, context) {
+            logEntries.push({ event, context })
+          },
+        },
+        createRunId: function createStableRunId() {
+          return 'run-1'
+        },
       },
     )
 
@@ -98,10 +118,12 @@ describe('MatcherExecutionService', function matcherExecutionServiceSuite() {
       '22222222-2222-4222-8222-222222222222:a2222222-2222-4222-8222-222222222222|33333333-3333-4333-8333-333333333333:a3333333-3333-4333-8333-333333333333',
     ])
     expect(result).toEqual({
-      candidateCount: 3,
-      pairAttemptCount: 3,
+      slotsScanned: 3,
+      pairsAttempted: 3,
       matchesCreated: 1,
       skippedAttempts: 2,
+      transactionConflicts: 0,
+      transactionRetries: 0,
       createdInterviewIds: ['99999999-9999-4999-8999-999999999999'],
     })
 
@@ -127,6 +149,76 @@ describe('MatcherExecutionService', function matcherExecutionServiceSuite() {
         },
       },
     ])
+
+    expect(logEntries).toContainEqual({
+      event: 'matcher.run.completed',
+      context: {
+        run_id: 'run-1',
+        slots_scanned: 3,
+        pairs_attempted: 3,
+        matches_created: 1,
+        skipped_attempts: 2,
+        transaction_conflicts: 0,
+        transaction_retries: 0,
+      },
+    })
+  })
+
+  it('aggregates transaction conflict and retry counters in run summaries', async function shouldSummarizeConflictCounters() {
+    const executionService = new MatcherExecutionService(
+      {
+        async listCandidateRows() {
+          return [
+            createCandidateRow({
+              requestId: '11111111-1111-4111-8111-111111111111',
+              userId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+              requestCreatedAt: '2026-03-30T09:00:00.000Z',
+              slotId: 'a1111111-1111-4111-8111-111111111111',
+              slotStartTime: '2026-04-10T10:00:00.000Z',
+              slotEndTime: '2026-04-10T11:00:00.000Z',
+            }),
+            createCandidateRow({
+              requestId: '22222222-2222-4222-8222-222222222222',
+              userId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+              requestCreatedAt: '2026-03-30T09:00:00.000Z',
+              slotId: 'a2222222-2222-4222-8222-222222222222',
+              slotStartTime: '2026-04-10T10:30:00.000Z',
+              slotEndTime: '2026-04-10T11:30:00.000Z',
+            }),
+          ]
+        },
+        async executePairAttemptTransaction() {
+          return {
+            status: 'skipped',
+            reason: 'transaction_conflict',
+            diagnostics: {
+              transactionConflicts: 1,
+              transactionRetries: 1,
+            },
+          }
+        },
+      },
+      undefined,
+      {
+        postCommitEventPublisher: {
+          async publish() {
+            return undefined
+          },
+        },
+      },
+    )
+
+    const summary = await executionService.runMatchCycle()
+
+    expect(summary).toEqual({
+      slotsScanned: 2,
+      pairsAttempted: 1,
+      matchesCreated: 0,
+      skippedAttempts: 1,
+      transactionConflicts: 1,
+      transactionRetries: 1,
+      createdInterviewIds: [],
+    })
   })
 
   it('does not emit post-commit events for skipped match attempts', async function shouldSkipEventEmission() {
@@ -157,6 +249,10 @@ describe('MatcherExecutionService', function matcherExecutionServiceSuite() {
           return {
             status: 'skipped',
             reason: 'request_quota_reached',
+            diagnostics: {
+              transactionConflicts: 0,
+              transactionRetries: 0,
+            },
           }
         },
       },
@@ -218,6 +314,71 @@ describe('MatcherExecutionService', function matcherExecutionServiceSuite() {
     expect(publishedEvents).toEqual([])
   })
 
+  it('continues matcher execution even when logger calls fail', async function shouldIgnoreLoggerFailures() {
+    const executionService = new MatcherExecutionService(
+      {
+        async listCandidateRows() {
+          return [
+            createCandidateRow({
+              requestId: '11111111-1111-4111-8111-111111111111',
+              userId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+              requestCreatedAt: '2026-03-30T09:00:00.000Z',
+              slotId: 'a1111111-1111-4111-8111-111111111111',
+              slotStartTime: '2026-04-10T10:00:00.000Z',
+              slotEndTime: '2026-04-10T11:00:00.000Z',
+            }),
+            createCandidateRow({
+              requestId: '22222222-2222-4222-8222-222222222222',
+              userId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+              requestCreatedAt: '2026-03-30T09:00:00.000Z',
+              slotId: 'a2222222-2222-4222-8222-222222222222',
+              slotStartTime: '2026-04-10T10:30:00.000Z',
+              slotEndTime: '2026-04-10T11:30:00.000Z',
+            }),
+          ]
+        },
+        async executePairAttemptTransaction() {
+          return {
+            status: 'skipped',
+            reason: 'request_quota_reached',
+            diagnostics: {
+              transactionConflicts: 0,
+              transactionRetries: 0,
+            },
+          }
+        },
+      },
+      undefined,
+      {
+        postCommitEventPublisher: {
+          async publish() {
+            return undefined
+          },
+        },
+        logger: {
+          async info() {
+            throw new Error('logger info failed')
+          },
+          async error() {
+            throw new Error('logger error failed')
+          },
+        },
+      },
+    )
+
+    const summary = await executionService.runMatchCycle()
+
+    expect(summary).toEqual({
+      slotsScanned: 2,
+      pairsAttempted: 1,
+      matchesCreated: 0,
+      skippedAttempts: 1,
+      transactionConflicts: 0,
+      transactionRetries: 0,
+      createdInterviewIds: [],
+    })
+  })
+
   it('fails when a match is created without a configured post-commit publisher', async function shouldRequirePublisher() {
     const executionService = new MatcherExecutionService({
       async listCandidateRows() {
@@ -253,6 +414,10 @@ describe('MatcherExecutionService', function matcherExecutionServiceSuite() {
             tier: 'standard',
             status: 'scheduled',
             scheduled_at: '2026-04-10T10:30:00.000Z',
+          },
+          diagnostics: {
+            transactionConflicts: 0,
+            transactionRetries: 0,
           },
         }
       },
