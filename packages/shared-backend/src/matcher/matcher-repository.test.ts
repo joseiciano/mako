@@ -479,8 +479,28 @@ describe('MatcherRepository', function matcherRepositorySuite() {
     expect(executedQueries.filter(function countBegins(sqlQuery) {
       return sqlQuery.text.includes('BEGIN')
     })).toHaveLength(2)
-    expect(logEntries.warnEvents).toContain('matcher.transaction.conflict')
-    expect(logEntries.infoEvents).toContain('matcher.transaction.retry')
+    expect(logEntries.warnEntries).toContainEqual({
+      event: 'matcher.transaction.conflict',
+      context: {
+        attempt_key: pairAttempt.attempt_key,
+        slot_ids: [pairAttempt.left.slot_id, pairAttempt.right.slot_id],
+        request_ids: [pairAttempt.left.request_id, pairAttempt.right.request_id],
+        transaction_attempt: 1,
+        max_transaction_attempts: 3,
+        error_code: '40001',
+        error_message: 'serialization failure',
+      },
+    })
+    expect(logEntries.infoEntries).toContainEqual({
+      event: 'matcher.transaction.retry',
+      context: {
+        attempt_key: pairAttempt.attempt_key,
+        slot_ids: [pairAttempt.left.slot_id, pairAttempt.right.slot_id],
+        request_ids: [pairAttempt.left.request_id, pairAttempt.right.request_id],
+        retry_number: 1,
+        next_transaction_attempt: 2,
+      },
+    })
   })
 
   it('continues retry flow even when logger calls fail', async function shouldIgnoreLoggerFailuresDuringRetries() {
@@ -658,7 +678,38 @@ describe('MatcherRepository', function matcherRepositorySuite() {
         transactionRetries: 1,
       },
     })
-    expect(logEntries.warnEvents).toContain('matcher.transaction.conflict_exhausted')
+    expect(logEntries.infoEntries).toContainEqual({
+      event: 'matcher.transaction.retry',
+      context: {
+        attempt_key: pairAttempt.attempt_key,
+        slot_ids: [pairAttempt.left.slot_id, pairAttempt.right.slot_id],
+        request_ids: [pairAttempt.left.request_id, pairAttempt.right.request_id],
+        retry_number: 1,
+        next_transaction_attempt: 2,
+      },
+    })
+    expect(logEntries.warnEntries).toContainEqual({
+      event: 'matcher.transaction.conflict',
+      context: {
+        attempt_key: pairAttempt.attempt_key,
+        slot_ids: [pairAttempt.left.slot_id, pairAttempt.right.slot_id],
+        request_ids: [pairAttempt.left.request_id, pairAttempt.right.request_id],
+        transaction_attempt: 2,
+        max_transaction_attempts: 2,
+        error_code: '40P01',
+        error_message: 'deadlock detected',
+      },
+    })
+    expect(logEntries.warnEntries).toContainEqual({
+      event: 'matcher.transaction.conflict_exhausted',
+      context: {
+        attempt_key: pairAttempt.attempt_key,
+        slot_ids: [pairAttempt.left.slot_id, pairAttempt.right.slot_id],
+        request_ids: [pairAttempt.left.request_id, pairAttempt.right.request_id],
+        transaction_attempt: 2,
+        max_transaction_attempts: 2,
+      },
+    })
   })
 
   it('prevents duplicate matches across simultaneous executions for the same slot pair', async function shouldPreventDuplicateConcurrentMatches() {
@@ -803,29 +854,26 @@ function createPairAttempt(): MatcherPairAttempt {
 
 function createCapturedLogs(): {
   logger: MatcherRepositoryLogger
-  infoEvents: string[]
-  warnEvents: string[]
-  errorEvents: string[]
+  infoEntries: Array<{ event: string; context: Record<string, unknown> }>
+  warnEntries: Array<{ event: string; context: Record<string, unknown> }>
 } {
-  const infoEvents: string[] = []
-  const warnEvents: string[] = []
-  const errorEvents: string[] = []
+  const infoEntries: Array<{ event: string; context: Record<string, unknown> }> = []
+  const warnEntries: Array<{ event: string; context: Record<string, unknown> }> = []
 
   return {
     logger: {
-      info: async function captureInfo(event) {
-        infoEvents.push(event)
+      info: async function captureInfo(event, context) {
+        infoEntries.push({ event, context })
       },
-      warn: async function captureWarn(event) {
-        warnEvents.push(event)
+      warn: async function captureWarn(event, context) {
+        warnEntries.push({ event, context })
       },
-      error: async function captureError(event) {
-        errorEvents.push(event)
+      error: async function errorNoOp() {
+        return undefined
       },
     },
-    infoEvents,
-    warnEvents,
-    errorEvents,
+    infoEntries,
+    warnEntries,
   }
 }
 
@@ -904,7 +952,6 @@ function createConcurrentMatcherSimulation(pairAttempt: MatcherPairAttempt): {
   const requestLockOwnerById = new Map<string, string>()
   const waitersByResourceId = new Map<string, Array<() => void>>()
   const transactionStateByWorkerId = new Map<string, {
-    inTransaction: boolean
     lockedSlotIds: Set<string>
     lockedRequestIds: Set<string>
   }>()
@@ -917,7 +964,6 @@ function createConcurrentMatcherSimulation(pairAttempt: MatcherPairAttempt): {
     }
 
     const nextState = {
-      inTransaction: false,
       lockedSlotIds: new Set<string>(),
       lockedRequestIds: new Set<string>(),
     }
@@ -1007,18 +1053,15 @@ function createConcurrentMatcherSimulation(pairAttempt: MatcherPairAttempt): {
         const workerState = getOrCreateWorkerState(workerId)
 
         if (queryInput.text.includes('BEGIN')) {
-          workerState.inTransaction = true
           return { rows: [] as Row[] }
         }
 
         if (queryInput.text.includes('ROLLBACK')) {
-          workerState.inTransaction = false
           releaseTransactionLocks(workerId)
           return { rows: [] as Row[] }
         }
 
         if (queryInput.text.includes('COMMIT')) {
-          workerState.inTransaction = false
           releaseTransactionLocks(workerId)
           return { rows: [] as Row[] }
         }

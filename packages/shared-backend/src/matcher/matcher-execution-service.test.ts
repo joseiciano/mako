@@ -314,6 +314,94 @@ describe('MatcherExecutionService', function matcherExecutionServiceSuite() {
     expect(publishedEvents).toEqual([])
   })
 
+  it('logs publish-failure context when post-commit emission fails', async function shouldLogPostCommitPublishFailureContext() {
+    const logEntries: Array<{ event: string; context: Record<string, unknown> }> = []
+    const executionService = new MatcherExecutionService(
+      {
+        async listCandidateRows() {
+          return [
+            createCandidateRow({
+              requestId: '11111111-1111-4111-8111-111111111111',
+              userId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+              requestCreatedAt: '2026-03-30T09:00:00.000Z',
+              slotId: 'a1111111-1111-4111-8111-111111111111',
+              slotStartTime: '2026-04-10T10:00:00.000Z',
+              slotEndTime: '2026-04-10T11:00:00.000Z',
+            }),
+            createCandidateRow({
+              requestId: '22222222-2222-4222-8222-222222222222',
+              userId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+              requestCreatedAt: '2026-03-30T09:00:00.000Z',
+              slotId: 'a2222222-2222-4222-8222-222222222222',
+              slotStartTime: '2026-04-10T10:30:00.000Z',
+              slotEndTime: '2026-04-10T11:30:00.000Z',
+            }),
+          ]
+        },
+        async executePairAttemptTransaction() {
+          return {
+            status: 'created',
+            interviewId: '99999999-9999-4999-8999-999999999999',
+            interview: {
+              id: '99999999-9999-4999-8999-999999999999',
+              scheduler_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+              interviewer_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+              type: 'system_design',
+              mode: 'peer_to_peer',
+              tier: 'standard',
+              status: 'scheduled',
+              scheduled_at: '2026-04-10T10:30:00.000Z',
+            },
+            diagnostics: {
+              transactionConflicts: 0,
+              transactionRetries: 0,
+            },
+          }
+        },
+      },
+      undefined,
+      {
+        postCommitEventPublisher: {
+          async publish() {
+            throw new Error('publish failed')
+          },
+        },
+        logger: {
+          async info(event, context) {
+            logEntries.push({ event, context })
+          },
+          async error(event, context) {
+            logEntries.push({ event, context })
+          },
+        },
+        createRunId: function createStableRunId() {
+          return 'run-1'
+        },
+      },
+    )
+
+    await expect(executionService.runMatchCycle()).rejects.toThrow('publish failed')
+
+    expect(logEntries).toContainEqual({
+      event: 'matcher.run.post_commit_publish_failure',
+      context: {
+        run_id: 'run-1',
+        attempt_key:
+          '11111111-1111-4111-8111-111111111111:a1111111-1111-4111-8111-111111111111|22222222-2222-4222-8222-222222222222:a2222222-2222-4222-8222-222222222222',
+        slot_ids: [
+          'a1111111-1111-4111-8111-111111111111',
+          'a2222222-2222-4222-8222-222222222222',
+        ],
+        request_ids: [
+          '11111111-1111-4111-8111-111111111111',
+          '22222222-2222-4222-8222-222222222222',
+        ],
+        interview_id: '99999999-9999-4999-8999-999999999999',
+        error_message: 'publish failed',
+      },
+    })
+  })
+
   it('continues matcher execution even when logger calls fail', async function shouldIgnoreLoggerFailures() {
     const executionService = new MatcherExecutionService(
       {
