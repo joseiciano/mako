@@ -5,6 +5,9 @@
 ### Dashboard & Account
 - **Dashboard (`/dashboard`)**: Central hub showing upcoming interviews and quick stats (credits + free Standard/AI balances).
     - **Data**: `GET /api/account`, `GET /api/interviews?status=scheduled`
+    - **Scope Boundary (Milestone 2 Story 2 split)**:
+      - In scope: upcoming interviews + quick stats only.
+      - Out of scope: interview creation flow (`/interviews/new`), cancellation actions, and full interview history behavior (`/interviews`).
 - **Interviews History (`/interviews`)**: A comprehensive list of all past and upcoming sessions.
     - **Data**: `GET /api/interviews`
 - **Billing & Credits (`/billing`)**: Page to purchase credit packages via Stripe.

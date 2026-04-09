@@ -124,6 +124,9 @@
     - For matcher-created peer-to-peer interviews, `scheduler_id` / `interviewer_id` are assigned deterministically from matched request order `(created_at ASC, id ASC)`.
     - For direct route-created sessions in Milestone 2, `scheduler_id` is the authenticated creator.
   - **Query Params**: `status?: 'scheduled' | 'ongoing' | 'completed' | 'cancelled'`, `limit?: number`, `offset?: number`
+  - **Consumer Notes**:
+    - Dashboard upcoming list uses this route with `status=scheduled`.
+    - Full history page behavior (`/interviews`) is a separate consumer path and must not be coupled to dashboard scope.
 
 - **`POST /api/interviews/:id/cancel`**
   - **Description**: Cancels a scheduled interview.
