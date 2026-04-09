@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 2: Interview Scheduling & Dashboard
 **Description**: Lock Dashboard implementation scope and data contracts to existing source-of-truth docs before UI/data work begins.
-**Status**: Todo
+**Status**: In-Review
 **Prerequisites**:
 - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/3-4-interview-shared-contracts-and-module-wiring.md`
 - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/3-6-interview-list-route-get-api-interviews.md`
