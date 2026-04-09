@@ -6,6 +6,7 @@ The system supports two scheduling channels, with account-level quota/credit pol
     - **Double-Blind**: Matching is performed by a background "Greedy Matcher" worker that finds overlapping slots and automatically creates sessions.
     - **Creation Path**: Standard peer-to-peer sessions are created by the matcher, not direct `POST /api/interviews` calls.
     - **Deterministic Role Assignment**: For matcher-created sessions, participant roles are assigned by matched request order `(created_at ASC, id ASC)` to keep reruns stable (`scheduler_id` first, `interviewer_id` second).
+    - **Distinct-User Eligibility**: Standard matcher pairing requires two distinct request users (no self-match pairing); pairs with the same `user_id` are skipped.
 
 - **AI-Led**: Session led by AI.
     - **Creation Path**: Created directly through `POST /api/interviews`.

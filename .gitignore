@@ -48,3 +48,5 @@ override.tf.json
 *_override.tf.json
 infrastructure/backend.tf
 infrastructure/backend-r2.hcl
+
+prompts/*/*/code-review*

@@ -162,6 +162,47 @@ describe('MatcherService', function matcherServiceSuite() {
       }),
     )
   })
+
+  it('prevents self-matching across multiple slots from the same request', function shouldPreventSelfMatchPairs() {
+    const service = new MatcherService()
+    const firstSlotSameRequest = createCandidateRow({
+      requestId: '11111111-1111-4111-8111-111111111111',
+      userId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      requestCreatedAt: '2026-03-30T09:00:00.000Z',
+      slotId: 'a1111111-1111-4111-8111-111111111111',
+      slotStartTime: '2026-04-10T10:00:00.000Z',
+      slotEndTime: '2026-04-10T11:00:00.000Z',
+    })
+    const secondSlotSameRequest = createCandidateRow({
+      requestId: firstSlotSameRequest.request_id,
+      userId: firstSlotSameRequest.request_user_id,
+      requestCreatedAt: firstSlotSameRequest.request_created_at,
+      slotId: 'a2222222-2222-4222-8222-222222222222',
+      slotStartTime: '2026-04-10T10:15:00.000Z',
+      slotEndTime: '2026-04-10T11:15:00.000Z',
+    })
+    const distinctRequestCandidate = createCandidateRow({
+      requestId: '33333333-3333-4333-8333-333333333333',
+      userId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      requestCreatedAt: '2026-03-30T09:00:00.000Z',
+      slotId: 'a3333333-3333-4333-8333-333333333333',
+      slotStartTime: '2026-04-10T10:30:00.000Z',
+      slotEndTime: '2026-04-10T11:30:00.000Z',
+    })
+
+    const pairAttempts = service.buildDeterministicPairAttempts([
+      firstSlotSameRequest,
+      secondSlotSameRequest,
+      distinctRequestCandidate,
+    ])
+
+    expect(pairAttempts.map(function mapToAttemptKey(pairAttempt) {
+      return pairAttempt.attempt_key
+    })).toEqual([
+      '11111111-1111-4111-8111-111111111111:a1111111-1111-4111-8111-111111111111|33333333-3333-4333-8333-333333333333:a3333333-3333-4333-8333-333333333333',
+      '11111111-1111-4111-8111-111111111111:a2222222-2222-4222-8222-222222222222|33333333-3333-4333-8333-333333333333:a3333333-3333-4333-8333-333333333333',
+    ])
+  })
 })
 
 function createCandidateRow(input: {

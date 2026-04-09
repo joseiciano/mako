@@ -70,16 +70,24 @@ export type MatchAttemptWriteSkipReason =
   | 'request_quota_reached'
   | 'users_not_distinct'
   | 'interview_type_mismatch'
+  | 'transaction_conflict'
+
+export type MatchAttemptWriteDiagnostics = {
+  transactionConflicts: number
+  transactionRetries: number
+}
 
 export type MatchAttemptWriteResult =
   | {
       status: 'created'
       interviewId: string
       interview: MatcherCreatedInterview
+      diagnostics: MatchAttemptWriteDiagnostics
     }
   | {
       status: 'skipped'
       reason: MatchAttemptWriteSkipReason
+      diagnostics: MatchAttemptWriteDiagnostics
     }
 
 export function parseMatcherCandidateRow(row: unknown): MatcherCandidateRow {
