@@ -103,6 +103,19 @@ describe('dashboard-smart query state orchestration', function dashboardSmartSui
 
     expect(html).toContain('Unauthorized')
   })
+
+  it('renders fallback error when queries settle without required data', function run() {
+    mockAccountQuery({
+      data: undefined,
+    })
+    mockScheduledInterviewsQuery({
+      data: [],
+    })
+
+    const html = renderToString(<DashboardSmart />)
+
+    expect(html).toContain('Unable to load dashboard.')
+  })
 })
 
 function mockAccountQuery(overrides: Record<string, unknown>) {
