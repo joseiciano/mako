@@ -6,6 +6,7 @@ import {
   postCompany,
   updateAccountProfile,
 } from './use-account'
+import { readHeader } from './test-utils/read-header'
 
 const accountFixture = {
   id: 'demo-user',
@@ -136,27 +137,3 @@ describe('use-account hooks', function useAccountHooksSuite() {
     expect(optimisticCompany.joined).toBe('2022-06-01T00:00:00.000Z')
   })
 })
-
-function readHeader(
-  headers: HeadersInit | undefined,
-  headerName: string,
-): string | null {
-  if (!headers) {
-    return null
-  }
-
-  if (headers instanceof Headers) {
-    return headers.get(headerName)
-  }
-
-  if (Array.isArray(headers)) {
-    const matchedHeader = headers.find(function matches([name]) {
-      return name === headerName
-    })
-
-    return matchedHeader ? matchedHeader[1] : null
-  }
-
-  const headerValue = headers[headerName]
-  return typeof headerValue === 'string' ? headerValue : null
-}
