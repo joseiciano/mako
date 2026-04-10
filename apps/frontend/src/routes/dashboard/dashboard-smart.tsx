@@ -1,9 +1,7 @@
 import { useAccount } from '#/hooks/use-account'
 import { useScheduledInterviews } from '#/hooks/use-scheduled-interviews'
+import { isInterviewDetailsRouteAvailable } from './dashboard-route-capabilities'
 import { DashboardDumb } from './dashboard-dumb'
-
-// `/interviews/:id` is documented but story-gated until dedicated details route work lands.
-const isInterviewDetailsRouteAvailable = false
 
 export function DashboardSmart() {
   const accountQuery = useAccount()

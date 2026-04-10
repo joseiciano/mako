@@ -49,7 +49,11 @@ describe('dashboard-smart query state orchestration', function dashboardSmartSui
 
   it('renders empty state from successful query results', function run() {
     mockAccountQuery({
-      data: createAccountFixture(),
+      data: createAccountFixture({
+        credits: 89,
+        freeStandardInterviews: 34,
+        freeAiInterviews: 21,
+      }),
     })
     mockScheduledInterviewsQuery({
       data: [],
@@ -62,7 +66,9 @@ describe('dashboard-smart query state orchestration', function dashboardSmartSui
     expect(html).toContain('Credits')
     expect(html).toContain('Free Standard Interviews')
     expect(html).toContain('Free AI Interviews')
-    expect(html).toContain('8')
+    expect(html).toMatch(/Credits<\/dt>\s*<dd[^>]*>\s*89\s*<\/dd>/)
+    expect(html).toMatch(/Free Standard Interviews<\/dt>\s*<dd[^>]*>\s*34\s*<\/dd>/)
+    expect(html).toMatch(/Free AI Interviews<\/dt>\s*<dd[^>]*>\s*21\s*<\/dd>/)
   })
 
   it('renders populated state from successful query results', function run() {
@@ -178,7 +184,7 @@ function mockScheduledInterviewsQuery(overrides: Record<string, unknown>) {
   })
 }
 
-function createAccountFixture() {
+function createAccountFixture(overrides: Record<string, unknown> = {}) {
   return {
     id: '11111111-1111-4111-8111-111111111111',
     email: 'demo@mako.dev',
@@ -187,6 +193,7 @@ function createAccountFixture() {
     freeStandardInterviews: 1,
     freeAiInterviews: 1,
     createdAt: '2026-01-01T00:00:00.000Z',
+    ...overrides,
   }
 }
 
