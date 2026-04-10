@@ -1,5 +1,6 @@
 import { useAccount } from '#/hooks/use-account'
 import { useScheduledInterviews } from '#/hooks/use-scheduled-interviews'
+import { isInterviewDetailsRouteAvailable } from './dashboard-route-capabilities'
 import { DashboardDumb } from './dashboard-dumb'
 
 export function DashboardSmart() {
@@ -31,7 +32,13 @@ export function DashboardSmart() {
   }
 
   if (upcomingInterviews.length === 0) {
-    return <DashboardDumb state="empty" account={account} />
+    return (
+      <DashboardDumb
+        state="empty"
+        account={account}
+        isInterviewDetailsRouteAvailable={isInterviewDetailsRouteAvailable}
+      />
+    )
   }
 
   return (
@@ -39,6 +46,7 @@ export function DashboardSmart() {
       state="populated"
       account={account}
       upcomingInterviews={upcomingInterviews}
+      isInterviewDetailsRouteAvailable={isInterviewDetailsRouteAvailable}
     />
   )
 }
