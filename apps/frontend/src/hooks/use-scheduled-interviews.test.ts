@@ -3,6 +3,7 @@ import {
   fetchScheduledInterviews,
   scheduledInterviewsQueryKey,
 } from './use-scheduled-interviews'
+import { readHeader } from './test-utils/read-header'
 
 describe('use-scheduled-interviews hook', function useScheduledInterviewsSuite() {
   it('fetches scheduled interviews and parses documented response fields', async function run() {
@@ -62,6 +63,19 @@ describe('use-scheduled-interviews hook', function useScheduledInterviewsSuite()
     ).rejects.toThrow('Unauthorized')
   })
 
+  it('falls back to a stable error message when payload omits error field', async function run() {
+    await expect(
+      fetchScheduledInterviews(async function mockFetch() {
+        return new Response(JSON.stringify({ message: 'Unauthorized' }), {
+          status: 401,
+          headers: {
+            'content-type': 'application/json',
+          },
+        })
+      }),
+    ).rejects.toThrow('Unable to fetch scheduled interviews.')
+  })
+
   it('rejects response payloads that diverge from shared schema contracts', async function run() {
     await expect(
       fetchScheduledInterviews(async function mockFetch() {
@@ -97,27 +111,3 @@ describe('use-scheduled-interviews hook', function useScheduledInterviewsSuite()
     expect(scheduledInterviewsQueryKey).toEqual(['interviews', 'scheduled'])
   })
 })
-
-function readHeader(
-  headers: HeadersInit | undefined,
-  headerName: string,
-): string | null {
-  if (!headers) {
-    return null
-  }
-
-  if (headers instanceof Headers) {
-    return headers.get(headerName)
-  }
-
-  if (Array.isArray(headers)) {
-    const matchedHeader = headers.find(function matches([name]) {
-      return name === headerName
-    })
-
-    return matchedHeader ? matchedHeader[1] : null
-  }
-
-  const headerValue = headers[headerName]
-  return typeof headerValue === 'string' ? headerValue : null
-}
