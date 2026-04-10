@@ -2,6 +2,9 @@ import { useAccount } from '#/hooks/use-account'
 import { useScheduledInterviews } from '#/hooks/use-scheduled-interviews'
 import { DashboardDumb } from './dashboard-dumb'
 
+// `/interviews/:id` is documented but story-gated until dedicated details route work lands.
+const isInterviewDetailsRouteAvailable = false
+
 export function DashboardSmart() {
   const accountQuery = useAccount()
   const scheduledInterviewsQuery = useScheduledInterviews()
@@ -31,7 +34,13 @@ export function DashboardSmart() {
   }
 
   if (upcomingInterviews.length === 0) {
-    return <DashboardDumb state="empty" account={account} />
+    return (
+      <DashboardDumb
+        state="empty"
+        account={account}
+        isInterviewDetailsRouteAvailable={isInterviewDetailsRouteAvailable}
+      />
+    )
   }
 
   return (
@@ -39,6 +48,7 @@ export function DashboardSmart() {
       state="populated"
       account={account}
       upcomingInterviews={upcomingInterviews}
+      isInterviewDetailsRouteAvailable={isInterviewDetailsRouteAvailable}
     />
   )
 }
