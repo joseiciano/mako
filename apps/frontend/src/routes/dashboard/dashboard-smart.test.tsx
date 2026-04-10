@@ -76,6 +76,20 @@ describe('dashboard-smart query state orchestration', function dashboardSmartSui
     expect(html).toContain('upcoming interviews.')
   })
 
+  it('renders error state when account query fails', function run() {
+    mockAccountQuery({
+      isError: true,
+      error: new Error('Account lookup failed'),
+    })
+    mockScheduledInterviewsQuery({
+      data: [createInterviewFixture()],
+    })
+
+    const html = renderToString(<DashboardSmart />)
+
+    expect(html).toContain('Account lookup failed')
+  })
+
   it('renders error state when interview query fails', function run() {
     mockAccountQuery({
       data: createAccountFixture(),

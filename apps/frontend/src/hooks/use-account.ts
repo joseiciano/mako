@@ -14,6 +14,11 @@ import {
   type UseMutationResult,
   type UseQueryResult,
 } from '@tanstack/react-query'
+import {
+  demoSessionHeaders,
+  parseResponse,
+  readErrorMessage,
+} from '../lib/http-transport'
 
 export type Company = {
   id: string
@@ -44,11 +49,6 @@ type MutationContext = {
 
 const accountQueryKey = ['account'] as const
 export const accountCompaniesQueryKey = ['account', 'companies'] as const
-
-const demoSessionHeaders = {
-  'x-user-id': '11111111-1111-4111-8111-111111111111',
-  'x-user-email': 'demo@mako.dev',
-}
 
 export function useAccount(): UseQueryResult<AccountProfile, Error> {
   return useQuery({
@@ -250,27 +250,6 @@ export function createOptimisticCompany(payload: AddCompanyPayload): Company {
     createdAt: normalizedJoined,
     updatedAt: normalizedJoined,
   }
-}
-
-async function parseResponse(response: Response): Promise<unknown> {
-  try {
-    return await response.json()
-  } catch {
-    return null
-  }
-}
-
-function readErrorMessage(payload: unknown, fallbackMessage: string): string {
-  if (!payload || typeof payload !== 'object') {
-    return fallbackMessage
-  }
-
-  const maybeError = (payload as Record<string, unknown>).error
-  if (typeof maybeError === 'string' && maybeError.length > 0) {
-    return maybeError
-  }
-
-  return fallbackMessage
 }
 
 export function useDeleteAccount(): UseMutationResult<
