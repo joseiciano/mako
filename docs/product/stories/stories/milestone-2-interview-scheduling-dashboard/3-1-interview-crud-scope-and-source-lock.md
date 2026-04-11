@@ -17,7 +17,7 @@
 
 ### 2. Follow-up ownership for out-of-scope routes
 - [x] Record explicit follow-up story file references for out-of-scope route ownership used by lifecycle pages in `docs/system/system-design/frontend-pages.md`:
-  - `GET /api/interviews/:id` → `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-9-interview-details-route-get-api-interviews-id.md` (Interview Details / Feedback dependencies)
+  - `GET /api/interviews/:id` → `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-9-interview-details-route-get-api-interviews-id.md` (Interview Details / Session / Feedback dependencies)
   - `POST /api/interviews/:id/provision` → `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-2-whiteboard-provision-contract-and-backend-wiring.md` (Interview Session join/provision dependency)
 - [x] Ensure route/story tracking in `docs/system/system-design/frontend-pages.md` stays aligned with these follow-up references.
 

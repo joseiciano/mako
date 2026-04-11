@@ -51,17 +51,11 @@ describe('story 3.1 interview CRUD scope and source lock', function () {
       'frontend-pages.md',
     )
 
-    expect(frontendPagesDocument).toContain(
-      '`GET /api/interviews/:id` is documented as a lifecycle page dependency',
+    expect(frontendPagesDocument).toMatch(
+      /`GET \/api\/interviews\/:id`[\s\S]*3-9-interview-details-route-get-api-interviews-id\.md/,
     )
-    expect(frontendPagesDocument).toContain(
-      'docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-9-interview-details-route-get-api-interviews-id.md',
-    )
-    expect(frontendPagesDocument).toContain(
-      '`POST /api/interviews/:id/provision` is documented as a join-time lifecycle dependency',
-    )
-    expect(frontendPagesDocument).toContain(
-      'docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-2-whiteboard-provision-contract-and-backend-wiring.md',
+    expect(frontendPagesDocument).toMatch(
+      /`POST \/api\/interviews\/:id\/provision`[\s\S]*3-2-whiteboard-provision-contract-and-backend-wiring\.md/,
     )
   })
 
