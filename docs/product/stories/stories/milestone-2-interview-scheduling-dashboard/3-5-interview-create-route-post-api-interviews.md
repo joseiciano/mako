@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 2: Interview Scheduling & Dashboard
 **Description**: Implement authenticated AI-led interview creation with deterministic writes, explicit validation, and matcher-compatible alias behavior.
-**Status**: Todo
+**Status**: Completed
 **Prerequisites**:
 - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/3-2-interview-create-mode-tier-policy-matrix.md`
 - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/3-4-interview-shared-contracts-and-module-wiring.md`
@@ -10,16 +10,16 @@
 ## What Needs to Be Done
 
 ### 1. Authentication and request validation
-- [ ] Require authenticated session and reject unauthenticated requests.
-- [ ] Validate request body with Zod using `docs/system/system-design/api-routes.md` contract.
+- [x] Require authenticated session and reject unauthenticated requests.
+- [x] Validate request body with Zod using `docs/system/system-design/api-routes.md` contract.
 
 ### 2. Enforce create-path support boundaries
-- [ ] Accept AI-led create path for Story 3.
-- [ ] Reject unsupported direct peer-to-peer create path with explicit validation/business-rule errors.
-- [ ] Reject `interviewer_id` on direct create path for this story scope.
+- [x] Accept AI-led create path for Story 3.
+- [x] Reject unsupported direct peer-to-peer create path with explicit validation/business-rule errors.
+- [x] Reject `interviewer_id` on direct create path for this story scope.
 
 ### 3. Deterministic write behavior
-- [ ] Implement deterministic `interviews` write behavior:
+- [x] Implement deterministic `interviews` write behavior:
   - `status = 'scheduled'` at creation
   - `scheduler_id` from authenticated user
   - `scheduled_at` handling for ISO timestamp vs `'now'` based on resolved contract
@@ -27,11 +27,11 @@
   - alias fields handled by explicit mode/tier rules (no implicit behavior)
 
 ### 4. Alias policy centralization
-- [ ] Define and centralize alias generation policy for `scheduler_alias` / `interviewer_alias` in one helper.
-- [ ] Ensure helper stays compatible with matcher dependency in `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/1-3-transactional-match-and-interview-write.md`.
+- [x] Define and centralize alias generation policy for `scheduler_alias` / `interviewer_alias` in one helper.
+- [x] Ensure helper stays compatible with matcher dependency in `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/1-3-transactional-match-and-interview-write.md`.
 
 ### 5. Create-route test coverage
-- [ ] Add/update create-path tests for:
+- [x] Add/update create-path tests for:
   - auth rejection
   - request schema validation
   - mode/account-policy matrix acceptance/rejection

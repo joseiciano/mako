@@ -88,6 +88,14 @@
     - Direct **peer-to-peer** creation is not supported; peer-to-peer Standard sessions are created by the Availability + Greedy Matcher flow.
     - Client payload does **not** set `tier`; effective interview tier/policy is resolved server-side from account state (for example: free vs subscribed) and quota/credit rules.
     - `interviewer_id` is out of scope for this route contract and must not be provided.
+    - Default policy resolution examples:
+      - `free_ai_interviews > 0` → request is accepted and consumes free AI quota with resolved tier label `standard` by default policy config.
+      - `free_ai_interviews = 0` and `credits > 0` → request is accepted and consumes one credit with resolved tier label `premium` by default policy config.
+      - `free_ai_interviews = 0` and `credits = 0` → request is rejected with an explicit business-rule error.
+    - Rejected combinations:
+      - `mode: 'peer_to_peer'`
+      - any request containing `interviewer_id`
+      - any request containing client-selected `tier`
   - **Workflow**:
     - **Scheduled Sessions**: After successful commit, triggers confirmation notification orchestration and queues reminder orchestration for 30 minutes prior to `scheduled_at` when applicable.
     - **Immediate AI Sessions**: If `mode: 'ai_led'` and `scheduled_at` is set to `'now'`, the interview is created with immediate timing semantics, but realtime/whiteboard provisioning remains join-time via `POST /api/interviews/:id/provision` (not in create-route transaction scope).
