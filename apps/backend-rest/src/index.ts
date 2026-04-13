@@ -2,10 +2,14 @@ import { createHealthResponse } from '@mako/shared'
 import {
   AccountRepository,
   AccountService,
+  InterviewRepository,
+  InterviewService,
   backendRuntime,
   createHeaderSessionResolver,
   createInMemoryAccountDataSource,
   registerAccountController,
+  registerInterviewController,
+  type SqlQueryExecutor,
 } from '@mako/shared-backend'
 import type { SqlQuery } from '@mako/shared-backend'
 import { Hono } from 'hono'
@@ -45,24 +49,18 @@ registerAccountController(app, {
     return new AccountService(
       new AccountRepository({
         dataSource: seededAccountDataSource,
-        queryExecutor: {
-          query: async function query<Row>(queryInput: SqlQuery) {
-            const database = context.bindings.DB
+        queryExecutor: createDatabaseQueryExecutor(context.bindings),
+      }),
+    )
+  },
+  resolveSession: createHeaderSessionResolver(demoSession),
+})
 
-            if (!database) {
-              throw new Error('Database binding `DB` is not configured')
-            }
-
-            const result = await database.query(
-              queryInput.text,
-              ...queryInput.values,
-            )
-
-            return {
-              rows: result.rows as Row[],
-            }
-          },
-        },
+registerInterviewController(app, {
+  createService: function createService(context) {
+    return new InterviewService(
+      new InterviewRepository({
+        queryExecutor: createDatabaseQueryExecutor(context.bindings),
       }),
     )
   },
@@ -81,3 +79,21 @@ app.get('/health', function healthHandler(c) {
 })
 
 export default app
+
+function createDatabaseQueryExecutor(bindings: WorkerBindings): SqlQueryExecutor {
+  return {
+    async query<Row>(queryInput: SqlQuery) {
+      const database = bindings.DB
+
+      if (!database) {
+        throw new Error('Database binding `DB` is not configured')
+      }
+
+      const result = await database.query(queryInput.text, ...queryInput.values)
+
+      return {
+        rows: result.rows as Row[],
+      }
+    },
+  }
+}

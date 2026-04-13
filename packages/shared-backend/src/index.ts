@@ -22,6 +22,7 @@ export {
 } from './database/foundation-schemas'
 export * from './account'
 export * from './interview'
+export * from './interviews'
 export * from './matcher'
 
 export type SqlQuery = {
