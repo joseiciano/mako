@@ -105,6 +105,20 @@ Matcher-created role assignment rule (Standard peer-to-peer):
 - Second request's `user_id` -> `interviews.interviewer_id`.
 - This rule must be stable so reruns over the same input state always assign roles identically.
 
+Indexes:
+
+- `idx_interviews_scheduler_scheduled_at_id` on (`scheduler_id`, `scheduled_at`, `id`) for unfiltered participant history ordering.
+- `idx_interviews_interviewer_scheduled_at_id` on (`interviewer_id`, `scheduled_at`, `id`) for unfiltered participant history ordering when the current user is the interviewer.
+- `idx_interviews_scheduler_status_scheduled_at_id` on (`scheduler_id`, `status`, `scheduled_at`, `id`) for participant-scoped list filtering and deterministic pagination.
+- `idx_interviews_interviewer_status_scheduled_at_id` on (`interviewer_id`, `status`, `scheduled_at`, `id`) for participant-scoped list filtering and deterministic pagination when the current user is the interviewer.
+
+Query readiness notes:
+
+- Participant-scoped interview lists should use deterministic ordering `ORDER BY scheduled_at ASC, id ASC`.
+- Unfiltered participant history relies on the `(participant_id, scheduled_at, id)` indexes above.
+- Status-filtered participant lists (for example dashboard `status=scheduled`) rely on the `(participant_id, status, scheduled_at, id)` indexes above.
+- Participant-authorized cancellation by interview id relies on the primary key lookup on `id`; secondary indexes above are for list-path readiness.
+
 ### Availability_Requests
 
 Groups a set of time blocks where a user is available for matching, with a maximum quota.
