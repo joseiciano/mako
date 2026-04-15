@@ -1,4 +1,4 @@
-import type { SqlQuery } from '../index'
+import { parseUserRow, type SqlQuery, type UserRow } from '../index'
 import {
   toUserCompany,
   type AccountProfileRecord,
@@ -57,14 +57,81 @@ export class AccountRepository {
   }
 
   async getProfile(userId: string): Promise<AccountProfileRecord | null> {
-    return this.getDataSource().getByUserId(userId)
+    const dataSource = this.dependencies.dataSource
+
+    if (dataSource) {
+      return dataSource.getByUserId(userId)
+    }
+
+    const result = await this.getQueryExecutor().query<UserRow>({
+      text: `
+        SELECT
+          id,
+          email,
+          name,
+          credits,
+          free_standard_interviews,
+          free_ai_interviews,
+          companies,
+          created_at,
+          updated_at,
+          deleted_at
+        FROM users
+        WHERE id = $1
+          AND deleted_at IS NULL
+        LIMIT 1;
+      `,
+      values: [userId],
+    })
+
+    const [profileRow] = result.rows
+
+    if (!profileRow) {
+      return null
+    }
+
+    return toAccountProfileRecord(profileRow)
   }
 
   async updateProfile(
     userId: string,
     displayName: string,
   ): Promise<AccountProfileRecord | null> {
-    return this.getDataSource().updateDisplayName(userId, displayName)
+    const dataSource = this.dependencies.dataSource
+
+    if (dataSource) {
+      return dataSource.updateDisplayName(userId, displayName)
+    }
+
+    const result = await this.getQueryExecutor().query<UserRow>({
+      text: `
+        UPDATE users
+        SET name = $2,
+            updated_at = NOW()
+        WHERE id = $1
+          AND deleted_at IS NULL
+        RETURNING
+          id,
+          email,
+          name,
+          credits,
+          free_standard_interviews,
+          free_ai_interviews,
+          companies,
+          created_at,
+          updated_at,
+          deleted_at;
+      `,
+      values: [userId, displayName],
+    })
+
+    const [profileRow] = result.rows
+
+    if (!profileRow) {
+      return null
+    }
+
+    return toAccountProfileRecord(profileRow)
   }
 
   async deleteAccount(userId: string): Promise<boolean> {
@@ -251,4 +318,18 @@ function isQueryExecutor(
     'query' in input &&
     typeof input.query === 'function'
   )
+}
+
+function toAccountProfileRecord(rowInput: unknown): AccountProfileRecord {
+  const row = parseUserRow(rowInput)
+
+  return {
+    id: row.id,
+    email: row.email,
+    displayName: row.name,
+    credits: row.credits,
+    freeStandardInterviews: row.free_standard_interviews,
+    freeAiInterviews: row.free_ai_interviews,
+    createdAt: row.created_at,
+  }
 }

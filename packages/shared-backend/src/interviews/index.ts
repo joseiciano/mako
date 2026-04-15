@@ -21,7 +21,6 @@ export {
   authenticatedInterviewUserIdSchema,
   interviewAccountPolicySchema,
   interviewCreateConsumptionSchema,
-  parseCreateInterviewRequest,
   parseInterview,
   toCreateInterviewResponse,
   type CreateInterviewRecordInput,

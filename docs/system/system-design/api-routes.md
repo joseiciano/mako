@@ -97,7 +97,7 @@
       - any request containing `interviewer_id`
       - any request containing client-selected `tier`
   - **Workflow**:
-    - **Scheduled Sessions**: After successful commit, triggers confirmation notification orchestration and queues reminder orchestration for 30 minutes prior to `scheduled_at` when applicable.
+    - **Scheduled Sessions**: After successful validation and policy reservation, persists the interview record. Confirmation/reminder orchestration is not part of the current create-route runtime behavior.
     - **Immediate AI Sessions**: If `mode: 'ai_led'` and `scheduled_at` is set to `'now'`, the interview is created with immediate timing semantics, but realtime/whiteboard provisioning remains join-time via `POST /api/interviews/:id/provision` (not in create-route transaction scope).
   - **Request Body**: `{ type: 'system_design' | 'coding' | 'behavioral', mode: 'ai_led', scheduled_at: ISO-8601 timestamp string | 'now' }`
   - **Response Body**: `{ interview: Interview }`

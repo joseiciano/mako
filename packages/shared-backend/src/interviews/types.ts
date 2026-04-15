@@ -1,8 +1,9 @@
 import {
-  createInterviewRequestSchema,
   createInterviewResponseSchema,
   interviewSchema,
-  type CreateInterviewRequest,
+  interviewStatusSchema,
+  interviewTierSchema,
+  interviewTypeSchema,
   type CreateInterviewResponse,
   type Interview,
 } from '@mako/shared'
@@ -66,22 +67,17 @@ export type InterviewCreateConsumption = z.infer<
   typeof interviewCreateConsumptionSchema
 >
 
-export const interviewTypeValueSchema = z.enum([
-  'system_design',
-  'coding',
-  'behavioral',
-])
+export const interviewTypeValueSchema = z.enum(
+  toNonEmptyEnumValues(interviewTypeSchema.options),
+)
 
-export const interviewModeValueSchema = z.enum(['peer_to_peer', 'ai_led'])
+export const interviewTierValueSchema = z.enum(
+  toNonEmptyEnumValues(interviewTierSchema.options),
+)
 
-export const interviewTierValueSchema = z.enum(['standard', 'premium'])
-
-export const interviewStatusValueSchema = z.enum([
-  'scheduled',
-  'ongoing',
-  'completed',
-  'cancelled',
-])
+export const interviewStatusValueSchema = z.enum(
+  toNonEmptyEnumValues(interviewStatusSchema.options),
+)
 
 export type InterviewTier = z.infer<typeof interviewTierValueSchema>
 
@@ -115,12 +111,6 @@ export type CreateInterviewRecordInput = z.infer<
   typeof createInterviewRecordInputSchema
 >
 
-export function parseCreateInterviewRequest(
-  input: unknown,
-): CreateInterviewRequest {
-  return createInterviewRequestSchema.parse(input)
-}
-
 export function parseInterview(input: unknown): Interview {
   return interviewSchema.parse(input)
 }
@@ -131,4 +121,16 @@ export function toCreateInterviewResponse(
   return createInterviewResponseSchema.parse({
     interview: parseInterview(interviewInput),
   })
+}
+
+function toNonEmptyEnumValues<Value extends string>(
+  values: readonly Value[],
+): [Value, ...Value[]] {
+  const [firstValue, ...remainingValues] = values
+
+  if (firstValue === undefined) {
+    throw new Error('Expected at least one enum value.')
+  }
+
+  return [firstValue, ...remainingValues]
 }

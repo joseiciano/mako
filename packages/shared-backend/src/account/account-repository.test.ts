@@ -6,6 +6,90 @@ const userId = '11111111-1111-4111-8111-111111111111'
 const companyId = '22222222-2222-4222-8222-222222222222'
 
 describe('AccountRepository', function accountRepositorySuite() {
+  it('queries account profile by user id when using the database executor', async function shouldQueryProfile() {
+    const executedQueries: SqlQuery[] = []
+
+    const repository = new AccountRepository({
+      query: async function query<Row>(queryInput: SqlQuery) {
+        executedQueries.push(queryInput)
+
+        return {
+          rows: [
+            {
+              id: userId,
+              email: 'candidate@mako.dev',
+              name: 'Candidate',
+              credits: 3,
+              free_standard_interviews: 1,
+              free_ai_interviews: 2,
+              companies: false,
+              created_at: '2026-01-01T00:00:00.000Z',
+              updated_at: '2026-01-01T00:00:00.000Z',
+              deleted_at: null,
+            },
+          ] as Row[],
+        }
+      },
+    })
+
+    const profile = await repository.getProfile(userId)
+
+    expect(executedQueries).toHaveLength(1)
+    expect(executedQueries[0]).toEqual(
+      expect.objectContaining({
+        text: expect.stringContaining('FROM users'),
+        values: [userId],
+      }),
+    )
+    expect(profile).toEqual({
+      id: userId,
+      email: 'candidate@mako.dev',
+      displayName: 'Candidate',
+      credits: 3,
+      freeStandardInterviews: 1,
+      freeAiInterviews: 2,
+      createdAt: '2026-01-01T00:00:00.000Z',
+    })
+  })
+
+  it('updates account profile display name through the database executor', async function shouldUpdateProfile() {
+    const executedQueries: SqlQuery[] = []
+
+    const repository = new AccountRepository({
+      query: async function query<Row>(queryInput: SqlQuery) {
+        executedQueries.push(queryInput)
+
+        return {
+          rows: [
+            {
+              id: userId,
+              email: 'candidate@mako.dev',
+              name: 'Updated Candidate',
+              credits: 3,
+              free_standard_interviews: 1,
+              free_ai_interviews: 2,
+              companies: false,
+              created_at: '2026-01-01T00:00:00.000Z',
+              updated_at: '2026-01-02T00:00:00.000Z',
+              deleted_at: null,
+            },
+          ] as Row[],
+        }
+      },
+    })
+
+    const profile = await repository.updateProfile(userId, 'Updated Candidate')
+
+    expect(executedQueries).toHaveLength(1)
+    expect(executedQueries[0]).toEqual(
+      expect.objectContaining({
+        text: expect.stringContaining('UPDATE users'),
+        values: [userId, 'Updated Candidate'],
+      }),
+    )
+    expect(profile?.displayName).toBe('Updated Candidate')
+  })
+
   it('soft deletes account by setting deleted_at', async function shouldDeleteAccount() {
     const executedQueries: SqlQuery[] = []
     async function query<Row>(queryInput: SqlQuery) {
