@@ -1,13 +1,19 @@
 import type { Interview } from '@mako/shared'
 import { createSqlQuery, type SqlQuery } from '../index'
 import {
+  cancelInterviewRecordInputSchema,
   InterviewPolicyConflictError,
+  listParticipantInterviewsInputSchema,
   authenticatedInterviewUserIdSchema,
   createInterviewRecordInputSchema,
   interviewAccountPolicySchema,
   parseInterview,
+  type CancelInterviewRecordInput,
+  type CancelInterviewRecordResult,
   type CreateInterviewRecordInput,
   type InterviewAccountPolicy,
+  type ListParticipantInterviewsInput,
+  type ParsedListParticipantInterviewsInput,
 } from './types'
 
 export type QueryResult<Row> = {
@@ -22,6 +28,12 @@ export type SqlQueryExecutor = {
 export interface InterviewRepositoryDataSource {
   getAccountPolicy(userId: string): Promise<InterviewAccountPolicy | null>
   createDirectInterview(input: CreateInterviewRecordInput): Promise<Interview>
+  listParticipantInterviews?(
+    input: ListParticipantInterviewsInput,
+  ): Promise<Interview[]>
+  cancelInterview?(
+    input: CancelInterviewRecordInput,
+  ): Promise<CancelInterviewRecordResult>
 }
 
 export type InMemoryInterviewAccountRecord = {
@@ -170,6 +182,133 @@ export class InterviewRepository {
     }
   }
 
+  async listParticipantInterviews(
+    input: ListParticipantInterviewsInput,
+  ): Promise<Interview[]> {
+    const parsedInput = listParticipantInterviewsInputSchema.parse(input)
+    const dataSource = this.dependencies.dataSource
+
+    if (typeof dataSource?.listParticipantInterviews === 'function') {
+      return dataSource.listParticipantInterviews(parsedInput)
+    }
+
+    const result = await this.getQueryExecutor().query<Interview>(
+      buildListParticipantInterviewsQuery(parsedInput),
+    )
+
+    return result.rows.map(function parseInterviewRow(row) {
+      return parseInterview(row)
+    })
+  }
+
+  async cancelInterview(
+    input: CancelInterviewRecordInput,
+  ): Promise<CancelInterviewRecordResult> {
+    const parsedInput = cancelInterviewRecordInputSchema.parse(input)
+    const dataSource = this.dependencies.dataSource
+
+    if (typeof dataSource?.cancelInterview === 'function') {
+      return dataSource.cancelInterview(parsedInput)
+    }
+
+    const queryExecutor = this.getQueryExecutor()
+    await queryExecutor.query(createSqlQuery('BEGIN;'))
+
+    try {
+      const lookupResult = await queryExecutor.query<Interview>(
+        createSqlQuery(
+          `
+            SELECT
+              id,
+              scheduler_id,
+              scheduler_alias,
+              interviewer_id,
+              interviewer_alias,
+              type,
+              mode,
+              tier,
+              status,
+              scheduled_at,
+              created_at,
+              updated_at
+            FROM interviews
+            WHERE id = $1
+              AND (scheduler_id = $2 OR interviewer_id = $2)
+            LIMIT 1
+            FOR UPDATE;
+          `,
+          [parsedInput.interview_id, parsedInput.participant_user_id],
+        ),
+      )
+
+      const [existingInterview] = lookupResult.rows
+
+      if (!existingInterview) {
+        await queryExecutor.query(createSqlQuery('COMMIT;'))
+        return { outcome: 'not_found' }
+      }
+
+      const parsedInterview = parseInterview(existingInterview)
+
+      if (parsedInterview.status === 'cancelled') {
+        await queryExecutor.query(createSqlQuery('COMMIT;'))
+        return {
+          outcome: 'already_cancelled',
+          interview: parsedInterview,
+        }
+      }
+
+      if (parsedInterview.status !== 'scheduled') {
+        await queryExecutor.query(createSqlQuery('COMMIT;'))
+        return {
+          outcome: 'invalid_status',
+          interview: parsedInterview,
+        }
+      }
+
+      const updateResult = await queryExecutor.query<Interview>(
+        createSqlQuery(
+          `
+            UPDATE interviews
+            SET status = 'cancelled',
+                updated_at = $2
+            WHERE id = $1
+            RETURNING
+              id,
+              scheduler_id,
+              scheduler_alias,
+              interviewer_id,
+              interviewer_alias,
+              type,
+              mode,
+              tier,
+              status,
+              scheduled_at,
+              created_at,
+              updated_at;
+          `,
+          [parsedInput.interview_id, parsedInput.updated_at],
+        ),
+      )
+
+      const [cancelledInterview] = updateResult.rows
+
+      if (!cancelledInterview) {
+        throw new Error('Failed to cancel interview record.')
+      }
+
+      await queryExecutor.query(createSqlQuery('COMMIT;'))
+
+      return {
+        outcome: 'cancelled',
+        interview: parseInterview(cancelledInterview),
+      }
+    } catch (error) {
+      await rollbackTransactionSafely(queryExecutor)
+      throw error
+    }
+  }
+
   private getQueryExecutor(): SqlQueryExecutor {
     const queryExecutor = this.dependencies.queryExecutor
 
@@ -269,6 +408,75 @@ function hasRows<Row>(queryResult: QueryResult<Row>): boolean {
   }
 
   return queryResult.rows.length > 0
+}
+
+function buildListParticipantInterviewsQuery(
+  input: ParsedListParticipantInterviewsInput,
+): SqlQuery {
+  const hasStatusFilter = input.status !== undefined
+  const statusClause = hasStatusFilter ? 'AND status = $2' : ''
+  const limitPlaceholder = hasStatusFilter ? '$3' : '$2'
+  const offsetPlaceholder = hasStatusFilter ? '$4' : '$3'
+  const values = hasStatusFilter
+    ? [input.participant_user_id, input.status, input.limit, input.offset]
+    : [input.participant_user_id, input.limit, input.offset]
+
+  return createSqlQuery(
+    `
+      SELECT
+        id,
+        scheduler_id,
+        scheduler_alias,
+        interviewer_id,
+        interviewer_alias,
+        type,
+        mode,
+        tier,
+        status,
+        scheduled_at,
+        created_at,
+        updated_at
+      FROM (
+        SELECT
+          id,
+          scheduler_id,
+          scheduler_alias,
+          interviewer_id,
+          interviewer_alias,
+          type,
+          mode,
+          tier,
+          status,
+          scheduled_at,
+          created_at,
+          updated_at
+        FROM interviews
+        WHERE scheduler_id = $1
+          ${statusClause}
+        UNION ALL
+        SELECT
+          id,
+          scheduler_id,
+          scheduler_alias,
+          interviewer_id,
+          interviewer_alias,
+          type,
+          mode,
+          tier,
+          status,
+          scheduled_at,
+          created_at,
+          updated_at
+        FROM interviews
+        WHERE interviewer_id = $1
+          ${statusClause}
+      ) AS participant_interviews
+      ORDER BY scheduled_at ASC, id ASC
+      LIMIT ${limitPlaceholder}
+      OFFSET ${offsetPlaceholder};
+    `,
+    values,
+  )
 }
 
 function buildConsumptionReservationQuery(
