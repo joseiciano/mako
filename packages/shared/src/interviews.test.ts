@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest'
-import { interviewListResponseSchema } from './interviews'
+import {
+  createInterviewRequestSchema,
+  createInterviewResponseSchema,
+  interviewListResponseSchema,
+} from './interviews'
 
 describe('interview shared contracts', function interviewSharedContractsSuite() {
   it('parses interview list payloads from documented API fields', function run() {
@@ -47,5 +51,82 @@ describe('interview shared contracts', function interviewSharedContractsSuite() 
         ],
       })
     }).toThrow()
+  })
+
+  it('parses accepted direct AI-led create payloads for quota-backed scheduling', function run() {
+    const payload = createInterviewRequestSchema.parse({
+      type: 'system_design',
+      mode: 'ai_led',
+      scheduled_at: 'now',
+    })
+
+    expect(payload).toEqual({
+      type: 'system_design',
+      mode: 'ai_led',
+      scheduled_at: 'now',
+    })
+  })
+
+  it('parses accepted direct AI-led create payloads for scheduled sessions', function run() {
+    const payload = createInterviewRequestSchema.parse({
+      type: 'coding',
+      mode: 'ai_led',
+      scheduled_at: '2026-04-10T10:30:00.000Z',
+    })
+
+    expect(payload.scheduled_at).toBe('2026-04-10T10:30:00.000Z')
+  })
+
+  it('rejects unsupported direct peer-to-peer create payloads', function run() {
+    expect(function parseInvalidPayload() {
+      createInterviewRequestSchema.parse({
+        type: 'behavioral',
+        mode: 'peer_to_peer',
+        scheduled_at: '2026-04-10T10:30:00.000Z',
+      })
+    }).toThrow()
+  })
+
+  it('rejects direct create payloads that try to set tier client-side', function run() {
+    expect(function parseInvalidPayload() {
+      createInterviewRequestSchema.parse({
+        type: 'system_design',
+        mode: 'ai_led',
+        scheduled_at: 'now',
+        tier: 'premium',
+      })
+    }).toThrow()
+  })
+
+  it('rejects direct create payloads that try to provide interviewer_id', function run() {
+    expect(function parseInvalidPayload() {
+      createInterviewRequestSchema.parse({
+        type: 'system_design',
+        mode: 'ai_led',
+        scheduled_at: 'now',
+        interviewer_id: '33333333-3333-4333-8333-333333333333',
+      })
+    }).toThrow()
+  })
+
+  it('parses create responses using the shared interview response contract', function run() {
+    const payload = createInterviewResponseSchema.parse({
+      interview: {
+        id: '11111111-1111-4111-8111-111111111111',
+        scheduler_id: '22222222-2222-4222-8222-222222222222',
+        scheduler_alias: 'Candidate-Blue',
+        interviewer_id: null,
+        interviewer_alias: 'Interviewer-Red',
+        type: 'system_design',
+        mode: 'ai_led',
+        tier: 'standard',
+        status: 'scheduled',
+        scheduled_at: '2026-04-10T10:30:00.000Z',
+        created_at: '2026-04-01T10:00:00.000Z',
+        updated_at: '2026-04-01T10:00:00.000Z',
+      },
+    })
+
+    expect(payload.interview.mode).toBe('ai_led')
   })
 })

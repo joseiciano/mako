@@ -11,9 +11,14 @@ The system supports two scheduling channels, with account-level quota/credit pol
 - **AI-Led**: Session led by AI.
     - **Creation Path**: Created directly through `POST /api/interviews`.
     - **Immediate Mode**: `scheduled_at: 'now'` is valid for AI-led immediate sessions.
+    - **Policy Matrix**:
+        - `free_ai_interviews > 0` accepts direct create and consumes free AI quota.
+        - `free_ai_interviews = 0` and `credits > 0` accepts direct create and consumes one credit.
+        - `free_ai_interviews = 0` and `credits = 0` rejects direct create.
+        - Direct `peer_to_peer` creation and direct `interviewer_id` selection remain unsupported for Milestone 2 create-path behavior.
 
 - **Account Policy (Free vs Subscribed, quotas, credits)**:
     - Policy determines how many interviews an account can run (for example using `free_standard_interviews`, `free_ai_interviews`, and credit balance).
     - Scheduling payloads do not carry a client-selected `tier`; effective tier/policy semantics are resolved server-side from account state.
-    - Any `standard` / `premium` labeling is an internal policy outcome and does not introduce separate client-facing scheduling paths in Milestone 2 Interview CRUD.
+    - Any `standard` / `premium` labeling is an internal policy outcome and does not introduce separate client-facing scheduling paths in Milestone 2 Interview CRUD. Default policy config maps free AI quota to `standard` and credit-backed AI create to `premium`, but that mapping remains configuration-driven.
     - Limit values are configuration-driven and may be tuned over time without changing route shapes.

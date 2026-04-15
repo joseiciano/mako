@@ -39,14 +39,22 @@ export {
 export type { AccountProfile, UpdateAccountProfileInput } from './account'
 
 export {
+  createInterviewRequestSchema,
+  createInterviewResponseSchema,
+  interviewCreateScheduledAtSchema,
+  interviewSchema,
   interviewListItemSchema,
   interviewListResponseSchema,
   interviewModeSchema,
+  interviewScheduledAtSchema,
   interviewStatusSchema,
   interviewTierSchema,
   interviewTypeSchema,
 } from './interviews'
 export type {
+  CreateInterviewRequest,
+  CreateInterviewResponse,
+  Interview,
   InterviewListItem,
   InterviewListResponse,
 } from './interviews'

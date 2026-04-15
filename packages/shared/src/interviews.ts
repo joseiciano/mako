@@ -17,7 +17,14 @@ export const interviewStatusSchema = z.enum([
   'cancelled',
 ])
 
-export const interviewListItemSchema = z.object({
+export const interviewScheduledAtSchema = z.string().datetime()
+
+export const interviewCreateScheduledAtSchema = z.union([
+  z.literal('now'),
+  interviewScheduledAtSchema,
+])
+
+export const interviewSchema = z.object({
   id: z.string().uuid(),
   scheduler_id: z.string().uuid(),
   scheduler_alias: z.string().min(1),
@@ -27,14 +34,31 @@ export const interviewListItemSchema = z.object({
   mode: interviewModeSchema,
   tier: interviewTierSchema,
   status: interviewStatusSchema,
-  scheduled_at: z.string().datetime(),
+  scheduled_at: interviewScheduledAtSchema,
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
 })
+
+export const interviewListItemSchema = interviewSchema
 
 export const interviewListResponseSchema = z.object({
   interviews: z.array(interviewListItemSchema),
 })
 
+export const createInterviewRequestSchema = z
+  .object({
+    type: interviewTypeSchema,
+    mode: z.literal('ai_led'),
+    scheduled_at: interviewCreateScheduledAtSchema,
+  })
+  .strict()
+
+export const createInterviewResponseSchema = z.object({
+  interview: interviewSchema,
+})
+
+export type Interview = z.infer<typeof interviewSchema>
 export type InterviewListItem = z.infer<typeof interviewListItemSchema>
 export type InterviewListResponse = z.infer<typeof interviewListResponseSchema>
+export type CreateInterviewRequest = z.infer<typeof createInterviewRequestSchema>
+export type CreateInterviewResponse = z.infer<typeof createInterviewResponseSchema>
