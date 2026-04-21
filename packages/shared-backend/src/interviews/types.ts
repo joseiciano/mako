@@ -51,6 +51,10 @@ export class InterviewPolicyConflictError extends Error {
 
 export const authenticatedInterviewUserIdSchema = z.string().uuid()
 
+export const defaultInterviewListLimit = 50
+
+export const maxInterviewListLimit = 100
+
 export const interviewAccountPolicySchema = z.object({
   credits: z.number().int().nonnegative(),
   free_ai_interviews: z.number().int().nonnegative(),
@@ -90,6 +94,48 @@ export type ResolvedInterviewCreatePolicy = {
   tier: InterviewTier
   consumption: InterviewCreateConsumption
 }
+
+export const listParticipantInterviewsInputSchema = z.object({
+  participant_user_id: authenticatedInterviewUserIdSchema,
+  status: interviewStatusValueSchema.optional(),
+  limit: z.number().int().positive().max(maxInterviewListLimit).default(defaultInterviewListLimit),
+  offset: z.number().int().nonnegative().default(0),
+})
+
+export type ListParticipantInterviewsInput = z.input<
+  typeof listParticipantInterviewsInputSchema
+>
+
+export type ParsedListParticipantInterviewsInput = z.output<
+  typeof listParticipantInterviewsInputSchema
+>
+
+export const cancelInterviewRecordInputSchema = z.object({
+  interview_id: z.string().uuid(),
+  participant_user_id: authenticatedInterviewUserIdSchema,
+  updated_at: z.string().datetime(),
+})
+
+export type CancelInterviewRecordInput = z.infer<
+  typeof cancelInterviewRecordInputSchema
+>
+
+export type CancelInterviewRecordResult =
+  | {
+      outcome: 'cancelled'
+      interview: Interview
+    }
+  | {
+      outcome: 'already_cancelled'
+      interview: Interview
+    }
+  | {
+      outcome: 'invalid_status'
+      interview: Interview
+    }
+  | {
+      outcome: 'not_found'
+    }
 
 export const createInterviewRecordInputSchema = z.object({
   id: z.string().uuid(),
