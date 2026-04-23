@@ -1,11 +1,16 @@
 import {
+  cancelInterviewParamsSchema,
+  cancelInterviewResponseSchema,
   createInterviewRequestSchema,
   createInterviewResponseSchema,
+  interviewListQuerySchema,
+  interviewListResponseSchema,
 } from '@mako/shared'
 import type { Context, Hono } from 'hono'
 import { InterviewService } from './interview-service'
 import {
   InterviewBusinessRuleError,
+  InterviewConflictError,
   InterviewNotFoundError,
   InterviewUnauthorizedError,
   InterviewValidationError,
@@ -47,6 +52,41 @@ export function registerInterviewController<Bindings extends ControllerBindings>
       return toErrorResponse(c, error)
     }
   })
+
+  app.get('/api/interviews', async function getInterviewsHandler(c) {
+    const interviewService = options.createService({ bindings: c.env })
+    const session = await options.resolveSession(c)
+
+    try {
+      const parsedQuery = interviewListQuerySchema.parse(
+        Object.fromEntries(new URL(c.req.url).searchParams.entries()),
+      )
+      const interviews = await interviewService.listInterviews(session, parsedQuery)
+
+      return c.json(interviewListResponseSchema.parse(interviews), 200)
+    } catch (error) {
+      return toErrorResponse(c, error)
+    }
+  })
+
+  app.post('/api/interviews/:id/cancel', async function postCancelInterviewHandler(c) {
+    const interviewService = options.createService({ bindings: c.env })
+    const session = await options.resolveSession(c)
+
+    try {
+      const parsedParams = cancelInterviewParamsSchema.parse({
+        id: c.req.param('id'),
+      })
+      const cancelResponse = await interviewService.cancelInterview(
+        session,
+        parsedParams,
+      )
+
+      return c.json(cancelInterviewResponseSchema.parse(cancelResponse), 200)
+    } catch (error) {
+      return toErrorResponse(c, error)
+    }
+  })
 }
 
 async function readRequestBody(context: Context): Promise<unknown | null> {
@@ -82,6 +122,10 @@ function toErrorResponse(context: Context, error: unknown) {
 
   if (error instanceof InterviewBusinessRuleError) {
     return context.json({ error: error.message }, 422)
+  }
+
+  if (error instanceof InterviewConflictError) {
+    return context.json({ error: error.message }, 409)
   }
 
   return context.json({ error: 'Unexpected interview error.' }, 500)

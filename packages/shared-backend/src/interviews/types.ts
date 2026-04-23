@@ -1,13 +1,21 @@
 import {
+  cancelInterviewResponseSchema,
   createInterviewResponseSchema,
+  defaultInterviewListLimit,
   interviewSchema,
+  interviewListResponseSchema,
   interviewStatusSchema,
   interviewTierSchema,
   interviewTypeSchema,
+  maxInterviewListLimit,
+  type CancelInterviewResponse,
   type CreateInterviewResponse,
   type Interview,
+  type InterviewListResponse,
 } from '@mako/shared'
 import { z } from 'zod'
+
+export { defaultInterviewListLimit, maxInterviewListLimit }
 
 export type InterviewSession = {
   userId: string
@@ -42,6 +50,13 @@ export class InterviewBusinessRuleError extends Error {
   }
 }
 
+export class InterviewConflictError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'InterviewConflictError'
+  }
+}
+
 export class InterviewPolicyConflictError extends Error {
   constructor(message = 'Interview create policy could not be reserved.') {
     super(message)
@@ -50,10 +65,6 @@ export class InterviewPolicyConflictError extends Error {
 }
 
 export const authenticatedInterviewUserIdSchema = z.string().uuid()
-
-export const defaultInterviewListLimit = 50
-
-export const maxInterviewListLimit = 100
 
 export const interviewAccountPolicySchema = z.object({
   credits: z.number().int().nonnegative(),
@@ -166,6 +177,26 @@ export function toCreateInterviewResponse(
 ): CreateInterviewResponse {
   return createInterviewResponseSchema.parse({
     interview: parseInterview(interviewInput),
+  })
+}
+
+export function toInterviewListResponse(
+  interviewsInput: unknown,
+): InterviewListResponse {
+  const parsedInterviews = Array.isArray(interviewsInput)
+    ? interviewsInput.map(function parseInterviewInput(interviewInput) {
+        return parseInterview(interviewInput)
+      })
+    : interviewsInput
+
+  return interviewListResponseSchema.parse({
+    interviews: parsedInterviews,
+  })
+}
+
+export function toCancelInterviewResponse(): CancelInterviewResponse {
+  return cancelInterviewResponseSchema.parse({
+    success: true,
   })
 }
 

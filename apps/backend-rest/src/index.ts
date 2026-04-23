@@ -1,12 +1,15 @@
-import { createHealthResponse } from '@mako/shared'
+import { createHealthResponse, type Interview } from '@mako/shared'
 import {
   AccountRepository,
   AccountService,
+  type CancelInterviewRecordInput,
+  type CancelInterviewRecordResult,
   InterviewPolicyConflictError,
   InterviewRepository,
   InterviewService,
   backendRuntime,
   createHeaderSessionResolver,
+  listParticipantInterviewsInputSchema,
   parseInterview,
   registerAccountController,
   registerInterviewController,
@@ -103,6 +106,7 @@ function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
   interview: InterviewRepositoryDataSource
 } {
   const accountProfilesById = new Map<string, AccountProfileRecord>()
+  const interviewsById = new Map<string, Interview>()
 
   for (const account of seedAccounts) {
     accountProfilesById.set(account.id, structuredClone(account))
@@ -169,10 +173,93 @@ function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
           account.credits -= 1
         }
 
-        return parseInterview(input)
+        const interview = parseInterview(input)
+        interviewsById.set(interview.id, structuredClone(interview))
+        return structuredClone(interview)
+      },
+      async listParticipantInterviews(input) {
+        const parsedInput = listParticipantInterviewsInputSchema.parse(input)
+
+        return Array.from(interviewsById.values())
+          .filter(function isParticipantInterview(interview) {
+            return (
+              interview.scheduler_id === parsedInput.participant_user_id ||
+              interview.interviewer_id === parsedInput.participant_user_id
+            )
+          })
+          .filter(function matchesStatus(interview) {
+            return parsedInput.status === undefined
+              ? true
+              : interview.status === parsedInput.status
+          })
+          .sort(compareInterviewListOrder)
+          .slice(parsedInput.offset, parsedInput.offset + parsedInput.limit)
+          .map(function cloneInterview(interview) {
+            return structuredClone(interview)
+          })
+      },
+      async cancelInterview(
+        input: CancelInterviewRecordInput,
+      ): Promise<CancelInterviewRecordResult> {
+        const interview = interviewsById.get(input.interview_id)
+
+        if (
+          !interview ||
+          (interview.scheduler_id !== input.participant_user_id &&
+            interview.interviewer_id !== input.participant_user_id)
+        ) {
+          return { outcome: 'not_found' }
+        }
+
+        if (interview.status === 'cancelled') {
+          return {
+            outcome: 'already_cancelled',
+            interview: structuredClone(interview),
+          }
+        }
+
+        if (interview.status !== 'scheduled') {
+          return {
+            outcome: 'invalid_status',
+            interview: structuredClone(interview),
+          }
+        }
+
+        const cancelledInterview = parseInterview({
+          ...interview,
+          status: 'cancelled',
+          updated_at: input.updated_at,
+        })
+
+        interviewsById.set(cancelledInterview.id, structuredClone(cancelledInterview))
+
+        return {
+          outcome: 'cancelled',
+          interview: structuredClone(cancelledInterview),
+        }
       },
     },
   }
+}
+
+function compareInterviewListOrder(left: Interview, right: Interview): number {
+  if (left.scheduled_at < right.scheduled_at) {
+    return -1
+  }
+
+  if (left.scheduled_at > right.scheduled_at) {
+    return 1
+  }
+
+  if (left.id < right.id) {
+    return -1
+  }
+
+  if (left.id > right.id) {
+    return 1
+  }
+
+  return 0
 }
 
 function createDatabaseQueryExecutor(bindings: WorkerBindings): SqlQueryExecutor {

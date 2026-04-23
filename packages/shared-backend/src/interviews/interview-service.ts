@@ -1,17 +1,24 @@
 import type {
+  CancelInterviewParams,
+  CancelInterviewResponse,
   CreateInterviewRequest,
   CreateInterviewResponse,
   Interview,
+  InterviewListQuery,
+  InterviewListResponse,
 } from '@mako/shared'
 import { buildInterviewAliases } from '../interview'
 import { InterviewRepository } from './interview-repository'
 import {
   InterviewBusinessRuleError,
+  InterviewConflictError,
   InterviewNotFoundError,
   InterviewPolicyConflictError,
   InterviewUnauthorizedError,
   authenticatedInterviewUserIdSchema,
+  toCancelInterviewResponse,
   toCreateInterviewResponse,
+  toInterviewListResponse,
   type InterviewPolicyConfig,
   type InterviewSession,
   type ResolvedInterviewCreatePolicy,
@@ -42,6 +49,55 @@ export class InterviewService {
     })
 
     return toCreateInterviewResponse(createdInterview)
+  }
+
+  async listInterviews(
+    session: InterviewSession | null,
+    input: InterviewListQuery,
+  ): Promise<InterviewListResponse> {
+    const userSession = this.requireSession(session)
+    const participantUserId = authenticatedInterviewUserIdSchema.parse(
+      userSession.userId,
+    )
+    const interviews = await this.interviewRepository.listParticipantInterviews({
+      participant_user_id: participantUserId,
+      status: input.status,
+      limit: input.limit,
+      offset: input.offset,
+    })
+
+    return toInterviewListResponse(interviews)
+  }
+
+  async cancelInterview(
+    session: InterviewSession | null,
+    input: CancelInterviewParams,
+  ): Promise<CancelInterviewResponse> {
+    const userSession = this.requireSession(session)
+    const participantUserId = authenticatedInterviewUserIdSchema.parse(
+      userSession.userId,
+    )
+    const cancelResult = await this.interviewRepository.cancelInterview({
+      interview_id: input.id,
+      participant_user_id: participantUserId,
+      updated_at: this.now(),
+    })
+
+    switch (cancelResult.outcome) {
+      case 'cancelled':
+      case 'already_cancelled':
+        return toCancelInterviewResponse()
+      case 'invalid_status':
+        throw new InterviewConflictError(
+          'Only scheduled interviews can be cancelled.',
+        )
+      case 'not_found':
+        throw new InterviewNotFoundError(
+          'Interview was not found for the active participant.',
+        )
+    }
+
+    throw new Error('Unexpected interview cancellation outcome.')
   }
 
   private async createAiLedInterview(input: {

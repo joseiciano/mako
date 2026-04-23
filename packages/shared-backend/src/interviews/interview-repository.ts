@@ -322,17 +322,23 @@ export class InterviewRepository {
 
 export function createInMemoryInterviewDataSource(
   seedAccounts: readonly InMemoryInterviewAccountRecord[],
+  seedInterviews: readonly Interview[] = [],
 ): InterviewRepositoryDataSource {
   const accountStateByUserId = new Map<
     string,
     { credits: number; freeAiInterviews: number }
   >()
+  const interviewsById = new Map<string, Interview>()
 
   for (const account of seedAccounts) {
     accountStateByUserId.set(account.userId, {
       credits: account.credits,
       freeAiInterviews: account.freeAiInterviews,
     })
+  }
+
+  for (const interview of seedInterviews) {
+    interviewsById.set(interview.id, structuredClone(interview))
   }
 
   return {
@@ -373,7 +379,72 @@ export function createInMemoryInterviewDataSource(
       }
 
       const interview = parseInterview(parsedInput)
+      interviewsById.set(interview.id, structuredClone(interview))
       return structuredClone(interview)
+    },
+    async listParticipantInterviews(
+      input: ListParticipantInterviewsInput,
+    ): Promise<Interview[]> {
+      const parsedInput = listParticipantInterviewsInputSchema.parse(input)
+
+      return Array.from(interviewsById.values())
+        .filter(function isParticipantInterview(interview) {
+          return (
+            interview.scheduler_id === parsedInput.participant_user_id ||
+            interview.interviewer_id === parsedInput.participant_user_id
+          )
+        })
+        .filter(function matchesStatus(interview) {
+          return parsedInput.status === undefined
+            ? true
+            : interview.status === parsedInput.status
+        })
+        .sort(compareInterviewListOrder)
+        .slice(parsedInput.offset, parsedInput.offset + parsedInput.limit)
+        .map(function cloneInterview(interview) {
+          return structuredClone(interview)
+        })
+    },
+    async cancelInterview(
+      input: CancelInterviewRecordInput,
+    ): Promise<CancelInterviewRecordResult> {
+      const parsedInput = cancelInterviewRecordInputSchema.parse(input)
+      const existingInterview = interviewsById.get(parsedInput.interview_id)
+
+      if (
+        !existingInterview ||
+        (existingInterview.scheduler_id !== parsedInput.participant_user_id &&
+          existingInterview.interviewer_id !== parsedInput.participant_user_id)
+      ) {
+        return { outcome: 'not_found' }
+      }
+
+      if (existingInterview.status === 'cancelled') {
+        return {
+          outcome: 'already_cancelled',
+          interview: structuredClone(existingInterview),
+        }
+      }
+
+      if (existingInterview.status !== 'scheduled') {
+        return {
+          outcome: 'invalid_status',
+          interview: structuredClone(existingInterview),
+        }
+      }
+
+      const cancelledInterview = parseInterview({
+        ...existingInterview,
+        status: 'cancelled',
+        updated_at: parsedInput.updated_at,
+      })
+
+      interviewsById.set(cancelledInterview.id, structuredClone(cancelledInterview))
+
+      return {
+        outcome: 'cancelled',
+        interview: structuredClone(cancelledInterview),
+      }
     },
   }
 }
@@ -408,6 +479,26 @@ function hasRows<Row>(queryResult: QueryResult<Row>): boolean {
   }
 
   return queryResult.rows.length > 0
+}
+
+function compareInterviewListOrder(left: Interview, right: Interview): number {
+  if (left.scheduled_at < right.scheduled_at) {
+    return -1
+  }
+
+  if (left.scheduled_at > right.scheduled_at) {
+    return 1
+  }
+
+  if (left.id < right.id) {
+    return -1
+  }
+
+  if (left.id > right.id) {
+    return 1
+  }
+
+  return 0
 }
 
 function buildListParticipantInterviewsQuery(
