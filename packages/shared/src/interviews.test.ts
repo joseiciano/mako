@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
+  cancelInterviewParamsSchema,
+  cancelInterviewResponseSchema,
   createInterviewRequestSchema,
   createInterviewResponseSchema,
+  defaultInterviewListLimit,
+  interviewListQuerySchema,
   interviewListResponseSchema,
 } from './interviews'
 
@@ -49,6 +53,38 @@ describe('interview shared contracts', function interviewSharedContractsSuite() 
             updated_at: '2026-04-01T10:00:00.000Z',
           },
         ],
+      })
+    }).toThrow()
+  })
+
+  it('parses interview list query params using documented defaults and coercion', function run() {
+    const payload = interviewListQuerySchema.parse({
+      status: 'scheduled',
+      limit: '25',
+      offset: '5',
+    })
+
+    expect(payload).toEqual({
+      status: 'scheduled',
+      limit: 25,
+      offset: 5,
+    })
+  })
+
+  it('defaults optional interview list query params when omitted', function run() {
+    const payload = interviewListQuerySchema.parse({})
+
+    expect(payload).toEqual({
+      limit: defaultInterviewListLimit,
+      offset: 0,
+    })
+  })
+
+  it('rejects invalid interview list query params', function run() {
+    expect(function parseInvalidPayload() {
+      interviewListQuerySchema.parse({
+        status: 'pending',
+        limit: '',
       })
     }).toThrow()
   })
@@ -128,5 +164,21 @@ describe('interview shared contracts', function interviewSharedContractsSuite() 
     })
 
     expect(payload.interview.mode).toBe('ai_led')
+  })
+
+  it('parses cancel route params using the shared contract', function run() {
+    const payload = cancelInterviewParamsSchema.parse({
+      id: '11111111-1111-4111-8111-111111111111',
+    })
+
+    expect(payload.id).toBe('11111111-1111-4111-8111-111111111111')
+  })
+
+  it('parses cancel route success responses using the shared contract', function run() {
+    const payload = cancelInterviewResponseSchema.parse({
+      success: true,
+    })
+
+    expect(payload.success).toBe(true)
   })
 })
