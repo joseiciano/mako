@@ -19,6 +19,10 @@ export const interviewStatusSchema = z.enum([
 
 export const interviewScheduledAtSchema = z.string().datetime()
 
+export const defaultInterviewListLimit = 50
+
+export const maxInterviewListLimit = 100
+
 export const interviewCreateScheduledAtSchema = z.union([
   z.literal('now'),
   interviewScheduledAtSchema,
@@ -45,6 +49,18 @@ export const interviewListResponseSchema = z.object({
   interviews: z.array(interviewListItemSchema),
 })
 
+export const interviewListQuerySchema = z
+  .object({
+    status: interviewStatusSchema.optional(),
+    limit: queryIntegerParameterSchema(
+      z.coerce.number().int().positive().max(maxInterviewListLimit),
+    ).default(defaultInterviewListLimit),
+    offset: queryIntegerParameterSchema(
+      z.coerce.number().int().nonnegative(),
+    ).default(0),
+  })
+  .strict()
+
 export const createInterviewRequestSchema = z
   .object({
     type: interviewTypeSchema,
@@ -57,8 +73,38 @@ export const createInterviewResponseSchema = z.object({
   interview: interviewSchema,
 })
 
+export const cancelInterviewParamsSchema = z.object({
+  id: z.string().uuid(),
+})
+
+export const cancelInterviewResponseSchema = z.object({
+  success: z.boolean(),
+})
+
 export type Interview = z.infer<typeof interviewSchema>
 export type InterviewListItem = z.infer<typeof interviewListItemSchema>
 export type InterviewListResponse = z.infer<typeof interviewListResponseSchema>
+export type InterviewListQuery = z.infer<typeof interviewListQuerySchema>
 export type CreateInterviewRequest = z.infer<typeof createInterviewRequestSchema>
 export type CreateInterviewResponse = z.infer<typeof createInterviewResponseSchema>
+export type CancelInterviewParams = z.infer<typeof cancelInterviewParamsSchema>
+export type CancelInterviewResponse = z.infer<typeof cancelInterviewResponseSchema>
+
+function queryIntegerParameterSchema<TSchema extends z.ZodType<number>>(
+  schema: TSchema,
+) {
+  return z.preprocess(
+    function normalizeQueryIntegerInput(value) {
+      if (value === undefined) {
+        return undefined
+      }
+
+      if (typeof value === 'string' && value.trim() === '') {
+        return Number.NaN
+      }
+
+      return value
+    },
+    schema.optional(),
+  )
+}

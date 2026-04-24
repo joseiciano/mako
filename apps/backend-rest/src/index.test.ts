@@ -74,6 +74,52 @@ describe('backend-rest smoke tests', function () {
     })
   })
 
+  it('lists and cancels interviews in demo mode through the registered interview controller', async function () {
+    const app = createApp()
+
+    const createResponse = await createInterview(app)
+    expect(createResponse.status).toBe(201)
+
+    const createdInterview = (await createResponse.json()) as {
+      interview: { id: string }
+    }
+
+    const scheduledListResponse = await listInterviews(app, {
+      status: 'scheduled',
+    })
+
+    expect(scheduledListResponse.status).toBe(200)
+    await expect(scheduledListResponse.json()).resolves.toEqual({
+      interviews: [
+        expect.objectContaining({
+          id: createdInterview.interview.id,
+          status: 'scheduled',
+        }),
+      ],
+    })
+
+    const cancelResponse = await cancelInterview(app, createdInterview.interview.id)
+
+    expect(cancelResponse.status).toBe(200)
+    await expect(cancelResponse.json()).resolves.toEqual({
+      success: true,
+    })
+
+    const cancelledListResponse = await listInterviews(app, {
+      status: 'cancelled',
+    })
+
+    expect(cancelledListResponse.status).toBe(200)
+    await expect(cancelledListResponse.json()).resolves.toEqual({
+      interviews: [
+        expect.objectContaining({
+          id: createdInterview.interview.id,
+          status: 'cancelled',
+        }),
+      ],
+    })
+  })
+
   it('keeps demo account balances in sync after interview creation', async function () {
     const app = createApp()
 
@@ -126,11 +172,43 @@ describe('backend-rest smoke tests', function () {
         tier: 'premium',
       },
     })
+
+    const listResponse = await listInterviews(
+      app,
+      {
+        status: 'scheduled',
+      },
+      {
+        DB: dbBinding,
+      },
+    )
+
+    expect(listResponse.status).toBe(200)
+    const listedPayload = (await listResponse.json()) as {
+      interviews: Array<{ id: string }>
+    }
+    expect(listedPayload.interviews).toHaveLength(1)
+
+    const cancelResponse = await cancelInterview(
+      app,
+      listedPayload.interviews[0]?.id ?? '',
+      {
+        DB: dbBinding,
+      },
+    )
+
+    expect(cancelResponse.status).toBe(200)
+    await expect(cancelResponse.json()).resolves.toEqual({
+      success: true,
+    })
+
     expect(dbBinding.executedStatements).toEqual(
       expect.arrayContaining([
         expect.stringContaining('FROM users'),
         expect.stringContaining('BEGIN;'),
         expect.stringContaining('INSERT INTO interviews'),
+        expect.stringContaining('participant_interviews'),
+        expect.stringContaining('FOR UPDATE'),
       ]),
     )
   })
@@ -184,11 +262,50 @@ function getAccount(
   return app.request('/api/account', {}, env)
 }
 
+function listInterviews(
+  app: ReturnType<typeof createApp>,
+  query: {
+    status?: 'scheduled' | 'ongoing' | 'completed' | 'cancelled'
+    limit?: number
+    offset?: number
+  } = {},
+  env: { DB?: ReturnType<typeof createDatabaseBinding> } = {},
+) {
+  const searchParams = new URLSearchParams()
+
+  if (query.status !== undefined) {
+    searchParams.set('status', query.status)
+  }
+
+  if (query.limit !== undefined) {
+    searchParams.set('limit', String(query.limit))
+  }
+
+  if (query.offset !== undefined) {
+    searchParams.set('offset', String(query.offset))
+  }
+
+  const url = searchParams.size > 0
+    ? `/api/interviews?${searchParams.toString()}`
+    : '/api/interviews'
+
+  return app.request(url, { method: 'GET' }, env)
+}
+
+function cancelInterview(
+  app: ReturnType<typeof createApp>,
+  interviewId: string,
+  env: { DB?: ReturnType<typeof createDatabaseBinding> } = {},
+) {
+  return app.request(`/api/interviews/${interviewId}/cancel`, { method: 'POST' }, env)
+}
+
 function createDatabaseBinding(accountState: {
   credits: number
   freeAiInterviews: number
 }) {
   const executedStatements: string[] = []
+  const interviewsById = new Map<string, Record<string, unknown>>()
 
   return {
     executedStatements,
@@ -237,6 +354,10 @@ function createDatabaseBinding(accountState: {
         return { rows: [] }
       }
 
+      if (statementText.includes('ROLLBACK;')) {
+        return { rows: [] }
+      }
+
       if (statementText.includes('SET free_ai_interviews = free_ai_interviews - 1')) {
         if (accountState.freeAiInterviews <= 0) {
           return { rows: [] }
@@ -260,27 +381,120 @@ function createDatabaseBinding(accountState: {
       }
 
       if (statementText.includes('INSERT INTO interviews')) {
+        const interviewRecord = {
+          id: statementValues[0],
+          scheduler_id: statementValues[1],
+          scheduler_alias: statementValues[2],
+          interviewer_id: statementValues[3],
+          interviewer_alias: statementValues[4],
+          type: statementValues[5],
+          mode: statementValues[6],
+          tier: statementValues[7],
+          status: statementValues[8],
+          scheduled_at: statementValues[9],
+          created_at: statementValues[10],
+          updated_at: statementValues[11],
+        }
+
+        interviewsById.set(String(statementValues[0]), interviewRecord)
+
         return {
-          rows: [
-            {
-              id: statementValues[0],
-              scheduler_id: statementValues[1],
-              scheduler_alias: statementValues[2],
-              interviewer_id: statementValues[3],
-              interviewer_alias: statementValues[4],
-              type: statementValues[5],
-              mode: statementValues[6],
-              tier: statementValues[7],
-              status: statementValues[8],
-              scheduled_at: statementValues[9],
-              created_at: statementValues[10],
-              updated_at: statementValues[11],
-            },
-          ],
+          rows: [interviewRecord],
+        }
+      }
+
+      if (statementText.includes('participant_interviews')) {
+        const participantUserId = String(statementValues[0])
+        const hasStatusFilter = statementText.includes('AND status = $2')
+        const status = hasStatusFilter ? String(statementValues[1]) : undefined
+        const limit = Number(statementValues[hasStatusFilter ? 2 : 1])
+        const offset = Number(statementValues[hasStatusFilter ? 3 : 2])
+
+        return {
+          rows: Array.from(interviewsById.values())
+            .filter(function isParticipantInterview(interview) {
+              return (
+                interview.scheduler_id === participantUserId ||
+                interview.interviewer_id === participantUserId
+              )
+            })
+            .filter(function matchesStatus(interview) {
+              return status === undefined ? true : interview.status === status
+            })
+            .sort(compareInterviewRecords)
+            .slice(offset, offset + limit),
+        }
+      }
+
+      if (statementText.includes('FROM interviews') && statementText.includes('FOR UPDATE')) {
+        const interviewId = String(statementValues[0])
+        const participantUserId = String(statementValues[1])
+        const interview = interviewsById.get(interviewId)
+
+        if (
+          !interview ||
+          (interview.scheduler_id !== participantUserId &&
+            interview.interviewer_id !== participantUserId)
+        ) {
+          return { rows: [] }
+        }
+
+        return {
+          rows: [interview],
+        }
+      }
+
+      if (statementText.includes("UPDATE interviews") && statementText.includes("status = 'cancelled'")) {
+        const interviewId = String(statementValues[0])
+        const interview = interviewsById.get(interviewId)
+
+        if (!interview) {
+          return { rows: [] }
+        }
+
+        const updatedInterview = {
+          ...interview,
+          status: 'cancelled',
+          updated_at: statementValues[1],
+        }
+
+        interviewsById.set(interviewId, updatedInterview)
+
+        return {
+          rows: [updatedInterview],
         }
       }
 
       throw new Error(`Unhandled DB statement: ${statementText}`)
     },
   }
+}
+
+function compareInterviewRecords(
+  left: Record<string, unknown>,
+  right: Record<string, unknown>,
+): number {
+  const leftScheduledAt = String(left.scheduled_at)
+  const rightScheduledAt = String(right.scheduled_at)
+
+  if (leftScheduledAt < rightScheduledAt) {
+    return -1
+  }
+
+  if (leftScheduledAt > rightScheduledAt) {
+    return 1
+  }
+
+  const leftId = String(left.id)
+  const rightId = String(right.id)
+
+  if (leftId < rightId) {
+    return -1
+  }
+
+  if (leftId > rightId) {
+    return 1
+  }
+
+  return 0
 }
