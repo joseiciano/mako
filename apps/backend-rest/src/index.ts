@@ -8,10 +8,16 @@ import {
   InterviewRepository,
   InterviewService,
   backendRuntime,
+  createPostgresConnectionPool,
+  createAuthSessionMiddleware,
+  createBetterAuth,
   createHeaderSessionResolver,
+  getAccountSessionFromAuthContext,
+  isAuthConfigured,
   listParticipantInterviewsInputSchema,
   parseInterview,
   registerAccountController,
+  registerAuthController,
   registerInterviewController,
   type AccountProfileRecord,
   type AccountRepositoryDataSource,
@@ -20,6 +26,7 @@ import {
   type SqlQueryExecutor,
 } from '@mako/shared-backend'
 import type { SqlQuery } from '@mako/shared-backend'
+import type { Context } from 'hono'
 import { Hono } from 'hono'
 
 export type DatabaseBinding = {
@@ -29,8 +36,22 @@ export type DatabaseBinding = {
   ) => Promise<{ rows: unknown[] }>
 }
 
+export type HyperdriveBinding = {
+  connectionString: string
+}
+
+type PostgresClient = Awaited<
+  ReturnType<ReturnType<typeof createPostgresConnectionPool>['connect']>
+>
+
+type PostgresPool = ReturnType<typeof createPostgresConnectionPool>
+
 export type WorkerBindings = {
   DB?: DatabaseBinding
+  HYPERDRIVE?: HyperdriveBinding
+  BETTER_AUTH_SECRET?: string
+  BETTER_AUTH_URL?: string
+  BETTER_AUTH_TRUSTED_ORIGINS?: string
 }
 
 const demoSession = {
@@ -53,12 +74,28 @@ const seededDemoAccounts: readonly AccountProfileRecord[] = [
 export function createApp(): Hono<{ Bindings: WorkerBindings }> {
   const app = new Hono<{ Bindings: WorkerBindings }>()
   const demoDataSources = createDemoDataSources(seededDemoAccounts)
+  const demoSessionResolver = createHeaderSessionResolver(demoSession)
+
+  app.use(
+    '/api/*',
+    createAuthSessionMiddleware({
+      getAuth: function getAuth(context) {
+        return createWorkerAuth(context)
+      },
+    }),
+  )
+
+  registerAuthController(app, {
+    getAuth: function getAuth(context) {
+      return createWorkerAuth(context)
+    },
+  })
 
   registerAccountController(app, {
     createService: function createService(context) {
       return new AccountService(
         new AccountRepository(
-          context.bindings.DB
+          hasDatabaseAccess(context.bindings)
             ? { queryExecutor: createDatabaseQueryExecutor(context.bindings) }
             : {
                 dataSource: demoDataSources.account,
@@ -67,20 +104,24 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
         ),
       )
     },
-    resolveSession: createHeaderSessionResolver(demoSession),
+    resolveSession: function resolveSession(context) {
+      return resolveAppSession(context, demoSessionResolver)
+    },
   })
 
   registerInterviewController(app, {
     createService: function createService(context) {
       return new InterviewService(
         new InterviewRepository(
-          context.bindings.DB
+          hasDatabaseAccess(context.bindings)
             ? { queryExecutor: createDatabaseQueryExecutor(context.bindings) }
             : demoDataSources.interview,
         ),
       )
     },
-    resolveSession: createHeaderSessionResolver(demoSession),
+    resolveSession: function resolveSession(context) {
+      return resolveAppSession(context, demoSessionResolver)
+    },
   })
 
   app.get('/', function rootHandler(c) {
@@ -263,19 +304,154 @@ function compareInterviewListOrder(left: Interview, right: Interview): number {
 }
 
 function createDatabaseQueryExecutor(bindings: WorkerBindings): SqlQueryExecutor {
+  let transactionClient: PostgresClient | null = null
+
   return {
     async query<Row>(queryInput: SqlQuery) {
       const database = bindings.DB
 
-      if (!database) {
-        throw new Error('Database binding `DB` is not configured')
+      if (database) {
+        const result = await database.query(queryInput.text, ...queryInput.values)
+
+        return {
+          rows: result.rows as Row[],
+        }
       }
 
-      const result = await database.query(queryInput.text, ...queryInput.values)
+      const connectionString = bindings.HYPERDRIVE?.connectionString
 
-      return {
-        rows: result.rows as Row[],
+      if (!connectionString) {
+        throw new Error('Database binding `HYPERDRIVE` is not configured')
+      }
+
+      const pool = createPostgresConnectionPool(connectionString) as PostgresPool
+      const statementValues = [...queryInput.values]
+      const normalizedStatementText = normalizeSqlStatement(queryInput.text)
+      const isBegin = normalizedStatementText === 'BEGIN;'
+      const isCommit = normalizedStatementText === 'COMMIT;'
+      const isRollback = normalizedStatementText === 'ROLLBACK;'
+
+      if (isBegin) {
+        if (transactionClient) {
+          throw new Error('Transaction is already active for this query executor')
+        }
+
+        const client = await pool.connect()
+        transactionClient = client
+
+        try {
+          const result = await client.query(queryInput.text, statementValues)
+
+          return {
+            rows: result.rows as Row[],
+            rowCount: result.rowCount ?? undefined,
+          }
+        } catch (error) {
+          await client.release()
+          transactionClient = null
+          throw error
+        }
+      }
+
+      const activeQueryTarget = transactionClient ?? pool
+
+      try {
+        const result = await activeQueryTarget.query(queryInput.text, statementValues)
+
+        return {
+          rows: result.rows as Row[],
+          rowCount: result.rowCount ?? undefined,
+        }
+      } finally {
+        if ((isCommit || isRollback) && transactionClient) {
+          await transactionClient.release()
+          transactionClient = null
+        }
       }
     },
   }
+}
+
+function hasDatabaseAccess(bindings: WorkerBindings): boolean {
+  return (
+    bindings.DB !== undefined ||
+    typeof bindings.HYPERDRIVE?.connectionString === 'string'
+  )
+}
+
+function hasRuntimeDatabaseAccess(bindings: WorkerBindings): boolean {
+  return typeof bindings.HYPERDRIVE?.connectionString === 'string'
+}
+
+function normalizeSqlStatement(statementText: string): string {
+  return statementText.trim().replace(/\s+/g, ' ').toUpperCase()
+}
+
+function createWorkerAuth(
+  context: Context<{ Bindings: WorkerBindings }>,
+) {
+  const bindings = context.env ?? {}
+  const databaseUrl = bindings.HYPERDRIVE?.connectionString
+  const secret = bindings.BETTER_AUTH_SECRET
+
+  if (!databaseUrl || !secret) {
+    return null
+  }
+
+  const baseURL = resolveBetterAuthBaseUrl(context)
+
+  return createBetterAuth({
+    connectionString: databaseUrl,
+    secret,
+    baseURL,
+    trustedOrigins: parseConfiguredOrigins(
+      bindings.BETTER_AUTH_TRUSTED_ORIGINS,
+      baseURL,
+    ),
+  })
+}
+
+function resolveAppSession(
+  context: Context<{ Bindings: WorkerBindings }>,
+  demoResolver: ReturnType<typeof createHeaderSessionResolver>,
+) {
+  if (isAuthConfigured(context)) {
+    return getAccountSessionFromAuthContext(context)
+  }
+
+  if (hasRuntimeDatabaseAccess(context.env ?? {})) {
+    return null
+  }
+
+  return demoResolver(context)
+}
+
+function resolveBetterAuthBaseUrl(
+  context: Context<{ Bindings: WorkerBindings }>,
+): string {
+  const configuredBaseUrl = context.env?.BETTER_AUTH_URL?.trim()
+
+  if (configuredBaseUrl) {
+    return configuredBaseUrl
+  }
+
+  return new URL('/api/auth', context.req.url).toString()
+}
+
+function parseConfiguredOrigins(
+  configuredOrigins: string | undefined,
+  baseURL: string,
+): string[] {
+  const origins = new Set<string>()
+
+  for (const origin of configuredOrigins?.split(',') ?? []) {
+    const trimmedOrigin = origin.trim()
+
+    if (trimmedOrigin.length > 0) {
+      origins.add(trimmedOrigin)
+    }
+  }
+
+  origins.add(new URL(baseURL).origin)
+  return Array.from(origins)
 }

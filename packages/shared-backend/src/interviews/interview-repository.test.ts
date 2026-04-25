@@ -15,7 +15,7 @@ describe('InterviewRepository', function interviewRepositorySuite() {
         onQuery(queryInput) {
           executedQueries.push(normalizeSql(queryInput.text))
 
-          if (queryInput.text.includes('UPDATE users')) {
+          if (queryInput.text.includes('UPDATE "user"')) {
             return { rows: [{ id: '11111111-1111-4111-8111-111111111111' }] }
           }
 
@@ -53,7 +53,7 @@ describe('InterviewRepository', function interviewRepositorySuite() {
     expect(interview.tier).toBe('standard')
     expect(executedQueries).toEqual([
       'BEGIN;',
-      "UPDATE users SET free_ai_interviews = free_ai_interviews - 1, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL AND free_ai_interviews > 0 RETURNING id;",
+      'UPDATE "user" SET free_ai_interviews = free_ai_interviews - 1, "updatedAt" = NOW() WHERE id = $1 AND deleted_at IS NULL AND free_ai_interviews > 0 RETURNING id;',
       'INSERT INTO interviews ( id, scheduler_id, scheduler_alias, interviewer_id, interviewer_alias, type, mode, tier, status, scheduled_at, created_at, updated_at ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id, scheduler_id, scheduler_alias, interviewer_id, interviewer_alias, type, mode, tier, status, scheduled_at, created_at, updated_at;',
       'COMMIT;',
     ])
@@ -64,7 +64,7 @@ describe('InterviewRepository', function interviewRepositorySuite() {
     const repository = new InterviewRepository({
       queryExecutor: createQueryExecutor({
         onQuery(queryInput) {
-          if (queryInput.text.includes('UPDATE users')) {
+          if (queryInput.text.includes('UPDATE "user"')) {
             reservationQueries.push(normalizeSql(queryInput.text))
             return { rows: [{ id: '11111111-1111-4111-8111-111111111111' }] }
           }
@@ -103,7 +103,7 @@ describe('InterviewRepository', function interviewRepositorySuite() {
     })
 
     expect(reservationQueries).toEqual([
-      'UPDATE users SET credits = credits - 1, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL AND credits > 0 RETURNING id;',
+      'UPDATE "user" SET credits = credits - 1, "updatedAt" = NOW() WHERE id = $1 AND deleted_at IS NULL AND credits > 0 RETURNING id;',
     ])
   })
 
@@ -114,7 +114,7 @@ describe('InterviewRepository', function interviewRepositorySuite() {
         onQuery(queryInput) {
           executedQueries.push(normalizeSql(queryInput.text))
 
-          if (queryInput.text.includes('UPDATE users')) {
+          if (queryInput.text.includes('UPDATE "user"')) {
             return { rows: [] }
           }
 
@@ -143,7 +143,7 @@ describe('InterviewRepository', function interviewRepositorySuite() {
 
     expect(executedQueries).toEqual([
       'BEGIN;',
-      "UPDATE users SET free_ai_interviews = free_ai_interviews - 1, updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL AND free_ai_interviews > 0 RETURNING id;",
+      'UPDATE "user" SET free_ai_interviews = free_ai_interviews - 1, "updatedAt" = NOW() WHERE id = $1 AND deleted_at IS NULL AND free_ai_interviews > 0 RETURNING id;',
       'ROLLBACK;',
     ])
   })

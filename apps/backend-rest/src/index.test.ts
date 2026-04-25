@@ -1,7 +1,12 @@
-import { describe, expect, it } from 'vitest'
-import { createApp } from './index'
+import * as sharedBackend from '@mako/shared-backend'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createApp, type WorkerBindings } from './index'
 
 describe('backend-rest smoke tests', function () {
+  afterEach(function restoreMocks() {
+    vi.restoreAllMocks()
+  })
+
   it('returns health response', async function () {
     const app = createApp()
     const response = await app.request('/health')
@@ -36,6 +41,46 @@ describe('backend-rest smoke tests', function () {
       message: 'Mako backend API is running.',
       runtime: 'cloudflare-workers',
     })
+  })
+
+  it('mounts Better Auth routes and returns 503 when auth runtime env is missing', async function () {
+    const app = createApp()
+    const response = await app.request('/api/auth/get-session')
+
+    expect(response.status).toBe(503)
+    await expect(response.json()).resolves.toEqual({
+      error:
+        'Better Auth is not configured. Set HYPERDRIVE and BETTER_AUTH_SECRET.',
+    })
+  })
+
+  it('fails closed when Hyperdrive is configured but Better Auth is unavailable', async function () {
+    const app = createApp()
+    const postgresConnectionSpy = vi.spyOn(
+      sharedBackend,
+      'createPostgresConnectionPool',
+    )
+    const hyperdriveEnv: WorkerBindings = {
+      HYPERDRIVE: {
+        connectionString: 'postgres://hyperdrive.local/mako',
+      },
+    }
+
+    const accountResponse = await getAccount(app, hyperdriveEnv)
+
+    expect(accountResponse.status).toBe(401)
+    await expect(accountResponse.json()).resolves.toEqual({
+      error: 'You must be authenticated to access this resource.',
+    })
+
+    const interviewResponse = await createInterview(app, {}, hyperdriveEnv)
+
+    expect(interviewResponse.status).toBe(401)
+    await expect(interviewResponse.json()).resolves.toEqual({
+      error: 'You must be authenticated to access this resource.',
+    })
+
+    expect(postgresConnectionSpy).not.toHaveBeenCalled()
   })
 
   it('creates AI-led interviews in demo mode without a DB binding', async function () {
@@ -204,13 +249,74 @@ describe('backend-rest smoke tests', function () {
 
     expect(dbBinding.executedStatements).toEqual(
       expect.arrayContaining([
-        expect.stringContaining('FROM users'),
+        expect.stringContaining('FROM "user"'),
         expect.stringContaining('BEGIN;'),
         expect.stringContaining('INSERT INTO interviews'),
         expect.stringContaining('participant_interviews'),
         expect.stringContaining('FOR UPDATE'),
       ]),
     )
+  })
+
+  it('uses Hyperdrive-backed account and interview stores when HYPERDRIVE is configured', async function () {
+    const app = createApp()
+    const dbBinding = createDatabaseBinding({
+      credits: 1,
+      freeAiInterviews: 0,
+    })
+
+    vi.spyOn(sharedBackend, 'createPostgresConnectionPool').mockReturnValue(
+      createHyperdrivePool(dbBinding) as ReturnType<
+        typeof sharedBackend.createPostgresConnectionPool
+      >,
+    )
+    vi.spyOn(sharedBackend, 'createBetterAuth').mockReturnValue({
+      handler: vi.fn(),
+      api: {
+        async getSession() {
+          return {
+            user: {
+              id: '11111111-1111-4111-8111-111111111111',
+              email: 'db-candidate@mako.dev',
+            },
+            session: {
+              id: 'session-1',
+            },
+          }
+        },
+      },
+    })
+
+    const hyperdriveEnv: WorkerBindings = {
+      HYPERDRIVE: {
+        connectionString: 'postgres://hyperdrive.local/mako',
+      },
+      BETTER_AUTH_SECRET: 'test-secret',
+    }
+
+    const accountResponse = await getAccount(app, hyperdriveEnv)
+
+    expect(accountResponse.status).toBe(200)
+    await expect(accountResponse.json()).resolves.toMatchObject({
+      email: 'db-candidate@mako.dev',
+      credits: 1,
+      freeAiInterviews: 0,
+    })
+
+    const interviewResponse = await createInterview(
+      app,
+      {
+        type: 'coding',
+      },
+      hyperdriveEnv,
+    )
+
+    expect(interviewResponse.status).toBe(201)
+    await expect(interviewResponse.json()).resolves.toMatchObject({
+      interview: {
+        tier: 'premium',
+      },
+    })
   })
 
   it('rejects demo creates after free AI quota and credits are exhausted', async function () {
@@ -240,7 +346,7 @@ function createInterview(
     type?: 'system_design' | 'coding' | 'behavioral'
     scheduled_at?: string
   } = {},
-  env: { DB?: ReturnType<typeof createDatabaseBinding> } = {},
+  env: Partial<WorkerBindings> = {},
 ) {
   return app.request('/api/interviews', {
     method: 'POST',
@@ -257,7 +363,7 @@ function createInterview(
 
 function getAccount(
   app: ReturnType<typeof createApp>,
-  env: { DB?: ReturnType<typeof createDatabaseBinding> } = {},
+  env: Partial<WorkerBindings> = {},
 ) {
   return app.request('/api/account', {}, env)
 }
@@ -269,7 +375,7 @@ function listInterviews(
     limit?: number
     offset?: number
   } = {},
-  env: { DB?: ReturnType<typeof createDatabaseBinding> } = {},
+  env: Partial<WorkerBindings> = {},
 ) {
   const searchParams = new URLSearchParams()
 
@@ -295,7 +401,7 @@ function listInterviews(
 function cancelInterview(
   app: ReturnType<typeof createApp>,
   interviewId: string,
-  env: { DB?: ReturnType<typeof createDatabaseBinding> } = {},
+  env: Partial<WorkerBindings> = {},
 ) {
   return app.request(`/api/interviews/${interviewId}/cancel`, { method: 'POST' }, env)
 }
@@ -313,7 +419,7 @@ function createDatabaseBinding(accountState: {
       executedStatements.push(statementText)
 
       if (
-        statementText.includes('FROM users') &&
+        statementText.includes('FROM "user"') &&
         statementText.includes('name') &&
         statementText.includes('LIMIT 1')
       ) {
@@ -336,7 +442,7 @@ function createDatabaseBinding(accountState: {
       }
 
       if (
-        statementText.includes('FROM users') &&
+        statementText.includes('FROM "user"') &&
         statementText.includes('SELECT credits, free_ai_interviews') &&
         statementText.includes('LIMIT 1')
       ) {
@@ -467,6 +573,44 @@ function createDatabaseBinding(accountState: {
 
       throw new Error(`Unhandled DB statement: ${statementText}`)
     },
+  }
+}
+
+function createHyperdrivePool(dbBinding: ReturnType<typeof createDatabaseBinding>) {
+  let activeTransactionClientId: string | null = null
+  let clientCount = 0
+
+  return {
+    async query(statementText: string, statementValues: readonly unknown[] = []) {
+      if (activeTransactionClientId) {
+        throw new Error(
+          `Expected transactional statement to stay on client ${activeTransactionClientId}: ${statementText}`,
+        )
+      }
+
+      return dbBinding.query(statementText, ...statementValues)
+    },
+    async connect() {
+      clientCount += 1
+      const clientId = `client-${clientCount}`
+      activeTransactionClientId = clientId
+
+      return {
+        async query(statementText: string, statementValues: readonly unknown[] = []) {
+          if (activeTransactionClientId !== clientId) {
+            throw new Error(`Inactive Hyperdrive client used for statement: ${statementText}`)
+          }
+
+          return dbBinding.query(statementText, ...statementValues)
+        },
+        release() {
+          if (activeTransactionClientId === clientId) {
+            activeTransactionClientId = null
+          }
+        },
+      }
+    },
+    async end() {},
   }
 }
 

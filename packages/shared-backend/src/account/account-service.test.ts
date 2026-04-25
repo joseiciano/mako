@@ -136,7 +136,7 @@ describe('AccountService', function suite() {
 function createDeleteQueryExecutor(options: { didDelete: boolean }): SqlQueryExecutor {
   return {
     async query<Row>(queryInput: SqlQuery) {
-      if (queryInput.text.includes('UPDATE users')) {
+      if (queryInput.text.includes('UPDATE "user"')) {
         return {
           rows: options.didDelete ? ([{ id: activeSession.userId }] as Row[]) : [],
         }
