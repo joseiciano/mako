@@ -285,7 +285,7 @@ function createCompaniesApp() {
 function createDeleteQueryExecutor(): SqlQueryExecutor {
   return {
     async query<Row>(queryInput: SqlQuery) {
-      if (queryInput.text.includes('UPDATE users')) {
+      if (queryInput.text.includes('UPDATE "user"')) {
         return {
           rows: [{ id: authenticatedUserId }] as Row[],
         }
@@ -301,7 +301,7 @@ function createDeleteQueryExecutor(): SqlQueryExecutor {
 function createCompanyQueryExecutor(): SqlQueryExecutor {
   return {
     async query<Row>(queryInput: SqlQuery) {
-      if (queryInput.text.includes('INSERT INTO "User_Companies"')) {
+      if (queryInput.text.includes('INSERT INTO user_companies')) {
         const [userId, company, joined] = queryInput.values
 
         return {

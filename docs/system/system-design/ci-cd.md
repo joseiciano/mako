@@ -28,6 +28,8 @@ Core secrets:
 - `CLOUDFLARE_API_TOKEN`
 - `CLOUDFLARE_ACCOUNT_ID`
 - `DATABASE_URL`
+- `HYPERDRIVE_ID`
+- `BETTER_AUTH_SECRET`
 - `NEON_API_KEY`
 - `STRIPE_SECRET_KEY`
 
@@ -39,7 +41,7 @@ Optional secrets (enabled when corresponding runtime features are introduced):
 Secret sync behavior:
 
 - Terraform workflow consumes Cloudflare/Neon/Stripe secrets during infra apply.
-- Backend deploy uses Wrangler action secret sync to set Worker runtime secrets (`DATABASE_URL`, `STRIPE_SECRET_KEY`).
+- Backend deploy injects `HYPERDRIVE_ID` into `apps/backend-rest/wrangler.jsonc` before deployment and syncs Worker runtime secrets (`BETTER_AUTH_SECRET`, `STRIPE_SECRET_KEY`). Postgres runtime access is provided through the Cloudflare Hyperdrive binding.
 - Frontend deploy only requires Cloudflare deployment credentials.
 
 ## CI/CD Setup Runbook
@@ -69,6 +71,8 @@ Core secrets (required):
 - `CLOUDFLARE_API_TOKEN`
 - `CLOUDFLARE_ACCOUNT_ID`
 - `DATABASE_URL`
+- `HYPERDRIVE_ID`
+- `BETTER_AUTH_SECRET`
 - `NEON_API_KEY`
 - `STRIPE_SECRET_KEY`
 
@@ -94,7 +98,7 @@ Use a least-privilege Cloudflare API token that can deploy Workers and manage on
 - **Missing secret errors**: secret is absent or misnamed in the `production` environment.
 - **Wrangler auth/account failures**: verify `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` match the same account.
 - **Terraform apply skipped**: no `*.tf` files found in `infrastructure/` (current workflow behavior).
-- **Backend runtime missing DB/Stripe access**: verify `DATABASE_URL` and `STRIPE_SECRET_KEY` and confirm Wrangler secret sync step succeeded.
+- **Backend runtime missing DB/Stripe/auth access**: verify `HYPERDRIVE_ID` was injected into `wrangler.jsonc`, confirm the deployed Worker has the `HYPERDRIVE` binding, then verify `BETTER_AUTH_SECRET` and `STRIPE_SECRET_KEY` and confirm Wrangler secret sync succeeded.
 
 ## Pull Request Guidelines
 

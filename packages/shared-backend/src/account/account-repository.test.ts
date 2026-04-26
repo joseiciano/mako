@@ -37,7 +37,7 @@ describe('AccountRepository', function accountRepositorySuite() {
     expect(executedQueries).toHaveLength(1)
     expect(executedQueries[0]).toEqual(
       expect.objectContaining({
-        text: expect.stringContaining('FROM users'),
+        text: expect.stringContaining('FROM "user"'),
         values: [userId],
       }),
     )
@@ -83,7 +83,7 @@ describe('AccountRepository', function accountRepositorySuite() {
     expect(executedQueries).toHaveLength(1)
     expect(executedQueries[0]).toEqual(
       expect.objectContaining({
-        text: expect.stringContaining('UPDATE users'),
+        text: expect.stringContaining('UPDATE "user"'),
         values: [userId, 'Updated Candidate'],
       }),
     )
@@ -176,7 +176,7 @@ describe('AccountRepository', function accountRepositorySuite() {
     const companies = await repository.getCompaniesByUserId(userId)
 
     expect(executedQueries).toHaveLength(1)
-    expect(executedQueries[0]?.text).toContain('FROM "User_Companies"')
+    expect(executedQueries[0]?.text).toContain('FROM user_companies')
     expect(executedQueries[0]?.values).toEqual([userId])
     expect(companies).toEqual([
       {
@@ -220,7 +220,7 @@ describe('AccountRepository', function accountRepositorySuite() {
     })
 
     expect(executedQueries).toHaveLength(1)
-    expect(executedQueries[0]?.text).toContain('INSERT INTO "User_Companies"')
+    expect(executedQueries[0]?.text).toContain('INSERT INTO user_companies')
     expect(executedQueries[0]?.values).toEqual([
       userId,
       'stripe',

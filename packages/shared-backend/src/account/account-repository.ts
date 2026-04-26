@@ -73,10 +73,10 @@ export class AccountRepository {
           free_standard_interviews,
           free_ai_interviews,
           companies,
-          created_at,
-          updated_at,
+          "createdAt" AS created_at,
+          "updatedAt" AS updated_at,
           deleted_at
-        FROM users
+        FROM "user"
         WHERE id = $1
           AND deleted_at IS NULL
         LIMIT 1;
@@ -105,9 +105,9 @@ export class AccountRepository {
 
     const result = await this.getQueryExecutor().query<UserRow>({
       text: `
-        UPDATE users
+        UPDATE "user"
         SET name = $2,
-            updated_at = NOW()
+            "updatedAt" = NOW()
         WHERE id = $1
           AND deleted_at IS NULL
         RETURNING
@@ -118,8 +118,8 @@ export class AccountRepository {
           free_standard_interviews,
           free_ai_interviews,
           companies,
-          created_at,
-          updated_at,
+          "createdAt" AS created_at,
+          "updatedAt" AS updated_at,
           deleted_at;
       `,
       values: [userId, displayName],
@@ -137,9 +137,9 @@ export class AccountRepository {
   async deleteAccount(userId: string): Promise<boolean> {
     const query: SqlQuery = {
       text: `
-        UPDATE users
+        UPDATE "user"
         SET deleted_at = NOW(),
-            updated_at = NOW()
+            "updatedAt" = NOW()
         WHERE id = $1
           AND deleted_at IS NULL
         RETURNING id;
@@ -195,7 +195,7 @@ export class AccountRepository {
           created_at,
           updated_at,
           deleted_at
-        FROM "User_Companies"
+        FROM user_companies
         WHERE user_id = $1
           AND deleted_at IS NULL
         ORDER BY joined DESC, created_at DESC;
@@ -213,7 +213,7 @@ export class AccountRepository {
   async addCompanyRecord(input: AddCompanyRecordInput): Promise<UserCompany> {
     const query: SqlQuery = {
       text: `
-        INSERT INTO "User_Companies" (
+        INSERT INTO user_companies (
           user_id,
           company,
           joined

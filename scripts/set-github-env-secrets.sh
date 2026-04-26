@@ -26,8 +26,10 @@ while true; do
   echo "1) CLOUDFLARE_API_TOKEN"
   echo "2) CLOUDFLARE_ACCOUNT_ID"
   echo "3) DATABASE_URL"
-  echo "4) STRIPE_SECRET_KEY"
-  echo "5) Done"
+  echo "4) HYPERDRIVE_ID"
+  echo "5) BETTER_AUTH_SECRET"
+  echo "6) STRIPE_SECRET_KEY"
+  echo "7) Done"
 
   read -r -p "Enter number: " choice
 
@@ -35,8 +37,10 @@ while true; do
     1) secret_name="CLOUDFLARE_API_TOKEN" ;;
     2) secret_name="CLOUDFLARE_ACCOUNT_ID" ;;
     3) secret_name="DATABASE_URL" ;;
-    4) secret_name="STRIPE_SECRET_KEY" ;;
-    5) break ;;
+    4) secret_name="HYPERDRIVE_ID" ;;
+    5) secret_name="BETTER_AUTH_SECRET" ;;
+    6) secret_name="STRIPE_SECRET_KEY" ;;
+    7) break ;;
     *)
       echo "Invalid option."
       continue

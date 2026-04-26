@@ -20,19 +20,21 @@ DATABASE_URL=<postgres_connection_string> pnpm db:migrate
 
 Migrations are tracked in the `schema_migrations` table.
 
-### Users
+### User
 
-The user schema extends the default **Better Auth** requirements to include platform-specific metadata.
+The `"user"` schema extends the default **Better Auth** requirements to include platform-specific metadata.
 
 - **`id`**: `uuid` (Primary Key) - Unique identifier for the user.
 - **`email`**: `text` (Unique) - User's email address.
 - **`name`**: `text` - Full name of the user.
+- **`emailVerified`**: `boolean` (Default: false) - Whether the email address has been verified.
+- **`image`**: `text` (Optional) - User profile image URL.
 - **`credits`**: `integer` (Default: 0) - Current balance of interview credits.
 - **`free_standard_interviews`**: `integer` (Default: 1) - Remaining free standard (random) peer interviews.
 - **`free_ai_interviews`**: `integer` (Default: 1) - Remaining free AI-led interviews.
 - **`companies`**: `boolean` (Default: false) - Flag indicating if the user is authorized to conduct interviews.
-- **`created_at`**: `timestamptz` - Account creation date.
-- **`updated_at`**: `timestamptz` - Last profile update.
+- **`createdAt`**: `timestamptz` - Account creation date.
+- **`updatedAt`**: `timestamptz` - Last profile update.
 - **`deleted_at`**: `timestamptz`
 
 Constraints:
@@ -42,12 +44,60 @@ Constraints:
 - `free_standard_interviews >= 0`
 - `free_ai_interviews >= 0`
 
-### User_Companies
+### Session
+
+- **`id`**: `uuid` (Primary Key)
+- **`userId`**: `uuid` (Foreign Key -> `"user".id`, On Delete Cascade)
+- **`token`**: `text` (Unique)
+- **`expiresAt`**: `timestamptz`
+- **`ipAddress`**: `text` (Optional)
+- **`userAgent`**: `text` (Optional)
+- **`createdAt`**: `timestamptz`
+- **`updatedAt`**: `timestamptz`
+
+Indexes:
+
+- `idx_session_user_id` on (`userId`)
+
+### Account
+
+- **`id`**: `uuid` (Primary Key)
+- **`userId`**: `uuid` (Foreign Key -> `"user".id`, On Delete Cascade)
+- **`accountId`**: `text` - Provider account identifier.
+- **`providerId`**: `text` - Provider name such as `credential`.
+- **`accessToken`**: `text` (Optional)
+- **`refreshToken`**: `text` (Optional)
+- **`accessTokenExpiresAt`**: `timestamptz` (Optional)
+- **`refreshTokenExpiresAt`**: `timestamptz` (Optional)
+- **`scope`**: `text` (Optional)
+- **`idToken`**: `text` (Optional)
+- **`password`**: `text` (Optional) - Password hash for email/password authentication.
+- **`createdAt`**: `timestamptz`
+- **`updatedAt`**: `timestamptz`
+
+Indexes:
+
+- `idx_account_user_id` on (`userId`)
+
+### Verification
+
+- **`id`**: `uuid` (Primary Key)
+- **`identifier`**: `text`
+- **`value`**: `text`
+- **`expiresAt`**: `timestamptz`
+- **`createdAt`**: `timestamptz`
+- **`updatedAt`**: `timestamptz`
+
+Indexes:
+
+- `idx_verification_identifier` on (`identifier`)
+
+### user_companies
 
 This schema is to store company information. This allows them to be filtered based on company if needed
 
 - **`id`**: `uuid` (Primary Key)
-- **`user_id`**: `uuid` (Foreign Key -> `users.id`, On Delete Cascade)
+- **`user_id`**: `uuid` (Foreign Key -> `"user".id`, On Delete Cascade)
 - **`company`**: `string` (lowercase) - name of company
 - **`joined`**: `timestamptz` - time joined company
 - **`created_at`**: `timestamptz`
@@ -67,11 +117,11 @@ Indexes:
 Used to track the verification flow for users wanting to become interviewers.
 
 - **`id`**: `uuid` (Primary Key)
-- **`user_id`**: `uuid` (Foreign Key -> `users.id`) - The applicant.
+- **`user_id`**: `uuid` (Foreign Key -> `"user".id`) - The applicant.
 - **`email`**: `text` - Contact email for the application.
 - **`employment_history`**: `jsonb` - Structured history of previous roles and companies.
 - **`status`**: `enum` ('pending', 'approved', 'rejected') - Current state of the application.
-- **`reviewed_by`**: `uuid` (Optional, Foreign Key -> `users.id`) - Admin who reviewed the application.
+- **`reviewed_by`**: `uuid` (Optional, Foreign Key -> `"user".id`) - Admin who reviewed the application.
 - **`created_at`**: `timestamptz`
 - **`updated_at`**: `timestamptz`
 
@@ -80,9 +130,9 @@ Used to track the verification flow for users wanting to become interviewers.
 Core entity for tracking mock sessions and AI-led interviews.
 
 - **`id`**: `uuid` (Primary Key)
-- **`scheduler_id`**: `uuid` (Foreign Key -> `users.id`) - Interview participant "A". For direct route-created sessions this is the authenticated creator; for matcher-created peer-to-peer sessions this is assigned deterministically (see rule below).
+- **`scheduler_id`**: `uuid` (Foreign Key -> `"user".id`) - Interview participant "A". For direct route-created sessions this is the authenticated creator; for matcher-created peer-to-peer sessions this is assigned deterministically (see rule below).
 - **`scheduler_alias`**: `text` - Anonymous name for the scheduler during the session.
-- **`interviewer_id`**: `uuid` (Optional, Foreign Key -> `users.id`) - Interview participant "B" for peer-to-peer sessions; null for AI-led sessions in Milestone 2.
+- **`interviewer_id`**: `uuid` (Optional, Foreign Key -> `"user".id`) - Interview participant "B" for peer-to-peer sessions; null for AI-led sessions in Milestone 2.
 - **`interviewer_alias`**: `text` - Anonymous name for the interviewer during the session.
 - **`type`**: `enum` ('system_design', 'coding', 'behavioral') - Category of the interview.
 - **`mode`**: `enum` ('peer_to_peer', 'ai_led') - Whether it's a mock with another user or AI.
@@ -124,7 +174,7 @@ Query readiness notes:
 Groups a set of time blocks where a user is available for matching, with a maximum quota.
 
 - **`id`**: `uuid` (Primary Key)
-- **`user_id`**: `uuid` (Foreign Key -> `users.id`, On Delete Cascade)
+- **`user_id`**: `uuid` (Foreign Key -> `"user".id`, On Delete Cascade)
 - **`max_matches`**: `integer` - Maximum number of interviews the user wants for this request.
 - **`current_matches`**: `integer` (Default: 0) - Number of matches already made for this request.
 - **`interview_type`**: `text` with CHECK (`system_design`, `coding`, `behavioral`)
@@ -168,7 +218,7 @@ Indexes:
 Logs for financial history and credit fulfillment via Stripe.
 
 - **`id`**: `uuid` (Primary Key)
-- **`user_id`**: `uuid` (Foreign Key -> `users.id`)
+- **`user_id`**: `uuid` (Foreign Key -> `"user".id`)
 - **`stripe_payment_intent_id`**: `text` (Unique) - Reference for the Stripe transaction.
 - **`amount`**: `integer` - Amount paid in cents.
 - **`credits_granted`**: `integer` - Number of credits added to the user's balance.

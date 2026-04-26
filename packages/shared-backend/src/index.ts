@@ -20,7 +20,14 @@ export {
   type UserCompanyRow,
   type UserRow,
 } from './database/foundation-schemas'
+export {
+  createPostgresConnectionPool,
+  type PostgresConnectionClient,
+  type PostgresConnectionPool,
+  type PostgresQueryResult,
+} from './database/postgres-connection-pool'
 export * from './account'
+export * from './auth'
 export * from './interview'
 export * from './interviews'
 export * from './matcher'

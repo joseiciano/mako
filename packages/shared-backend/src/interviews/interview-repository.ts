@@ -81,7 +81,7 @@ export class InterviewRepository {
       createSqlQuery(
         `
           SELECT credits, free_ai_interviews
-          FROM users
+          FROM "user"
           WHERE id = $1
             AND deleted_at IS NULL
           LIMIT 1;
@@ -576,9 +576,9 @@ function buildConsumptionReservationQuery(
   if (input.policy_consumption === 'free_ai_interview') {
     return createSqlQuery(
       `
-        UPDATE users
+        UPDATE "user"
         SET free_ai_interviews = free_ai_interviews - 1,
-            updated_at = NOW()
+            "updatedAt" = NOW()
         WHERE id = $1
           AND deleted_at IS NULL
           AND free_ai_interviews > 0
@@ -590,9 +590,9 @@ function buildConsumptionReservationQuery(
 
   return createSqlQuery(
     `
-      UPDATE users
+      UPDATE "user"
       SET credits = credits - 1,
-          updated_at = NOW()
+          "updatedAt" = NOW()
       WHERE id = $1
         AND deleted_at IS NULL
         AND credits > 0
