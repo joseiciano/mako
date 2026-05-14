@@ -1,4 +1,4 @@
-import { createAuthClient } from 'better-auth/react'
+import { createMakoAuthClient } from '@mako/shared-frontend'
 
 function getAuthBaseUrl(): string {
   const configuredBaseUrl = import.meta.env.VITE_AUTH_BASE_URL
@@ -27,6 +27,8 @@ function getAuthBaseUrl(): string {
   return `http://localhost:3000${authPath}`
 }
 
-export const authClient = createAuthClient({
+export const authClient = createMakoAuthClient({
   baseURL: getAuthBaseUrl(),
 })
+
+export { getAuthBaseUrl }

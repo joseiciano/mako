@@ -1,27 +1,17 @@
 import { Outlet, createFileRoute, redirect } from '@tanstack/react-router'
+import { AuthGuard } from '../components/auth-guard'
 import { AppShell } from '../components/layout/app-shell/app-shell-smart'
-import { authClient } from '../lib/auth-client'
-
-type SessionPayload = {
-  session: unknown
-}
-
-async function hasActiveSession(): Promise<boolean> {
-  const { data } = await authClient.getSession()
-  const payload = data as SessionPayload | null | undefined
-
-  return payload?.session != null
-}
+import { authSessionQueryOptions, getAuthState } from '../hooks/use-auth'
 
 export const Route = createFileRoute('/_authenticated')({
-  beforeLoad: async function guardAuthenticatedRoute() {
+  beforeLoad: async function guardAuthenticatedRoute({ context }) {
     if (typeof window === 'undefined') {
       return
     }
 
-    const activeSession = await hasActiveSession()
+    const session = await context.queryClient.fetchQuery(authSessionQueryOptions())
 
-    if (!activeSession) {
+    if (!getAuthState(session).isAuthenticated) {
       throw redirect({
         to: '/login',
       })
@@ -32,8 +22,10 @@ export const Route = createFileRoute('/_authenticated')({
 
 function AuthenticatedLayout() {
   return (
-    <AppShell>
-      <Outlet />
-    </AppShell>
+    <AuthGuard>
+      <AppShell>
+        <Outlet />
+      </AppShell>
+    </AuthGuard>
   )
 }

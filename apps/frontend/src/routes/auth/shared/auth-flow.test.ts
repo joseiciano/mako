@@ -1,3 +1,4 @@
+import { QueryClient } from '@tanstack/react-query'
 import { describe, expect, it, vi } from 'vitest'
 import {
   AUTHENTICATED_REDIRECT_PATH,
@@ -11,17 +12,25 @@ import {
 describe('auth flow helpers', function () {
   it('invalidates auth session and redirects after successful auth', async function () {
     const navigate = vi.fn().mockResolvedValue(undefined)
+    const queryClient = new QueryClient()
+    const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries')
 
-    await handleAuthSuccess(navigate)
+    await handleAuthSuccess(queryClient, navigate)
 
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ['auth', 'session'],
+    })
     expect(navigate).toHaveBeenCalledWith(AUTHENTICATED_REDIRECT_PATH)
   })
 
-  it('redirects after successful sign out', async function () {
+  it('clears auth session cache and redirects after successful sign out', async function () {
     const navigate = vi.fn().mockResolvedValue(undefined)
+    const queryClient = new QueryClient()
+    const setQueryData = vi.spyOn(queryClient, 'setQueryData')
 
-    await handleSignOutSuccess(navigate)
+    await handleSignOutSuccess(queryClient, navigate)
 
+    expect(setQueryData).toHaveBeenCalledWith(['auth', 'session'], null)
     expect(navigate).toHaveBeenCalledWith(LOGGED_OUT_REDIRECT_PATH)
   })
 

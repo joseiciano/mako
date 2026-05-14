@@ -1,9 +1,8 @@
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import { Header, getRouteHeaderContent } from '#/components/layout/header'
-import { useAuth } from '#/hooks/use-auth'
 import { authClient } from '#/lib/auth-client'
 import {
   getAuthErrorMessage,
@@ -21,19 +20,6 @@ import { SidebarDumb } from '../sidebar/sidebar-dumb'
 export type AppShellProps = {
   children: ReactNode
   userName?: string
-}
-
-export type RedirectToLoginState = {
-  session: unknown | null
-  isSessionPending: boolean
-}
-
-export function shouldRedirectToLogin(state: RedirectToLoginState): boolean {
-  if (state.isSessionPending) {
-    return false
-  }
-
-  return state.session === null
 }
 
 function resolveUserName(user: unknown, fallbackUserName?: string): string {
@@ -62,12 +48,12 @@ function resolveUserName(user: unknown, fallbackUserName?: string): string {
 export function AppShell(props: AppShellProps) {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false)
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
   const pathname = useRouterState({
     select: function selectPathname(state) {
       return state.location.pathname
     },
   })
-  const { isPending: isSessionPending, session, user } = useAuth()
 
   const signOutMutation = useMutation({
     mutationFn: async function signOutCurrentSession() {
@@ -77,30 +63,11 @@ export function AppShell(props: AppShellProps) {
       return result
     },
     onSuccess: async function onSignOutSuccess() {
-      await handleSignOutSuccess(function navigateToLogin(path) {
+      await handleSignOutSuccess(queryClient, function navigateToLogin(path) {
         return navigate({ to: path, replace: true })
       })
     },
   })
-
-  const redirectToLogin = shouldRedirectToLogin({
-    session,
-    isSessionPending,
-  })
-
-  useEffect(
-    function redirectMissingSession() {
-      if (!redirectToLogin) {
-        return
-      }
-
-      void navigate({
-        to: '/login',
-        replace: true,
-      })
-    },
-    [navigate, redirectToLogin],
-  )
 
   useEffect(
     function closeMobileNavigationOnRouteChange() {
@@ -118,7 +85,7 @@ export function AppShell(props: AppShellProps) {
   }
 
   const headerContent = getRouteHeaderContent(pathname)
-  const resolvedUserName = resolveUserName(user, props.userName)
+  const resolvedUserName = resolveUserName(null, props.userName)
 
   return (
     <>
@@ -130,7 +97,6 @@ export function AppShell(props: AppShellProps) {
             isItemActive={isCoreNavigationItemActive}
           />
         }
-        isAuthLoading={isSessionPending || redirectToLogin}
         header={
           <Header
             pathname={pathname}

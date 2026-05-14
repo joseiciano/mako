@@ -11,16 +11,21 @@ vi.mock('@tanstack/react-query', function mockReactQuery() {
         mutate: vi.fn(),
       }
     },
+    useQueryClient: function useQueryClient() {
+      return {
+        setQueryData: vi.fn(),
+      }
+    },
   }
 })
 
 vi.mock('@tanstack/react-router', function mockTanstackRouter() {
   return {
-    useRouterState: function useRouterState() {
-      return '/dashboard'
-    },
     useNavigate: function useNavigate() {
       return vi.fn()
+    },
+    useRouterState: function useRouterState() {
+      return '/dashboard'
     },
   }
 })
@@ -29,9 +34,10 @@ vi.mock('#/hooks/use-auth', function mockUseAuth() {
   return {
     useAuth: function useAuth() {
       return {
-        session: { id: 'test-session' },
-        user: { id: 'test-user' },
         isPending: false,
+        isAuthenticated: true,
+        session: { id: 'session-1' },
+        user: null,
         error: null,
       }
     },
