@@ -3,6 +3,7 @@ import { useNavigate, useRouterState } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import { Header, getRouteHeaderContent } from '#/components/layout/header'
+import { useAuth } from '#/hooks/use-auth'
 import { authClient } from '#/lib/auth-client'
 import {
   getAuthErrorMessage,
@@ -49,6 +50,7 @@ export function AppShell(props: AppShellProps) {
   const [isMobileNavOpen, setIsMobileNavOpen] = useState(false)
   const navigate = useNavigate()
   const queryClient = useQueryClient()
+  const { user } = useAuth()
   const pathname = useRouterState({
     select: function selectPathname(state) {
       return state.location.pathname
@@ -85,7 +87,7 @@ export function AppShell(props: AppShellProps) {
   }
 
   const headerContent = getRouteHeaderContent(pathname)
-  const resolvedUserName = resolveUserName(null, props.userName)
+  const resolvedUserName = resolveUserName(user, props.userName)
 
   return (
     <>

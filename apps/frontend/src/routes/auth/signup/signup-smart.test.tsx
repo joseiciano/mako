@@ -15,6 +15,19 @@ const signUpEmailMock = vi.hoisted(function createSignUpEmailMock() {
 
 vi.mock('@tanstack/react-router', function mockTanstackRouter() {
   return {
+    Link: function Link(props: {
+      children: ReactNode
+      className?: string
+      to: string
+    }) {
+      const { children, to, ...anchorProps } = props
+
+      return (
+        <a href={to} {...anchorProps}>
+          {children}
+        </a>
+      )
+    },
     useNavigate: function useNavigate() {
       return navigateMock
     },

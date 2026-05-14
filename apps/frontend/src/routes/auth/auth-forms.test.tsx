@@ -1,7 +1,26 @@
+import type { ReactNode } from 'react'
 import { renderToString } from 'react-dom/server'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { LoginDumb } from './login/login-dumb'
 import { SignupDumb } from './signup/signup-dumb'
+
+vi.mock('@tanstack/react-router', function mockTanstackRouter() {
+  return {
+    Link: function Link(props: {
+      children: ReactNode
+      className?: string
+      to: string
+    }) {
+      const { children, to, ...anchorProps } = props
+
+      return (
+        <a href={to} data-router-link="true" {...anchorProps}>
+          {children}
+        </a>
+      )
+    },
+  }
+})
 
 describe('auth dumb components', function () {
   it('renders login form fields and call-to-action text', function () {
@@ -24,6 +43,7 @@ describe('auth dumb components', function () {
     expect(html).toContain('Email')
     expect(html).toContain('Password')
     expect(html).toContain('Create an account')
+    expect(html).toContain('data-router-link="true"')
   })
 
   it('renders signup form fields and call-to-action text', function () {
@@ -47,5 +67,6 @@ describe('auth dumb components', function () {
     expect(html).toContain('Email')
     expect(html).toContain('Password')
     expect(html).toContain('Log in')
+    expect(html).toContain('data-router-link="true"')
   })
 })
