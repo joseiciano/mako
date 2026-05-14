@@ -1,3 +1,6 @@
+import type { QueryClient } from '@tanstack/react-query'
+import { authSessionQueryKey } from '#/hooks/use-auth'
+
 export const AUTHENTICATED_REDIRECT_PATH = '/dashboard'
 export const LOGGED_OUT_REDIRECT_PATH = '/login'
 
@@ -8,14 +11,18 @@ type AuthResult = {
 }
 
 export async function handleAuthSuccess(
+  queryClient: QueryClient,
   navigate: NavigateFn,
 ): Promise<void> {
+  await queryClient.invalidateQueries({ queryKey: authSessionQueryKey })
   await navigate(AUTHENTICATED_REDIRECT_PATH)
 }
 
 export async function handleSignOutSuccess(
+  queryClient: QueryClient,
   navigate: NavigateFn,
 ): Promise<void> {
+  queryClient.setQueryData(authSessionQueryKey, null)
   await navigate(LOGGED_OUT_REDIRECT_PATH)
 }
 

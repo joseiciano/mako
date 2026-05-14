@@ -1,4 +1,4 @@
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { useState, type FormEvent } from 'react'
 import {
@@ -37,6 +37,7 @@ export function hasLoginErrors(errors: LoginFormErrors): boolean {
 
 export function LoginSmart() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
 
   const [values, setValues] = useState<LoginFormValues>({
     email: '',
@@ -53,7 +54,7 @@ export function LoginSmart() {
       return result
     },
     onSuccess: async function onSignInSuccess() {
-      await handleAuthSuccess(function navigateToDashboard(path) {
+      await handleAuthSuccess(queryClient, function navigateToDashboard(path) {
         return navigate({ to: path })
       })
     },

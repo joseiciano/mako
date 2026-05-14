@@ -1,4 +1,4 @@
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { useState, type FormEvent } from 'react'
 import {
@@ -45,6 +45,7 @@ export function hasSignupErrors(errors: SignupFormErrors): boolean {
 
 export function SignupSmart() {
   const navigate = useNavigate()
+  const queryClient = useQueryClient()
 
   const [values, setValues] = useState<SignupFormValues>({
     name: '',
@@ -62,7 +63,7 @@ export function SignupSmart() {
       return result
     },
     onSuccess: async function onSignupSuccess() {
-      await handleAuthSuccess(function navigateToDashboard(path) {
+      await handleAuthSuccess(queryClient, function navigateToDashboard(path) {
         return navigate({ to: path })
       })
     },
