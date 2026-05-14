@@ -37,7 +37,11 @@ vi.mock('#/hooks/use-auth', function mockUseAuth() {
         isPending: false,
         isAuthenticated: true,
         session: { id: 'session-1' },
-        user: null,
+        user: {
+          id: 'user-1',
+          name: 'Alex Candidate',
+          email: 'alex@example.com',
+        },
         error: null,
       }
     },
@@ -63,7 +67,7 @@ describe('app-shell-smart', function () {
     expect(html).toContain('Desktop navigation')
     expect(html).toContain('aria-label="Open navigation menu"')
     expect(html).toContain('aria-controls="mobile-navigation-drawer"')
-    expect(html).toContain('Mako User')
+    expect(html).toContain('Alex Candidate')
     expect(html).toContain('Shell content')
     expect(html).toContain('href="/dashboard"')
     expect(html).toContain('href="/interviews"')

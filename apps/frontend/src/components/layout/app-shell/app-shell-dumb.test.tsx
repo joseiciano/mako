@@ -23,7 +23,7 @@ describe('app shell dumb component', function () {
     expect(html).toContain('Primary Navigation')
     expect(html).toContain('Route Content')
     expect(html).toContain('Dashboard')
-    expect(html).toContain('Logout')
+    expect(html).toContain('Sign out')
   })
 
   it('renders breadcrumbs when available', function () {

@@ -110,7 +110,7 @@ export function HeaderDumb(props: HeaderDumbProps) {
                 disabled={props.isSigningOut}
                 className="mt-1 w-full rounded-md px-3 py-2 text-left text-sm text-rose-300 transition-colors hover:bg-rose-950/40 hover:text-rose-200"
               >
-                {props.isSigningOut ? 'Signing out...' : 'Logout'}
+                {props.isSigningOut ? 'Signing out...' : 'Sign out'}
               </button>
             </div>
           </details>

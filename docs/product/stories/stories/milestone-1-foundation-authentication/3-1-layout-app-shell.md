@@ -40,7 +40,7 @@
     - [x] Implement `header-dumb.tsx`:
         - [x] Display page title or Breadcrumbs based on the current route.
         - [x] Add a placeholder for the "Hamburger" button (implemented in Story 3.2).
-        - [x] Add a `UserMenu` component (dropdown) containing the user's name, profile link, and a Logout button.
+        - [x] Add a `UserMenu` component (dropdown) containing the user's name, profile link, and a Sign out button.
 
 ## Files to be Added/Changed
 - **New Files**:

@@ -1,4 +1,5 @@
 import type { FormEvent } from 'react'
+import { Link } from '@tanstack/react-router'
 
 export type LoginFormValues = {
   email: string
@@ -83,9 +84,9 @@ export function LoginDumb(props: LoginDumbProps) {
 
         <p className="mt-6 text-sm text-slate-300">
           New to Mako?{' '}
-          <a href="/register" className="font-semibold text-emerald-300">
+          <Link to="/register" className="font-semibold text-emerald-300">
             Create an account
-          </a>
+          </Link>
           .
         </p>
       </section>
