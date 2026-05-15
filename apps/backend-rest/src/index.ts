@@ -26,7 +26,7 @@ import {
   type SqlQueryExecutor,
 } from '@mako/shared-backend'
 import type { SqlQuery } from '@mako/shared-backend'
-import type { Context } from 'hono'
+import type { Context, Next } from 'hono'
 import { Hono } from 'hono'
 
 export type DatabaseBinding = {
@@ -71,10 +71,16 @@ const seededDemoAccounts: readonly AccountProfileRecord[] = [
   },
 ]
 
+const corsAllowedMethods = 'GET,POST,PUT,PATCH,DELETE,OPTIONS'
+const defaultCorsAllowedHeaders = 'content-type,authorization'
+const corsMaxAgeSeconds = '86400'
+
 export function createApp(): Hono<{ Bindings: WorkerBindings }> {
   const app = new Hono<{ Bindings: WorkerBindings }>()
   const demoDataSources = createDemoDataSources(seededDemoAccounts)
   const demoSessionResolver = createHeaderSessionResolver(demoSession)
+
+  app.use('/api/*', applyCorsHeaders)
 
   app.use(
     '/api/*',
@@ -370,6 +376,71 @@ function createDatabaseQueryExecutor(bindings: WorkerBindings): SqlQueryExecutor
       }
     },
   }
+}
+
+async function applyCorsHeaders(
+  context: Context<{ Bindings: WorkerBindings }>,
+  next: Next,
+): Promise<Response | void> {
+  const requestOrigin = context.req.header('origin')
+  const allowedOrigins = parseCorsAllowedOrigins(
+    context.env?.BETTER_AUTH_TRUSTED_ORIGINS,
+  )
+
+  if (requestOrigin && allowedOrigins.has(requestOrigin)) {
+    setCorsResponseHeaders(context, requestOrigin)
+  }
+
+  if (context.req.method === 'OPTIONS') {
+    setCorsPreflightHeaders(context)
+    return context.body(null, 204)
+  }
+
+  await next()
+
+  if (requestOrigin && allowedOrigins.has(requestOrigin)) {
+    setCorsResponseHeaders(context, requestOrigin)
+  }
+}
+
+function setCorsResponseHeaders(
+  context: Context<{ Bindings: WorkerBindings }>,
+  requestOrigin: string,
+): void {
+  context.header('access-control-allow-origin', requestOrigin)
+  context.header('access-control-allow-credentials', 'true')
+  context.header('vary', 'Origin')
+}
+
+function setCorsPreflightHeaders(
+  context: Context<{ Bindings: WorkerBindings }>,
+): void {
+  const requestedHeaders = context.req.header('access-control-request-headers')
+
+  context.header('access-control-allow-methods', corsAllowedMethods)
+  context.header(
+    'access-control-allow-headers',
+    requestedHeaders && requestedHeaders.length > 0
+      ? requestedHeaders
+      : defaultCorsAllowedHeaders,
+  )
+  context.header('access-control-max-age', corsMaxAgeSeconds)
+}
+
+function parseCorsAllowedOrigins(
+  configuredOrigins: string | undefined,
+): Set<string> {
+  const allowedOrigins = new Set<string>()
+
+  for (const origin of configuredOrigins?.split(',') ?? []) {
+    const trimmedOrigin = origin.trim()
+
+    if (trimmedOrigin.length > 0) {
+      allowedOrigins.add(trimmedOrigin)
+    }
+  }
+
+  return allowedOrigins
 }
 
 function hasDatabaseAccess(bindings: WorkerBindings): boolean {
