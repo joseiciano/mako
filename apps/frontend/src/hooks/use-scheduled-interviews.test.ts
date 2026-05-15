@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   fetchScheduledInterviews,
   scheduledInterviewsQueryKey,
@@ -6,11 +6,23 @@ import {
 import { readHeader } from './test-utils/read-header'
 
 describe('use-scheduled-interviews hook', function useScheduledInterviewsSuite() {
+  afterEach(function resetEnvironment() {
+    vi.unstubAllEnvs()
+  })
+
   it('fetches scheduled interviews and parses documented response fields', async function run() {
+    vi.stubEnv(
+      'VITE_AUTH_BASE_URL',
+      'https://mako-backend-rest.icianojn.workers.dev/api/auth',
+    )
+
     const result = await fetchScheduledInterviews(
       async function mockFetch(input, init) {
-        expect(input).toBe('/api/interviews?status=scheduled')
+        expect(input).toBe(
+          'https://mako-backend-rest.icianojn.workers.dev/api/interviews?status=scheduled',
+        )
         expect(init?.method).toBe('GET')
+        expect(init?.credentials).toBe('include')
         expect(readHeader(init?.headers, 'x-user-id')).toBe(
           '11111111-1111-4111-8111-111111111111',
         )

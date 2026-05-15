@@ -15,6 +15,8 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query'
 import {
+  createApiRequestInit,
+  createApiUrl,
   demoSessionHeaders,
   parseResponse,
   readErrorMessage,
@@ -160,9 +162,12 @@ export function useAddCompany(): UseMutationResult<
 export async function fetchAccount(
   fetchImpl: typeof fetch = fetch,
 ): Promise<AccountProfile> {
-  const response = await fetchImpl('/api/account', {
-    headers: demoSessionHeaders,
-  })
+  const response = await fetchImpl(
+    createApiUrl('/api/account'),
+    createApiRequestInit({
+      headers: demoSessionHeaders,
+    }),
+  )
 
   const payload = await parseResponse(response)
 
@@ -178,14 +183,17 @@ export async function updateAccountProfile(
   fetchImpl: typeof fetch = fetch,
 ): Promise<AccountProfile> {
   const parsedInput = updateAccountProfileInputSchema.parse(input)
-  const response = await fetchImpl('/api/account', {
-    method: 'PATCH',
-    headers: {
-      'content-type': 'application/json',
-      ...demoSessionHeaders,
-    },
-    body: JSON.stringify(parsedInput),
-  })
+  const response = await fetchImpl(
+    createApiUrl('/api/account'),
+    createApiRequestInit({
+      method: 'PATCH',
+      headers: {
+        'content-type': 'application/json',
+        ...demoSessionHeaders,
+      },
+      body: JSON.stringify(parsedInput),
+    }),
+  )
 
   const payload = await parseResponse(response)
 
@@ -199,10 +207,13 @@ export async function updateAccountProfile(
 export async function fetchCompanies(
   fetchImpl: typeof fetch = fetch,
 ): Promise<Company[]> {
-  const response = await fetchImpl('/api/companies', {
-    method: 'GET',
-    headers: demoSessionHeaders,
-  })
+  const response = await fetchImpl(
+    createApiUrl('/api/companies'),
+    createApiRequestInit({
+      method: 'GET',
+      headers: demoSessionHeaders,
+    }),
+  )
 
   const payload = await parseResponse(response)
 
@@ -217,17 +228,20 @@ export async function postCompany(
   payload: AddCompanyPayload,
   fetchImpl: typeof fetch = fetch,
 ): Promise<AddCompanyResponse> {
-  const response = await fetchImpl('/api/companies', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      ...demoSessionHeaders,
-    },
-    body: JSON.stringify({
-      company: payload.company,
-      joined: payload.joined,
+  const response = await fetchImpl(
+    createApiUrl('/api/companies'),
+    createApiRequestInit({
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...demoSessionHeaders,
+      },
+      body: JSON.stringify({
+        company: payload.company,
+        joined: payload.joined,
+      }),
     }),
-  })
+  )
 
   const responsePayload = await parseResponse(response)
 
@@ -274,10 +288,13 @@ export function useDeleteAccount(): UseMutationResult<
 export async function deleteAccount(
   fetchImpl: typeof fetch = fetch,
 ): Promise<DeleteAccountResponse> {
-  const response = await fetchImpl('/api/account', {
-    method: 'DELETE',
-    headers: demoSessionHeaders,
-  })
+  const response = await fetchImpl(
+    createApiUrl('/api/account'),
+    createApiRequestInit({
+      method: 'DELETE',
+      headers: demoSessionHeaders,
+    }),
+  )
 
   const payload = await parseResponse(response)
 

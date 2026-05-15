@@ -15,7 +15,11 @@ describe('auth client', function () {
     const module = await import('./auth-client')
 
     expect(module.authClient).toBeDefined()
-    expect(createAuthClientMock).toHaveBeenCalledWith({})
+    expect(createAuthClientMock).toHaveBeenCalledWith({
+      fetchOptions: {
+        credentials: 'include',
+      },
+    })
   })
 
   it('allows creating a client with a custom base URL', async function () {
@@ -28,6 +32,9 @@ describe('auth client', function () {
 
     expect(createAuthClientMock).toHaveBeenCalledWith({
       baseURL: 'http://localhost:8787',
+      fetchOptions: {
+        credentials: 'include',
+      },
     })
   })
 })
