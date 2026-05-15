@@ -29,7 +29,10 @@ while true; do
   echo "4) HYPERDRIVE_ID"
   echo "5) BETTER_AUTH_SECRET"
   echo "6) STRIPE_SECRET_KEY"
-  echo "7) Done"
+  echo "7) BETTER_AUTH_URL"
+  echo "8) BETTER_AUTH_TRUSTED_ORIGINS"
+  echo "9) VITE_AUTH_BASE_URL"
+  echo "10) Done"
 
   read -r -p "Enter number: " choice
 
@@ -40,7 +43,10 @@ while true; do
     4) secret_name="HYPERDRIVE_ID" ;;
     5) secret_name="BETTER_AUTH_SECRET" ;;
     6) secret_name="STRIPE_SECRET_KEY" ;;
-    7) break ;;
+    7) secret_name="BETTER_AUTH_URL" ;;
+    8) secret_name="BETTER_AUTH_TRUSTED_ORIGINS" ;;
+    9) secret_name="VITE_AUTH_BASE_URL" ;;
+    10) break ;;
     *)
       echo "Invalid option."
       continue
