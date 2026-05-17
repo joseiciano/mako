@@ -9,5 +9,12 @@
       "binding": "HYPERDRIVE",
       "id": "__HYPERDRIVE_ID__"
     }
-  ]
+  ],
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    }
+  }
 }
