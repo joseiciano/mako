@@ -17,7 +17,12 @@ We utilize GitHub Actions for our CI/CD pipeline to ensure code quality and auto
   - Steps: `terraform init`, `terraform validate`, and `terraform apply -auto-approve`
 - **Application Deployment** (`.github/workflows/deploy-applications.yml`)
   - Trigger: pushes to `main` that modify app/shared code paths
-  - Steps: deploy backend and frontend workers through `cloudflare/wrangler-action`
+  - Steps: migrate production database, then deploy backend and frontend workers through `cloudflare/wrangler-action`
+  - Migration requirements:
+    - Production migrations must be backward-compatible because the database is migrated before the backend deploys.
+    - The `DATABASE_URL` secret used by CI must target the same database as the production Hyperdrive binding.
+    - Using a dedicated migration credential for `DATABASE_URL` is preferred.
+    - Production environment approvals are recommended for schema-changing releases.
 
 ### Secrets Management Strategy
 

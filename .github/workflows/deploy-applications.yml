@@ -13,8 +13,47 @@ on:
   workflow_dispatch:
 
 jobs:
+  migrate-production-db:
+    name: Migrate production database
+    runs-on: ubuntu-latest
+    environment: production
+    permissions:
+      contents: read
+
+    concurrency:
+      group: migrate-production-db-production
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate DATABASE_URL secret
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          test -n "$DATABASE_URL" || (echo "Missing DATABASE_URL" && exit 1)
+
+      - name: Run database migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: pnpm db:migrate
+
   deploy-backend-rest:
     name: Deploy backend-rest worker
+    needs: migrate-production-db
     runs-on: ubuntu-latest
     environment: production
     permissions:
