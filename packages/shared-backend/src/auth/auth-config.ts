@@ -40,6 +40,8 @@ export function createBetterAuth(options: CreateBetterAuthOptions): BetterAuthLi
   }
 
   const pool = createPostgresConnectionPool(normalizedOptions.connectionString)
+  const shouldUseSecureCookies =
+    new URL(normalizedOptions.baseURL).protocol === 'https:'
   const auth = betterAuth({
     database: pool,
     secret: normalizedOptions.secret,
@@ -55,6 +57,16 @@ export function createBetterAuth(options: CreateBetterAuthOptions): BetterAuthLi
       database: {
         generateId: 'uuid',
       },
+      ...(shouldUseSecureCookies
+        ? {
+            useSecureCookies: true,
+            defaultCookieAttributes: {
+              sameSite: 'none',
+              secure: true,
+              partitioned: true,
+            },
+          }
+        : {}),
     },
   }) as BetterAuthLike
 

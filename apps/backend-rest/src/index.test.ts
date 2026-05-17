@@ -54,6 +54,57 @@ describe('backend-rest smoke tests', function () {
     })
   })
 
+  it('returns CORS preflight headers for configured frontend origins', async function () {
+    const app = createApp()
+    const response = await app.request(
+      '/api/auth/sign-up/email',
+      {
+        method: 'OPTIONS',
+        headers: {
+          origin: 'https://mako-frontend.icianojn.workers.dev',
+          'access-control-request-method': 'POST',
+          'access-control-request-headers': 'content-type',
+        },
+      },
+      {
+        BETTER_AUTH_TRUSTED_ORIGINS:
+          'https://mako-frontend.icianojn.workers.dev',
+      },
+    )
+
+    expect(response.status).toBe(204)
+    expect(response.headers.get('access-control-allow-origin')).toBe(
+      'https://mako-frontend.icianojn.workers.dev',
+    )
+    expect(response.headers.get('access-control-allow-credentials')).toBe('true')
+    expect(response.headers.get('access-control-allow-methods')).toContain('POST')
+    expect(response.headers.get('access-control-allow-headers')).toBe(
+      'content-type',
+    )
+  })
+
+  it('adds CORS headers to API responses for configured frontend origins', async function () {
+    const app = createApp()
+    const response = await app.request(
+      '/api/auth/get-session',
+      {
+        headers: {
+          origin: 'https://mako-frontend.icianojn.workers.dev',
+        },
+      },
+      {
+        BETTER_AUTH_TRUSTED_ORIGINS:
+          'https://mako-frontend.icianojn.workers.dev',
+      },
+    )
+
+    expect(response.status).toBe(503)
+    expect(response.headers.get('access-control-allow-origin')).toBe(
+      'https://mako-frontend.icianojn.workers.dev',
+    )
+    expect(response.headers.get('access-control-allow-credentials')).toBe('true')
+  })
+
   it('fails closed when Hyperdrive is configured but Better Auth is unavailable', async function () {
     const app = createApp()
     const postgresConnectionSpy = vi.spyOn(

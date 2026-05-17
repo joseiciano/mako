@@ -3,6 +3,20 @@ export const demoSessionHeaders = {
   'x-user-email': 'demo@mako.dev',
 }
 
+export function createApiUrl(path: string): string {
+  const apiBaseUrl = getApiBaseUrl().replace(/\/$/, '')
+  const apiPath = normalizeApiPath(path)
+
+  return `${apiBaseUrl}${apiPath}`
+}
+
+export function createApiRequestInit(init: RequestInit = {}): RequestInit {
+  return {
+    ...init,
+    credentials: 'include',
+  }
+}
+
 export async function parseResponse(response: Response): Promise<unknown> {
   try {
     return await response.json()
@@ -25,4 +39,44 @@ export function readErrorMessage(
   }
 
   return fallbackMessage
+}
+
+function getApiBaseUrl(): string {
+  const configuredApiBaseUrl = import.meta.env.VITE_API_BASE_URL
+
+  if (
+    typeof configuredApiBaseUrl === 'string' &&
+    configuredApiBaseUrl.length > 0
+  ) {
+    return configuredApiBaseUrl
+  }
+
+  const configuredAuthBaseUrl = import.meta.env.VITE_AUTH_BASE_URL
+
+  if (
+    typeof configuredAuthBaseUrl === 'string' &&
+    configuredAuthBaseUrl.length > 0 &&
+    (configuredAuthBaseUrl.startsWith('http://') ||
+      configuredAuthBaseUrl.startsWith('https://'))
+  ) {
+    return new URL('/api', configuredAuthBaseUrl).toString()
+  }
+
+  return '/api'
+}
+
+function normalizeApiPath(path: string): string {
+  if (path === '/api') {
+    return ''
+  }
+
+  if (path.startsWith('/api/')) {
+    return path.slice('/api'.length)
+  }
+
+  if (path.startsWith('/')) {
+    return path
+  }
+
+  return `/${path}`
 }

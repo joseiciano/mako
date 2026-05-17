@@ -7,6 +7,9 @@ export type CreateMakoAuthClientOptions = {
 export function createMakoAuthClient(options: CreateMakoAuthClientOptions = {}) {
   return createAuthClient({
     ...(options.baseURL ? { baseURL: options.baseURL } : {}),
+    fetchOptions: {
+      credentials: 'include',
+    },
   })
 }
 

@@ -21,12 +21,19 @@ const accountFixture = {
 describe('use-account hooks', function useAccountHooksSuite() {
   afterEach(function afterEachTest() {
     vi.restoreAllMocks()
+    vi.unstubAllEnvs()
   })
 
   it('fetchAccount parses successful API responses', async function run() {
+    vi.stubEnv(
+      'VITE_AUTH_BASE_URL',
+      'https://mako-backend-rest.icianojn.workers.dev/api/auth',
+    )
+
     const result = await fetchAccount(async function mockFetch(input, init) {
-      expect(input).toBe('/api/account')
+      expect(input).toBe('https://mako-backend-rest.icianojn.workers.dev/api/account')
       expect(init?.method).toBeUndefined()
+      expect(init?.credentials).toBe('include')
 
       return new Response(JSON.stringify(accountFixture), {
         status: 200,
@@ -41,11 +48,17 @@ describe('use-account hooks', function useAccountHooksSuite() {
   })
 
   it('updateAccountProfile sends PATCH payload and parses response', async function run() {
+    vi.stubEnv(
+      'VITE_AUTH_BASE_URL',
+      'https://mako-backend-rest.icianojn.workers.dev/api/auth',
+    )
+
     const result = await updateAccountProfile(
       { displayName: 'Updated Name' },
       async function mockFetch(input, init) {
-        expect(input).toBe('/api/account')
+        expect(input).toBe('https://mako-backend-rest.icianojn.workers.dev/api/account')
         expect(init?.method).toBe('PATCH')
+        expect(init?.credentials).toBe('include')
         expect(readHeader(init?.headers, 'content-type')).toBe('application/json')
 
         const body = JSON.parse(String(init?.body))
