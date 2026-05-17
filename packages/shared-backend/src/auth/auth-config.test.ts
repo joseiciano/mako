@@ -58,4 +58,22 @@ describe('createBetterAuth', function () {
       }),
     )
   })
+
+  it('configures app-side UUID generation instead of database defaults', async function () {
+    const { createBetterAuth } = await import('./auth-config')
+
+    createBetterAuth({
+      connectionString: 'postgres://user:password@localhost:5432/mako',
+      secret: 'test-secret',
+      baseURL: 'https://mako-backend-rest.icianojn.workers.dev/api/auth',
+    })
+
+    const callArg = betterAuthMock.mock.calls[0][0]
+    const generateId = callArg.advanced?.database?.generateId
+
+    expect(typeof generateId).toBe('function')
+    expect(generateId()).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
+    )
+  })
 })

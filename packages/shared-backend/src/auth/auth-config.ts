@@ -55,7 +55,7 @@ export function createBetterAuth(options: CreateBetterAuthOptions): BetterAuthLi
     },
     advanced: {
       database: {
-        generateId: 'uuid',
+        generateId: () => crypto.randomUUID(),
       },
       ...(shouldUseSecureCookies
         ? {
