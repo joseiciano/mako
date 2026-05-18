@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 2: Interview Scheduling & Dashboard
 **Description**: Build Dashboard visual presentation for quick stats and upcoming interviews, including complete UI states and route-safe details affordances.
-**Status**: In-Review
+**Status**: Completed
 **Prerequisites**:
 - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/2-2-dashboard-route-architecture-and-auth-integration.md`
 - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/2-3-dashboard-data-hooks-and-query-contracts.md`

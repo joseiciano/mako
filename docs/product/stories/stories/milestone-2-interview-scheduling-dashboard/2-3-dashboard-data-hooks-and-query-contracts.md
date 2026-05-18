@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 2: Interview Scheduling & Dashboard
 **Description**: Implement Dashboard data-fetching hooks with TanStack Query and documented API contracts, preserving existing session transport and schema validation patterns.
-**Status**: In-Review
+**Status**: Completed
 **Prerequisites**:
 - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/2-1-dashboard-scope-and-contract-lock.md`
 - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/2-2-dashboard-route-architecture-and-auth-integration.md`

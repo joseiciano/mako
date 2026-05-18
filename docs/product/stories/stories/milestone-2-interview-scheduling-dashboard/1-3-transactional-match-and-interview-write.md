@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 2: Interview Scheduling & Dashboard
 **Description**: Implement transactional, lock-safe match execution and interview row creation for successful Standard pairs.
-**Status**: In-Review
+**Status**: Completed
 
 ## What Needs to Be Done
 

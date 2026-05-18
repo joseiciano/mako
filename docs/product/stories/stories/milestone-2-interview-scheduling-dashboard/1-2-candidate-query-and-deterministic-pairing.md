@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 2: Interview Scheduling & Dashboard
 **Description**: Define and implement the candidate selection query and deterministic pairing rules for Standard availability matching.
-**Status**: In-Review
+**Status**: Completed
 
 ## What Needs to Be Done
 
