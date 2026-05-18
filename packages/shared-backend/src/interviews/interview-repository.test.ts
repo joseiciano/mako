@@ -290,6 +290,70 @@ describe('InterviewRepository', function interviewRepositorySuite() {
     ])
   })
 
+  it('cancels scheduled interviews when the participant is the interviewer', async function run() {
+    const executedQueries: string[] = []
+    const repository = new InterviewRepository({
+      queryExecutor: createQueryExecutor({
+        onQuery(queryInput) {
+          executedQueries.push(normalizeSql(queryInput.text))
+
+          if (
+            queryInput.text.includes('FROM interviews') &&
+            queryInput.text.includes('FOR UPDATE')
+          ) {
+            return {
+              rows: [
+                createInterviewRow({
+                  id: '22222222-2222-4222-8222-222222222222',
+                  scheduler_id: '99999999-9999-4999-8999-999999999999',
+                  interviewer_id: '11111111-1111-4111-8111-111111111111',
+                  status: 'scheduled',
+                }),
+              ],
+            }
+          }
+
+          if (queryInput.text.includes('UPDATE interviews')) {
+            return {
+              rows: [
+                createInterviewRow({
+                  id: '22222222-2222-4222-8222-222222222222',
+                  scheduler_id: '99999999-9999-4999-8999-999999999999',
+                  interviewer_id: '11111111-1111-4111-8111-111111111111',
+                  status: 'cancelled',
+                  updated_at: '2026-04-13T10:05:00.000Z',
+                }),
+              ],
+            }
+          }
+
+          return { rows: [] }
+        },
+      }),
+    })
+
+    const result = await repository.cancelInterview({
+      interview_id: '22222222-2222-4222-8222-222222222222',
+      participant_user_id: '11111111-1111-4111-8111-111111111111',
+      updated_at: '2026-04-13T10:05:00.000Z',
+    })
+
+    expect(result).toEqual({
+      outcome: 'cancelled',
+      interview: expect.objectContaining({
+        id: '22222222-2222-4222-8222-222222222222',
+        status: 'cancelled',
+        updated_at: '2026-04-13T10:05:00.000Z',
+      }),
+    })
+    expect(executedQueries).toEqual([
+      'BEGIN;',
+      'SELECT id, scheduler_id, scheduler_alias, interviewer_id, interviewer_alias, type, mode, tier, status, scheduled_at, created_at, updated_at FROM interviews WHERE id = $1 AND (scheduler_id = $2 OR interviewer_id = $2) LIMIT 1 FOR UPDATE;',
+      "UPDATE interviews SET status = 'cancelled', updated_at = $2 WHERE id = $1 RETURNING id, scheduler_id, scheduler_alias, interviewer_id, interviewer_alias, type, mode, tier, status, scheduled_at, created_at, updated_at;",
+      'COMMIT;',
+    ])
+  })
+
   it('treats cancelling an already-cancelled interview as an idempotent success without mutating state', async function run() {
     const executedQueries: string[] = []
     const repository = new InterviewRepository({
@@ -363,6 +427,47 @@ describe('InterviewRepository', function interviewRepositorySuite() {
       outcome: 'invalid_status',
       interview: expect.objectContaining({
         status: 'ongoing',
+      }),
+    })
+    expect(executedQueries).toEqual([
+      'BEGIN;',
+      'SELECT id, scheduler_id, scheduler_alias, interviewer_id, interviewer_alias, type, mode, tier, status, scheduled_at, created_at, updated_at FROM interviews WHERE id = $1 AND (scheduler_id = $2 OR interviewer_id = $2) LIMIT 1 FOR UPDATE;',
+      'COMMIT;',
+    ])
+  })
+
+  it('rejects cancellation for completed interviews', async function run() {
+    const executedQueries: string[] = []
+    const repository = new InterviewRepository({
+      queryExecutor: createQueryExecutor({
+        onQuery(queryInput) {
+          executedQueries.push(normalizeSql(queryInput.text))
+
+          if (queryInput.text.includes('FROM interviews') && queryInput.text.includes('FOR UPDATE')) {
+            return {
+              rows: [
+                createInterviewRow({
+                  status: 'completed',
+                }),
+              ],
+            }
+          }
+
+          return { rows: [] }
+        },
+      }),
+    })
+
+    const result = await repository.cancelInterview({
+      interview_id: '22222222-2222-4222-8222-222222222222',
+      participant_user_id: '11111111-1111-4111-8111-111111111111',
+      updated_at: '2026-04-13T10:05:00.000Z',
+    })
+
+    expect(result).toEqual({
+      outcome: 'invalid_status',
+      interview: expect.objectContaining({
+        status: 'completed',
       }),
     })
     expect(executedQueries).toEqual([
