@@ -10,6 +10,11 @@ import type {
 import { buildInterviewAliases } from '../interview'
 import { InterviewRepository } from './interview-repository'
 import {
+  buildInterviewCancelledEvent,
+  buildInterviewCreatedEvent,
+  type InterviewPostCommitEventPublisher,
+} from './interview-post-commit-event'
+import {
   InterviewBusinessRuleError,
   InterviewConflictError,
   InterviewNotFoundError,
@@ -33,6 +38,7 @@ export class InterviewService {
     },
     private readonly createId: () => string = defaultCreateId,
     private readonly now: () => string = defaultNow,
+    private readonly postCommitEventPublisher?: InterviewPostCommitEventPublisher,
   ) {}
 
   async createInterview(
@@ -47,6 +53,14 @@ export class InterviewService {
       type: input.type,
       scheduledAt: input.scheduled_at === 'now' ? this.now() : input.scheduled_at,
     })
+
+    if (this.postCommitEventPublisher) {
+      await this.postCommitEventPublisher.publish(
+        buildInterviewCreatedEvent({
+          interview: createdInterview,
+        }),
+      )
+    }
 
     return toCreateInterviewResponse(createdInterview)
   }
@@ -85,6 +99,14 @@ export class InterviewService {
 
     switch (cancelResult.outcome) {
       case 'cancelled':
+        if (this.postCommitEventPublisher) {
+          await this.postCommitEventPublisher.publish(
+            buildInterviewCancelledEvent({
+              interview: cancelResult.interview,
+            }),
+          )
+        }
+        return toCancelInterviewResponse()
       case 'already_cancelled':
         return toCancelInterviewResponse()
       case 'invalid_status':

@@ -1,4 +1,7 @@
-import { createHealthResponse, type Interview } from '@mako/shared'
+import {
+  createHealthResponse,
+  type Interview,
+} from '@mako/shared'
 import {
   AccountRepository,
   AccountService,
@@ -19,6 +22,7 @@ import {
   registerAccountController,
   registerAuthController,
   registerInterviewController,
+  createInterviewQueuePostCommitEventPublisher,
   type AccountProfileRecord,
   type AccountRepositoryDataSource,
   type CreateInterviewRecordInput,
@@ -52,6 +56,7 @@ export type WorkerBindings = {
   BETTER_AUTH_SECRET?: string
   BETTER_AUTH_URL?: string
   BETTER_AUTH_TRUSTED_ORIGINS?: string
+  INTERVIEW_PROVISIONING_QUEUE?: Queue
 }
 
 const demoSession = {
@@ -117,12 +122,26 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
 
   registerInterviewController(app, {
     createService: function createService(context) {
+      const repository = new InterviewRepository(
+        hasDatabaseAccess(context.bindings)
+          ? { queryExecutor: createDatabaseQueryExecutor(context.bindings) }
+          : demoDataSources.interview,
+      )
+      const postCommitEventPublisher = context.bindings
+        .INTERVIEW_PROVISIONING_QUEUE
+        ? createInterviewQueuePostCommitEventPublisher({
+            send: async function send(message) {
+              await context.bindings.INTERVIEW_PROVISIONING_QUEUE!.send(message)
+            },
+          })
+        : undefined
+
       return new InterviewService(
-        new InterviewRepository(
-          hasDatabaseAccess(context.bindings)
-            ? { queryExecutor: createDatabaseQueryExecutor(context.bindings) }
-            : demoDataSources.interview,
-        ),
+        repository,
+        undefined,
+        undefined,
+        undefined,
+        postCommitEventPublisher,
       )
     },
     resolveSession: function resolveSession(context) {
