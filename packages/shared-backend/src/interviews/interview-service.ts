@@ -8,6 +8,14 @@ import type {
   InterviewListResponse,
 } from '@mako/shared'
 import { buildInterviewAliases } from '../interview'
+import {
+  buildInterviewCancelledEvent,
+  buildInterviewCreatedEvent,
+} from '../notifications'
+import type {
+  InterviewNotificationEvent,
+  InterviewNotificationInterview,
+} from '../notifications'
 import { InterviewRepository } from './interview-repository'
 import {
   InterviewBusinessRuleError,
@@ -33,6 +41,9 @@ export class InterviewService {
     },
     private readonly createId: () => string = defaultCreateId,
     private readonly now: () => string = defaultNow,
+    private readonly publishNotification: (
+      event: InterviewNotificationEvent,
+    ) => Promise<void> | void = missingPublishNotification,
   ) {}
 
   async createInterview(
@@ -84,7 +95,21 @@ export class InterviewService {
     })
 
     switch (cancelResult.outcome) {
-      case 'cancelled':
+      case 'cancelled': {
+        await this.publishNotification(
+          buildInterviewCancelledEvent(
+            {
+              interview: toNotificationInterview(cancelResult.interview),
+              participants: {
+                scheduler_user_id: cancelResult.interview.scheduler_id,
+                interviewer_user_id: cancelResult.interview.interviewer_id,
+              },
+            },
+            { now: () => cancelResult.interview.updated_at },
+          ),
+        )
+        return toCancelInterviewResponse()
+      }
       case 'already_cancelled':
         return toCancelInterviewResponse()
       case 'invalid_status':
@@ -125,7 +150,7 @@ export class InterviewService {
       const aliases = buildInterviewAliases('ai_led')
 
       try {
-        return await this.interviewRepository.createDirectInterview({
+        const createdInterview = await this.interviewRepository.createDirectInterview({
           id: this.createId(),
           scheduler_id: input.schedulerId,
           scheduler_alias: aliases.schedulerAlias,
@@ -140,6 +165,21 @@ export class InterviewService {
           updated_at: timestamp,
           policy_consumption: resolvedPolicy.consumption,
         })
+
+        await this.publishNotification(
+          buildInterviewCreatedEvent(
+            {
+              interview: toNotificationInterview(createdInterview),
+              participants: {
+                scheduler_user_id: createdInterview.scheduler_id,
+                interviewer_user_id: createdInterview.interviewer_id,
+              },
+            },
+            { now: () => createdInterview.created_at },
+          ),
+        )
+
+        return createdInterview
       } catch (error) {
         if (!(error instanceof InterviewPolicyConflictError)) {
           throw error
@@ -207,4 +247,23 @@ function defaultCreateId(): string {
 
 function defaultNow(): string {
   return new Date().toISOString()
+}
+
+function missingPublishNotification(_event: InterviewNotificationEvent): Promise<void> | void {
+  throw new Error('InterviewService notification publisher is not configured')
+}
+
+function toNotificationInterview(
+  interview: Interview,
+): InterviewNotificationInterview {
+  return {
+    id: interview.id,
+    scheduler_id: interview.scheduler_id,
+    interviewer_id: interview.interviewer_id,
+    type: interview.type,
+    mode: interview.mode,
+    tier: interview.tier,
+    status: interview.status,
+    scheduled_at: interview.scheduled_at,
+  }
 }

@@ -533,6 +533,8 @@ function createInterviewApp(options: {
     function now() {
       return '2026-04-13T10:00:00.000Z'
     },
+    // Story 4.3: replace no-op with real queue transport wiring
+    function noOpPublishNotification() {},
   )
 
   registerInterviewController(app, {

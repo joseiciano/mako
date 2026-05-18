@@ -123,6 +123,11 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
             ? { queryExecutor: createDatabaseQueryExecutor(context.bindings) }
             : demoDataSources.interview,
         ),
+        undefined,
+        undefined,
+        undefined,
+        // Story 4.3: replace no-op with real queue transport wiring
+        function noOpPublishNotification() {},
       )
     },
     resolveSession: function resolveSession(context) {
