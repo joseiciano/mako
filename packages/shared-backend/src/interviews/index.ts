@@ -7,6 +7,7 @@ export {
 export {
   InterviewService,
   resolveAiInterviewCreatePolicy,
+  type InterviewServiceLogger,
 } from './interview-service'
 export {
   registerInterviewController,

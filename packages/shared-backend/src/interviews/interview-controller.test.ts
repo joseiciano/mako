@@ -394,6 +394,39 @@ describe('InterviewController', function interviewControllerSuite() {
     })
   })
 
+  it('returns 201 when create succeeds but publish fails through the controller', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 1,
+      credits: 0,
+      postCommitEventPublisher: {
+        async publish() {
+          throw new Error('publish failed')
+        },
+      },
+    })
+
+    const response = await app.request('/api/interviews', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        type: 'system_design',
+        mode: 'ai_led',
+        scheduled_at: 'now',
+      }),
+    })
+
+    expect(response.status).toBe(201)
+    await expect(response.json()).resolves.toMatchObject({
+      interview: {
+        scheduler_id: activeSession.userId,
+        mode: 'ai_led',
+      },
+    })
+  })
+
   it('publishes one cancelled event on successful cancel through the controller', async function run() {
     const interviewId = '33333333-3333-4333-8333-333333333333'
     const publishedEvents: InterviewPostCommitEvent[] = []
@@ -422,6 +455,35 @@ describe('InterviewController', function interviewControllerSuite() {
     expect(publishedEvents).toHaveLength(1)
     expect(publishedEvents[0]).toMatchObject({
       event_type: 'interview.cancelled',
+    })
+  })
+
+  it('returns 200 when cancel succeeds but publish fails through the controller', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+      postCommitEventPublisher: {
+        async publish() {
+          throw new Error('publish failed')
+        },
+      },
+    })
+
+    const response = await app.request(`/api/interviews/${interviewId}/cancel`, {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      success: true,
     })
   })
 

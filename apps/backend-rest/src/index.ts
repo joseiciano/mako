@@ -10,6 +10,7 @@ import {
   InterviewPolicyConflictError,
   InterviewRepository,
   InterviewService,
+  type InterviewServiceLogger,
   backendRuntime,
   createPostgresConnectionPool,
   createAuthSessionMiddleware,
@@ -80,6 +81,12 @@ const corsAllowedMethods = 'GET,POST,PUT,PATCH,DELETE,OPTIONS'
 const defaultCorsAllowedHeaders = 'content-type,authorization'
 const corsMaxAgeSeconds = '86400'
 
+const consoleInterviewServiceLogger: InterviewServiceLogger = {
+  error(event, context) {
+    console.error(`[InterviewService] ${event}`, context)
+  },
+}
+
 export function createApp(): Hono<{ Bindings: WorkerBindings }> {
   const app = new Hono<{ Bindings: WorkerBindings }>()
   const demoDataSources = createDemoDataSources(seededDemoAccounts)
@@ -142,6 +149,7 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
         undefined,
         undefined,
         postCommitEventPublisher,
+        consoleInterviewServiceLogger,
       )
     },
     resolveSession: function resolveSession(context) {

@@ -317,6 +317,78 @@ describe('InterviewService', function interviewServiceSuite() {
     expect(publishedEvents).toHaveLength(0)
   })
 
+  it('returns success when create succeeds but publish fails', async function run() {
+    const loggedErrors: Array<{ event: string; context: Record<string, unknown> }> = []
+    const { service } = createInterviewService(
+      {
+        freeAiInterviews: 1,
+        credits: 0,
+      },
+      undefined,
+      [],
+      {
+        async publish() {
+          throw new Error('publish failed')
+        },
+      },
+      {
+        error(_event, context) {
+          loggedErrors.push({ event: _event, context })
+        },
+      },
+    )
+
+    const response = await service.createInterview(activeSession, {
+      type: 'system_design',
+      mode: 'ai_led',
+      scheduled_at: 'now',
+    })
+
+    expect(response.interview).toMatchObject({
+      id: '22222222-2222-4222-8222-222222222222',
+      scheduler_id: activeSession.userId,
+    })
+    expect(loggedErrors).toHaveLength(1)
+    expect(loggedErrors[0].event).toBe('interview.post_commit_publish_failure')
+    expect(loggedErrors[0].context).toMatchObject({
+      operation: 'create',
+      interview_id: '22222222-2222-4222-8222-222222222222',
+      error_message: 'publish failed',
+    })
+  })
+
+  it('returns success when create succeeds but publish and logger both fail', async function run() {
+    const { service } = createInterviewService(
+      {
+        freeAiInterviews: 1,
+        credits: 0,
+      },
+      undefined,
+      [],
+      {
+        async publish() {
+          throw new Error('publish failed')
+        },
+      },
+      {
+        error() {
+          throw new Error('logger failed')
+        },
+      },
+    )
+
+    const response = await service.createInterview(activeSession, {
+      type: 'system_design',
+      mode: 'ai_led',
+      scheduled_at: 'now',
+    })
+
+    expect(response.interview).toMatchObject({
+      id: '22222222-2222-4222-8222-222222222222',
+      scheduler_id: activeSession.userId,
+    })
+  })
+
   it('publishes one cancelled event when cancel outcome is cancelled', async function run() {
     const interviewId = '33333333-3333-4333-8333-333333333333'
     const publishedEvents: InterviewPostCommitEvent[] = []
@@ -345,6 +417,80 @@ describe('InterviewService', function interviewServiceSuite() {
     expect(publishedEvents[0]).toMatchObject({
       event_type: 'interview.cancelled',
     })
+  })
+
+  it('returns success when cancel succeeds but publish fails', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const loggedErrors: Array<{ event: string; context: Record<string, unknown> }> = []
+    const { service } = createInterviewService(
+      {
+        freeAiInterviews: 0,
+        credits: 0,
+      },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+      {
+        async publish() {
+          throw new Error('publish failed')
+        },
+      },
+      {
+        error(_event, context) {
+          loggedErrors.push({ event: _event, context })
+        },
+      },
+    )
+
+    const response = await service.cancelInterview(activeSession, {
+      id: interviewId,
+    })
+
+    expect(response).toEqual({ success: true })
+    expect(loggedErrors).toHaveLength(1)
+    expect(loggedErrors[0].event).toBe('interview.post_commit_publish_failure')
+    expect(loggedErrors[0].context).toMatchObject({
+      operation: 'cancel',
+      interview_id: interviewId,
+      error_message: 'publish failed',
+    })
+  })
+
+  it('returns success when cancel succeeds but publish and logger both fail', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const { service } = createInterviewService(
+      {
+        freeAiInterviews: 0,
+        credits: 0,
+      },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+      {
+        async publish() {
+          throw new Error('publish failed')
+        },
+      },
+      {
+        error() {
+          throw new Error('logger failed')
+        },
+      },
+    )
+
+    const response = await service.cancelInterview(activeSession, {
+      id: interviewId,
+    })
+
+    expect(response).toEqual({ success: true })
   })
 
   it('does not publish cancelled event for already_cancelled outcome', async function run() {
@@ -443,6 +589,7 @@ function createInterviewService(
   },
   seedInterviews: readonly Interview[] = [],
   postCommitEventPublisher?: InterviewPostCommitEventPublisher,
+  logger?: { error(event: string, context: Record<string, unknown>): void | Promise<void> },
 ) {
   const repository = new InterviewRepository(
     createInMemoryInterviewDataSource([
@@ -463,6 +610,7 @@ function createInterviewService(
       return '2026-04-13T10:00:00.000Z'
     },
     postCommitEventPublisher,
+    logger,
   )
 
   return {

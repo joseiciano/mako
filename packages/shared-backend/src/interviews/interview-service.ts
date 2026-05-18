@@ -29,6 +29,10 @@ import {
   type ResolvedInterviewCreatePolicy,
 } from './types'
 
+export type InterviewServiceLogger = {
+  error(event: string, context: Record<string, unknown>): void | Promise<void>
+}
+
 export class InterviewService {
   constructor(
     private readonly interviewRepository: InterviewRepository,
@@ -39,6 +43,7 @@ export class InterviewService {
     private readonly createId: () => string = defaultCreateId,
     private readonly now: () => string = defaultNow,
     private readonly postCommitEventPublisher?: InterviewPostCommitEventPublisher,
+    private readonly logger: InterviewServiceLogger = noOpInterviewServiceLogger,
   ) {}
 
   async createInterview(
@@ -55,11 +60,19 @@ export class InterviewService {
     })
 
     if (this.postCommitEventPublisher) {
-      await this.postCommitEventPublisher.publish(
-        buildInterviewCreatedEvent({
-          interview: createdInterview,
-        }),
-      )
+      try {
+        await this.postCommitEventPublisher.publish(
+          buildInterviewCreatedEvent({
+            interview: createdInterview,
+          }),
+        )
+      } catch (error) {
+        await this.logSafely('interview.post_commit_publish_failure', {
+          operation: 'create',
+          interview_id: createdInterview.id,
+          error_message: toErrorMessage(error),
+        })
+      }
     }
 
     return toCreateInterviewResponse(createdInterview)
@@ -100,11 +113,19 @@ export class InterviewService {
     switch (cancelResult.outcome) {
       case 'cancelled':
         if (this.postCommitEventPublisher) {
-          await this.postCommitEventPublisher.publish(
-            buildInterviewCancelledEvent({
-              interview: cancelResult.interview,
-            }),
-          )
+          try {
+            await this.postCommitEventPublisher.publish(
+              buildInterviewCancelledEvent({
+                interview: cancelResult.interview,
+              }),
+            )
+          } catch (error) {
+            await this.logSafely('interview.post_commit_publish_failure', {
+              operation: 'cancel',
+              interview_id: cancelResult.interview.id,
+              error_message: toErrorMessage(error),
+            })
+          }
         }
         return toCancelInterviewResponse()
       case 'already_cancelled':
@@ -195,6 +216,17 @@ export class InterviewService {
 
     return session
   }
+
+  private async logSafely(
+    event: string,
+    context: Record<string, unknown>,
+  ): Promise<void> {
+    try {
+      await this.logger.error(event, context)
+    } catch {
+      // no-op: logging must never block interview operations
+    }
+  }
 }
 
 export function resolveAiInterviewCreatePolicy(
@@ -229,4 +261,18 @@ function defaultCreateId(): string {
 
 function defaultNow(): string {
   return new Date().toISOString()
+}
+
+const noOpInterviewServiceLogger: InterviewServiceLogger = {
+  error: async function errorNoOp() {
+    return undefined
+  },
+}
+
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message
+  }
+
+  return String(error)
 }
