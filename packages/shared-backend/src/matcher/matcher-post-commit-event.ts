@@ -1,30 +1,23 @@
 import { z } from 'zod'
 import {
+  buildInterviewMatchCreatedEvent,
+  buildInterviewMatchCreatedIdempotencyKey,
+  interviewMatchCreatedEventSchema,
+  type InterviewMatchCreatedEvent,
+} from '../notifications/interview-notification-event'
+import {
   matcherCreatedInterviewSchema,
   type MatcherCreatedInterview,
 } from './types'
 
-const eventTimestampSchema = z
-  .union([z.string().datetime({ offset: true }), z.date()])
-  .transform(function normalizeTimestamp(value) {
-    return value instanceof Date ? value.toISOString() : value
-  })
-
 export const matcherParticipantsSchema = z.object({
   scheduler_user_id: z.string().uuid(),
   interviewer_user_id: z.string().uuid(),
-})
+}).strict()
 
-export const matcherMatchCreatedEventSchema = z.object({
-  event_type: z.literal('interview.match.created'),
-  event_id: z.string().uuid(),
-  idempotency_key: z.string().min(1),
-  occurred_at: eventTimestampSchema,
-  interview: matcherCreatedInterviewSchema,
-  participants: matcherParticipantsSchema,
-})
+export const matcherMatchCreatedEventSchema = interviewMatchCreatedEventSchema
 
-export type MatcherMatchCreatedEvent = z.infer<typeof matcherMatchCreatedEventSchema>
+export type MatcherMatchCreatedEvent = InterviewMatchCreatedEvent
 
 export type MatcherPostCommitEventPublisher = {
   publish(event: MatcherMatchCreatedEvent): Promise<void>
@@ -47,25 +40,22 @@ export function buildMatcherMatchCreatedEvent(
   input: BuildMatcherMatchCreatedEventInput,
   dependencies: BuildMatcherMatchCreatedEventDependencies = {},
 ): MatcherMatchCreatedEvent {
-  const createEventId = dependencies.createEventId ?? createDefaultEventId
-  const now = dependencies.now ?? createDefaultNow
   const interview = matcherCreatedInterviewSchema.parse(input.interview)
 
-  return matcherMatchCreatedEventSchema.parse({
-    event_type: 'interview.match.created',
-    event_id: createEventId(),
-    idempotency_key: buildMatcherMatchCreatedIdempotencyKey(interview.id),
-    occurred_at: now(),
-    interview,
-    participants: {
-      scheduler_user_id: interview.scheduler_id,
-      interviewer_user_id: interview.interviewer_id,
+  return buildInterviewMatchCreatedEvent(
+    {
+      interview,
+      participants: {
+        scheduler_user_id: interview.scheduler_id,
+        interviewer_user_id: interview.interviewer_id,
+      },
     },
-  })
+    dependencies,
+  )
 }
 
 export function buildMatcherMatchCreatedIdempotencyKey(interviewId: string): string {
-  return `interview.match.created:${interviewId}`
+  return buildInterviewMatchCreatedIdempotencyKey(interviewId)
 }
 
 export function createMatcherQueuePostCommitEventPublisher(
@@ -77,12 +67,4 @@ export function createMatcherQueuePostCommitEventPublisher(
       await queueTransport.send(payload)
     },
   }
-}
-
-function createDefaultEventId(): string {
-  return crypto.randomUUID()
-}
-
-function createDefaultNow(): string {
-  return new Date().toISOString()
 }

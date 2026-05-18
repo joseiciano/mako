@@ -31,6 +31,7 @@ export * from './auth'
 export * from './interview'
 export * from './interviews'
 export * from './matcher'
+export * from './notifications'
 
 export type SqlQuery = {
   text: string

@@ -4,6 +4,7 @@ import {
   buildMatcherMatchCreatedIdempotencyKey,
   createMatcherQueuePostCommitEventPublisher,
   matcherMatchCreatedEventSchema,
+  matcherParticipantsSchema,
 } from './matcher-post-commit-event'
 
 describe('matcher post-commit event contract', function matcherPostCommitEventSuite() {
@@ -129,5 +130,15 @@ describe('matcher post-commit event contract', function matcherPostCommitEventSu
     )
 
     expect(sentMessages).toHaveLength(1)
+  })
+
+  it('rejects unknown keys in matcher participant schema', function shouldRejectUnknownKeys() {
+    const parseResult = matcherParticipantsSchema.safeParse({
+      scheduler_user_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      interviewer_user_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      extra_field: 'should not be allowed',
+    })
+
+    expect(parseResult.success).toBe(false)
   })
 })
