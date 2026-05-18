@@ -314,6 +314,31 @@ describe('InterviewController', function interviewControllerSuite() {
     })
   })
 
+  it('allows interviewers to cancel scheduled interviews they are assigned to', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: '99999999-9999-4999-8999-999999999999',
+          interviewer_id: activeSession.userId,
+        }),
+      ],
+    })
+
+    const response = await app.request(`/api/interviews/${interviewId}/cancel`, {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      success: true,
+    })
+  })
+
   it('returns 400 for invalid cancel route params', async function run() {
     const app = createInterviewApp({
       session: activeSession,
@@ -341,6 +366,131 @@ describe('InterviewController', function interviewControllerSuite() {
           id: '33333333-3333-4333-8333-333333333333',
           scheduler_id: activeSession.userId,
           status: 'ongoing',
+        }),
+      ],
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/cancel',
+      {
+        method: 'POST',
+      },
+    )
+
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Only scheduled interviews can be cancelled.',
+    })
+  })
+
+  it('returns 401 when cancelling without an authenticated session', async function run() {
+    const app = createInterviewApp({
+      session: null,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/cancel',
+      {
+        method: 'POST',
+      },
+    )
+
+    expect(response.status).toBe(401)
+    await expect(response.json()).resolves.toEqual({
+      error: 'You must be authenticated to access this resource.',
+    })
+  })
+
+  it('returns 404 when active user is not a participant on the interview', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: '99999999-9999-4999-8999-999999999999',
+          interviewer_id: '88888888-8888-4888-8888-888888888888',
+        }),
+      ],
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/cancel',
+      {
+        method: 'POST',
+      },
+    )
+
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Interview was not found for the active participant.',
+    })
+  })
+
+  it('returns 404 when cancelling an interview that does not exist', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/cancel',
+      {
+        method: 'POST',
+      },
+    )
+
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Interview was not found for the active participant.',
+    })
+  })
+
+  it('returns 200 when cancelling an already-cancelled interview', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          status: 'cancelled',
+        }),
+      ],
+    })
+
+    const response = await app.request(`/api/interviews/${interviewId}/cancel`, {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      success: true,
+    })
+  })
+
+  it('returns 409 when cancelling a completed interview', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          status: 'completed',
         }),
       ],
     })
