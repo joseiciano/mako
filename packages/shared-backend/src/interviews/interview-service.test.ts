@@ -190,6 +190,28 @@ describe('InterviewService', function interviewServiceSuite() {
     ).resolves.toEqual({ success: true })
   })
 
+  it('allows interviewers to cancel scheduled interviews they are assigned to', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const { service } = createInterviewService(
+      {
+        freeAiInterviews: 0,
+        credits: 0,
+      },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: '99999999-9999-4999-8999-999999999999',
+          interviewer_id: activeSession.userId,
+        }),
+      ],
+    )
+
+    await expect(
+      service.cancelInterview(activeSession, { id: interviewId }),
+    ).resolves.toEqual({ success: true })
+  })
+
   it('rejects cancel requests for non-scheduled interviews', async function run() {
     const { service } = createInterviewService(
       {
@@ -211,6 +233,51 @@ describe('InterviewService', function interviewServiceSuite() {
         id: '33333333-3333-4333-8333-333333333333',
       }),
     ).rejects.toBeInstanceOf(InterviewConflictError)
+  })
+
+  it('rejects cancel requests for completed interviews', async function run() {
+    const { service } = createInterviewService(
+      {
+        freeAiInterviews: 0,
+        credits: 0,
+      },
+      undefined,
+      [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          status: 'completed',
+        }),
+      ],
+    )
+
+    await expect(
+      service.cancelInterview(activeSession, {
+        id: '33333333-3333-4333-8333-333333333333',
+      }),
+    ).rejects.toBeInstanceOf(InterviewConflictError)
+  })
+
+  it('rejects cancel requests when the user is not authenticated', async function run() {
+    const { service } = createInterviewService(
+      {
+        freeAiInterviews: 0,
+        credits: 0,
+      },
+      undefined,
+      [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+    )
+
+    await expect(
+      service.cancelInterview(null, {
+        id: '33333333-3333-4333-8333-333333333333',
+      }),
+    ).rejects.toBeInstanceOf(InterviewUnauthorizedError)
   })
 
   it('rejects cancel requests when the participant cannot access the interview', async function run() {
