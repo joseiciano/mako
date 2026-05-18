@@ -16,11 +16,11 @@
 
 ### 2. Authentication Guards
 - [x] **Implement Global Auth Redirects**
-    - [x] In `apps/frontend/src/components/layout/app-shell/app-shell-smart.tsx`:
-        - [x] Integrated **Better Auth** session hooks via `useAuth` (`authClient.useSession`).
-        - [x] Implemented a client-side redirect to `/login` when no session is detected.
-        - [x] Added a loading state while auth status is being resolved.
-    - [x] Added TanStack authenticated route guard in `apps/frontend/src/routes/_authenticated.tsx` using `beforeLoad` + redirect.
+    - [x] In `apps/frontend/src/routes/_authenticated.tsx`:
+        - [x] Added a `beforeLoad` guard that fetches the session via `authSessionQueryOptions` and redirects to `/login` when the user is unauthenticated.
+        - [x] Wrapped the layout in the `<AuthGuard>` component (`apps/frontend/src/components/auth-guard`) to render a loading state while auth status is being resolved and an error state on failure.
+    - [x] The `AuthGuard` smart component (`auth-guard-smart.tsx`) uses `useAuth` to detect session status and performs a client-side redirect only as a fallback when the route guard is bypassed.
+    - [x] `app-shell-smart.tsx` no longer owns auth redirect or loading behavior; it receives authenticated children and handles layout concerns (mobile nav, sign-out, header/sidebar state).
 
 ### 3. Navigation State Sync
 - [x] **Sync Navigation with Route Changes**
@@ -31,6 +31,9 @@
 - **New Files**:
     - `apps/frontend/src/lib/auth-client.ts`
     - `apps/frontend/src/hooks/use-auth.ts`
+    - `apps/frontend/src/components/auth-guard/auth-guard-smart.tsx`
+    - `apps/frontend/src/components/auth-guard/auth-guard-dumb.tsx`
+    - `apps/frontend/src/components/auth-guard/auth-guard-smart.test.tsx`
     - `apps/frontend/src/components/layout/app-shell/app-shell-smart.test.ts`
     - `apps/frontend/src/routes/_authenticated.tsx`
     - `apps/frontend/src/routes/_authenticated.dashboard.tsx`

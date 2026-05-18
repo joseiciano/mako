@@ -49,7 +49,8 @@ export function authSessionQueryOptions() {
     queryKey: authSessionQueryKey,
     queryFn: fetchAuthSession,
     retry: false,
-    staleTime: 0,
+    staleTime: 1000 * 30,
+    refetchOnWindowFocus: false,
   }
 }
 

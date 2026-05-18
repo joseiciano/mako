@@ -92,6 +92,8 @@ describe('auth session query', function () {
     const options = authSessionQueryOptions()
 
     expect(options.queryKey).toEqual(authSessionQueryKey)
+    expect(options.staleTime).toBeGreaterThan(0)
+    expect(options.refetchOnWindowFocus).toBe(false)
     await expect(options.queryFn()).resolves.toEqual(sessionPayload)
   })
 
