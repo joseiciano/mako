@@ -2,29 +2,29 @@
 
 **Milestone**: Milestone 2: Interview Scheduling & Dashboard
 **Description**: Implement participant-scoped interview listing with documented query params, deterministic ordering, and stable pagination behavior.
-**Status**: Todo
+**Status**: Completed
 **Prerequisites**:
 - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/3-4-interview-shared-contracts-and-module-wiring.md`
 
 ## What Needs to Be Done
 
 ### 1. Participant-scoped listing behavior
-- [ ] Return interviews where authenticated user is a participant (`scheduler_id` or `interviewer_id`).
-- [ ] Ensure response mapping follows shared contracts and API field mapping documented in `docs/system/system-design/api-routes.md`.
+- [x] Return interviews where authenticated user is a participant (`scheduler_id` or `interviewer_id`).
+- [x] Ensure response mapping follows shared contracts and API field mapping documented in `docs/system/system-design/api-routes.md`.
 
 ### 2. Query parameter support
-- [ ] Support query params exactly as defined in `docs/system/system-design/api-routes.md`:
+- [x] Support query params exactly as defined in `docs/system/system-design/api-routes.md`:
   - `status?`
   - `limit?`
   - `offset?`
-- [ ] Reject invalid parameter values with clear validation errors.
+- [x] Reject invalid parameter values with clear validation errors.
 
 ### 3. Deterministic ordering and pagination
-- [ ] Define one explicit stable ordering contract for list responses and document it in code/tests.
-- [ ] Implement pagination behavior so repeated calls over unchanged data are deterministic.
+- [x] Define one explicit stable ordering contract for list responses and document it in code/tests.
+- [x] Implement pagination behavior so repeated calls over unchanged data are deterministic.
 
 ### 4. List-route test coverage
-- [ ] Add/update tests for:
+- [x] Add/update tests for:
   - participant scoping
   - query param validation and filtering
   - deterministic ordering
