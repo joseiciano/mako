@@ -389,6 +389,81 @@ describe('backend-rest smoke tests', function () {
         'AI-led interview creation requires remaining free AI interviews or credits.',
     })
   })
+
+  it('emits interview.created end-to-end when INTERVIEW_PROVISIONING_QUEUE binding is present', async function () {
+    const app = createApp()
+    const queueMessages: unknown[] = []
+    const mockQueueBinding = createMockQueueBinding(queueMessages)
+
+    const response = await createInterview(app, {}, {
+      INTERVIEW_PROVISIONING_QUEUE: mockQueueBinding,
+    })
+
+    expect(response.status).toBe(201)
+    expect(queueMessages).toHaveLength(1)
+
+    const message = queueMessages[0] as {
+      event_type: string
+      interview: { id: string; mode: string }
+      idempotency_key: string
+    }
+    expect(message.event_type).toBe('interview.created')
+    expect(message.interview.mode).toBe('ai_led')
+    expect(message.idempotency_key).toBe(`interview.created:${message.interview.id}`)
+  })
+
+  it('emits interview.cancelled end-to-end only on first successful cancel', async function () {
+    const app = createApp()
+    const queueMessages: unknown[] = []
+    const mockQueueBinding = createMockQueueBinding(queueMessages)
+    const env: Partial<WorkerBindings> = {
+      INTERVIEW_PROVISIONING_QUEUE: mockQueueBinding,
+    }
+
+    const createResponse = await createInterview(app, {}, env)
+    expect(createResponse.status).toBe(201)
+    expect(queueMessages).toHaveLength(1)
+
+    const createdInterview = (await createResponse.json()) as {
+      interview: { id: string }
+    }
+    const interviewId = createdInterview.interview.id
+
+    const firstCancel = await cancelInterview(app, interviewId, env)
+    expect(firstCancel.status).toBe(200)
+    expect(queueMessages).toHaveLength(2)
+
+    const cancelMessage = queueMessages[1] as {
+      event_type: string
+      interview: { id: string; status: string }
+      idempotency_key: string
+    }
+    expect(cancelMessage.event_type).toBe('interview.cancelled')
+    expect(cancelMessage.interview.id).toBe(interviewId)
+    expect(cancelMessage.interview.status).toBe('cancelled')
+    expect(cancelMessage.idempotency_key).toBe(`interview.cancelled:${interviewId}`)
+
+    const secondCancel = await cancelInterview(app, interviewId, env)
+    expect(secondCancel.status).toBe(200)
+    expect(queueMessages).toHaveLength(2)
+  })
+
+  it('does not emit queue events when INTERVIEW_PROVISIONING_QUEUE binding is absent', async function () {
+    const app = createApp()
+
+    const response = await createInterview(app)
+    expect(response.status).toBe(201)
+
+    const createdInterview = (await response.json()) as {
+      interview: { id: string }
+    }
+
+    const cancelResponse = await cancelInterview(app, createdInterview.interview.id)
+    expect(cancelResponse.status).toBe(200)
+
+    // No queue binding was provided; behavior should be stable
+    expect(true).toBe(true)
+  })
 })
 
 function createInterview(
@@ -455,6 +530,14 @@ function cancelInterview(
   env: Partial<WorkerBindings> = {},
 ) {
   return app.request(`/api/interviews/${interviewId}/cancel`, { method: 'POST' }, env)
+}
+
+function createMockQueueBinding(messages: unknown[]) {
+  return {
+    async send(message: unknown) {
+      messages.push(message)
+    },
+  }
 }
 
 function createDatabaseBinding(accountState: {

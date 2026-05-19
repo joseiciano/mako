@@ -26,6 +26,13 @@ import {
   type SqlQueryExecutor,
 } from '@mako/shared-backend'
 import type { SqlQuery } from '@mako/shared-backend'
+import {
+  buildInterviewCreatedEvent,
+  buildInterviewCancelledEvent,
+  createInterviewQueuePostCommitEventPublisher,
+  type InterviewPostCommitEvent,
+  type InterviewPostCommitQueueTransport,
+} from '@mako/shared-backend'
 import type { Context, Next } from 'hono'
 import { Hono } from 'hono'
 
@@ -40,11 +47,9 @@ export type HyperdriveBinding = {
   connectionString: string
 }
 
-type PostgresClient = Awaited<
-  ReturnType<ReturnType<typeof createPostgresConnectionPool>['connect']>
->
-
-type PostgresPool = ReturnType<typeof createPostgresConnectionPool>
+export type QueueBinding = {
+  send(message: unknown): Promise<void>
+}
 
 export type WorkerBindings = {
   DB?: DatabaseBinding
@@ -52,7 +57,14 @@ export type WorkerBindings = {
   BETTER_AUTH_SECRET?: string
   BETTER_AUTH_URL?: string
   BETTER_AUTH_TRUSTED_ORIGINS?: string
+  INTERVIEW_PROVISIONING_QUEUE?: QueueBinding
 }
+
+type PostgresClient = Awaited<
+  ReturnType<ReturnType<typeof createPostgresConnectionPool>['connect']>
+>
+
+type PostgresPool = ReturnType<typeof createPostgresConnectionPool>
 
 const demoSession = {
   userId: '11111111-1111-4111-8111-111111111111',
@@ -117,12 +129,25 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
 
   registerInterviewController(app, {
     createService: function createService(context) {
+      const queueBinding = context.bindings.INTERVIEW_PROVISIONING_QUEUE
+      const postCommitEventPublisher = queueBinding
+        ? createInterviewQueuePostCommitEventPublisher({
+            send: async function send(message) {
+              await queueBinding.send(message)
+            },
+          })
+        : null
+
       return new InterviewService(
         new InterviewRepository(
           hasDatabaseAccess(context.bindings)
             ? { queryExecutor: createDatabaseQueryExecutor(context.bindings) }
             : demoDataSources.interview,
         ),
+        undefined,
+        undefined,
+        undefined,
+        postCommitEventPublisher,
       )
     },
     resolveSession: function resolveSession(context) {
