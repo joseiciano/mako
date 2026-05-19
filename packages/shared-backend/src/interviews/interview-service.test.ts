@@ -12,6 +12,7 @@ import {
   type InterviewSession,
 } from './types'
 import { InterviewService } from './interview-service'
+import type { InterviewPostCommitEvent } from './interview-post-commit-event'
 
 const activeSession: InterviewSession = {
   userId: '11111111-1111-4111-8111-111111111111',
@@ -230,6 +231,122 @@ describe('InterviewService', function interviewServiceSuite() {
       }),
     ).rejects.toBeInstanceOf(InterviewNotFoundError)
   })
+
+  it('emits interview.created after successful AI-led create when publisher is provided', async function run() {
+    const publishedEvents: InterviewPostCommitEvent[] = []
+    const { service } = createInterviewService(
+      {
+        freeAiInterviews: 1,
+        credits: 0,
+      },
+      undefined,
+      [],
+      {
+        publish: async function publish(event) {
+          publishedEvents.push(event)
+        },
+      },
+    )
+
+    const response = await service.createInterview(activeSession, {
+      type: 'system_design',
+      mode: 'ai_led',
+      scheduled_at: 'now',
+    })
+
+    expect(publishedEvents).toHaveLength(1)
+    expect(publishedEvents[0]).toMatchObject({
+      event_type: 'interview.created',
+      interview: {
+        id: response.interview.id,
+        scheduler_id: activeSession.userId,
+        interviewer_id: null,
+        mode: 'ai_led',
+        tier: 'standard',
+      },
+      participants: {
+        scheduler_user_id: activeSession.userId,
+        interviewer_user_id: null,
+      },
+    })
+    expect(publishedEvents[0]?.idempotency_key).toBe(
+      `interview.created:${response.interview.id}`,
+    )
+  })
+
+  it('does not emit interview.created when publisher is absent', async function run() {
+    const { service } = createInterviewService({
+      freeAiInterviews: 1,
+      credits: 0,
+    })
+
+    await service.createInterview(activeSession, {
+      type: 'system_design',
+      mode: 'ai_led',
+      scheduled_at: 'now',
+    })
+
+    // No publisher was provided; no error should occur
+    expect(true).toBe(true)
+  })
+
+  it('emits interview.cancelled only on first successful cancel', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const publishedEvents: InterviewPostCommitEvent[] = []
+    const { service } = createInterviewService(
+      {
+        freeAiInterviews: 0,
+        credits: 0,
+      },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+      {
+        publish: async function publish(event) {
+          publishedEvents.push(event)
+        },
+      },
+    )
+
+    await service.cancelInterview(activeSession, { id: interviewId })
+    expect(publishedEvents).toHaveLength(1)
+    expect(publishedEvents[0]).toMatchObject({
+      event_type: 'interview.cancelled',
+      interview: {
+        id: interviewId,
+        status: 'cancelled',
+      },
+    })
+
+    await service.cancelInterview(activeSession, { id: interviewId })
+    expect(publishedEvents).toHaveLength(1)
+  })
+
+  it('does not emit interview.cancelled when publisher is absent', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const { service } = createInterviewService(
+      {
+        freeAiInterviews: 0,
+        credits: 0,
+      },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+    )
+
+    await service.cancelInterview(activeSession, { id: interviewId })
+
+    // No publisher was provided; no error should occur
+    expect(true).toBe(true)
+  })
 })
 
 function createInterviewService(
@@ -242,6 +359,9 @@ function createInterviewService(
     creditAiInterviewTier: 'standard' | 'premium'
   },
   seedInterviews: readonly Interview[] = [],
+  postCommitEventPublisher?: {
+    publish(event: InterviewPostCommitEvent): Promise<void>
+  },
 ) {
   const repository = new InterviewRepository(
     createInMemoryInterviewDataSource([
@@ -261,6 +381,7 @@ function createInterviewService(
     function now() {
       return '2026-04-13T10:00:00.000Z'
     },
+    postCommitEventPublisher ?? null,
   )
 
   return {

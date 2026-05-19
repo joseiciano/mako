@@ -8,6 +8,7 @@ import {
 import { registerInterviewController } from './interview-controller'
 import { InterviewService } from './interview-service'
 import type { InterviewSession } from './types'
+import type { InterviewPostCommitEvent } from './interview-post-commit-event'
 
 type TestBindings = Record<string, unknown>
 
@@ -314,6 +315,99 @@ describe('InterviewController', function interviewControllerSuite() {
     })
   })
 
+  it('emits interview.created for AI-led create path when publisher is provided', async function run() {
+    const publishedEvents: InterviewPostCommitEvent[] = []
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 1,
+      credits: 0,
+      postCommitEventPublisher: {
+        publish: async function publish(event) {
+          publishedEvents.push(event)
+        },
+      },
+    })
+
+    const response = await app.request('/api/interviews', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        type: 'system_design',
+        mode: 'ai_led',
+        scheduled_at: 'now',
+      }),
+    })
+
+    expect(response.status).toBe(201)
+    expect(publishedEvents).toHaveLength(1)
+    expect(publishedEvents[0]?.event_type).toBe('interview.created')
+  })
+
+  it('does not emit interview.created for unsupported peer-to-peer create', async function run() {
+    const publishedEvents: InterviewPostCommitEvent[] = []
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 1,
+      credits: 0,
+      postCommitEventPublisher: {
+        publish: async function publish(event) {
+          publishedEvents.push(event)
+        },
+      },
+    })
+
+    const response = await app.request('/api/interviews', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        type: 'system_design',
+        mode: 'peer_to_peer',
+        scheduled_at: '2026-04-13T10:00:00.000Z',
+      }),
+    })
+
+    expect(response.status).toBe(422)
+    expect(publishedEvents).toHaveLength(0)
+  })
+
+  it('emits interview.cancelled only on first successful cancel', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const publishedEvents: InterviewPostCommitEvent[] = []
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+      postCommitEventPublisher: {
+        publish: async function publish(event) {
+          publishedEvents.push(event)
+        },
+      },
+    })
+
+    const firstCancel = await app.request(`/api/interviews/${interviewId}/cancel`, {
+      method: 'POST',
+    })
+    expect(firstCancel.status).toBe(200)
+    expect(publishedEvents).toHaveLength(1)
+    expect(publishedEvents[0]?.event_type).toBe('interview.cancelled')
+
+    const secondCancel = await app.request(`/api/interviews/${interviewId}/cancel`, {
+      method: 'POST',
+    })
+    expect(secondCancel.status).toBe(200)
+    expect(publishedEvents).toHaveLength(1)
+  })
+
   it('returns 400 for invalid cancel route params', async function run() {
     const app = createInterviewApp({
       session: activeSession,
@@ -364,6 +458,9 @@ function createInterviewApp(options: {
   freeAiInterviews: number
   credits: number
   seedInterviews?: readonly Interview[]
+  postCommitEventPublisher?: {
+    publish(event: InterviewPostCommitEvent): Promise<void>
+  }
 }) {
   const app = new Hono<{ Bindings: TestBindings }>()
   const interviewService = new InterviewService(
@@ -383,6 +480,7 @@ function createInterviewApp(options: {
     function now() {
       return '2026-04-13T10:00:00.000Z'
     },
+    options.postCommitEventPublisher ?? null,
   )
 
   registerInterviewController(app, {

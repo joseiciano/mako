@@ -23,6 +23,11 @@ import {
   type InterviewSession,
   type ResolvedInterviewCreatePolicy,
 } from './types'
+import {
+  buildInterviewCancelledEvent,
+  buildInterviewCreatedEvent,
+  type InterviewPostCommitEventPublisher,
+} from './interview-post-commit-event'
 
 export class InterviewService {
   constructor(
@@ -33,6 +38,7 @@ export class InterviewService {
     },
     private readonly createId: () => string = defaultCreateId,
     private readonly now: () => string = defaultNow,
+    private readonly postCommitEventPublisher: InterviewPostCommitEventPublisher | null = null,
   ) {}
 
   async createInterview(
@@ -47,6 +53,23 @@ export class InterviewService {
       type: input.type,
       scheduledAt: input.scheduled_at === 'now' ? this.now() : input.scheduled_at,
     })
+
+    if (this.postCommitEventPublisher) {
+      await this.postCommitEventPublisher.publish(
+        buildInterviewCreatedEvent({
+          interview: {
+            id: createdInterview.id,
+            scheduler_id: createdInterview.scheduler_id,
+            interviewer_id: createdInterview.interviewer_id,
+            type: createdInterview.type,
+            mode: createdInterview.mode as 'ai_led',
+            tier: createdInterview.tier,
+            status: createdInterview.status as 'scheduled',
+            scheduled_at: createdInterview.scheduled_at,
+          },
+        }),
+      )
+    }
 
     return toCreateInterviewResponse(createdInterview)
   }
@@ -84,7 +107,25 @@ export class InterviewService {
     })
 
     switch (cancelResult.outcome) {
-      case 'cancelled':
+      case 'cancelled': {
+        if (this.postCommitEventPublisher) {
+          await this.postCommitEventPublisher.publish(
+            buildInterviewCancelledEvent({
+              interview: {
+                id: cancelResult.interview.id,
+                scheduler_id: cancelResult.interview.scheduler_id,
+                interviewer_id: cancelResult.interview.interviewer_id,
+                type: cancelResult.interview.type,
+                mode: cancelResult.interview.mode,
+                tier: cancelResult.interview.tier,
+                status: cancelResult.interview.status as 'cancelled',
+                scheduled_at: cancelResult.interview.scheduled_at,
+              },
+            }),
+          )
+        }
+        return toCancelInterviewResponse()
+      }
       case 'already_cancelled':
         return toCancelInterviewResponse()
       case 'invalid_status':

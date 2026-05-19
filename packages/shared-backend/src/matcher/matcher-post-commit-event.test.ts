@@ -95,6 +95,31 @@ describe('matcher post-commit event contract', function matcherPostCommitEventSu
     expect(parseResult.success).toBe(false)
   })
 
+  it('rejects canonical-vs-derived identity mismatch for interview.match.created', function shouldRejectIdentityMismatch() {
+    const parseResult = matcherMatchCreatedEventSchema.safeParse({
+      event_type: 'interview.match.created',
+      event_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      idempotency_key: 'interview.match.created:99999999-9999-4999-8999-999999999999',
+      occurred_at: '2026-04-01T12:00:00.000Z',
+      interview: {
+        id: '99999999-9999-4999-8999-999999999999',
+        scheduler_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        interviewer_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        type: 'system_design',
+        mode: 'peer_to_peer',
+        tier: 'standard',
+        status: 'scheduled',
+        scheduled_at: '2026-04-10T10:30:00.000Z',
+      },
+      participants: {
+        scheduler_user_id: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+        interviewer_user_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      },
+    })
+
+    expect(parseResult.success).toBe(false)
+  })
+
   it('publishes match events through queue transport hand-off', async function shouldPublishViaQueueTransport() {
     const sentMessages: unknown[] = []
     const publisher = createMatcherQueuePostCommitEventPublisher({
