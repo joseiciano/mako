@@ -119,6 +119,24 @@ describe('use-scheduled-interviews hook', function useScheduledInterviewsSuite()
     ).rejects.toThrow()
   })
 
+  it('fetchScheduledInterviews forwards abort signal into fetch init', async function run() {
+    const controller = new AbortController()
+    const signal = controller.signal
+
+    await fetchScheduledInterviews(
+      async function mockFetch(_input, init) {
+        expect(init?.signal).toBe(signal)
+        return new Response(
+          JSON.stringify({
+            interviews: [],
+          }),
+          { status: 200 },
+        )
+      },
+      signal,
+    )
+  })
+
   it('keeps query key explicit and stable', function run() {
     expect(scheduledInterviewsQueryKey).toEqual(['interviews', 'scheduled'])
   })

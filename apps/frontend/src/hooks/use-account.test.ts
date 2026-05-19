@@ -139,6 +139,42 @@ describe('use-account hooks', function useAccountHooksSuite() {
     ).rejects.toThrow('boom')
   })
 
+  it('fetchAccount forwards abort signal into fetch init', async function run() {
+    const controller = new AbortController()
+    const signal = controller.signal
+
+    await fetchAccount(
+      async function mockFetch(_input, init) {
+        expect(init?.signal).toBe(signal)
+        return new Response(JSON.stringify(accountFixture), {
+          status: 200,
+          headers: {
+            'content-type': 'application/json',
+          },
+        })
+      },
+      signal,
+    )
+  })
+
+  it('fetchCompanies forwards abort signal into fetch init', async function run() {
+    const controller = new AbortController()
+    const signal = controller.signal
+
+    await fetchCompanies(
+      async function mockFetch(_input, init) {
+        expect(init?.signal).toBe(signal)
+        return new Response(
+          JSON.stringify({
+            companies: [],
+          }),
+          { status: 200 },
+        )
+      },
+      signal,
+    )
+  })
+
   it('creates an optimistic company record', function shouldCreateOptimisticRecord() {
     const optimisticCompany = createOptimisticCompany({
       company: ' Stripe ',

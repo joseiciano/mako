@@ -16,20 +16,22 @@ export const scheduledInterviewsQueryKey = ['interviews', 'scheduled'] as const
 export function useScheduledInterviews(): UseQueryResult<InterviewListItem[], Error> {
   return useQuery({
     queryKey: scheduledInterviewsQueryKey,
-    queryFn: function getScheduledInterviewsQuery() {
-      return fetchScheduledInterviews()
+    queryFn: function getScheduledInterviewsQuery({ signal }) {
+      return fetchScheduledInterviews(fetch, signal)
     },
   })
 }
 
 export async function fetchScheduledInterviews(
   fetchImpl: typeof fetch = fetch,
+  signal?: AbortSignal,
 ): Promise<InterviewListItem[]> {
   const response = await fetchImpl(
     createApiUrl('/api/interviews?status=scheduled'),
     createApiRequestInit({
       method: 'GET',
       headers: demoSessionHeaders,
+      signal,
     }),
   )
 

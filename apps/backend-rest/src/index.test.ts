@@ -389,6 +389,32 @@ describe('backend-rest smoke tests', function () {
         'AI-led interview creation requires remaining free AI interviews or credits.',
     })
   })
+
+  it('logs post-commit publish failures without failing the HTTP response', async function () {
+    const app = createApp()
+    const consoleErrorSpy = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {})
+
+    const failingQueue = {
+      async send() {
+        throw new Error('Queue send failed')
+      },
+    } as unknown as Queue
+
+    const response = await createInterview(
+      app,
+      {},
+      {
+        INTERVIEW_PROVISIONING_QUEUE: failingQueue,
+      },
+    )
+
+    expect(response.status).toBe(201)
+    expect(consoleErrorSpy).toHaveBeenCalled()
+
+    consoleErrorSpy.mockRestore()
+  })
 })
 
 function createInterview(

@@ -10,6 +10,14 @@
       "id": "__HYPERDRIVE_ID__"
     }
   ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "INTERVIEW_PROVISIONING_QUEUE",
+        "queue": "interview-provisioning"
+      }
+    ]
+  },
   "observability": {
     "enabled": true,
     "logs": {

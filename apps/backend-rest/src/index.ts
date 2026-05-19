@@ -1,4 +1,7 @@
-import { createHealthResponse, type Interview } from '@mako/shared'
+import {
+  createHealthResponse,
+  type Interview,
+} from '@mako/shared'
 import {
   AccountRepository,
   AccountService,
@@ -7,6 +10,7 @@ import {
   InterviewPolicyConflictError,
   InterviewRepository,
   InterviewService,
+  type InterviewServiceLogger,
   backendRuntime,
   createPostgresConnectionPool,
   createAuthSessionMiddleware,
@@ -19,6 +23,7 @@ import {
   registerAccountController,
   registerAuthController,
   registerInterviewController,
+  createInterviewQueuePostCommitEventPublisher,
   type AccountProfileRecord,
   type AccountRepositoryDataSource,
   type CreateInterviewRecordInput,
@@ -52,6 +57,7 @@ export type WorkerBindings = {
   BETTER_AUTH_SECRET?: string
   BETTER_AUTH_URL?: string
   BETTER_AUTH_TRUSTED_ORIGINS?: string
+  INTERVIEW_PROVISIONING_QUEUE?: Queue
 }
 
 const demoSession = {
@@ -74,6 +80,12 @@ const seededDemoAccounts: readonly AccountProfileRecord[] = [
 const corsAllowedMethods = 'GET,POST,PUT,PATCH,DELETE,OPTIONS'
 const defaultCorsAllowedHeaders = 'content-type,authorization'
 const corsMaxAgeSeconds = '86400'
+
+const consoleInterviewServiceLogger: InterviewServiceLogger = {
+  error(event, context) {
+    console.error(`[InterviewService] ${event}`, context)
+  },
+}
 
 export function createApp(): Hono<{ Bindings: WorkerBindings }> {
   const app = new Hono<{ Bindings: WorkerBindings }>()
@@ -117,12 +129,27 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
 
   registerInterviewController(app, {
     createService: function createService(context) {
+      const repository = new InterviewRepository(
+        hasDatabaseAccess(context.bindings)
+          ? { queryExecutor: createDatabaseQueryExecutor(context.bindings) }
+          : demoDataSources.interview,
+      )
+      const postCommitEventPublisher = context.bindings
+        .INTERVIEW_PROVISIONING_QUEUE
+        ? createInterviewQueuePostCommitEventPublisher({
+            send: async function send(message) {
+              await context.bindings.INTERVIEW_PROVISIONING_QUEUE!.send(message)
+            },
+          })
+        : undefined
+
       return new InterviewService(
-        new InterviewRepository(
-          hasDatabaseAccess(context.bindings)
-            ? { queryExecutor: createDatabaseQueryExecutor(context.bindings) }
-            : demoDataSources.interview,
-        ),
+        repository,
+        undefined,
+        undefined,
+        undefined,
+        postCommitEventPublisher,
+        consoleInterviewServiceLogger,
       )
     },
     resolveSession: function resolveSession(context) {

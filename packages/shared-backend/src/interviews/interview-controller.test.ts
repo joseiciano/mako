@@ -8,6 +8,10 @@ import {
 import { registerInterviewController } from './interview-controller'
 import { InterviewService } from './interview-service'
 import type { InterviewSession } from './types'
+import type {
+  InterviewPostCommitEvent,
+  InterviewPostCommitEventPublisher,
+} from './interview-post-commit-event'
 
 type TestBindings = Record<string, unknown>
 
@@ -382,7 +386,6 @@ describe('InterviewController', function interviewControllerSuite() {
       error: 'Only scheduled interviews can be cancelled.',
     })
   })
-
   it('returns 401 when cancelling without an authenticated session', async function run() {
     const app = createInterviewApp({
       session: null,
@@ -507,6 +510,162 @@ describe('InterviewController', function interviewControllerSuite() {
       error: 'Only scheduled interviews can be cancelled.',
     })
   })
+
+  it('publishes one created event on successful create through the controller', async function run() {
+    const publishedEvents: InterviewPostCommitEvent[] = []
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 1,
+      credits: 0,
+      postCommitEventPublisher: {
+        async publish(event) {
+          publishedEvents.push(event)
+        },
+      },
+    })
+
+    const response = await app.request('/api/interviews', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        type: 'system_design',
+        mode: 'ai_led',
+        scheduled_at: 'now',
+      }),
+    })
+
+    expect(response.status).toBe(201)
+    expect(publishedEvents).toHaveLength(1)
+    expect(publishedEvents[0]).toMatchObject({
+      event_type: 'interview.created',
+    })
+  })
+
+  it('returns 201 when create succeeds but publish fails through the controller', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 1,
+      credits: 0,
+      postCommitEventPublisher: {
+        async publish() {
+          throw new Error('publish failed')
+        },
+      },
+    })
+
+    const response = await app.request('/api/interviews', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        type: 'system_design',
+        mode: 'ai_led',
+        scheduled_at: 'now',
+      }),
+    })
+
+    expect(response.status).toBe(201)
+    await expect(response.json()).resolves.toMatchObject({
+      interview: {
+        scheduler_id: activeSession.userId,
+        mode: 'ai_led',
+      },
+    })
+  })
+
+  it('publishes one cancelled event on successful cancel through the controller', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const publishedEvents: InterviewPostCommitEvent[] = []
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+      postCommitEventPublisher: {
+        async publish(event) {
+          publishedEvents.push(event)
+        },
+      },
+    })
+
+    const response = await app.request(`/api/interviews/${interviewId}/cancel`, {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(200)
+    expect(publishedEvents).toHaveLength(1)
+    expect(publishedEvents[0]).toMatchObject({
+      event_type: 'interview.cancelled',
+    })
+  })
+
+  it('returns 200 when cancel succeeds but publish fails through the controller', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+      postCommitEventPublisher: {
+        async publish() {
+          throw new Error('publish failed')
+        },
+      },
+    })
+
+    const response = await app.request(`/api/interviews/${interviewId}/cancel`, {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      success: true,
+    })
+  })
+
+  it('does not publish cancelled event on invalid cancel state through the controller', async function run() {
+    const publishedEvents: InterviewPostCommitEvent[] = []
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          status: 'ongoing',
+        }),
+      ],
+      postCommitEventPublisher: {
+        async publish(event) {
+          publishedEvents.push(event)
+        },
+      },
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/cancel',
+      {
+        method: 'POST',
+      },
+    )
+
+    expect(response.status).toBe(409)
+    expect(publishedEvents).toHaveLength(0)
+  })
 })
 
 function createInterviewApp(options: {
@@ -514,6 +673,7 @@ function createInterviewApp(options: {
   freeAiInterviews: number
   credits: number
   seedInterviews?: readonly Interview[]
+  postCommitEventPublisher?: InterviewPostCommitEventPublisher
 }) {
   const app = new Hono<{ Bindings: TestBindings }>()
   const interviewService = new InterviewService(
@@ -533,6 +693,7 @@ function createInterviewApp(options: {
     function now() {
       return '2026-04-13T10:00:00.000Z'
     },
+    options.postCommitEventPublisher,
   )
 
   registerInterviewController(app, {

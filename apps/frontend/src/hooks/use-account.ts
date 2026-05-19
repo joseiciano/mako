@@ -49,14 +49,14 @@ type MutationContext = {
   optimisticCompanyId: string
 }
 
-const accountQueryKey = ['account'] as const
+export const accountQueryKey = ['account'] as const
 export const accountCompaniesQueryKey = ['account', 'companies'] as const
 
 export function useAccount(): UseQueryResult<AccountProfile, Error> {
   return useQuery({
     queryKey: accountQueryKey,
-    queryFn: function getAccountQuery() {
-      return fetchAccount()
+    queryFn: function getAccountQuery({ signal }) {
+      return fetchAccount(fetch, signal)
     },
   })
 }
@@ -81,8 +81,8 @@ export function useUpdateProfile(): UseMutationResult<
 export function useCompanies(): UseQueryResult<Company[], Error> {
   return useQuery({
     queryKey: accountCompaniesQueryKey,
-    queryFn: function getCompaniesQuery() {
-      return fetchCompanies()
+    queryFn: function getCompaniesQuery({ signal }) {
+      return fetchCompanies(fetch, signal)
     },
   })
 }
@@ -161,11 +161,13 @@ export function useAddCompany(): UseMutationResult<
 
 export async function fetchAccount(
   fetchImpl: typeof fetch = fetch,
+  signal?: AbortSignal,
 ): Promise<AccountProfile> {
   const response = await fetchImpl(
     createApiUrl('/api/account'),
     createApiRequestInit({
       headers: demoSessionHeaders,
+      signal,
     }),
   )
 
@@ -206,12 +208,14 @@ export async function updateAccountProfile(
 
 export async function fetchCompanies(
   fetchImpl: typeof fetch = fetch,
+  signal?: AbortSignal,
 ): Promise<Company[]> {
   const response = await fetchImpl(
     createApiUrl('/api/companies'),
     createApiRequestInit({
       method: 'GET',
       headers: demoSessionHeaders,
+      signal,
     }),
   )
 

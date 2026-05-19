@@ -7,11 +7,27 @@ export {
 export {
   InterviewService,
   resolveAiInterviewCreatePolicy,
+  type InterviewServiceLogger,
 } from './interview-service'
 export {
   registerInterviewController,
   type InterviewControllerOptions,
 } from './interview-controller'
+export {
+  buildInterviewCancelledEvent,
+  buildInterviewCancelledIdempotencyKey,
+  buildInterviewCreatedEvent,
+  buildInterviewCreatedIdempotencyKey,
+  createInterviewQueuePostCommitEventPublisher,
+  interviewCancelledEventSchema,
+  interviewCreatedEventSchema,
+  interviewParticipantsSchema,
+  type InterviewCancelledEvent,
+  type InterviewCreatedEvent,
+  type InterviewPostCommitEvent,
+  type InterviewPostCommitEventPublisher,
+  type InterviewPostCommitQueueTransport,
+} from './interview-post-commit-event'
 export {
   cancelInterviewRecordInputSchema,
   defaultInterviewListLimit,

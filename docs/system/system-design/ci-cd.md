@@ -35,10 +35,13 @@ Core secrets:
 - `DATABASE_URL`
 - `HYPERDRIVE_ID`
 - `BETTER_AUTH_SECRET`
+- `BETTER_AUTH_URL`
+- `BETTER_AUTH_TRUSTED_ORIGINS`
+- `VITE_AUTH_BASE_URL`
 - `NEON_API_KEY`
 - `STRIPE_SECRET_KEY`
 
-Optional secrets (enabled when corresponding runtime features are introduced):
+Optional secrets (add when feature is enabled):
 
 - `NEON_DATABASE_URL`
 - `STRIPE_WEBHOOK_SECRET`
@@ -46,8 +49,8 @@ Optional secrets (enabled when corresponding runtime features are introduced):
 Secret sync behavior:
 
 - Terraform workflow consumes Cloudflare/Neon/Stripe secrets during infra apply.
-- Backend deploy injects `HYPERDRIVE_ID` into `apps/backend-rest/wrangler.jsonc` before deployment and syncs Worker runtime secrets (`BETTER_AUTH_SECRET`, `STRIPE_SECRET_KEY`). Postgres runtime access is provided through the Cloudflare Hyperdrive binding.
-- Frontend deploy only requires Cloudflare deployment credentials.
+- Backend deploy injects `HYPERDRIVE_ID` into `apps/backend-rest/wrangler.jsonc` before deployment and syncs Worker runtime secrets (`BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `BETTER_AUTH_TRUSTED_ORIGINS`, `STRIPE_SECRET_KEY`). Postgres runtime access is provided through the Cloudflare Hyperdrive binding.
+- Frontend deploy requires Cloudflare deployment credentials and `VITE_AUTH_BASE_URL`, which is injected at build time so the auth client knows the backend origin.
 
 ## CI/CD Setup Runbook
 
@@ -78,6 +81,9 @@ Core secrets (required):
 - `DATABASE_URL`
 - `HYPERDRIVE_ID`
 - `BETTER_AUTH_SECRET`
+- `BETTER_AUTH_URL`
+- `BETTER_AUTH_TRUSTED_ORIGINS`
+- `VITE_AUTH_BASE_URL`
 - `NEON_API_KEY`
 - `STRIPE_SECRET_KEY`
 
@@ -103,7 +109,8 @@ Use a least-privilege Cloudflare API token that can deploy Workers and manage on
 - **Missing secret errors**: secret is absent or misnamed in the `production` environment.
 - **Wrangler auth/account failures**: verify `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` match the same account.
 - **Terraform apply skipped**: no `*.tf` files found in `infrastructure/` (current workflow behavior).
-- **Backend runtime missing DB/Stripe/auth access**: verify `HYPERDRIVE_ID` was injected into `wrangler.jsonc`, confirm the deployed Worker has the `HYPERDRIVE` binding, then verify `BETTER_AUTH_SECRET` and `STRIPE_SECRET_KEY` and confirm Wrangler secret sync succeeded.
+- **Backend runtime missing DB/Stripe/auth access**: verify `HYPERDRIVE_ID` was injected into `wrangler.jsonc`, confirm the deployed Worker has the `HYPERDRIVE` binding, then verify `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `BETTER_AUTH_TRUSTED_ORIGINS`, and `STRIPE_SECRET_KEY` and confirm Wrangler secret sync succeeded.
+- **Frontend build or runtime auth errors**: verify `VITE_AUTH_BASE_URL` is set and points to the deployed backend-rest Worker URL.
 
 ## Pull Request Guidelines
 
