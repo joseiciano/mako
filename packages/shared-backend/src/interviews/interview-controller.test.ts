@@ -121,11 +121,17 @@ describe('InterviewController', function interviewControllerSuite() {
     })
   })
 
-  it('returns 422 for unsupported direct peer-to-peer create combinations', async function run() {
+  it('returns 422 for unsupported direct peer-to-peer create and emits no queue event', async function run() {
+    const publishedEvents: InterviewPostCommitEvent[] = []
     const app = createInterviewApp({
       session: activeSession,
       freeAiInterviews: 1,
       credits: 0,
+      postCommitEventPublisher: {
+        async publish(event) {
+          publishedEvents.push(event)
+        },
+      },
     })
 
     const response = await app.request('/api/interviews', {
@@ -145,6 +151,7 @@ describe('InterviewController', function interviewControllerSuite() {
       error:
         'Direct peer-to-peer interview creation is not supported. Use the availability matcher flow.',
     })
+    expect(publishedEvents).toHaveLength(0)
   })
 
   it('returns 400 when direct create requests provide interviewer_id', async function run() {
@@ -459,8 +466,9 @@ describe('InterviewController', function interviewControllerSuite() {
     })
   })
 
-  it('returns 200 when cancelling an already-cancelled interview', async function run() {
+  it('returns 200 when cancelling an already-cancelled interview and emits no second event', async function run() {
     const interviewId = '33333333-3333-4333-8333-333333333333'
+    const publishedEvents: InterviewPostCommitEvent[] = []
     const app = createInterviewApp({
       session: activeSession,
       freeAiInterviews: 0,
@@ -472,6 +480,11 @@ describe('InterviewController', function interviewControllerSuite() {
           status: 'cancelled',
         }),
       ],
+      postCommitEventPublisher: {
+        async publish(event) {
+          publishedEvents.push(event)
+        },
+      },
     })
 
     const response = await app.request(`/api/interviews/${interviewId}/cancel`, {
@@ -482,6 +495,7 @@ describe('InterviewController', function interviewControllerSuite() {
     await expect(response.json()).resolves.toEqual({
       success: true,
     })
+    expect(publishedEvents).toHaveLength(0)
   })
 
   it('returns 409 when cancelling a completed interview', async function run() {

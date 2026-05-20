@@ -73,7 +73,7 @@ describe('interview post-commit event contract', function interviewPostCommitEve
     )
   })
 
-  it('builds interview.cancelled events with required envelope', function shouldBuildCancelledEvent() {
+  it('builds interview.cancelled events with required envelope and participant mirrors', function shouldBuildCancelledEvent() {
     const event = buildInterviewCancelledEvent(
       {
         interview: {
@@ -112,7 +112,14 @@ describe('interview post-commit event contract', function interviewPostCommitEve
         status: 'cancelled',
         scheduled_at: '2026-04-10T10:30:00.000Z',
       },
+      participants: {
+        scheduler_user_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        interviewer_user_id: null,
+      },
     })
+
+    expect(event.participants.scheduler_user_id).toBe(event.interview.scheduler_id)
+    expect(event.participants.interviewer_user_id).toBe(event.interview.interviewer_id)
   })
 
   it('uses stable idempotency keys for cancelled events', function shouldBuildStableCancelledIdempotencyKey() {
@@ -124,6 +131,81 @@ describe('interview post-commit event contract', function interviewPostCommitEve
     expect(buildInterviewCancelledIdempotencyKey(interviewId)).toBe(
       'interview.cancelled:99999999-9999-4999-8999-999999999999',
     )
+  })
+
+  it('rejects participant mirror mismatch for interview.created', function shouldRejectCreatedMirrorMismatch() {
+    const parseResult = interviewCreatedEventSchema.safeParse({
+      event_type: 'interview.created',
+      event_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      idempotency_key: 'interview.created:99999999-9999-4999-8999-999999999999',
+      occurred_at: '2026-04-01T12:00:00.000Z',
+      interview: {
+        id: '99999999-9999-4999-8999-999999999999',
+        scheduler_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        interviewer_id: null,
+        type: 'system_design',
+        mode: 'ai_led',
+        tier: 'standard',
+        status: 'scheduled',
+        scheduled_at: '2026-04-10T10:30:00.000Z',
+      },
+      participants: {
+        scheduler_user_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        interviewer_user_id: null,
+      },
+    })
+
+    expect(parseResult.success).toBe(false)
+  })
+
+  it('rejects participant mirror mismatch for interview.cancelled', function shouldRejectCancelledMirrorMismatch() {
+    const parseResult = interviewCancelledEventSchema.safeParse({
+      event_type: 'interview.cancelled',
+      event_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      idempotency_key: 'interview.cancelled:99999999-9999-4999-8999-999999999999',
+      occurred_at: '2026-04-01T12:00:00.000Z',
+      interview: {
+        id: '99999999-9999-4999-8999-999999999999',
+        scheduler_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        interviewer_id: null,
+        type: 'system_design',
+        mode: 'ai_led',
+        tier: 'standard',
+        status: 'cancelled',
+        scheduled_at: '2026-04-10T10:30:00.000Z',
+      },
+      participants: {
+        scheduler_user_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        interviewer_user_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      },
+    })
+
+    expect(parseResult.success).toBe(false)
+  })
+
+  it('rejects peer_to_peer cancelled with null interviewer identity', function shouldRejectPeerToPeerNullInterviewer() {
+    const parseResult = interviewCancelledEventSchema.safeParse({
+      event_type: 'interview.cancelled',
+      event_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+      idempotency_key: 'interview.cancelled:99999999-9999-4999-8999-999999999999',
+      occurred_at: '2026-04-01T12:00:00.000Z',
+      interview: {
+        id: '99999999-9999-4999-8999-999999999999',
+        scheduler_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        interviewer_id: null,
+        type: 'system_design',
+        mode: 'peer_to_peer',
+        tier: 'standard',
+        status: 'cancelled',
+        scheduled_at: '2026-04-10T10:30:00.000Z',
+      },
+      participants: {
+        scheduler_user_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        interviewer_user_id: null,
+      },
+    })
+
+    expect(parseResult.success).toBe(false)
   })
 
   it('publishes created events through queue transport hand-off', async function shouldPublishCreatedViaQueueTransport() {

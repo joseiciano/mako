@@ -166,8 +166,9 @@ describe('InterviewService', function interviewServiceSuite() {
     })
   })
 
-  it('cancels scheduled interviews and treats repeated cancellation as idempotent success', async function run() {
+  it('cancels scheduled interviews and treats repeated cancellation as idempotent success without emitting a second event', async function run() {
     const interviewId = '33333333-3333-4333-8333-333333333333'
+    const publishedEvents: InterviewPostCommitEvent[] = []
     const { service } = createInterviewService(
       {
         freeAiInterviews: 0,
@@ -180,6 +181,11 @@ describe('InterviewService', function interviewServiceSuite() {
           scheduler_id: activeSession.userId,
         }),
       ],
+      {
+        async publish(event) {
+          publishedEvents.push(event)
+        },
+      },
     )
 
     await expect(
@@ -188,6 +194,11 @@ describe('InterviewService', function interviewServiceSuite() {
     await expect(
       service.cancelInterview(activeSession, { id: interviewId }),
     ).resolves.toEqual({ success: true })
+
+    expect(publishedEvents).toHaveLength(1)
+    expect(publishedEvents[0]).toMatchObject({
+      event_type: 'interview.cancelled',
+    })
   })
 
   it('allows interviewers to cancel scheduled interviews they are assigned to', async function run() {
@@ -302,7 +313,7 @@ describe('InterviewService', function interviewServiceSuite() {
     ).rejects.toBeInstanceOf(InterviewNotFoundError)
   })
 
-  it('publishes one created event after successful direct interview create', async function run() {
+  it('publishes one created event after successful direct interview create with participant mirrors', async function run() {
     const publishedEvents: InterviewPostCommitEvent[] = []
     const { service } = createInterviewService(
       {
@@ -325,9 +336,25 @@ describe('InterviewService', function interviewServiceSuite() {
     })
 
     expect(publishedEvents).toHaveLength(1)
-    expect(publishedEvents[0]).toMatchObject({
+    const createdEvent = publishedEvents[0]
+    expect(createdEvent).toMatchObject({
       event_type: 'interview.created',
+      interview: {
+        scheduler_id: activeSession.userId,
+        interviewer_id: null,
+        mode: 'ai_led',
+      },
+      participants: {
+        scheduler_user_id: activeSession.userId,
+        interviewer_user_id: null,
+      },
     })
+    expect(createdEvent.interview.scheduler_id).toBe(
+      createdEvent.participants.scheduler_user_id,
+    )
+    expect(createdEvent.interview.interviewer_id).toBe(
+      createdEvent.participants.interviewer_user_id,
+    )
   })
 
   it('does not publish created event when create fails from auth problems', async function run() {
@@ -617,6 +644,56 @@ describe('InterviewService', function interviewServiceSuite() {
     ).rejects.toBeInstanceOf(InterviewConflictError)
 
     expect(publishedEvents).toHaveLength(0)
+  })
+
+  it('publishes cancelled events with participant mirrors matching persisted interview shape', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const publishedEvents: InterviewPostCommitEvent[] = []
+    const { service } = createInterviewService(
+      {
+        freeAiInterviews: 0,
+        credits: 0,
+      },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          interviewer_id: '88888888-8888-4888-8888-888888888888',
+          mode: 'peer_to_peer',
+        }),
+      ],
+      {
+        async publish(event) {
+          publishedEvents.push(event)
+        },
+      },
+    )
+
+    await service.cancelInterview(activeSession, { id: interviewId })
+
+    expect(publishedEvents).toHaveLength(1)
+    const cancelledEvent = publishedEvents[0]
+    expect(cancelledEvent).toMatchObject({
+      event_type: 'interview.cancelled',
+      interview: {
+        id: interviewId,
+        scheduler_id: activeSession.userId,
+        interviewer_id: '88888888-8888-4888-8888-888888888888',
+        mode: 'peer_to_peer',
+        status: 'cancelled',
+      },
+      participants: {
+        scheduler_user_id: activeSession.userId,
+        interviewer_user_id: '88888888-8888-4888-8888-888888888888',
+      },
+    })
+    expect(cancelledEvent.interview.scheduler_id).toBe(
+      cancelledEvent.participants.scheduler_user_id,
+    )
+    expect(cancelledEvent.interview.interviewer_id).toBe(
+      cancelledEvent.participants.interviewer_user_id,
+    )
   })
 
   it('does not publish cancelled event for not_found outcome', async function run() {
