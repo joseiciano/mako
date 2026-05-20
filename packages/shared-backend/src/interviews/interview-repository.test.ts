@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest'
 import type { Interview } from '@mako/shared'
 import type { SqlQuery } from '../index'
+import { buildInterviewCreatedEvent, type InterviewPostCommitEvent } from './interview-post-commit-event'
 import {
   InterviewRepository,
+  createInMemoryInterviewDataSource,
   type SqlQueryExecutor,
 } from './interview-repository'
 import { InterviewPolicyConflictError } from './types'
@@ -104,6 +106,75 @@ describe('InterviewRepository', function interviewRepositorySuite() {
 
     expect(reservationQueries).toEqual([
       'UPDATE "user" SET credits = credits - 1, "updatedAt" = NOW() WHERE id = $1 AND deleted_at IS NULL AND credits > 0 RETURNING id;',
+    ])
+  })
+
+  it('records create events in the outbox before commit when a post-commit callback is provided', async function run() {
+    const executedQueries: string[] = []
+    const repository = new InterviewRepository({
+      queryExecutor: createQueryExecutor({
+        onQuery(queryInput) {
+          executedQueries.push(normalizeSql(queryInput.text))
+
+          if (queryInput.text.includes('UPDATE "user"')) {
+            return { rows: [{ id: '11111111-1111-4111-8111-111111111111' }] }
+          }
+
+          if (queryInput.text.includes('INSERT INTO interviews')) {
+            return {
+              rows: [
+                createInterviewRow({
+                  id: '22222222-2222-4222-8222-222222222222',
+                }),
+              ],
+            }
+          }
+
+          return { rows: [] }
+        },
+      }),
+    })
+
+    await repository.createDirectInterview(
+      {
+        id: '22222222-2222-4222-8222-222222222222',
+        scheduler_id: '11111111-1111-4111-8111-111111111111',
+        scheduler_alias: 'Candidate-Blue',
+        interviewer_id: null,
+        interviewer_alias: 'Interviewer-Red',
+        type: 'system_design',
+        mode: 'ai_led',
+        tier: 'standard',
+        status: 'scheduled',
+        scheduled_at: '2026-04-13T10:00:00.000Z',
+        created_at: '2026-04-13T09:55:00.000Z',
+        updated_at: '2026-04-13T09:55:00.000Z',
+        policy_consumption: 'free_ai_interview',
+      },
+      {
+        buildPostCommitEvent(interview) {
+          return buildInterviewCreatedEvent({
+            interview: {
+              id: interview.id,
+              scheduler_id: interview.scheduler_id,
+              interviewer_id: interview.interviewer_id,
+              type: interview.type,
+              mode: interview.mode as 'ai_led',
+              tier: interview.tier,
+              status: interview.status as 'scheduled',
+              scheduled_at: interview.scheduled_at,
+            },
+          })
+        },
+      },
+    )
+
+    expect(executedQueries).toEqual([
+      'BEGIN;',
+      'UPDATE "user" SET free_ai_interviews = free_ai_interviews - 1, "updatedAt" = NOW() WHERE id = $1 AND deleted_at IS NULL AND free_ai_interviews > 0 RETURNING id;',
+      'INSERT INTO interviews ( id, scheduler_id, scheduler_alias, interviewer_id, interviewer_alias, type, mode, tier, status, scheduled_at, created_at, updated_at ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12) RETURNING id, scheduler_id, scheduler_alias, interviewer_id, interviewer_alias, type, mode, tier, status, scheduled_at, created_at, updated_at;',
+      'INSERT INTO interview_post_commit_outbox ( id, event_type, idempotency_key, payload, created_at ) VALUES ($1, $2, $3, $4::jsonb, $5) ON CONFLICT (idempotency_key) DO NOTHING;',
+      'COMMIT;',
     ])
   })
 
@@ -395,6 +466,87 @@ describe('InterviewRepository', function interviewRepositorySuite() {
       'SELECT id, scheduler_id, scheduler_alias, interviewer_id, interviewer_alias, type, mode, tier, status, scheduled_at, created_at, updated_at FROM interviews WHERE id = $1 AND (scheduler_id = $2 OR interviewer_id = $2) LIMIT 1 FOR UPDATE;',
       'COMMIT;',
     ])
+  })
+
+  it('flushes pending outbox events and only republishes records that previously failed', async function run() {
+    const repository = new InterviewRepository(
+      createInMemoryInterviewDataSource([
+        {
+          userId: '11111111-1111-4111-8111-111111111111',
+          credits: 0,
+          freeAiInterviews: 1,
+        },
+      ]),
+    )
+    const publishedEvents: InterviewPostCommitEvent[] = []
+    let shouldFailNextPublish = true
+
+    await repository.createDirectInterview(
+      {
+        id: '22222222-2222-4222-8222-222222222222',
+        scheduler_id: '11111111-1111-4111-8111-111111111111',
+        scheduler_alias: 'Candidate-Blue',
+        interviewer_id: null,
+        interviewer_alias: 'Interviewer-Red',
+        type: 'system_design',
+        mode: 'ai_led',
+        tier: 'standard',
+        status: 'scheduled',
+        scheduled_at: '2026-04-13T10:00:00.000Z',
+        created_at: '2026-04-13T09:55:00.000Z',
+        updated_at: '2026-04-13T09:55:00.000Z',
+        policy_consumption: 'free_ai_interview',
+      },
+      {
+        buildPostCommitEvent(interview) {
+          return buildInterviewCreatedEvent({
+            interview: {
+              id: interview.id,
+              scheduler_id: interview.scheduler_id,
+              interviewer_id: interview.interviewer_id,
+              type: interview.type,
+              mode: interview.mode as 'ai_led',
+              tier: interview.tier,
+              status: interview.status as 'scheduled',
+              scheduled_at: interview.scheduled_at,
+            },
+          })
+        },
+      },
+    )
+
+    await repository.flushPostCommitEvents(
+      {
+        publish: async function publish() {
+          if (shouldFailNextPublish) {
+            shouldFailNextPublish = false
+            throw new Error('queue unavailable')
+          }
+        },
+      },
+      {
+        now: '2026-04-13T10:00:00.000Z',
+      },
+    )
+
+    await repository.flushPostCommitEvents(
+      {
+        publish: async function publish(event) {
+          publishedEvents.push(event)
+        },
+      },
+      {
+        now: '2026-04-13T10:05:00.000Z',
+      },
+    )
+
+    expect(publishedEvents).toHaveLength(1)
+    expect(publishedEvents[0]).toMatchObject({
+      event_type: 'interview.created',
+      interview: {
+        id: '22222222-2222-4222-8222-222222222222',
+      },
+    })
   })
 })
 

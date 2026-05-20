@@ -179,6 +179,19 @@ function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
 } {
   const accountProfilesById = new Map<string, AccountProfileRecord>()
   const interviewsById = new Map<string, Interview>()
+  const pendingPostCommitEventsById = new Map<
+    string,
+    {
+      id: string
+      event: InterviewPostCommitEvent
+      claimToken: string | null
+      createdAt: string
+      publishedAt: string | null
+      claimedAt: string | null
+      lastPublishError: string | null
+      publishAttemptCount: number
+    }
+  >()
 
   for (const account of seedAccounts) {
     accountProfilesById.set(account.id, structuredClone(account))
@@ -222,7 +235,7 @@ function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
           free_ai_interviews: account.freeAiInterviews,
         }
       },
-      async createDirectInterview(input: CreateInterviewRecordInput) {
+      async createDirectInterview(input: CreateInterviewRecordInput, options) {
         const account = accountProfilesById.get(input.scheduler_id)
 
         if (!account) {
@@ -247,6 +260,14 @@ function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
 
         const interview = parseInterview(input)
         interviewsById.set(interview.id, structuredClone(interview))
+
+        if (options?.buildPostCommitEvent) {
+          storeDemoPostCommitEvent(
+            pendingPostCommitEventsById,
+            options.buildPostCommitEvent(interview),
+          )
+        }
+
         return structuredClone(interview)
       },
       async listParticipantInterviews(input) {
@@ -272,6 +293,7 @@ function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
       },
       async cancelInterview(
         input: CancelInterviewRecordInput,
+        options,
       ): Promise<CancelInterviewRecordResult> {
         const interview = interviewsById.get(input.interview_id)
 
@@ -305,13 +327,150 @@ function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
 
         interviewsById.set(cancelledInterview.id, structuredClone(cancelledInterview))
 
+        if (options?.buildPostCommitEvent) {
+          storeDemoPostCommitEvent(
+            pendingPostCommitEventsById,
+            options.buildPostCommitEvent(cancelledInterview),
+          )
+        }
+
         return {
           outcome: 'cancelled',
           interview: structuredClone(cancelledInterview),
         }
       },
+      async claimPendingPostCommitEvents(input) {
+        const claimedEvents: {
+          id: string
+          event: InterviewPostCommitEvent
+          claimToken: string
+        }[] = []
+        const orderedEvents = Array.from(pendingPostCommitEventsById.values()).sort(
+          compareDemoPostCommitEvents,
+        )
+
+        for (const storedEvent of orderedEvents) {
+          if (claimedEvents.length >= input.limit) {
+            break
+          }
+
+          if (storedEvent.publishedAt !== null) {
+            continue
+          }
+
+          if (
+            storedEvent.claimToken !== null &&
+            storedEvent.claimedAt !== null &&
+            storedEvent.claimedAt >= input.staleBefore
+          ) {
+            continue
+          }
+
+          storedEvent.claimToken = input.claimToken
+          storedEvent.claimedAt = input.claimedAt
+          storedEvent.lastPublishError = null
+          storedEvent.publishAttemptCount += 1
+          claimedEvents.push({
+            id: storedEvent.id,
+            event: structuredClone(storedEvent.event),
+            claimToken: input.claimToken,
+          })
+        }
+
+        return claimedEvents
+      },
+      async markPostCommitEventPublished(input) {
+        const storedEvent = pendingPostCommitEventsById.get(input.id)
+
+        if (!storedEvent || storedEvent.claimToken !== input.claimToken) {
+          return
+        }
+
+        storedEvent.publishedAt = input.publishedAt
+        storedEvent.claimToken = null
+        storedEvent.claimedAt = null
+        storedEvent.lastPublishError = null
+      },
+      async markPostCommitEventFailed(input) {
+        const storedEvent = pendingPostCommitEventsById.get(input.id)
+
+        if (!storedEvent || storedEvent.claimToken !== input.claimToken) {
+          return
+        }
+
+        storedEvent.claimToken = null
+        storedEvent.claimedAt = null
+        storedEvent.lastPublishError = input.errorMessage
+      },
     },
   }
+}
+
+function compareDemoPostCommitEvents(
+  left: {
+    createdAt: string
+    id: string
+  },
+  right: {
+    createdAt: string
+    id: string
+  },
+): number {
+  if (left.createdAt < right.createdAt) {
+    return -1
+  }
+
+  if (left.createdAt > right.createdAt) {
+    return 1
+  }
+
+  if (left.id < right.id) {
+    return -1
+  }
+
+  if (left.id > right.id) {
+    return 1
+  }
+
+  return 0
+}
+
+function storeDemoPostCommitEvent(
+  pendingPostCommitEventsById: Map<
+    string,
+    {
+      id: string
+      event: InterviewPostCommitEvent
+      claimToken: string | null
+      createdAt: string
+      publishedAt: string | null
+      claimedAt: string | null
+      lastPublishError: string | null
+      publishAttemptCount: number
+    }
+  >,
+  event: InterviewPostCommitEvent,
+): void {
+  if (
+    Array.from(pendingPostCommitEventsById.values()).some(function hasSameIdempotencyKey(
+      storedEvent,
+    ) {
+      return storedEvent.event.idempotency_key === event.idempotency_key
+    })
+  ) {
+    return
+  }
+
+  pendingPostCommitEventsById.set(event.event_id, {
+    id: event.event_id,
+    event: structuredClone(event),
+    claimToken: null,
+    createdAt: event.occurred_at,
+    publishedAt: null,
+    claimedAt: null,
+    lastPublishError: null,
+    publishAttemptCount: 0,
+  })
 }
 
 function compareInterviewListOrder(left: Interview, right: Interview): number {

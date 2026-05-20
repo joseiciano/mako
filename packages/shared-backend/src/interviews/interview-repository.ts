@@ -1,6 +1,11 @@
 import type { Interview } from '@mako/shared'
 import { createSqlQuery, type SqlQuery } from '../index'
 import {
+  interviewPostCommitEventSchema,
+  type InterviewPostCommitEvent,
+  type InterviewPostCommitEventPublisher,
+} from './interview-post-commit-event'
+import {
   cancelInterviewRecordInputSchema,
   InterviewPolicyConflictError,
   listParticipantInterviewsInputSchema,
@@ -27,13 +32,22 @@ export type SqlQueryExecutor = {
 
 export interface InterviewRepositoryDataSource {
   getAccountPolicy(userId: string): Promise<InterviewAccountPolicy | null>
-  createDirectInterview(input: CreateInterviewRecordInput): Promise<Interview>
+  createDirectInterview(
+    input: CreateInterviewRecordInput,
+    options?: InterviewWriteOptions,
+  ): Promise<Interview>
   listParticipantInterviews?(
     input: ListParticipantInterviewsInput,
   ): Promise<Interview[]>
   cancelInterview?(
     input: CancelInterviewRecordInput,
+    options?: InterviewWriteOptions,
   ): Promise<CancelInterviewRecordResult>
+  claimPendingPostCommitEvents?(
+    input: ClaimPendingPostCommitEventsInput,
+  ): Promise<PendingPostCommitEventRecord[]>
+  markPostCommitEventPublished?(input: MarkPostCommitEventPublishedInput): Promise<void>
+  markPostCommitEventFailed?(input: MarkPostCommitEventFailedInput): Promise<void>
 }
 
 export type InMemoryInterviewAccountRecord = {
@@ -45,6 +59,47 @@ export type InMemoryInterviewAccountRecord = {
 type InterviewRepositoryDependencies = {
   dataSource?: InterviewRepositoryDataSource
   queryExecutor?: SqlQueryExecutor
+}
+
+type InterviewWriteOptions = {
+  buildPostCommitEvent?: (interview: Interview) => InterviewPostCommitEvent
+}
+
+type ClaimPendingPostCommitEventsInput = {
+  limit: number
+  claimToken: string
+  claimedAt: string
+  staleBefore: string
+}
+
+type PendingPostCommitEventRecord = {
+  id: string
+  event: InterviewPostCommitEvent
+  claimToken: string
+}
+
+type MarkPostCommitEventPublishedInput = {
+  id: string
+  claimToken: string
+  publishedAt: string
+}
+
+type MarkPostCommitEventFailedInput = {
+  id: string
+  claimToken: string
+  errorMessage: string
+}
+
+type StoredPostCommitEventRecord = {
+  id: string
+  event: InterviewPostCommitEvent
+  createdAt: string
+  publishedAt: string | null
+  claimToken: string | null
+  claimedAt: string | null
+  lastPublishAttemptAt: string | null
+  publishAttemptCount: number
+  lastPublishError: string | null
 }
 
 type InterviewRepositoryConstructorInput =
@@ -99,12 +154,15 @@ export class InterviewRepository {
     return interviewAccountPolicySchema.parse(row)
   }
 
-  async createDirectInterview(input: CreateInterviewRecordInput): Promise<Interview> {
+  async createDirectInterview(
+    input: CreateInterviewRecordInput,
+    options: InterviewWriteOptions = {},
+  ): Promise<Interview> {
     const parsedInput = createInterviewRecordInputSchema.parse(input)
     const dataSource = this.dependencies.dataSource
 
     if (dataSource) {
-      return dataSource.createDirectInterview(parsedInput)
+      return dataSource.createDirectInterview(parsedInput, options)
     }
 
     const queryExecutor = this.getQueryExecutor()
@@ -174,8 +232,16 @@ export class InterviewRepository {
         throw new Error('Failed to insert interview record.')
       }
 
+      const parsedInterview = parseInterview(createdInterview)
+
+      if (options.buildPostCommitEvent) {
+        await queryExecutor.query(
+          buildInsertPostCommitEventQuery(options.buildPostCommitEvent(parsedInterview)),
+        )
+      }
+
       await queryExecutor.query(createSqlQuery('COMMIT;'))
-      return parseInterview(createdInterview)
+      return parsedInterview
     } catch (error) {
       await rollbackTransactionSafely(queryExecutor)
       throw error
@@ -203,12 +269,13 @@ export class InterviewRepository {
 
   async cancelInterview(
     input: CancelInterviewRecordInput,
+    options: InterviewWriteOptions = {},
   ): Promise<CancelInterviewRecordResult> {
     const parsedInput = cancelInterviewRecordInputSchema.parse(input)
     const dataSource = this.dependencies.dataSource
 
     if (typeof dataSource?.cancelInterview === 'function') {
-      return dataSource.cancelInterview(parsedInput)
+      return dataSource.cancelInterview(parsedInput, options)
     }
 
     const queryExecutor = this.getQueryExecutor()
@@ -297,15 +364,58 @@ export class InterviewRepository {
         throw new Error('Failed to cancel interview record.')
       }
 
+      const parsedCancelledInterview = parseInterview(cancelledInterview)
+
+      if (options.buildPostCommitEvent) {
+        await queryExecutor.query(
+          buildInsertPostCommitEventQuery(
+            options.buildPostCommitEvent(parsedCancelledInterview),
+          ),
+        )
+      }
+
       await queryExecutor.query(createSqlQuery('COMMIT;'))
 
       return {
         outcome: 'cancelled',
-        interview: parseInterview(cancelledInterview),
+        interview: parsedCancelledInterview,
       }
     } catch (error) {
       await rollbackTransactionSafely(queryExecutor)
       throw error
+    }
+  }
+
+  async flushPostCommitEvents(
+    publisher: InterviewPostCommitEventPublisher,
+    options: { limit?: number; now?: string } = {},
+  ): Promise<void> {
+    const limit = normalizePendingEventLimit(options.limit)
+    const claimedAt = options.now ?? new Date().toISOString()
+    const claimToken = crypto.randomUUID()
+    const staleBefore = new Date(Date.parse(claimedAt) - 5 * 60 * 1000).toISOString()
+    const pendingEvents = await this.claimPendingPostCommitEvents({
+      limit,
+      claimToken,
+      claimedAt,
+      staleBefore,
+    })
+
+    for (const pendingEvent of pendingEvents) {
+      try {
+        await publisher.publish(pendingEvent.event)
+        await this.markPostCommitEventPublished({
+          id: pendingEvent.id,
+          claimToken: pendingEvent.claimToken,
+          publishedAt: claimedAt,
+        })
+      } catch (error) {
+        await this.markPostCommitEventFailed({
+          id: pendingEvent.id,
+          claimToken: pendingEvent.claimToken,
+          errorMessage: toErrorMessage(error),
+        })
+      }
     }
   }
 
@@ -318,6 +428,56 @@ export class InterviewRepository {
 
     return queryExecutor
   }
+
+  private async claimPendingPostCommitEvents(
+    input: ClaimPendingPostCommitEventsInput,
+  ): Promise<PendingPostCommitEventRecord[]> {
+    const dataSource = this.dependencies.dataSource
+
+    if (typeof dataSource?.claimPendingPostCommitEvents === 'function') {
+      return dataSource.claimPendingPostCommitEvents(input)
+    }
+
+    const result = await this.getQueryExecutor().query<{
+      id: string
+      payload: unknown
+      claim_token: string
+    }>(buildClaimPendingPostCommitEventsQuery(input))
+
+    return result.rows.map(function parsePendingEventRow(row) {
+      return {
+        id: row.id,
+        event: parseStoredPostCommitEventPayload(row.payload),
+        claimToken: row.claim_token,
+      }
+    })
+  }
+
+  private async markPostCommitEventPublished(
+    input: MarkPostCommitEventPublishedInput,
+  ): Promise<void> {
+    const dataSource = this.dependencies.dataSource
+
+    if (typeof dataSource?.markPostCommitEventPublished === 'function') {
+      await dataSource.markPostCommitEventPublished(input)
+      return
+    }
+
+    await this.getQueryExecutor().query(buildMarkPostCommitEventPublishedQuery(input))
+  }
+
+  private async markPostCommitEventFailed(
+    input: MarkPostCommitEventFailedInput,
+  ): Promise<void> {
+    const dataSource = this.dependencies.dataSource
+
+    if (typeof dataSource?.markPostCommitEventFailed === 'function') {
+      await dataSource.markPostCommitEventFailed(input)
+      return
+    }
+
+    await this.getQueryExecutor().query(buildMarkPostCommitEventFailedQuery(input))
+  }
 }
 
 export function createInMemoryInterviewDataSource(
@@ -329,6 +489,7 @@ export function createInMemoryInterviewDataSource(
     { credits: number; freeAiInterviews: number }
   >()
   const interviewsById = new Map<string, Interview>()
+  const postCommitEventsById = new Map<string, StoredPostCommitEventRecord>()
 
   for (const account of seedAccounts) {
     accountStateByUserId.set(account.userId, {
@@ -354,7 +515,10 @@ export function createInMemoryInterviewDataSource(
         free_ai_interviews: accountState.freeAiInterviews,
       }
     },
-    async createDirectInterview(input: CreateInterviewRecordInput): Promise<Interview> {
+    async createDirectInterview(
+      input: CreateInterviewRecordInput,
+      options: InterviewWriteOptions = {},
+    ): Promise<Interview> {
       const parsedInput = createInterviewRecordInputSchema.parse(input)
       const accountState = accountStateByUserId.get(parsedInput.scheduler_id)
 
@@ -380,6 +544,11 @@ export function createInMemoryInterviewDataSource(
 
       const interview = parseInterview(parsedInput)
       interviewsById.set(interview.id, structuredClone(interview))
+
+      if (options.buildPostCommitEvent) {
+        storePostCommitEvent(postCommitEventsById, options.buildPostCommitEvent(interview))
+      }
+
       return structuredClone(interview)
     },
     async listParticipantInterviews(
@@ -407,6 +576,7 @@ export function createInMemoryInterviewDataSource(
     },
     async cancelInterview(
       input: CancelInterviewRecordInput,
+      options: InterviewWriteOptions = {},
     ): Promise<CancelInterviewRecordResult> {
       const parsedInput = cancelInterviewRecordInputSchema.parse(input)
       const existingInterview = interviewsById.get(parsedInput.interview_id)
@@ -441,12 +611,231 @@ export function createInMemoryInterviewDataSource(
 
       interviewsById.set(cancelledInterview.id, structuredClone(cancelledInterview))
 
+      if (options.buildPostCommitEvent) {
+        storePostCommitEvent(
+          postCommitEventsById,
+          options.buildPostCommitEvent(cancelledInterview),
+        )
+      }
+
       return {
         outcome: 'cancelled',
         interview: structuredClone(cancelledInterview),
       }
     },
+    async claimPendingPostCommitEvents(
+      input: ClaimPendingPostCommitEventsInput,
+    ): Promise<PendingPostCommitEventRecord[]> {
+      const claimedEvents: PendingPostCommitEventRecord[] = []
+      const orderedEvents = Array.from(postCommitEventsById.values()).sort(
+        compareStoredPostCommitEvents,
+      )
+
+      for (const storedEvent of orderedEvents) {
+        if (claimedEvents.length >= input.limit) {
+          break
+        }
+
+        if (storedEvent.publishedAt !== null) {
+          continue
+        }
+
+        if (
+          storedEvent.claimToken !== null &&
+          storedEvent.claimedAt !== null &&
+          storedEvent.claimedAt >= input.staleBefore
+        ) {
+          continue
+        }
+
+        storedEvent.claimToken = input.claimToken
+        storedEvent.claimedAt = input.claimedAt
+        storedEvent.lastPublishAttemptAt = input.claimedAt
+        storedEvent.publishAttemptCount += 1
+        storedEvent.lastPublishError = null
+        claimedEvents.push({
+          id: storedEvent.id,
+          event: structuredClone(storedEvent.event),
+          claimToken: storedEvent.claimToken,
+        })
+      }
+
+      return claimedEvents
+    },
+    async markPostCommitEventPublished(input: MarkPostCommitEventPublishedInput): Promise<void> {
+      const storedEvent = postCommitEventsById.get(input.id)
+
+      if (!storedEvent || storedEvent.claimToken !== input.claimToken) {
+        return
+      }
+
+      storedEvent.publishedAt = input.publishedAt
+      storedEvent.claimToken = null
+      storedEvent.claimedAt = null
+      storedEvent.lastPublishError = null
+    },
+    async markPostCommitEventFailed(input: MarkPostCommitEventFailedInput): Promise<void> {
+      const storedEvent = postCommitEventsById.get(input.id)
+
+      if (!storedEvent || storedEvent.claimToken !== input.claimToken) {
+        return
+      }
+
+      storedEvent.claimToken = null
+      storedEvent.claimedAt = null
+      storedEvent.lastPublishError = input.errorMessage
+    },
   }
+}
+
+function buildInsertPostCommitEventQuery(event: InterviewPostCommitEvent): SqlQuery {
+  const parsedEvent = interviewPostCommitEventSchema.parse(event)
+
+  return createSqlQuery(
+    `
+      INSERT INTO interview_post_commit_outbox (
+        id,
+        event_type,
+        idempotency_key,
+        payload,
+        created_at
+      )
+      VALUES ($1, $2, $3, $4::jsonb, $5)
+      ON CONFLICT (idempotency_key) DO NOTHING;
+    `,
+    [
+      parsedEvent.event_id,
+      parsedEvent.event_type,
+      parsedEvent.idempotency_key,
+      JSON.stringify(parsedEvent),
+      parsedEvent.occurred_at,
+    ],
+  )
+}
+
+function buildClaimPendingPostCommitEventsQuery(
+  input: ClaimPendingPostCommitEventsInput,
+): SqlQuery {
+  return createSqlQuery(
+    `
+      WITH next_events AS (
+        SELECT id
+        FROM interview_post_commit_outbox
+        WHERE published_at IS NULL
+          AND (claim_token IS NULL OR claimed_at < $2)
+        ORDER BY created_at ASC, id ASC
+        LIMIT $1
+        FOR UPDATE SKIP LOCKED
+      )
+      UPDATE interview_post_commit_outbox
+      SET claim_token = $3,
+          claimed_at = $4,
+          publish_attempt_count = publish_attempt_count + 1,
+          last_publish_attempt_at = $4,
+          last_publish_error = NULL
+      WHERE id IN (SELECT id FROM next_events)
+      RETURNING id, payload, claim_token;
+    `,
+    [input.limit, input.staleBefore, input.claimToken, input.claimedAt],
+  )
+}
+
+function buildMarkPostCommitEventPublishedQuery(
+  input: MarkPostCommitEventPublishedInput,
+): SqlQuery {
+  return createSqlQuery(
+    `
+      UPDATE interview_post_commit_outbox
+      SET published_at = $2,
+          claim_token = NULL,
+          claimed_at = NULL,
+          last_publish_error = NULL
+      WHERE id = $1
+        AND claim_token = $3;
+    `,
+    [input.id, input.publishedAt, input.claimToken],
+  )
+}
+
+function buildMarkPostCommitEventFailedQuery(
+  input: MarkPostCommitEventFailedInput,
+): SqlQuery {
+  return createSqlQuery(
+    `
+      UPDATE interview_post_commit_outbox
+      SET claim_token = NULL,
+          claimed_at = NULL,
+          last_publish_error = $3
+      WHERE id = $1
+        AND claim_token = $2;
+    `,
+    [input.id, input.claimToken, input.errorMessage],
+  )
+}
+
+function parseStoredPostCommitEventPayload(payload: unknown): InterviewPostCommitEvent {
+  const parsedPayload =
+    typeof payload === 'string' ? (JSON.parse(payload) as unknown) : payload
+
+  return interviewPostCommitEventSchema.parse(parsedPayload)
+}
+
+function normalizePendingEventLimit(limit: number | undefined): number {
+  if (limit === undefined || !Number.isFinite(limit)) {
+    return 10
+  }
+
+  return Math.max(1, Math.floor(limit))
+}
+
+function compareStoredPostCommitEvents(
+  left: StoredPostCommitEventRecord,
+  right: StoredPostCommitEventRecord,
+): number {
+  if (left.createdAt < right.createdAt) {
+    return -1
+  }
+
+  if (left.createdAt > right.createdAt) {
+    return 1
+  }
+
+  if (left.id < right.id) {
+    return -1
+  }
+
+  if (left.id > right.id) {
+    return 1
+  }
+
+  return 0
+}
+
+function storePostCommitEvent(
+  postCommitEventsById: Map<string, StoredPostCommitEventRecord>,
+  event: InterviewPostCommitEvent,
+): void {
+  const parsedEvent = interviewPostCommitEventSchema.parse(event)
+
+  if (
+    Array.from(postCommitEventsById.values()).some(function hasSameIdempotencyKey(storedEvent) {
+      return storedEvent.event.idempotency_key === parsedEvent.idempotency_key
+    })
+  ) {
+    return
+  }
+
+  postCommitEventsById.set(parsedEvent.event_id, {
+    id: parsedEvent.event_id,
+    event: structuredClone(parsedEvent),
+    claimToken: null,
+    createdAt: parsedEvent.occurred_at,
+    publishedAt: null,
+    claimedAt: null,
+    lastPublishAttemptAt: null,
+    publishAttemptCount: 0,
+    lastPublishError: null,
+  })
 }
 
 function isDataSource(
@@ -608,4 +997,12 @@ async function rollbackTransactionSafely(
   try {
     await queryExecutor.query(createSqlQuery('ROLLBACK;'))
   } catch {}
+}
+
+function toErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message
+  }
+
+  return String(error)
 }

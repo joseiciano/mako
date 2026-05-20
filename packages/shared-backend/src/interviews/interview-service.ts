@@ -47,29 +47,16 @@ export class InterviewService {
   ): Promise<CreateInterviewResponse> {
     const userSession = this.requireSession(session)
     const schedulerId = authenticatedInterviewUserIdSchema.parse(userSession.userId)
+    const timestamp = this.now()
 
     const createdInterview = await this.createAiLedInterview({
       schedulerId,
       type: input.type,
-      scheduledAt: input.scheduled_at === 'now' ? this.now() : input.scheduled_at,
+      scheduledAt: input.scheduled_at === 'now' ? timestamp : input.scheduled_at,
+      timestamp,
     })
 
-    if (this.postCommitEventPublisher) {
-      await this.postCommitEventPublisher.publish(
-        buildInterviewCreatedEvent({
-          interview: {
-            id: createdInterview.id,
-            scheduler_id: createdInterview.scheduler_id,
-            interviewer_id: createdInterview.interviewer_id,
-            type: createdInterview.type,
-            mode: createdInterview.mode as 'ai_led',
-            tier: createdInterview.tier,
-            status: createdInterview.status as 'scheduled',
-            scheduled_at: createdInterview.scheduled_at,
-          },
-        }),
-      )
-    }
+    await this.flushPostCommitEventsSafely()
 
     return toCreateInterviewResponse(createdInterview)
   }
@@ -104,29 +91,19 @@ export class InterviewService {
       interview_id: input.id,
       participant_user_id: participantUserId,
       updated_at: this.now(),
-    })
+    }, this.postCommitEventPublisher
+      ? {
+          buildPostCommitEvent: buildCancelledInterviewEvent,
+        }
+      : undefined)
 
     switch (cancelResult.outcome) {
       case 'cancelled': {
-        if (this.postCommitEventPublisher) {
-          await this.postCommitEventPublisher.publish(
-            buildInterviewCancelledEvent({
-              interview: {
-                id: cancelResult.interview.id,
-                scheduler_id: cancelResult.interview.scheduler_id,
-                interviewer_id: cancelResult.interview.interviewer_id,
-                type: cancelResult.interview.type,
-                mode: cancelResult.interview.mode,
-                tier: cancelResult.interview.tier,
-                status: cancelResult.interview.status as 'cancelled',
-                scheduled_at: cancelResult.interview.scheduled_at,
-              },
-            }),
-          )
-        }
+        await this.flushPostCommitEventsSafely()
         return toCancelInterviewResponse()
       }
       case 'already_cancelled':
+        await this.flushPostCommitEventsSafely()
         return toCancelInterviewResponse()
       case 'invalid_status':
         throw new InterviewConflictError(
@@ -145,6 +122,7 @@ export class InterviewService {
     schedulerId: string
     type: CreateInterviewRequest['type']
     scheduledAt: string
+    timestamp: string
   }): Promise<Interview> {
     let lastConflictError: InterviewPolicyConflictError | null = null
 
@@ -162,25 +140,45 @@ export class InterviewService {
         this.interviewPolicyConfig,
       )
 
-      const timestamp = this.now()
       const aliases = buildInterviewAliases('ai_led')
+      const createInterviewInput = {
+        id: this.createId(),
+        scheduler_id: input.schedulerId,
+        scheduler_alias: aliases.schedulerAlias,
+        interviewer_id: null,
+        interviewer_alias: aliases.interviewerAlias,
+        type: input.type,
+        mode: 'ai_led' as const,
+        tier: resolvedPolicy.tier,
+        status: 'scheduled' as const,
+        scheduled_at: input.scheduledAt,
+        created_at: input.timestamp,
+        updated_at: input.timestamp,
+        policy_consumption: resolvedPolicy.consumption,
+      }
 
       try {
-        return await this.interviewRepository.createDirectInterview({
-          id: this.createId(),
-          scheduler_id: input.schedulerId,
-          scheduler_alias: aliases.schedulerAlias,
-          interviewer_id: null,
-          interviewer_alias: aliases.interviewerAlias,
-          type: input.type,
-          mode: 'ai_led',
-          tier: resolvedPolicy.tier,
-          status: 'scheduled',
-          scheduled_at: input.scheduledAt,
-          created_at: timestamp,
-          updated_at: timestamp,
-          policy_consumption: resolvedPolicy.consumption,
-        })
+        return await this.interviewRepository.createDirectInterview(
+          createInterviewInput,
+          this.postCommitEventPublisher
+            ? {
+                buildPostCommitEvent: function buildCreatedEvent(interview) {
+                  return buildInterviewCreatedEvent({
+                    interview: {
+                      id: interview.id,
+                      scheduler_id: interview.scheduler_id,
+                      interviewer_id: interview.interviewer_id,
+                      type: interview.type,
+                      mode: interview.mode as 'ai_led',
+                      tier: interview.tier,
+                      status: interview.status as 'scheduled',
+                      scheduled_at: interview.scheduled_at,
+                    },
+                  })
+                },
+              }
+            : undefined,
+        )
       } catch (error) {
         if (!(error instanceof InterviewPolicyConflictError)) {
           throw error
@@ -214,6 +212,31 @@ export class InterviewService {
 
     return session
   }
+
+  private async flushPostCommitEventsSafely(): Promise<void> {
+    if (!this.postCommitEventPublisher) {
+      return
+    }
+
+    await this.interviewRepository.flushPostCommitEvents(this.postCommitEventPublisher, {
+      now: this.now(),
+    })
+  }
+}
+
+function buildCancelledInterviewEvent(interview: Interview) {
+  return buildInterviewCancelledEvent({
+    interview: {
+      id: interview.id,
+      scheduler_id: interview.scheduler_id,
+      interviewer_id: interview.interviewer_id,
+      type: interview.type,
+      mode: interview.mode,
+      tier: interview.tier,
+      status: interview.status as 'cancelled',
+      scheduled_at: interview.scheduled_at,
+    },
+  })
 }
 
 export function resolveAiInterviewCreatePolicy(

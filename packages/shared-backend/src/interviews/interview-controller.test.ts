@@ -345,6 +345,42 @@ describe('InterviewController', function interviewControllerSuite() {
     expect(publishedEvents[0]?.event_type).toBe('interview.created')
   })
 
+  it('returns success for committed creates even when queue publishing fails', async function run() {
+    let shouldFailNextPublish = true
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 1,
+      credits: 0,
+      postCommitEventPublisher: {
+        publish: async function publish() {
+          if (shouldFailNextPublish) {
+            shouldFailNextPublish = false
+            throw new Error('queue unavailable')
+          }
+        },
+      },
+    })
+
+    const response = await app.request('/api/interviews', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        type: 'system_design',
+        mode: 'ai_led',
+        scheduled_at: 'now',
+      }),
+    })
+
+    expect(response.status).toBe(201)
+    await expect(response.json()).resolves.toMatchObject({
+      interview: {
+        mode: 'ai_led',
+      },
+    })
+  })
+
   it('does not emit interview.created for unsupported peer-to-peer create', async function run() {
     const publishedEvents: InterviewPostCommitEvent[] = []
     const app = createInterviewApp({
@@ -406,6 +442,52 @@ describe('InterviewController', function interviewControllerSuite() {
     })
     expect(secondCancel.status).toBe(200)
     expect(publishedEvents).toHaveLength(1)
+  })
+
+  it('replays a pending cancellation event on an idempotent retry after publish failure', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const publishedEvents: InterviewPostCommitEvent[] = []
+    let shouldFailNextPublish = true
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+      postCommitEventPublisher: {
+        publish: async function publish(event) {
+          if (shouldFailNextPublish) {
+            shouldFailNextPublish = false
+            throw new Error('queue unavailable')
+          }
+
+          publishedEvents.push(event)
+        },
+      },
+    })
+
+    const firstCancel = await app.request(`/api/interviews/${interviewId}/cancel`, {
+      method: 'POST',
+    })
+    expect(firstCancel.status).toBe(200)
+    expect(publishedEvents).toHaveLength(0)
+
+    const secondCancel = await app.request(`/api/interviews/${interviewId}/cancel`, {
+      method: 'POST',
+    })
+    expect(secondCancel.status).toBe(200)
+    expect(publishedEvents).toHaveLength(1)
+    expect(publishedEvents[0]).toMatchObject({
+      event_type: 'interview.cancelled',
+      interview: {
+        id: interviewId,
+        status: 'cancelled',
+      },
+    })
   })
 
   it('returns 400 for invalid cancel route params', async function run() {

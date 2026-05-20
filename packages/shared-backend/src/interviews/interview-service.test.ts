@@ -290,6 +290,77 @@ describe('InterviewService', function interviewServiceSuite() {
     expect(true).toBe(true)
   })
 
+  it('does not fail committed creates when the publisher throws and replays the event on a later mutation', async function run() {
+    const repository = new InterviewRepository(
+      createInMemoryInterviewDataSource([
+        {
+          userId: activeSession.userId,
+          credits: 0,
+          freeAiInterviews: 1,
+        },
+      ]),
+    )
+    const publishedEvents: InterviewPostCommitEvent[] = []
+    let shouldFailNextPublish = true
+    const createService = new InterviewService(
+      repository,
+      undefined,
+      function createId() {
+        return '22222222-2222-4222-8222-222222222222'
+      },
+      function now() {
+        return '2026-04-13T10:00:00.000Z'
+      },
+      {
+        publish: async function publish(event) {
+          if (shouldFailNextPublish) {
+            shouldFailNextPublish = false
+            throw new Error('queue unavailable')
+          }
+
+          publishedEvents.push(event)
+        },
+      },
+    )
+
+    const created = await createService.createInterview(activeSession, {
+      type: 'system_design',
+      mode: 'ai_led',
+      scheduled_at: 'now',
+    })
+
+    expect(created.interview.id).toBe('22222222-2222-4222-8222-222222222222')
+    expect(publishedEvents).toHaveLength(0)
+
+    const recoveryService = new InterviewService(
+      repository,
+      undefined,
+      function createId() {
+        return '44444444-4444-4444-8444-444444444444'
+      },
+      function now() {
+        return '2026-04-13T10:05:00.000Z'
+      },
+      {
+        publish: async function publish(event) {
+          publishedEvents.push(event)
+        },
+      },
+    )
+
+    await expect(
+      recoveryService.cancelInterview(activeSession, { id: created.interview.id }),
+    ).resolves.toEqual({ success: true })
+
+    expect(publishedEvents).toHaveLength(2)
+    expect(publishedEvents).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ event_type: 'interview.created' }),
+        expect.objectContaining({ event_type: 'interview.cancelled' }),
+      ]),
+    )
+  })
+
   it('emits interview.cancelled only on first successful cancel', async function run() {
     const interviewId = '33333333-3333-4333-8333-333333333333'
     const publishedEvents: InterviewPostCommitEvent[] = []
@@ -346,6 +417,82 @@ describe('InterviewService', function interviewServiceSuite() {
 
     // No publisher was provided; no error should occur
     expect(true).toBe(true)
+  })
+
+  it('does not fail committed cancels when the publisher throws and replays on retry', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const repository = new InterviewRepository(
+      createInMemoryInterviewDataSource(
+        [
+          {
+            userId: activeSession.userId,
+            credits: 0,
+            freeAiInterviews: 0,
+          },
+        ],
+        [
+          createInterviewRecord({
+            id: interviewId,
+            scheduler_id: activeSession.userId,
+          }),
+        ],
+      ),
+    )
+    const publishedEvents: InterviewPostCommitEvent[] = []
+    let shouldFailNextPublish = true
+    const firstService = new InterviewService(
+      repository,
+      undefined,
+      function createId() {
+        return '22222222-2222-4222-8222-222222222222'
+      },
+      function now() {
+        return '2026-04-13T10:00:00.000Z'
+      },
+      {
+        publish: async function publish(event) {
+          if (shouldFailNextPublish) {
+            shouldFailNextPublish = false
+            throw new Error('queue unavailable')
+          }
+
+          publishedEvents.push(event)
+        },
+      },
+    )
+
+    await expect(firstService.cancelInterview(activeSession, { id: interviewId })).resolves.toEqual({
+      success: true,
+    })
+    expect(publishedEvents).toHaveLength(0)
+
+    const retryService = new InterviewService(
+      repository,
+      undefined,
+      function createId() {
+        return '44444444-4444-4444-8444-444444444444'
+      },
+      function now() {
+        return '2026-04-13T10:05:00.000Z'
+      },
+      {
+        publish: async function publish(event) {
+          publishedEvents.push(event)
+        },
+      },
+    )
+
+    await expect(retryService.cancelInterview(activeSession, { id: interviewId })).resolves.toEqual({
+      success: true,
+    })
+    expect(publishedEvents).toHaveLength(1)
+    expect(publishedEvents[0]).toMatchObject({
+      event_type: 'interview.cancelled',
+      interview: {
+        id: interviewId,
+        status: 'cancelled',
+      },
+    })
   })
 })
 

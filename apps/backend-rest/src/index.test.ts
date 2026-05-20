@@ -412,6 +412,33 @@ describe('backend-rest smoke tests', function () {
     expect(message.idempotency_key).toBe(`interview.created:${message.interview.id}`)
   })
 
+  it('returns 201 for committed creates even when the queue send fails', async function () {
+    const app = createApp()
+    let shouldFailNextSend = true
+
+    const response = await createInterview(
+      app,
+      {},
+      {
+        INTERVIEW_PROVISIONING_QUEUE: {
+          async send() {
+            if (shouldFailNextSend) {
+              shouldFailNextSend = false
+              throw new Error('queue unavailable')
+            }
+          },
+        },
+      },
+    )
+
+    expect(response.status).toBe(201)
+    await expect(response.json()).resolves.toMatchObject({
+      interview: {
+        mode: 'ai_led',
+      },
+    })
+  })
+
   it('emits interview.cancelled end-to-end only on first successful cancel', async function () {
     const app = createApp()
     const queueMessages: unknown[] = []
@@ -446,6 +473,47 @@ describe('backend-rest smoke tests', function () {
     const secondCancel = await cancelInterview(app, interviewId, env)
     expect(secondCancel.status).toBe(200)
     expect(queueMessages).toHaveLength(2)
+  })
+
+  it('replays a pending cancellation event on an idempotent retry after queue failure', async function () {
+    const app = createApp()
+    const queueMessages: unknown[] = []
+    let sendCount = 0
+    const env: Partial<WorkerBindings> = {
+      INTERVIEW_PROVISIONING_QUEUE: {
+        async send(message: unknown) {
+          sendCount += 1
+
+          if (sendCount === 2) {
+            throw new Error('queue unavailable')
+          }
+
+          queueMessages.push(message)
+        },
+      },
+    }
+
+    const createResponse = await createInterview(app, {}, env)
+    expect(createResponse.status).toBe(201)
+    expect(queueMessages).toHaveLength(1)
+
+    const createdInterview = (await createResponse.json()) as {
+      interview: { id: string }
+    }
+
+    const firstCancel = await cancelInterview(app, createdInterview.interview.id, env)
+    expect(firstCancel.status).toBe(200)
+    expect(queueMessages).toHaveLength(1)
+
+    const secondCancel = await cancelInterview(app, createdInterview.interview.id, env)
+    expect(secondCancel.status).toBe(200)
+    expect(queueMessages).toHaveLength(2)
+    expect(queueMessages).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ event_type: 'interview.created' }),
+        expect.objectContaining({ event_type: 'interview.cancelled' }),
+      ]),
+    )
   })
 
   it('does not emit queue events when INTERVIEW_PROVISIONING_QUEUE binding is absent', async function () {
