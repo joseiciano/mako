@@ -155,7 +155,9 @@ const missingMatcherPostCommitEventPublisher: MatcherPostCommitEventPublisher = 
   publish: publishMissingMatcherPostCommitEvent,
 }
 
-async function publishMissingMatcherPostCommitEvent(): Promise<void> {
+async function publishMissingMatcherPostCommitEvent(
+  _event: MatcherMatchCreatedEvent,
+): Promise<void> {
   throw new Error(
     'MatcherExecutionService post-commit event publisher is not configured',
   )
