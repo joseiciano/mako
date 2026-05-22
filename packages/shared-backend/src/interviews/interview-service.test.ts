@@ -9,6 +9,7 @@ import {
   InterviewConflictError,
   InterviewNotFoundError,
   InterviewUnauthorizedError,
+  parseInterview,
   type InterviewSession,
 } from './types'
 import { InterviewService } from './interview-service'
@@ -355,6 +356,79 @@ describe('InterviewService', function interviewServiceSuite() {
     expect(createdEvent.interview.interviewer_id).toBe(
       createdEvent.participants.interviewer_user_id,
     )
+  })
+
+  it('outbox event reflects actual persisted interview tier after policy resolution', async function run() {
+    const persistedOutboxEvents: import('../notification-queue-event-contract').NotificationQueueEvent[] = []
+    const dispatchedIdempotencyKeys: string[] = []
+
+    const mockNotificationService = {
+      async persistOutboxEvent(): Promise<void> {},
+    } as unknown as import('../notifications').NotificationService
+
+    const mockNotificationDispatchService = {
+      async dispatchOutboxEventByIdempotencyKey(
+        idempotencyKey: string,
+        _transport: unknown,
+      ): Promise<void> {
+        dispatchedIdempotencyKeys.push(idempotencyKey)
+      },
+    } as unknown as import('../notifications').NotificationDispatchService
+
+    const mockNotificationTransport = {
+      async send(): Promise<void> {},
+    } as unknown as import('../notifications').NotificationTransport
+
+    const repository = new InterviewRepository({
+      dataSource: {
+        getAccountPolicy: async () => ({ credits: 2, free_ai_interviews: 0 }),
+        createDirectInterview: async (input, outboxEvent) => {
+          if (outboxEvent) {
+            persistedOutboxEvents.push(outboxEvent)
+          }
+          return parseInterview(input)
+        },
+      },
+    })
+
+    const service = new InterviewService(
+      repository,
+      undefined,
+      function createId() {
+        return '22222222-2222-4222-8222-222222222222'
+      },
+      function now() {
+        return '2026-04-13T10:00:00.000Z'
+      },
+      undefined,
+      undefined,
+      mockNotificationService,
+      mockNotificationDispatchService,
+      mockNotificationTransport,
+    )
+
+    const response = await service.createInterview(activeSession, {
+      type: 'coding',
+      mode: 'ai_led',
+      scheduled_at: '2026-05-01T15:00:00.000Z',
+    })
+
+    // The created interview should have premium tier (from credits)
+    expect(response.interview.tier).toBe('premium')
+
+    // The outbox event should also have premium tier
+    expect(persistedOutboxEvents).toHaveLength(1)
+    const outboxEvent = persistedOutboxEvents[0]
+    expect(outboxEvent.event_type).toBe('interview.created')
+
+    const interviewPayload = outboxEvent.interview as Record<string, unknown>
+    expect(interviewPayload.tier).toBe('premium')
+    expect(interviewPayload.id).toBe(response.interview.id)
+    expect(interviewPayload.scheduler_id).toBe(activeSession.userId)
+
+    // Should have attempted dispatch
+    expect(dispatchedIdempotencyKeys).toHaveLength(1)
+    expect(dispatchedIdempotencyKeys[0]).toBe(outboxEvent.idempotency_key)
   })
 
   it('does not publish created event when create fails from auth problems', async function run() {
@@ -734,16 +808,21 @@ function createInterviewService(
   seedInterviews: readonly Interview[] = [],
   postCommitEventPublisher?: InterviewPostCommitEventPublisher,
   logger?: { error(event: string, context: Record<string, unknown>): void | Promise<void> },
+  notificationService?: import('../notifications').NotificationService,
+  notificationDispatchService?: import('../notifications').NotificationDispatchService,
+  notificationTransport?: import('../notifications').NotificationTransport,
+  persistOutboxEvent?: (event: import('../notification-queue-event-contract').NotificationQueueEvent) => Promise<void>,
 ) {
-  const repository = new InterviewRepository(
-    createInMemoryInterviewDataSource([
+  const repository = new InterviewRepository({
+    dataSource: createInMemoryInterviewDataSource([
       {
         userId: activeSession.userId,
         credits: accountState.credits,
         freeAiInterviews: accountState.freeAiInterviews,
       },
     ], seedInterviews),
-  )
+    persistOutboxEvent,
+  })
   const service = new InterviewService(
     repository,
     policyConfig,
@@ -755,6 +834,9 @@ function createInterviewService(
     },
     postCommitEventPublisher,
     logger,
+    notificationService,
+    notificationDispatchService,
+    notificationTransport,
   )
 
   return {
