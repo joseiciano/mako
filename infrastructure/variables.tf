@@ -47,10 +47,10 @@ variable "greedy_matcher_worker_script_name" {
   default     = "mako-greedy-matcher"
 }
 
-variable "interview_provisioner_worker_script_name" {
-  description = "Script name for the queue-triggered interview provisioner Worker."
+variable "notification_orchestrator_worker_script_name" {
+  description = "Script name for the queue-triggered notification orchestrator Worker."
   type        = string
-  default     = "mako-interview-provisioner"
+  default     = "mako-notification-orchestrator"
 }
 
 variable "realtime_app_id" {
@@ -65,7 +65,7 @@ variable "interview_workflow_name" {
 }
 
 variable "interview_workflow_class_name" {
-  description = "Workflow class exported by the interview provisioner Worker script."
+  description = "Workflow class exported by the notification orchestrator Worker script."
   type        = string
   default     = "InterviewLifecycleWorkflow"
 }
@@ -88,10 +88,10 @@ variable "r2_location" {
   default     = "enam"
 }
 
-variable "interview_provisioning_queue_name" {
-  description = "Queue name for interview provisioning hand-off."
+variable "notification_orchestration_queue_name" {
+  description = "Queue name for notification orchestration hand-off."
   type        = string
-  default     = "interview-provisioning"
+  default     = "notification-orchestration"
 }
 
 variable "greedy_matcher_cron" {

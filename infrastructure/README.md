@@ -7,10 +7,11 @@ Terraform in this directory provisions Cloudflare and Neon resources required fo
 - Cloudflare Workers scripts:
   - `mako-backend-rest` (main backend API worker)
   - `mako-greedy-matcher` (cron worker)
-  - `mako-interview-provisioner` (queue consumer worker)
+  - `mako-notification-orchestrator` (queue consumer worker)
+
 - Cloudflare Workers Cron trigger for Greedy Matcher
-- Cloudflare Queue: `interview-provisioning`
-- Cloudflare Queue consumer for Interview Provisioner worker
+- Cloudflare Queue: `notification-orchestration`
+- Cloudflare Queue consumer for Notification Orchestrator worker
 - Cloudflare R2 buckets for recordings and screenshots
 - Cloudflare Hyperdrive configs for development and production Neon projects
 - Cloudflare Workflow (`interview-lifecycle`) and workflow binding

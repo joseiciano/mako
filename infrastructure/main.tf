@@ -70,17 +70,17 @@ resource "cloudflare_r2_bucket" "screenshots" {
   location   = var.r2_location
 }
 
-resource "cloudflare_queue" "interview_provisioning" {
+resource "cloudflare_queue" "notification_orchestration" {
   account_id = var.cloudflare_account_id
-  queue_name = var.interview_provisioning_queue_name
+  queue_name = var.notification_orchestration_queue_name
 }
 
-resource "cloudflare_workers_script" "interview_provisioner" {
+resource "cloudflare_workers_script" "notification_orchestrator" {
   account_id         = var.cloudflare_account_id
-  script_name        = var.interview_provisioner_worker_script_name
-  content_file       = "${path.module}/workers/interview-provisioner.js"
-  content_sha256     = filesha256("${path.module}/workers/interview-provisioner.js")
-  main_module        = "interview-provisioner.js"
+  script_name        = var.notification_orchestrator_worker_script_name
+  content_file       = "${path.module}/workers/notification-orchestrator.js"
+  content_sha256     = filesha256("${path.module}/workers/notification-orchestrator.js")
+  main_module        = "notification-orchestrator.js"
   compatibility_date = var.workers_compatibility_date
 
   bindings = [
@@ -100,7 +100,7 @@ resource "cloudflare_workers_script" "interview_provisioner" {
 resource "cloudflare_workflow" "interview_lifecycle" {
   account_id    = var.cloudflare_account_id
   workflow_name = var.interview_workflow_name
-  script_name   = cloudflare_workers_script.interview_provisioner.script_name
+  script_name   = cloudflare_workers_script.notification_orchestrator.script_name
   class_name    = var.interview_workflow_class_name
 }
 
@@ -126,8 +126,8 @@ resource "cloudflare_workers_script" "backend_api" {
       },
       {
         type       = "queue"
-        name       = "INTERVIEW_PROVISIONING_QUEUE"
-        queue_name = cloudflare_queue.interview_provisioning.queue_name
+        name       = "NOTIFICATION_QUEUE"
+        queue_name = cloudflare_queue.notification_orchestration.queue_name
       },
       {
         type = "hyperdrive"
@@ -138,7 +138,7 @@ resource "cloudflare_workers_script" "backend_api" {
         type          = "workflow"
         name          = "INTERVIEW_WORKFLOW"
         workflow_name = cloudflare_workflow.interview_lifecycle.workflow_name
-        script_name   = cloudflare_workers_script.interview_provisioner.script_name
+        script_name   = cloudflare_workers_script.notification_orchestrator.script_name
       },
       {
         type = "plain_text"
@@ -167,8 +167,8 @@ resource "cloudflare_workers_script" "greedy_matcher" {
   bindings = [
     {
       type       = "queue"
-      name       = "INTERVIEW_PROVISIONING_QUEUE"
-      queue_name = cloudflare_queue.interview_provisioning.queue_name
+      name       = "NOTIFICATION_QUEUE"
+      queue_name = cloudflare_queue.notification_orchestration.queue_name
     },
     {
       type = "hyperdrive"
@@ -189,11 +189,11 @@ resource "cloudflare_workers_cron_trigger" "greedy_matcher" {
   ]
 }
 
-resource "cloudflare_queue_consumer" "interview_provisioner" {
+resource "cloudflare_queue_consumer" "notification_orchestrator" {
   account_id  = var.cloudflare_account_id
-  queue_id    = cloudflare_queue.interview_provisioning.queue_id
+  queue_id    = cloudflare_queue.notification_orchestration.queue_id
   type        = "worker"
-  script_name = cloudflare_workers_script.interview_provisioner.script_name
+  script_name = cloudflare_workers_script.notification_orchestrator.script_name
 
   settings = {
     batch_size       = var.queue_batch_size

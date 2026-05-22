@@ -28,5 +28,5 @@ ai_gateway_name = ""
 # Optional overrides
 # recordings_bucket_name = "mako-recordings"
 # screenshots_bucket_name = "mako-screenshots"
-# interview_provisioning_queue_name = "interview-provisioning"
+# notification_orchestration_queue_name = "notification-orchestration"
 # greedy_matcher_cron = "*/10 * * * *"

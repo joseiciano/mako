@@ -3,7 +3,7 @@ output "worker_script_names" {
   value = {
     backend_api           = cloudflare_workers_script.backend_api.script_name
     greedy_matcher        = cloudflare_workers_script.greedy_matcher.script_name
-    interview_provisioner = cloudflare_workers_script.interview_provisioner.script_name
+    notification_orchestrator = cloudflare_workers_script.notification_orchestrator.script_name
   }
 }
 
@@ -15,11 +15,11 @@ output "r2_bucket_names" {
   }
 }
 
-output "interview_provisioning_queue" {
-  description = "Interview provisioning queue metadata."
+output "notification_orchestration_queue" {
+  description = "Notification orchestration queue metadata."
   value = {
-    queue_name = cloudflare_queue.interview_provisioning.queue_name
-    queue_id   = cloudflare_queue.interview_provisioning.queue_id
+    queue_name = cloudflare_queue.notification_orchestration.queue_name
+    queue_id   = cloudflare_queue.notification_orchestration.queue_id
   }
 }
 
