@@ -1,5 +1,6 @@
 import { createSqlQuery, type SqlQuery } from '../index'
 import { buildInterviewAliases } from '../interview'
+import type { NotificationOutboxEventRow } from '../notifications/notification-types'
 import {
   parseMatcherCandidateRow,
   matcherCreatedInterviewSchema,
@@ -45,6 +46,7 @@ type MatcherRepositoryDependencies = {
   now?: () => string
   logger?: MatcherRepositoryLogger
   maxTransactionRetries?: number
+  persistOutboxEvent?: (event: NotificationOutboxEventRow) => Promise<void>
 }
 
 export class MatcherRepository {
@@ -56,10 +58,13 @@ export class MatcherRepository {
 
   private readonly maxTransactionRetries: number
 
+  private readonly dependencies: MatcherRepositoryDependencies
+
   constructor(
     private readonly queryExecutor: MatcherQueryExecutor,
     dependencies: MatcherRepositoryDependencies = {},
   ) {
+    this.dependencies = dependencies
     this.createId = dependencies.createId ?? createDefaultId
     this.now = dependencies.now ?? createDefaultNow
     this.logger = dependencies.logger ?? noOpMatcherRepositoryLogger
@@ -99,6 +104,7 @@ export class MatcherRepository {
 
   async executePairAttemptTransaction(
     pairAttempt: MatcherPairAttempt,
+    buildOutboxEvent?: (interview: MatcherCreatedInterview) => NotificationOutboxEventRow,
   ): Promise<MatchAttemptWriteResult> {
     const diagnostics: MatchAttemptWriteDiagnostics = {
       transactionConflicts: 0,
@@ -111,7 +117,7 @@ export class MatcherRepository {
       transactionAttempt += 1
     ) {
       try {
-        const result = await this.executePairAttemptTransactionOnce(pairAttempt)
+        const result = await this.executePairAttemptTransactionOnce(pairAttempt, buildOutboxEvent)
 
         if (result.status === 'created') {
           return {
@@ -188,6 +194,7 @@ export class MatcherRepository {
 
   private async executePairAttemptTransactionOnce(
     pairAttempt: MatcherPairAttempt,
+    buildOutboxEvent?: (interview: MatcherCreatedInterview) => NotificationOutboxEventRow,
   ): Promise<MatchAttemptWriteResultWithoutDiagnostics> {
     await this.queryExecutor.query(createSqlQuery('BEGIN;'))
 
@@ -303,6 +310,11 @@ export class MatcherRepository {
           ],
         ),
       )
+
+      if (buildOutboxEvent && this.dependencies.persistOutboxEvent) {
+        const outboxEvent = buildOutboxEvent(createdInterview)
+        await this.dependencies.persistOutboxEvent(outboxEvent)
+      }
 
       await this.queryExecutor.query(createSqlQuery('COMMIT;'))
 

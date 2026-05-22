@@ -1,5 +1,6 @@
 import type { Interview } from '@mako/shared'
 import { createSqlQuery, type SqlQuery } from '../index'
+import type { NotificationQueueEvent } from '../notification-queue-event-contract'
 import {
   cancelInterviewRecordInputSchema,
   InterviewPolicyConflictError,
@@ -27,7 +28,8 @@ export type SqlQueryExecutor = {
 
 export interface InterviewRepositoryDataSource {
   getAccountPolicy(userId: string): Promise<InterviewAccountPolicy | null>
-  createDirectInterview(input: CreateInterviewRecordInput): Promise<Interview>
+  createDirectInterview(input: CreateInterviewRecordInput, outboxEvent?: NotificationQueueEvent): Promise<Interview>
+  getInterviewById?(id: string): Promise<Interview | null>
   listParticipantInterviews?(
     input: ListParticipantInterviewsInput,
   ): Promise<Interview[]>
@@ -45,6 +47,7 @@ export type InMemoryInterviewAccountRecord = {
 type InterviewRepositoryDependencies = {
   dataSource?: InterviewRepositoryDataSource
   queryExecutor?: SqlQueryExecutor
+  persistOutboxEvent?: (event: NotificationQueueEvent) => Promise<void>
 }
 
 type InterviewRepositoryConstructorInput =
@@ -99,12 +102,15 @@ export class InterviewRepository {
     return interviewAccountPolicySchema.parse(row)
   }
 
-  async createDirectInterview(input: CreateInterviewRecordInput): Promise<Interview> {
+  async createDirectInterview(
+    input: CreateInterviewRecordInput,
+    outboxEvent?: NotificationQueueEvent,
+  ): Promise<Interview> {
     const parsedInput = createInterviewRecordInputSchema.parse(input)
     const dataSource = this.dependencies.dataSource
 
     if (dataSource) {
-      return dataSource.createDirectInterview(parsedInput)
+      return dataSource.createDirectInterview(parsedInput, outboxEvent)
     }
 
     const queryExecutor = this.getQueryExecutor()
@@ -174,6 +180,10 @@ export class InterviewRepository {
         throw new Error('Failed to insert interview record.')
       }
 
+      if (outboxEvent && this.dependencies.persistOutboxEvent) {
+        await this.dependencies.persistOutboxEvent(outboxEvent)
+      }
+
       await queryExecutor.query(createSqlQuery('COMMIT;'))
       return parseInterview(createdInterview)
     } catch (error) {
@@ -201,14 +211,54 @@ export class InterviewRepository {
     })
   }
 
+  async getInterviewById(id: string): Promise<Interview | null> {
+    const dataSource = this.dependencies.dataSource
+
+    if (dataSource && 'getInterviewById' in dataSource) {
+      return (dataSource as InterviewRepositoryDataSource & { getInterviewById(id: string): Promise<Interview | null> }).getInterviewById(id)
+    }
+
+    const result = await this.getQueryExecutor().query<Interview>(
+      createSqlQuery(
+        `
+          SELECT
+            id,
+            scheduler_id,
+            scheduler_alias,
+            interviewer_id,
+            interviewer_alias,
+            type,
+            mode,
+            tier,
+            status,
+            scheduled_at,
+            created_at,
+            updated_at
+          FROM interviews
+          WHERE id = $1
+          LIMIT 1;
+        `,
+        [id],
+      ),
+    )
+
+    const [row] = result.rows
+    return row ? parseInterview(row) : null
+  }
+
   async cancelInterview(
     input: CancelInterviewRecordInput,
+    outboxEvent?: NotificationQueueEvent,
   ): Promise<CancelInterviewRecordResult> {
     const parsedInput = cancelInterviewRecordInputSchema.parse(input)
     const dataSource = this.dependencies.dataSource
 
     if (typeof dataSource?.cancelInterview === 'function') {
-      return dataSource.cancelInterview(parsedInput)
+      const result = await dataSource.cancelInterview(parsedInput)
+      if (result.outcome === 'cancelled' && outboxEvent && this.dependencies.persistOutboxEvent) {
+        await this.dependencies.persistOutboxEvent(outboxEvent)
+      }
+      return result
     }
 
     const queryExecutor = this.getQueryExecutor()
@@ -297,6 +347,10 @@ export class InterviewRepository {
         throw new Error('Failed to cancel interview record.')
       }
 
+      if (outboxEvent && this.dependencies.persistOutboxEvent) {
+        await this.dependencies.persistOutboxEvent(outboxEvent)
+      }
+
       await queryExecutor.query(createSqlQuery('COMMIT;'))
 
       return {
@@ -354,7 +408,10 @@ export function createInMemoryInterviewDataSource(
         free_ai_interviews: accountState.freeAiInterviews,
       }
     },
-    async createDirectInterview(input: CreateInterviewRecordInput): Promise<Interview> {
+    async createDirectInterview(
+      input: CreateInterviewRecordInput,
+      _outboxEvent?: NotificationQueueEvent,
+    ): Promise<Interview> {
       const parsedInput = createInterviewRecordInputSchema.parse(input)
       const accountState = accountStateByUserId.get(parsedInput.scheduler_id)
 
@@ -404,6 +461,10 @@ export function createInMemoryInterviewDataSource(
         .map(function cloneInterview(interview) {
           return structuredClone(interview)
         })
+    },
+    async getInterviewById(id: string): Promise<Interview | null> {
+      const interview = interviewsById.get(id)
+      return interview ? structuredClone(interview) : null
     },
     async cancelInterview(
       input: CancelInterviewRecordInput,
