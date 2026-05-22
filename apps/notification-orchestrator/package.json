@@ -1,0 +1,24 @@
+{
+  "name": "@mako/notification-orchestrator",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev --port 8788",
+    "deploy": "wrangler deploy",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc --noEmit",
+    "cf-typegen": "wrangler types --env-interface WorkerBindings"
+  },
+  "dependencies": {
+    "@mako/shared": "workspace:*",
+    "@mako/shared-backend": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "latest",
+    "typescript": "^5.8.2",
+    "wrangler": "^4.4.0"
+  }
+}
