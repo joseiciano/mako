@@ -406,7 +406,7 @@ describe('backend-rest smoke tests', function () {
       app,
       {},
       {
-        INTERVIEW_PROVISIONING_QUEUE: failingQueue,
+        NOTIFICATION_QUEUE: failingQueue,
       },
     )
 
@@ -645,6 +645,23 @@ function createDatabaseBinding(accountState: {
 
         return {
           rows: [updatedInterview],
+        }
+      }
+
+      if (statementText.includes('INSERT INTO notification_outbox_events')) {
+        return { rows: [] }
+      }
+
+      if (
+        statementText.includes('FROM interviews') &&
+        statementText.includes('WHERE id = $1') &&
+        statementText.includes('LIMIT 1') &&
+        !statementText.includes('FOR UPDATE')
+      ) {
+        const interviewId = String(statementValues[0])
+        const interview = interviewsById.get(interviewId)
+        return {
+          rows: interview ? [interview] : [],
         }
       }
 
