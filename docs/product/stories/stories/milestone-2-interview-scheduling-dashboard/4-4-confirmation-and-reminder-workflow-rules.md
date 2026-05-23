@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 2: Interview Scheduling & Dashboard
 **Description**: Define deterministic confirmation and reminder behavior for created/matched interviews after successful commit.
-**Status**: Completed
+**Status**: done
 **Prerequisites**:
 - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-2-notification-event-contract-and-producer-ownership.md`
 - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-3-notification-transport-reliability-and-idempotency.md`

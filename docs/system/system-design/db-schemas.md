@@ -213,6 +213,7 @@ Persisted reminder transport schedule for delayed reminder delivery/suppression 
 Indexes:
 
 - `idx_notification_reminder_schedules_due` on (`reminder_due_at`) WHERE `status = 'pending'`
+- `idx_notification_reminder_schedules_idempotency_key` unique on (`idempotency_key`)
 - `idx_notification_reminder_schedules_active_interview` unique on (`interview_id`) WHERE `status = 'pending'`
 
 ### Availability_Requests
