@@ -34,7 +34,7 @@ Keep Realtime/whiteboard provisioning out of this transport path. Keep Cloudflar
   - safe retry behavior for transient failures
 - [x] Define transient vs terminal consumer failures and the required retry/ack behavior for each category.
 - [x] Lock the transport used for 30-minute reminder timing so Stories 4.4 and 4.5 have a stable runtime assumption (for example: delayed queue delivery or persisted reminder scheduling), and keep it separate from Cloudflare Workflow ownership used for in-session lifecycle timers.
-- [x] Ensure failed processing paths do not silently drop notification or reminder work.
+- [x] Ensure failed processing paths do not silently drop notification or reminder work (failed outbox dispatches remain replayable with backoff; consumer failures retry and then route to DLQ for operator recovery instead of being silently acked).
 - [x] Worker queue handler uses real Cloudflare `Message`/`MessageBatch` interfaces with per-message `ack()`/`retry()`, and the scheduled handler dispatches via the bound `NOTIFICATION_QUEUE` producer.
 
 ### 4. Durable idempotency and processing checkpoints

@@ -16,6 +16,18 @@ import { NotificationService } from './notification-service'
 describe('NotificationConsumerService', function notificationConsumerServiceSuite() {
   it('processes interview.created by recording confirmation checkpoint and scheduling reminder', async function run() {
     const { consumer, dataSource } = createConsumerService()
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: null,
+      type: 'system_design',
+      mode: 'ai_led',
+      tier: 'standard',
+      status: 'scheduled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
 
     await consumer.processInterviewCreated(createInterviewCreatedEvent())
 
@@ -35,6 +47,18 @@ describe('NotificationConsumerService', function notificationConsumerServiceSuit
 
   it('does not duplicate side effects on repeated interview.created delivery', async function run() {
     const { consumer, dataSource } = createConsumerService()
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: null,
+      type: 'system_design',
+      mode: 'ai_led',
+      tier: 'standard',
+      status: 'scheduled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
     const event = createInterviewCreatedEvent()
 
     await consumer.processInterviewCreated(event)
@@ -78,9 +102,128 @@ describe('NotificationConsumerService', function notificationConsumerServiceSuit
     expect(dataSource.reminderSchedules).toHaveLength(0)
   })
 
+  it('does not recreate reminder on replay when interview is no longer scheduled', async function run() {
+    const { consumer, dataSource, notificationService } = createConsumerService()
+    const event = createInterviewCreatedEvent()
+
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: null,
+      type: 'system_design',
+      mode: 'ai_led',
+      tier: 'standard',
+      status: 'cancelled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
+
+    // Simulate crash after confirmation checkpoint but before reminder scheduling
+    await notificationService.recordCheckpoint(
+      event.idempotency_key,
+      'interview.created:confirmation',
+    )
+
+    await consumer.processInterviewCreated(event)
+
+    expect(dataSource.checkpoints).toHaveLength(2)
+    expect(dataSource.checkpoints[1]).toEqual({
+      idempotency_key: 'interview.created:interview-id',
+      checkpoint_key: 'interview.created:reminder',
+    })
+    expect(dataSource.reminderSchedules).toHaveLength(0)
+  })
+
+  it('does not recreate reminder on replay when interview state is missing', async function run() {
+    const { consumer, dataSource, notificationService } = createConsumerService()
+    const event = createInterviewCreatedEvent()
+
+    // No interview in dataSource — simulate state missing after cancellation or deletion
+    await notificationService.recordCheckpoint(
+      event.idempotency_key,
+      'interview.created:confirmation',
+    )
+
+    await consumer.processInterviewCreated(event)
+
+    expect(dataSource.checkpoints).toHaveLength(2)
+    expect(dataSource.checkpoints[1]).toEqual({
+      idempotency_key: 'interview.created:interview-id',
+      checkpoint_key: 'interview.created:reminder',
+    })
+    expect(dataSource.reminderSchedules).toHaveLength(0)
+  })
+
+  it('does not recreate match reminder on replay when interview is no longer scheduled', async function run() {
+    const { consumer, dataSource, notificationService } = createConsumerService()
+    const event = createInterviewMatchCreatedEvent()
+
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: 'interviewer-id',
+      type: 'system_design',
+      mode: 'peer_to_peer',
+      tier: 'standard',
+      status: 'cancelled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
+
+    // Simulate crash after confirmation checkpoint but before reminder scheduling
+    await notificationService.recordCheckpoint(
+      event.idempotency_key,
+      'interview.match.created:confirmation',
+    )
+
+    await consumer.processInterviewMatchCreated(event)
+
+    expect(dataSource.checkpoints).toHaveLength(2)
+    expect(dataSource.checkpoints[1]).toEqual({
+      idempotency_key: 'interview.match.created:interview-id',
+      checkpoint_key: 'interview.match.created:reminder',
+    })
+    expect(dataSource.reminderSchedules).toHaveLength(0)
+  })
+
+  it('does not recreate match reminder on replay when interview state is missing', async function run() {
+    const { consumer, dataSource, notificationService } = createConsumerService()
+    const event = createInterviewMatchCreatedEvent()
+
+    // No interview in dataSource — simulate state missing after cancellation or deletion
+    await notificationService.recordCheckpoint(
+      event.idempotency_key,
+      'interview.match.created:confirmation',
+    )
+
+    await consumer.processInterviewMatchCreated(event)
+
+    expect(dataSource.checkpoints).toHaveLength(2)
+    expect(dataSource.checkpoints[1]).toEqual({
+      idempotency_key: 'interview.match.created:interview-id',
+      checkpoint_key: 'interview.match.created:reminder',
+    })
+    expect(dataSource.reminderSchedules).toHaveLength(0)
+  })
+
   it('resumes reminder scheduling on replay when confirmation checkpoint already exists', async function run() {
     const { consumer, dataSource, notificationService } = createConsumerService()
     const event = createInterviewCreatedEvent()
+
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: null,
+      type: 'system_design',
+      mode: 'ai_led',
+      tier: 'standard',
+      status: 'scheduled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
 
     // Simulate crash after confirmation checkpoint but before reminder scheduling
     await notificationService.recordCheckpoint(
@@ -163,6 +306,18 @@ describe('NotificationConsumerService', function notificationConsumerServiceSuit
 
   it('processes interview.match.created by recording confirmation checkpoint and scheduling reminder', async function run() {
     const { consumer, dataSource } = createConsumerService()
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: 'interviewer-id',
+      type: 'system_design',
+      mode: 'peer_to_peer',
+      tier: 'standard',
+      status: 'scheduled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
 
     await consumer.processInterviewMatchCreated(createInterviewMatchCreatedEvent())
 
@@ -181,6 +336,18 @@ describe('NotificationConsumerService', function notificationConsumerServiceSuit
 
   it('does not duplicate side effects on repeated interview.match.created delivery', async function run() {
     const { consumer, dataSource } = createConsumerService()
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: 'interviewer-id',
+      type: 'system_design',
+      mode: 'peer_to_peer',
+      tier: 'standard',
+      status: 'scheduled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
     const event = createInterviewMatchCreatedEvent()
 
     await consumer.processInterviewMatchCreated(event)
@@ -193,6 +360,19 @@ describe('NotificationConsumerService', function notificationConsumerServiceSuit
   it('resumes match reminder scheduling on replay when confirmation checkpoint already exists', async function run() {
     const { consumer, dataSource, notificationService } = createConsumerService()
     const event = createInterviewMatchCreatedEvent()
+
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: 'interviewer-id',
+      type: 'system_design',
+      mode: 'peer_to_peer',
+      tier: 'standard',
+      status: 'scheduled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
 
     // Simulate crash after confirmation checkpoint but before reminder scheduling
     await notificationService.recordCheckpoint(

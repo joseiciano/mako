@@ -222,6 +222,21 @@ export class InterviewService {
       const timestamp = input.timestamp ?? this.now()
       const aliases = input.aliases ?? buildInterviewAliases('ai_led')
       const interviewId = input.id ?? this.createId()
+      const createdEvent = buildInterviewCreatedEvent(
+        {
+          interview: {
+            id: interviewId,
+            scheduler_id: input.schedulerId,
+            interviewer_id: null,
+            type: input.type,
+            mode: 'ai_led',
+            tier: resolvedPolicy.tier,
+            status: 'scheduled',
+            scheduled_at: input.scheduledAt,
+          },
+        },
+        { createEventId: this.createId, now: this.now },
+      )
 
       try {
         const interview = await this.interviewRepository.createDirectInterview(
@@ -240,31 +255,10 @@ export class InterviewService {
             updated_at: timestamp,
             policy_consumption: resolvedPolicy.consumption,
           },
-          buildInterviewCreatedEvent(
-            {
-              interview: {
-                id: interviewId,
-                scheduler_id: input.schedulerId,
-                interviewer_id: null,
-                type: input.type,
-                mode: 'ai_led',
-                tier: resolvedPolicy.tier,
-                status: 'scheduled',
-                scheduled_at: input.scheduledAt,
-              },
-            },
-            { createEventId: this.createId, now: this.now },
-          ),
+          createdEvent,
         )
 
-        const outboxEvent = buildInterviewCreatedEvent(
-          {
-            interview,
-          },
-          { createEventId: this.createId, now: this.now },
-        )
-
-        return { interview, outboxEvent }
+        return { interview, outboxEvent: createdEvent }
       } catch (error) {
         if (!(error instanceof InterviewPolicyConflictError)) {
           throw error

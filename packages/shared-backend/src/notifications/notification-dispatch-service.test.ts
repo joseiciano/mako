@@ -44,7 +44,7 @@ describe('NotificationDispatchService', function notificationDispatchServiceSuit
     expect(dataSource.outboxEvents.filter((e) => e.status === 'dispatched')).toHaveLength(3)
   })
 
-  it('preserves pending state and increments attempts on transient dispatch failure', async function run() {
+  it('preserves failed state and increments attempts on transient dispatch failure', async function run() {
     const { dispatchService, dataSource, sentMessages } = createDispatchService()
     dataSource.outboxEvents.push(
       createOutboxEventRow({
@@ -65,6 +65,42 @@ describe('NotificationDispatchService', function notificationDispatchServiceSuit
     expect(sentMessages).toHaveLength(0)
     expect(dataSource.outboxEvents[0]?.status).toBe('failed')
     expect(dataSource.outboxEvents[0]?.dispatch_attempts).toBe(2)
+  })
+
+  it('retries failed outbox events that satisfy retry backoff', async function run() {
+    const { dispatchService, dataSource, transport, sentMessages } = createDispatchService()
+    dataSource.outboxEvents.push(
+      createOutboxEventRow({
+        idempotency_key: 'retryable-failed',
+        status: 'failed',
+        dispatch_attempts: 1,
+        last_dispatch_attempted_at: '2026-05-22T09:58:00.000Z',
+        event_payload: { test: 'failed-retry' },
+      }),
+    )
+
+    await dispatchService.dispatchPendingOutboxEvents(transport, 10)
+
+    expect(sentMessages).toHaveLength(1)
+    expect(sentMessages[0]).toEqual({ test: 'failed-retry' })
+    expect(dataSource.outboxEvents[0]?.status).toBe('dispatched')
+  })
+
+  it('does not retry failed outbox events before backoff delay has elapsed', async function run() {
+    const { dispatchService, dataSource, transport, sentMessages } = createDispatchService()
+    dataSource.outboxEvents.push(
+      createOutboxEventRow({
+        idempotency_key: 'not-ready-failed',
+        status: 'failed',
+        dispatch_attempts: 2,
+        last_dispatch_attempted_at: '2026-05-22T09:59:30.000Z',
+      }),
+    )
+
+    await dispatchService.dispatchPendingOutboxEvents(transport, 10)
+
+    expect(sentMessages).toHaveLength(0)
+    expect(dataSource.outboxEvents[0]?.status).toBe('failed')
   })
 
   it('enqueues due reminder schedules as reminder-due transport messages', async function run() {
@@ -162,6 +198,54 @@ describe('NotificationDispatchService', function notificationDispatchServiceSuit
     expect(dataSource.reminderSchedules[0]?.status).toBe('dispatched')
   })
 
+  it('enqueues due reminders in a bounded run and marks dispatched schedules in batch', async function run() {
+    const { dispatchService, dataSource, transport, sentMessages } = createDispatchService()
+    const firstInterviewId = '11111111-1111-4111-8111-111111111111'
+    const secondInterviewId = '22222222-2222-4222-8222-222222222222'
+    dataSource.reminderSchedules.push(
+      createReminderScheduleRow({
+        id: 'schedule-1',
+        interview_id: firstInterviewId,
+        idempotency_key: 'reminder:interview-1',
+        reminder_due_at: '2026-05-22T10:59:00.000Z',
+      }),
+      createReminderScheduleRow({
+        id: 'schedule-2',
+        interview_id: secondInterviewId,
+        idempotency_key: 'reminder:interview-2',
+        reminder_due_at: '2026-05-22T10:59:30.000Z',
+      }),
+      createReminderScheduleRow({
+        id: 'schedule-3',
+        interview_id: firstInterviewId,
+        idempotency_key: 'reminder:interview-3',
+        reminder_due_at: '2026-05-22T10:59:45.000Z',
+      }),
+    )
+    dataSource.interviews.set(firstInterviewId, createInterviewState(firstInterviewId))
+    dataSource.interviews.set(secondInterviewId, createInterviewState(secondInterviewId))
+
+    await dispatchService.enqueueDueReminders(transport, '2026-05-22T11:00:00.000Z')
+
+    expect(sentMessages).toHaveLength(2)
+    expect(dataSource.reminderSchedules.find((schedule) => schedule.id === 'schedule-1')?.status).toBe(
+      'dispatched',
+    )
+    expect(dataSource.reminderSchedules.find((schedule) => schedule.id === 'schedule-2')?.status).toBe(
+      'dispatched',
+    )
+    expect(dataSource.reminderSchedules.find((schedule) => schedule.id === 'schedule-3')?.status).toBe('pending')
+    expect(dataSource.listDueReminderSchedulesCalls).toEqual([
+      {
+        before: '2026-05-22T11:00:00.000Z',
+        limit: 2,
+      },
+    ])
+    expect(dataSource.getInterviewStatesCalls).toEqual([[firstInterviewId, secondInterviewId]])
+    expect(dataSource.markReminderDispatchedBatchCalls).toEqual([['schedule-1', 'schedule-2']])
+    expect(dataSource.getInterviewStateCalls).toHaveLength(0)
+  })
+
   it('preserves idempotency and retry metadata during dispatch', async function run() {
     const { dispatchService, dataSource, transport, sentMessages } = createDispatchService()
     dataSource.outboxEvents.push(
@@ -193,6 +277,10 @@ type InMemoryNotificationDataSource = {
   checkpoints: Array<{ idempotency_key: string; checkpoint_key: string }>
   reminderSchedules: NotificationReminderScheduleRow[]
   interviews: Map<string, InterviewState>
+  listDueReminderSchedulesCalls: Array<{ before: string; limit: number }>
+  getInterviewStateCalls: string[]
+  getInterviewStatesCalls: string[][]
+  markReminderDispatchedBatchCalls: string[][]
 }
 
 function createDispatchService(): {
@@ -206,6 +294,10 @@ function createDispatchService(): {
     checkpoints: [],
     reminderSchedules: [],
     interviews: new Map(),
+    listDueReminderSchedulesCalls: [],
+    getInterviewStateCalls: [],
+    getInterviewStatesCalls: [],
+    markReminderDispatchedBatchCalls: [],
   }
 
   const sentMessages: unknown[] = []
@@ -220,7 +312,9 @@ function createDispatchService(): {
     async persistOutboxEvent(): Promise<void> {},
 
     async fetchPendingOutboxEvents(limit: number): Promise<NotificationOutboxEventRow[]> {
-      return dataSource.outboxEvents.filter((e) => e.status === 'pending').slice(0, limit)
+      return dataSource.outboxEvents
+        .filter((event) => isOutboxEventReadyForDispatch(event, '2026-05-22T10:00:00.000Z'))
+        .slice(0, limit)
     },
 
     async fetchOutboxEventByIdempotencyKey(
@@ -258,10 +352,17 @@ function createDispatchService(): {
 
     async createReminderSchedule(): Promise<void> {},
 
-    async listDueReminderSchedules(before: string): Promise<NotificationReminderScheduleRow[]> {
-      return dataSource.reminderSchedules.filter(
+    async listDueReminderSchedules(
+      before: string,
+      limit: number = Number.MAX_SAFE_INTEGER,
+    ): Promise<NotificationReminderScheduleRow[]> {
+      dataSource.listDueReminderSchedulesCalls.push({ before, limit })
+
+      return dataSource.reminderSchedules
+        .filter(
         (s) => s.status === 'pending' && s.reminder_due_at <= before,
       )
+        .slice(0, limit)
     },
 
     async suppressReminderSchedulesForInterview(): Promise<number> {
@@ -275,8 +376,30 @@ function createDispatchService(): {
       }
     },
 
+    async markReminderDispatchedBatch(ids: string[]): Promise<void> {
+      dataSource.markReminderDispatchedBatchCalls.push([...ids])
+      for (const id of ids) {
+        const schedule = dataSource.reminderSchedules.find((s) => s.id === id)
+        if (schedule) {
+          schedule.status = 'dispatched'
+        }
+      }
+    },
+
     async getInterviewState(id: string): Promise<InterviewState | null> {
+      dataSource.getInterviewStateCalls.push(id)
       return dataSource.interviews.get(id) ?? null
+    },
+
+    async getInterviewStates(ids: string[]): Promise<Map<string, InterviewState>> {
+      dataSource.getInterviewStatesCalls.push([...ids])
+      const entries = ids
+        .map((id) => {
+          const state = dataSource.interviews.get(id)
+          return state ? ([id, state] as const) : null
+        })
+        .filter((entry): entry is readonly [string, InterviewState] => entry !== null)
+      return new Map(entries)
     },
   }
 
@@ -289,9 +412,46 @@ function createDispatchService(): {
   const dispatchService = new NotificationDispatchService(
     service,
     () => '2026-05-22T10:00:00.000Z',
+    undefined,
+    2,
   )
 
   return { dispatchService, dataSource, transport, sentMessages }
+}
+
+function isOutboxEventReadyForDispatch(event: NotificationOutboxEventRow, nowIso: string): boolean {
+  if (event.status === 'pending') {
+    return true
+  }
+
+  if (event.status !== 'failed') {
+    return false
+  }
+
+  if (!event.last_dispatch_attempted_at) {
+    return true
+  }
+
+  const now = new Date(nowIso).getTime()
+  const lastAttemptedAt = new Date(event.last_dispatch_attempted_at).getTime()
+  const backoffMs = Math.min(Math.max(event.dispatch_attempts, 1) * 30_000, 300_000)
+
+  return now - lastAttemptedAt >= backoffMs
+}
+
+function createInterviewState(interviewId: string): InterviewState {
+  return {
+    id: interviewId,
+    scheduler_id: 'scheduler-1',
+    interviewer_id: null,
+    type: 'system_design',
+    mode: 'ai_led',
+    tier: 'standard',
+    status: 'scheduled',
+    scheduled_at: '2026-05-22T14:00:00.000Z',
+    created_at: '2026-05-22T09:00:00.000Z',
+    updated_at: '2026-05-22T09:00:00.000Z',
+  }
 }
 
 function createOutboxEventRow(

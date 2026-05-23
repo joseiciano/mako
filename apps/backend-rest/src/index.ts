@@ -27,6 +27,7 @@ import {
   NotificationRepository,
   NotificationService,
   NotificationDispatchService,
+  type NotificationDispatchServiceLogger,
   type AccountProfileRecord,
   type AccountRepositoryDataSource,
   type CreateInterviewRecordInput,
@@ -90,6 +91,12 @@ const consoleInterviewServiceLogger: InterviewServiceLogger = {
   },
 }
 
+const consoleNotificationDispatchLogger: NotificationDispatchServiceLogger = {
+  error(event, context) {
+    console.error(`[NotificationDispatch] ${event}`, context)
+  },
+}
+
 export function createApp(): Hono<{ Bindings: WorkerBindings }> {
   const app = new Hono<{ Bindings: WorkerBindings }>()
   const demoDataSources = createDemoDataSources(seededDemoAccounts)
@@ -149,7 +156,7 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
       if (queryExecutor) {
         const notificationRepository = new NotificationRepository({ queryExecutor })
         notificationService = new NotificationService(notificationRepository)
-        notificationDispatchService = new NotificationDispatchService(notificationService)
+        notificationDispatchService = new NotificationDispatchService(notificationService, undefined, consoleNotificationDispatchLogger)
       }
 
       const repository = new InterviewRepository(

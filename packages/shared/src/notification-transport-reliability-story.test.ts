@@ -11,6 +11,29 @@ function readRepositoryFile(...filePathSegments: string[]): string {
 }
 
 describe('story 4.3 notification transport reliability and idempotency lock', function () {
+  it('deploy workflow includes notification-orchestrator deployment and Hyperdrive injection', function () {
+    const deployWorkflow = readRepositoryFile('.github', 'workflows', 'deploy-applications.yml')
+
+    expect(deployWorkflow).toContain('deploy-notification-orchestrator:')
+    expect(deployWorkflow).toContain('Deploy notification-orchestrator worker')
+    expect(deployWorkflow).toContain('workingDirectory: apps/notification-orchestrator')
+    expect(deployWorkflow).toContain('Inject Hyperdrive binding ID into notification-orchestrator Wrangler config')
+    expect(deployWorkflow).toContain('Ensure notification-orchestration DLQ exists')
+    expect(deployWorkflow).toContain('pnpm exec wrangler queues create notification-orchestration-dlq')
+    expect(deployWorkflow).toContain('Queue already exists')
+    expect(deployWorkflow).toContain('Missing HYPERDRIVE_ID')
+  })
+
+  it('notification-orchestrator queue consumer config keeps DLQ for exhausted retries', function () {
+    const notificationOrchestratorWrangler = readRepositoryFile(
+      'apps',
+      'notification-orchestrator',
+      'wrangler.jsonc',
+    )
+
+    expect(notificationOrchestratorWrangler).toContain('"dead_letter_queue": "notification-orchestration-dlq"')
+  })
+
   it('locks notification-oriented queue and worker naming across terraform and worker placeholders', function () {
     const terraformMain = readRepositoryFile('infrastructure', 'main.tf')
     const greedyMatcherWorker = readRepositoryFile('infrastructure', 'workers', 'greedy-matcher.js')
@@ -24,6 +47,9 @@ describe('story 4.3 notification transport reliability and idempotency lock', fu
     const backendRestIndex = readRepositoryFile('apps', 'backend-rest', 'src', 'index.ts')
 
     expect(terraformMain).toContain('resource "cloudflare_queue" "notification_orchestration"')
+    expect(terraformMain).toContain('resource "cloudflare_queue" "notification_orchestration_dlq"')
+    expect(terraformMain).toContain('queue_name = "notification-orchestration-dlq"')
+    expect(terraformMain).not.toContain('var.notification_orchestration_dlq_queue_name')
     expect(terraformMain).toContain(
       'resource "cloudflare_queue_consumer" "notification_orchestrator"',
     )
@@ -33,6 +59,7 @@ describe('story 4.3 notification transport reliability and idempotency lock', fu
     expect(terraformMain).toContain(
       'script_name = cloudflare_workers_script.notification_orchestrator.script_name',
     )
+    expect(terraformMain).toContain('dead_letter_queue = cloudflare_queue.notification_orchestration_dlq.queue_name')
 
     expect(terraformMain).not.toContain('interview_provisioning')
     expect(terraformMain).not.toContain('interview_provisioner')
@@ -44,7 +71,9 @@ describe('story 4.3 notification transport reliability and idempotency lock', fu
     expect(backendApiWorker).toContain('env.NOTIFICATION_QUEUE ? "configured" : "missing"')
     expect(backendApiWorker).not.toContain('INTERVIEW_PROVISIONING_QUEUE')
 
-    expect(notificationOrchestratorWorker).toContain('notification-orchestrator message')
+    expect(notificationOrchestratorWorker).toContain('notification-orchestrator bootstrap defers message')
+    expect(notificationOrchestratorWorker).toContain('message.retry()')
+    expect(notificationOrchestratorWorker).not.toContain('message.ack()')
     expect(notificationOrchestratorWorker).not.toContain('interview-provisioner')
 
     expect(backendRestWrangler).toContain('"binding": "NOTIFICATION_QUEUE"')
@@ -89,5 +118,31 @@ describe('story 4.3 notification transport reliability and idempotency lock', fu
     expect(storyDocument).toContain(
       '- [x] Reconcile any legacy queue/worker/binding naming that still implies interview provisioning with the Milestone 2 notification-orchestration purpose across Terraform, worker entrypoints, backend bindings, and related docs.',
     )
+  })
+
+  it('keeps terraform notification-orchestrator as bootstrap-only ownership while wrangler owns runtime config', function () {
+    const terraformMain = readRepositoryFile('infrastructure', 'main.tf')
+    const notificationOrchestratorScriptBlock =
+      terraformMain.match(
+        /resource "cloudflare_workers_script" "notification_orchestrator" \{[\s\S]*?\n\}/,
+      )?.[0] ?? ''
+
+    expect(notificationOrchestratorScriptBlock).toContain(
+      'resource "cloudflare_workers_script" "notification_orchestrator"',
+    )
+    expect(notificationOrchestratorScriptBlock).toContain('lifecycle {')
+    expect(notificationOrchestratorScriptBlock).toContain('ignore_changes = [')
+    expect(notificationOrchestratorScriptBlock).toContain('content_file')
+    expect(notificationOrchestratorScriptBlock).toContain('content_sha256')
+    expect(notificationOrchestratorScriptBlock).toContain('main_module')
+    expect(notificationOrchestratorScriptBlock).toContain('compatibility_date')
+    expect(notificationOrchestratorScriptBlock).toContain('bindings')
+
+    expect(notificationOrchestratorScriptBlock).toContain('name       = "NOTIFICATION_QUEUE"')
+    expect(notificationOrchestratorScriptBlock).toContain(
+      'queue_name = cloudflare_queue.notification_orchestration.queue_name',
+    )
+    expect(notificationOrchestratorScriptBlock).toContain('name = "HYPERDRIVE"')
+    expect(notificationOrchestratorScriptBlock).not.toContain('name = "REALTIME_APP_ID"')
   })
 })

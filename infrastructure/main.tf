@@ -75,6 +75,11 @@ resource "cloudflare_queue" "notification_orchestration" {
   queue_name = var.notification_orchestration_queue_name
 }
 
+resource "cloudflare_queue" "notification_orchestration_dlq" {
+  account_id = var.cloudflare_account_id
+  queue_name = "notification-orchestration-dlq"
+}
+
 resource "cloudflare_workers_script" "notification_orchestrator" {
   account_id         = var.cloudflare_account_id
   script_name        = var.notification_orchestrator_worker_script_name
@@ -85,16 +90,26 @@ resource "cloudflare_workers_script" "notification_orchestrator" {
 
   bindings = [
     {
+      type       = "queue"
+      name       = "NOTIFICATION_QUEUE"
+      queue_name = cloudflare_queue.notification_orchestration.queue_name
+    },
+    {
       type = "hyperdrive"
       name = "HYPERDRIVE"
       id   = cloudflare_hyperdrive_config.postgres["production"].id
-    },
-    {
-      type = "plain_text"
-      name = "REALTIME_APP_ID"
-      text = var.realtime_app_id
     }
   ]
+
+  lifecycle {
+    ignore_changes = [
+      content_file,
+      content_sha256,
+      main_module,
+      compatibility_date,
+      bindings,
+    ]
+  }
 }
 
 resource "cloudflare_workflow" "interview_lifecycle" {
@@ -166,11 +181,6 @@ resource "cloudflare_workers_script" "greedy_matcher" {
 
   bindings = [
     {
-      type       = "queue"
-      name       = "NOTIFICATION_QUEUE"
-      queue_name = cloudflare_queue.notification_orchestration.queue_name
-    },
-    {
       type = "hyperdrive"
       name = "HYPERDRIVE"
       id   = cloudflare_hyperdrive_config.postgres["production"].id
@@ -194,6 +204,7 @@ resource "cloudflare_queue_consumer" "notification_orchestrator" {
   queue_id    = cloudflare_queue.notification_orchestration.queue_id
   type        = "worker"
   script_name = cloudflare_workers_script.notification_orchestrator.script_name
+  dead_letter_queue = cloudflare_queue.notification_orchestration_dlq.queue_name
 
   settings = {
     batch_size       = var.queue_batch_size

@@ -2,7 +2,9 @@ import {
   NotificationRepository,
   NotificationService,
   NotificationConsumerService,
+  type NotificationConsumerServiceLogger,
   NotificationDispatchService,
+  type NotificationDispatchServiceLogger,
   type NotificationTransportMessage,
   interviewCreatedEventSchema,
   interviewCancelledEventSchema,
@@ -57,7 +59,16 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
 
         const notificationRepository = new NotificationRepository({ queryExecutor })
         const notificationService = new NotificationService(notificationRepository)
-        const consumerService = new NotificationConsumerService(notificationService)
+
+        const consumerLogger: NotificationConsumerServiceLogger = {
+          error(event, context) {
+            consoleLike.error(`[notification-consumer] ${event}`, context)
+          },
+          warn(event, context) {
+            consoleLike.error(`[notification-consumer.warn] ${event}`, context)
+          },
+        }
+        const consumerService = new NotificationConsumerService(notificationService, undefined, consumerLogger)
 
         for (const message of batch.messages) {
           try {
@@ -66,7 +77,7 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
             if (!parsedBody) {
               consoleLike.error('notification_orchestrator.invalid_message', {
                 message_id: message.id,
-                body: message.body,
+                ...extractSafeMessageMetadata(message.body),
               })
               message.ack()
               continue
@@ -87,7 +98,7 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
             } else {
               consoleLike.error('notification_orchestrator.invalid_message', {
                 message_id: message.id,
-                body: message.body,
+                ...extractSafeMessageMetadata(message.body),
               })
               message.ack()
               continue
@@ -99,7 +110,8 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
               consoleLike.error('notification_orchestrator.invalid_schema', {
                 message_id: message.id,
                 error_message: error instanceof Error ? error.message : String(error),
-                body: message.body,
+                ...extractSafeMessageMetadata(message.body),
+                validation_issues: extractValidationIssues(error),
               })
               message.ack()
               continue
@@ -111,11 +123,7 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
               attempts: message.attempts,
             })
 
-            if (message.attempts >= 3) {
-              message.ack()
-            } else {
-              message.retry()
-            }
+            message.retry()
           }
         }
       } finally {
@@ -146,7 +154,13 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
 
         const notificationRepository = new NotificationRepository({ queryExecutor })
         const notificationService = new NotificationService(notificationRepository)
-        const dispatchService = new NotificationDispatchService(notificationService)
+
+        const dispatchLogger: NotificationDispatchServiceLogger = {
+          error(event, context) {
+            consoleLike.error(`[notification-dispatch] ${event}`, context)
+          },
+        }
+        const dispatchService = new NotificationDispatchService(notificationService, undefined, dispatchLogger)
 
         const transport = {
           async send(message: NotificationTransportMessage) {
@@ -160,6 +174,19 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
         await client.release()
       }
     },
+  }
+}
+
+export class InterviewLifecycleWorkflow {
+  async run(event: unknown, step: { do<T>(name: string, callback: () => Promise<T>): Promise<T> }) {
+    await step.do('log-start', async () => {
+      console.log('workflow started', JSON.stringify(event))
+    })
+
+    return {
+      status: 'ok',
+      workflow: 'interview-lifecycle',
+    }
   }
 }
 
@@ -193,4 +220,50 @@ function parseQueueMessageBody(body: unknown): Record<string, unknown> | null {
     return null
   }
   return body as Record<string, unknown>
+}
+
+function extractSafeMessageMetadata(body: unknown): Record<string, unknown> {
+  if (typeof body !== 'object' || body === null) {
+    return { payload_type: typeof body }
+  }
+
+  const record = body as Record<string, unknown>
+  const metadata: Record<string, unknown> = {
+    payload_type: typeof body,
+  }
+
+  if (typeof record.event_type === 'string') {
+    metadata.event_type = record.event_type
+  }
+  if (typeof record.message_type === 'string') {
+    metadata.message_type = record.message_type
+  }
+  if (typeof record.idempotency_key === 'string') {
+    metadata.idempotency_key = record.idempotency_key
+  }
+  if (typeof record.event_id === 'string') {
+    metadata.event_id = record.event_id
+  }
+  if (typeof record.interview_id === 'string') {
+    metadata.interview_id = record.interview_id
+  }
+
+  if (
+    typeof record.interview === 'object' &&
+    record.interview !== null &&
+    typeof (record.interview as Record<string, unknown>).id === 'string'
+  ) {
+    metadata.interview_id = (record.interview as Record<string, unknown>).id
+  }
+
+  return metadata
+}
+
+function extractValidationIssues(error: unknown): Array<{ path: (string | number)[]; message: string }> | undefined {
+  if (!isSchemaValidationError(error)) {
+    return undefined
+  }
+
+  const issues = (error as { issues: Array<{ path: (string | number)[]; message: string }> }).issues
+  return issues.map((issue) => ({ path: issue.path, message: issue.message }))
 }

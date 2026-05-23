@@ -18,10 +18,12 @@ export type NotificationRepositoryDataSource = {
   recordCheckpoint(idempotencyKey: string, checkpointKey: string): Promise<void>
   hasCheckpoint(idempotencyKey: string, checkpointKey: string): Promise<boolean>
   createReminderSchedule(schedule: NotificationReminderScheduleRow): Promise<void>
-  listDueReminderSchedules(before: string): Promise<NotificationReminderScheduleRow[]>
+  listDueReminderSchedules(before: string, limit?: number): Promise<NotificationReminderScheduleRow[]>
   suppressReminderSchedulesForInterview(interviewId: string): Promise<number>
   markReminderDispatched(id: string): Promise<void>
+  markReminderDispatchedBatch?(ids: string[]): Promise<void>
   getInterviewState(id: string): Promise<InterviewState | null>
+  getInterviewStates?(ids: string[]): Promise<Map<string, InterviewState>>
 }
 
 type NotificationRepositoryDependencies = {
@@ -106,8 +108,24 @@ export class NotificationRepository {
             created_at,
             updated_at
           FROM notification_outbox_events
-          WHERE status = 'pending'
-          ORDER BY created_at ASC
+          WHERE (
+            status = 'pending'
+            OR status = 'failed'
+          )
+            AND (
+              status = 'pending'
+              OR last_dispatch_attempted_at IS NULL
+              OR NOW() >= (
+                last_dispatch_attempted_at
+                + (LEAST(GREATEST(dispatch_attempts, 1), 10) * INTERVAL '30 seconds')
+              )
+            )
+          ORDER BY
+            CASE
+              WHEN status = 'pending' THEN 0
+              ELSE 1
+            END ASC,
+            created_at ASC
           LIMIT $1;
         `,
         [limit],
@@ -269,10 +287,11 @@ export class NotificationRepository {
 
   async listDueReminderSchedules(
     before: string,
+    limit: number = 100,
   ): Promise<NotificationReminderScheduleRow[]> {
     const dataSource = this.dependencies.dataSource
     if (dataSource) {
-      return dataSource.listDueReminderSchedules(before)
+      return dataSource.listDueReminderSchedules(before, limit)
     }
 
     const result = await this.getQueryExecutor().query<NotificationReminderScheduleRow>(
@@ -289,9 +308,10 @@ export class NotificationRepository {
           FROM notification_reminder_schedules
           WHERE status = 'pending'
             AND reminder_due_at <= $1
-          ORDER BY reminder_due_at ASC;
+          ORDER BY reminder_due_at ASC
+          LIMIT $2;
         `,
-        [before],
+        [before, limit],
       ),
     )
 
@@ -340,6 +360,34 @@ export class NotificationRepository {
     )
   }
 
+  async markReminderDispatchedBatch(ids: string[]): Promise<void> {
+    if (ids.length === 0) {
+      return
+    }
+
+    const dataSource = this.dependencies.dataSource
+    if (dataSource) {
+      if (dataSource.markReminderDispatchedBatch) {
+        return dataSource.markReminderDispatchedBatch(ids)
+      }
+
+      await Promise.all(ids.map(async (id) => dataSource.markReminderDispatched(id)))
+      return
+    }
+
+    await this.getQueryExecutor().query(
+      createSqlQuery(
+        `
+          UPDATE notification_reminder_schedules
+          SET status = 'dispatched',
+              updated_at = NOW()
+          WHERE id = ANY($1);
+        `,
+        [ids],
+      ),
+    )
+  }
+
   async getInterviewState(id: string): Promise<InterviewState | null> {
     const dataSource = this.dependencies.dataSource
     if (dataSource) {
@@ -369,6 +417,53 @@ export class NotificationRepository {
     )
 
     return result.rows[0] ?? null
+  }
+
+  async getInterviewStates(ids: string[]): Promise<Map<string, InterviewState>> {
+    if (ids.length === 0) {
+      return new Map()
+    }
+
+    const dataSource = this.dependencies.dataSource
+    if (dataSource) {
+      if (dataSource.getInterviewStates) {
+        return dataSource.getInterviewStates(ids)
+      }
+
+      const entries = await Promise.all(
+        ids.map(async (id) => {
+          const interview = await dataSource.getInterviewState(id)
+          return interview ? ([id, interview] as const) : null
+        }),
+      )
+
+      return new Map(
+        entries.filter((entry): entry is readonly [string, InterviewState] => entry !== null),
+      )
+    }
+
+    const result = await this.getQueryExecutor().query<InterviewState>(
+      createSqlQuery(
+        `
+          SELECT
+            id,
+            scheduler_id,
+            interviewer_id,
+            type,
+            mode,
+            tier,
+            status,
+            scheduled_at,
+            created_at,
+            updated_at
+          FROM interviews
+          WHERE id = ANY($1);
+        `,
+        [ids],
+      ),
+    )
+
+    return new Map(result.rows.map((row) => [row.id, row] as const))
   }
 
   private getQueryExecutor(): SqlQueryExecutor {

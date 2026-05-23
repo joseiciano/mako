@@ -8,10 +8,12 @@ import type { NotificationService } from './notification-service'
 
 export type NotificationConsumerServiceLogger = {
   error(event: string, context: Record<string, unknown>): void | Promise<void>
+  warn(event: string, context: Record<string, unknown>): void | Promise<void>
 }
 
 const noOpLogger: NotificationConsumerServiceLogger = {
   error: () => undefined,
+  warn: () => undefined,
 }
 
 const THIRTY_MINUTES_MS = 30 * 60 * 1000
@@ -27,11 +29,20 @@ export class NotificationConsumerService {
     const confirmationKey = 'interview.created:confirmation'
     const reminderKey = 'interview.created:reminder'
 
-    if (!(await this.notificationService.hasCheckpoint(event.idempotency_key, confirmationKey))) {
+    const confirmationAlreadyExisted = await this.notificationService.hasCheckpoint(
+      event.idempotency_key,
+      confirmationKey,
+    )
+    if (!confirmationAlreadyExisted) {
       await this.notificationService.recordCheckpoint(event.idempotency_key, confirmationKey)
     }
 
     if (await this.notificationService.hasCheckpoint(event.idempotency_key, reminderKey)) {
+      await this.logger.warn('notification.consumer.dedupe', {
+        event_type: 'interview.created',
+        interview_id: event.interview.id,
+        checkpoint: reminderKey,
+      })
       return
     }
 
@@ -40,6 +51,18 @@ export class NotificationConsumerService {
     const reminderDueAt = scheduledAt - THIRTY_MINUTES_MS
 
     if (reminderDueAt <= now) {
+      await this.notificationService.recordCheckpoint(event.idempotency_key, reminderKey)
+      return
+    }
+
+    const interviewState = await this.notificationService.getInterviewState(event.interview.id)
+    if (!interviewState || interviewState.status !== 'scheduled') {
+      await this.logger.warn('notification.consumer.reminder_suppressed', {
+        event_type: 'interview.created',
+        interview_id: event.interview.id,
+        interview_status: interviewState?.status ?? 'not_found',
+        reason: 'interview_not_scheduled',
+      })
       await this.notificationService.recordCheckpoint(event.idempotency_key, reminderKey)
       return
     }
@@ -56,6 +79,11 @@ export class NotificationConsumerService {
     const suppressionKey = 'interview.cancelled:suppression'
 
     if (await this.notificationService.hasCheckpoint(event.idempotency_key, suppressionKey)) {
+      await this.logger.warn('notification.consumer.dedupe', {
+        event_type: 'interview.cancelled',
+        interview_id: event.interview.id,
+        checkpoint: suppressionKey,
+      })
       return
     }
 
@@ -67,11 +95,20 @@ export class NotificationConsumerService {
     const confirmationKey = 'interview.match.created:confirmation'
     const reminderKey = 'interview.match.created:reminder'
 
-    if (!(await this.notificationService.hasCheckpoint(event.idempotency_key, confirmationKey))) {
+    const confirmationAlreadyExisted = await this.notificationService.hasCheckpoint(
+      event.idempotency_key,
+      confirmationKey,
+    )
+    if (!confirmationAlreadyExisted) {
       await this.notificationService.recordCheckpoint(event.idempotency_key, confirmationKey)
     }
 
     if (await this.notificationService.hasCheckpoint(event.idempotency_key, reminderKey)) {
+      await this.logger.warn('notification.consumer.dedupe', {
+        event_type: 'interview.match.created',
+        interview_id: event.interview.id,
+        checkpoint: reminderKey,
+      })
       return
     }
 
@@ -80,6 +117,18 @@ export class NotificationConsumerService {
     const reminderDueAt = scheduledAt - THIRTY_MINUTES_MS
 
     if (reminderDueAt <= now) {
+      await this.notificationService.recordCheckpoint(event.idempotency_key, reminderKey)
+      return
+    }
+
+    const interviewState = await this.notificationService.getInterviewState(event.interview.id)
+    if (!interviewState || interviewState.status !== 'scheduled') {
+      await this.logger.warn('notification.consumer.reminder_suppressed', {
+        event_type: 'interview.match.created',
+        interview_id: event.interview.id,
+        interview_status: interviewState?.status ?? 'not_found',
+        reason: 'interview_not_scheduled',
+      })
       await this.notificationService.recordCheckpoint(event.idempotency_key, reminderKey)
       return
     }
@@ -96,12 +145,23 @@ export class NotificationConsumerService {
     const checkpointKey = `reminder.due:${message.idempotency_key}`
 
     if (await this.notificationService.hasCheckpoint(message.idempotency_key, checkpointKey)) {
+      await this.logger.warn('notification.consumer.dedupe', {
+        message_type: 'reminder.due',
+        interview_id: message.interview_id,
+        checkpoint: checkpointKey,
+      })
       return
     }
 
     const interviewState = await this.notificationService.getInterviewState(message.interview_id)
 
     if (!interviewState || interviewState.status !== 'scheduled') {
+      await this.logger.warn('notification.consumer.reminder_suppressed', {
+        message_type: 'reminder.due',
+        interview_id: message.interview_id,
+        interview_status: interviewState?.status ?? 'not_found',
+        reason: 'interview_not_scheduled',
+      })
       await this.notificationService.recordCheckpoint(message.idempotency_key, checkpointKey)
       return
     }

@@ -169,6 +169,52 @@ Query readiness notes:
 - Status-filtered participant lists (for example dashboard `status=scheduled`) rely on the `(participant_id, status, scheduled_at, id)` indexes above.
 - Participant-authorized cancellation by interview id relies on the primary key lookup on `id`; secondary indexes above are for list-path readiness.
 
+### notification_outbox_events
+
+Durable producer outbox for post-commit notification transport hand-off.
+
+- **`idempotency_key`**: `text` (Primary Key)
+- **`event_type`**: `text`
+- **`event_payload`**: `jsonb`
+- **`status`**: `text` with CHECK (`pending`, `dispatched`, `failed`)
+- **`dispatch_attempts`**: `integer` (Default: 0)
+- **`last_dispatch_attempted_at`**: `timestamptz` (Optional)
+- **`created_at`**: `timestamptz`
+- **`updated_at`**: `timestamptz`
+
+Indexes:
+
+- `idx_notification_outbox_events_pending` on (`created_at`) WHERE `status = 'pending'`
+
+### notification_processing_checkpoints
+
+Durable idempotency checkpoints for per-side-effect processing progress.
+
+- **`idempotency_key`**: `text`
+- **`checkpoint_key`**: `text`
+- **`created_at`**: `timestamptz`
+
+Constraints:
+
+- Composite primary key on (`idempotency_key`, `checkpoint_key`)
+
+### notification_reminder_schedules
+
+Persisted reminder transport schedule for delayed reminder delivery/suppression flows.
+
+- **`id`**: `uuid` (Primary Key)
+- **`interview_id`**: `uuid` (Foreign Key -> `interviews.id`)
+- **`idempotency_key`**: `text`
+- **`reminder_due_at`**: `timestamptz`
+- **`status`**: `text` with CHECK (`pending`, `suppressed`, `dispatched`)
+- **`created_at`**: `timestamptz`
+- **`updated_at`**: `timestamptz`
+
+Indexes:
+
+- `idx_notification_reminder_schedules_due` on (`reminder_due_at`) WHERE `status = 'pending'`
+- `idx_notification_reminder_schedules_active_interview` unique on (`interview_id`) WHERE `status = 'pending'`
+
 ### Availability_Requests
 
 Groups a set of time blocks where a user is available for matching, with a maximum quota.

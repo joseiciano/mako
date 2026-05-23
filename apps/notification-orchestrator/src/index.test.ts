@@ -36,7 +36,7 @@ describe('notification-orchestrator queue handler', function queueHandlerSuite()
     expect(batch.retried).toHaveLength(0)
   })
 
-  it('acks invalid schema messages after structured logging', async function run() {
+  it('acks invalid schema messages after structured logging with redacted metadata', async function run() {
     const { worker, logs } = createTestWorker()
 
     const batch = createMockBatch([
@@ -53,6 +53,8 @@ describe('notification-orchestrator queue handler', function queueHandlerSuite()
       event: 'notification_orchestrator.invalid_message',
       context: { message_id: 'msg-1' },
     })
+    expect(logs.errors[0].context).not.toHaveProperty('body')
+    expect(logs.errors[0].context).toHaveProperty('payload_type')
   })
 
   it('retries transient processing failures', async function run() {
@@ -89,20 +91,45 @@ describe('notification-orchestrator queue handler', function queueHandlerSuite()
     expect(batch.retried).toContain('msg-1')
   })
 
-  it('acks terminal failures after max attempts', async function run() {
-    const { worker, logs } = createTestWorker()
+  it('retries transient failures at max attempts so queue DLQ policy can handle terminal routing', async function run() {
+    const { worker } = createTestWorker()
 
     const batch = createMockBatch([
-      createMockMessage('msg-1', { invalid: 'payload' }, 3),
+      createMockMessage(
+        'msg-1',
+        {
+          event_type: 'interview.created',
+          event_id: '11111111-1111-4111-8111-111111111111',
+          idempotency_key: 'interview.created:22222222-2222-4222-8222-222222222222',
+          occurred_at: '2026-05-22T10:00:00.000Z',
+          interview: {
+            id: '22222222-2222-4222-8222-222222222222',
+            scheduler_id: '33333333-3333-4333-8333-333333333333',
+            interviewer_id: null,
+            type: 'system_design',
+            mode: 'ai_led',
+            tier: 'standard',
+            status: 'scheduled',
+            scheduled_at: '2026-05-22T14:00:00.000Z',
+          },
+          participants: {
+            scheduler_user_id: '33333333-3333-4333-8333-333333333333',
+            interviewer_user_id: null,
+          },
+        },
+        3,
+      ),
     ])
 
-    const env = createMockEnv()
+    const env = {
+      HYPERDRIVE: undefined as unknown as { connectionString: string },
+      NOTIFICATION_QUEUE: createMockQueue(),
+    }
 
     await worker.queue(batch, env)
 
-    expect(batch.acked).toContain('msg-1')
-    expect(batch.retried).toHaveLength(0)
-    expect(logs.errors).toHaveLength(1)
+    expect(batch.retried).toContain('msg-1')
+    expect(batch.acked).toHaveLength(0)
   })
 
   it('duplicate delivery remains idempotent downstream', async function run() {
@@ -174,7 +201,7 @@ describe('notification-orchestrator queue handler', function queueHandlerSuite()
     expect(batch.retried).toHaveLength(0)
   })
 
-  it('acks malformed schema messages without retry', async function run() {
+  it('acks malformed schema messages without retry and logs sanitized metadata', async function run() {
     const { worker, logs } = createTestWorker()
 
     const batch = createMockBatch([
@@ -192,10 +219,16 @@ describe('notification-orchestrator queue handler', function queueHandlerSuite()
     expect(logs.errors).toHaveLength(1)
     expect(logs.errors[0]).toMatchObject({
       event: 'notification_orchestrator.invalid_schema',
+      context: { message_id: 'msg-1', event_type: 'interview.created' },
     })
+    expect(logs.errors[0].context).not.toHaveProperty('body')
+    expect(logs.errors[0].context).toHaveProperty('error_message')
+    expect(logs.errors[0].context).toHaveProperty('validation_issues')
+    expect(Array.isArray(logs.errors[0].context.validation_issues)).toBe(true)
+    expect((logs.errors[0].context.validation_issues as Array<unknown>).length).toBeGreaterThan(0)
   })
 
-  it('acks malformed reminder.due schema messages without retry', async function run() {
+  it('acks malformed reminder.due schema messages without retry and logs sanitized metadata', async function run() {
     const { worker, logs } = createTestWorker()
 
     const batch = createMockBatch([
@@ -216,7 +249,13 @@ describe('notification-orchestrator queue handler', function queueHandlerSuite()
     expect(logs.errors).toHaveLength(1)
     expect(logs.errors[0]).toMatchObject({
       event: 'notification_orchestrator.invalid_schema',
+      context: { message_id: 'msg-1', message_type: 'reminder.due' },
     })
+    expect(logs.errors[0].context).not.toHaveProperty('body')
+    expect(logs.errors[0].context).toHaveProperty('error_message')
+    expect(logs.errors[0].context).toHaveProperty('validation_issues')
+    expect(Array.isArray(logs.errors[0].context.validation_issues)).toBe(true)
+    expect((logs.errors[0].context.validation_issues as Array<unknown>).length).toBeGreaterThan(0)
   })
 
   it('retries transient processing failures after schema validation passes', async function run() {
@@ -287,14 +326,84 @@ describe('notification-orchestrator queue handler', function queueHandlerSuite()
 
 describe('notification-orchestrator scheduled handler', function scheduledHandlerSuite() {
   it('dispatches pending outbox events and due reminders via queue binding', async function run() {
-    const { worker, queueSentMessages } = createTestWorker()
+    const pendingOutboxPayload: NotificationTransportMessage = {
+      event_type: 'interview.match.created',
+      event_id: '11111111-1111-4111-8111-111111111111',
+      idempotency_key: 'interview.match.created:22222222-2222-4222-8222-222222222222',
+      occurred_at: '2026-05-22T10:00:00.000Z',
+      interview: {
+        id: '22222222-2222-4222-8222-222222222222',
+        scheduler_id: '66666666-6666-4666-8666-666666666666',
+        interviewer_id: '33333333-3333-4333-8333-333333333333',
+        type: 'behavioral',
+        mode: 'peer_to_peer',
+        tier: 'standard',
+        status: 'scheduled',
+        scheduled_at: '2026-05-22T14:00:00.000Z',
+      },
+      participants: {
+        scheduler_user_id: '66666666-6666-4666-8666-666666666666',
+        interviewer_user_id: '33333333-3333-4333-8333-333333333333',
+      },
+    }
 
-    const env = createMockEnv()
+    const dueInterviewId = '44444444-4444-4444-8444-444444444444'
+    const dueScheduleId = '55555555-5555-4555-8555-555555555555'
+    const { worker, queueSentMessages } = createTestWorker({
+      queryRowsBySqlIncludes: {
+        'from notification_outbox_events': [
+          {
+            idempotency_key: 'interview.match.created:22222222-2222-4222-8222-222222222222',
+            event_type: 'interview.match.created',
+            event_payload: pendingOutboxPayload,
+            status: 'pending',
+            dispatch_attempts: 0,
+            last_dispatch_attempted_at: null,
+            created_at: '2026-05-22T09:59:00.000Z',
+            updated_at: '2026-05-22T09:59:00.000Z',
+          },
+        ],
+        'from notification_reminder_schedules': [
+          {
+            id: dueScheduleId,
+            interview_id: dueInterviewId,
+            idempotency_key: 'reminder:due:55555555-5555-4555-8555-555555555555',
+            reminder_due_at: '2026-05-22T10:00:00.000Z',
+            status: 'pending',
+            created_at: '2026-05-22T09:00:00.000Z',
+            updated_at: '2026-05-22T09:00:00.000Z',
+          },
+        ],
+        'from interviews': [
+          {
+            id: dueInterviewId,
+            scheduler_id: '66666666-6666-4666-8666-666666666666',
+            interviewer_id: '77777777-7777-4777-8777-777777777777',
+            type: 'behavioral',
+            mode: 'live',
+            tier: 'standard',
+            status: 'scheduled',
+            scheduled_at: '2026-05-22T14:00:00.000Z',
+            created_at: '2026-05-22T09:00:00.000Z',
+            updated_at: '2026-05-22T09:00:00.000Z',
+          },
+        ],
+      },
+    })
+
+    const env = createMockEnv(createMockQueue(queueSentMessages))
 
     await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *', noRetry() {} }, env)
 
-    // Should complete without error and the queue should have received messages
-    expect(true).toBe(true)
+    expect(queueSentMessages).toHaveLength(2)
+    expect(queueSentMessages[0]).toEqual(pendingOutboxPayload)
+    expect(queueSentMessages[1]).toMatchObject({
+      message_type: 'reminder.due',
+      idempotency_key: 'reminder:due:55555555-5555-4555-8555-555555555555',
+      interview_id: dueInterviewId,
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      reminder_due_at: '2026-05-22T10:00:00.000Z',
+    })
   })
 
   it('handles missing hyperdrive gracefully', async function run() {
@@ -325,7 +434,9 @@ describe('createNotificationWorker factory', function factorySuite() {
   })
 })
 
-function createTestWorker() {
+function createTestWorker(options?: {
+  queryRowsBySqlIncludes?: Record<string, unknown[]>
+}) {
   const queueSentMessages: NotificationTransportMessage[] = []
   const logs: { errors: Array<{ event: string; context: Record<string, unknown> }>; logs: unknown[] } = {
     errors: [],
@@ -345,10 +456,17 @@ function createTestWorker() {
     async connect() {
       return {
         async query(text: string, values: unknown[]) {
-          // Return empty results for all queries to avoid needing real Postgres
-          if (text.toLowerCase().includes('select')) {
-            return { rows: [], rowCount: 0 }
+          const normalizedSql = text.toLowerCase()
+          const configuredRows = options?.queryRowsBySqlIncludes
+
+          if (configuredRows) {
+            for (const [needle, rows] of Object.entries(configuredRows)) {
+              if (normalizedSql.includes(needle.toLowerCase())) {
+                return { rows, rowCount: rows.length }
+              }
+            }
           }
+
           return { rows: [], rowCount: 0 }
         },
         async release() {},
@@ -408,8 +526,7 @@ function createMockBatch(messages: ReturnType<typeof createMockMessage>[]) {
   }
 }
 
-function createMockQueue(): Queue<NotificationTransportMessage> {
-  const sent: NotificationTransportMessage[] = []
+function createMockQueue(sent: NotificationTransportMessage[] = []): Queue<NotificationTransportMessage> {
 
   return {
     async send(message: NotificationTransportMessage) {
@@ -427,11 +544,11 @@ function createMockQueue(): Queue<NotificationTransportMessage> {
   } as unknown as Queue<NotificationTransportMessage>
 }
 
-function createMockEnv() {
+function createMockEnv(queue: Queue<NotificationTransportMessage> = createMockQueue()) {
   return {
     HYPERDRIVE: {
       connectionString: 'postgresql://localhost:5432/test',
     },
-    NOTIFICATION_QUEUE: createMockQueue(),
+    NOTIFICATION_QUEUE: queue,
   }
 }

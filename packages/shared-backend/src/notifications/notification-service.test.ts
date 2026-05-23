@@ -198,12 +198,46 @@ describe('NotificationService', function notificationServiceSuite() {
     expect(state?.scheduled_at).toBe('2026-05-22T14:00:00.000Z')
   })
 
+  it('reads interview states in batch for send-time guards', async function run() {
+    const { service, dataSource } = createNotificationService()
+    dataSource.interviews.set('interview-1', {
+      id: 'interview-1',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: null,
+      type: 'system_design',
+      mode: 'ai_led',
+      tier: 'standard',
+      status: 'scheduled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
+
+    const states = await service.getInterviewStates(['interview-1', 'interview-2'])
+
+    expect(states.get('interview-1')?.status).toBe('scheduled')
+    expect(states.has('interview-2')).toBe(false)
+  })
+
   it('returns null for missing interview state', async function run() {
     const { service } = createNotificationService()
 
     const state = await service.getInterviewState('missing-id')
 
     expect(state).toBeNull()
+  })
+
+  it('marks reminder schedules as dispatched in batch', async function run() {
+    const { service, dataSource } = createNotificationService()
+    dataSource.reminderSchedules.push(
+      createReminderScheduleRow({ id: 'schedule-1', status: 'pending' }),
+      createReminderScheduleRow({ id: 'schedule-2', status: 'pending' }),
+    )
+
+    await service.markReminderDispatchedBatch(['schedule-1', 'schedule-2'])
+
+    expect(dataSource.reminderSchedules[0]?.status).toBe('dispatched')
+    expect(dataSource.reminderSchedules[1]?.status).toBe('dispatched')
   })
 })
 
@@ -287,10 +321,13 @@ function createNotificationService(): {
       dataSource.reminderSchedules.push({ ...schedule })
     },
 
-    async listDueReminderSchedules(before: string): Promise<NotificationReminderScheduleRow[]> {
+    async listDueReminderSchedules(
+      before: string,
+      limit: number = Number.MAX_SAFE_INTEGER,
+    ): Promise<NotificationReminderScheduleRow[]> {
       return dataSource.reminderSchedules.filter(
         (s) => s.status === 'pending' && s.reminder_due_at <= before,
-      )
+      ).slice(0, limit)
     },
 
     async suppressReminderSchedulesForInterview(interviewId: string): Promise<number> {
@@ -313,6 +350,25 @@ function createNotificationService(): {
 
     async getInterviewState(id: string): Promise<InterviewState | null> {
       return dataSource.interviews.get(id) ?? null
+    },
+
+    async getInterviewStates(ids: string[]): Promise<Map<string, InterviewState>> {
+      const entries = ids
+        .map((id) => {
+          const state = dataSource.interviews.get(id)
+          return state ? ([id, state] as const) : null
+        })
+        .filter((entry): entry is readonly [string, InterviewState] => entry !== null)
+      return new Map(entries)
+    },
+
+    async markReminderDispatchedBatch(ids: string[]): Promise<void> {
+      for (const id of ids) {
+        const schedule = dataSource.reminderSchedules.find((s) => s.id === id)
+        if (schedule) {
+          schedule.status = 'dispatched'
+        }
+      }
     },
   }
 

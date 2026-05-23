@@ -10,11 +10,14 @@ const noOpLogger: NotificationDispatchServiceLogger = {
   error: () => undefined,
 }
 
+const DEFAULT_MAX_DUE_REMINDERS_PER_RUN = 100
+
 export class NotificationDispatchService {
   constructor(
     private readonly notificationService: NotificationService,
     private readonly now: () => string = defaultNow,
     private readonly logger: NotificationDispatchServiceLogger = noOpLogger,
+    private readonly maxDueRemindersPerRun: number = DEFAULT_MAX_DUE_REMINDERS_PER_RUN,
   ) {}
 
   async dispatchOutboxEventByIdempotencyKey(
@@ -46,11 +49,18 @@ export class NotificationDispatchService {
     before?: string,
   ): Promise<void> {
     const dueBefore = before ?? this.now()
-    const dueSchedules = await this.notificationService.listDueReminderSchedules(dueBefore)
+    const dueSchedules = await this.notificationService.listDueReminderSchedules(
+      dueBefore,
+      this.maxDueRemindersPerRun,
+    )
+    const interviewStates = await this.notificationService.getInterviewStates(
+      uniqueStrings(dueSchedules.map((schedule) => schedule.interview_id)),
+    )
+    const dispatchedScheduleIds: string[] = []
 
     for (const schedule of dueSchedules) {
       try {
-        const interviewState = await this.notificationService.getInterviewState(schedule.interview_id)
+        const interviewState = interviewStates.get(schedule.interview_id) ?? null
 
         if (!interviewState) {
           await this.logSafely('notification.enqueue_reminder_missing_interview', {
@@ -78,8 +88,7 @@ export class NotificationDispatchService {
           scheduled_at: scheduledAt,
           reminder_due_at: schedule.reminder_due_at,
         })
-
-        await this.notificationService.markReminderDispatched(schedule.id)
+        dispatchedScheduleIds.push(schedule.id)
       } catch (error) {
         await this.logSafely('notification.enqueue_reminder_failure', {
           schedule_id: schedule.id,
@@ -88,6 +97,8 @@ export class NotificationDispatchService {
         })
       }
     }
+
+    await this.notificationService.markReminderDispatchedBatch(dispatchedScheduleIds)
   }
 
   private async dispatchEvent(
@@ -149,4 +160,8 @@ function toIsoDateTime(input: unknown): string | null {
   }
 
   return null
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values))
 }

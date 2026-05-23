@@ -86,8 +86,11 @@ export class NotificationService {
     await this.repository.createReminderSchedule(schedule)
   }
 
-  async listDueReminderSchedules(before: string): Promise<NotificationReminderScheduleRow[]> {
-    return this.repository.listDueReminderSchedules(before)
+  async listDueReminderSchedules(
+    before: string,
+    limit?: number,
+  ): Promise<NotificationReminderScheduleRow[]> {
+    return this.repository.listDueReminderSchedules(before, limit)
   }
 
   async suppressReminderSchedulesForInterview(interviewId: string): Promise<number> {
@@ -98,10 +101,27 @@ export class NotificationService {
     await this.repository.markReminderDispatched(id)
   }
 
+  async markReminderDispatchedBatch(ids: string[]): Promise<void> {
+    await this.repository.markReminderDispatchedBatch(ids)
+  }
+
   async getInterviewState(id: string): Promise<{ status: string; scheduled_at: string } | null> {
     const interview = await this.repository.getInterviewState(id)
     if (!interview) return null
     return { status: interview.status, scheduled_at: interview.scheduled_at }
+  }
+
+  async getInterviewStates(ids: string[]): Promise<Map<string, { status: string; scheduled_at: string }>> {
+    const interviews = await this.repository.getInterviewStates(ids)
+    return new Map(
+      Array.from(interviews.entries()).map(([id, interview]) => [
+        id,
+        {
+          status: interview.status,
+          scheduled_at: interview.scheduled_at,
+        },
+      ]),
+    )
   }
 
   private async logSafely(

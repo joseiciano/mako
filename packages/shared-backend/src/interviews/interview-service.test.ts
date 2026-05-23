@@ -360,20 +360,18 @@ describe('InterviewService', function interviewServiceSuite() {
 
   it('outbox event reflects actual persisted interview tier after policy resolution', async function run() {
     const persistedOutboxEvents: import('../notification-queue-event-contract').NotificationQueueEvent[] = []
-    const dispatchedIdempotencyKeys: string[] = []
+    const publishedEvents: InterviewPostCommitEvent[] = []
+    const issuedIds: string[] = []
 
     const mockNotificationService = {
       async persistOutboxEvent(): Promise<void> {},
     } as unknown as import('../notifications').NotificationService
 
-    const mockNotificationDispatchService = {
-      async dispatchOutboxEventByIdempotencyKey(
-        idempotencyKey: string,
-        _transport: unknown,
-      ): Promise<void> {
-        dispatchedIdempotencyKeys.push(idempotencyKey)
+    const mockPostCommitPublisher: InterviewPostCommitEventPublisher = {
+      async publish(event): Promise<void> {
+        publishedEvents.push(event)
       },
-    } as unknown as import('../notifications').NotificationDispatchService
+    }
 
     const mockNotificationTransport = {
       async send(): Promise<void> {},
@@ -395,16 +393,22 @@ describe('InterviewService', function interviewServiceSuite() {
       repository,
       undefined,
       function createId() {
-        return '22222222-2222-4222-8222-222222222222'
+        const value =
+          issuedIds.length === 0
+            ? '22222222-2222-4222-8222-222222222222'
+            : `33333333-3333-4333-8333-${String(issuedIds.length).padStart(12, '0')}`
+
+        issuedIds.push(value)
+        return value
       },
       function now() {
         return '2026-04-13T10:00:00.000Z'
       },
-      undefined,
+      mockPostCommitPublisher,
       undefined,
       mockNotificationService,
-      mockNotificationDispatchService,
-      mockNotificationTransport,
+      undefined,
+      undefined,
     )
 
     const response = await service.createInterview(activeSession, {
@@ -426,9 +430,13 @@ describe('InterviewService', function interviewServiceSuite() {
     expect(interviewPayload.id).toBe(response.interview.id)
     expect(interviewPayload.scheduler_id).toBe(activeSession.userId)
 
-    // Should have attempted dispatch
-    expect(dispatchedIdempotencyKeys).toHaveLength(1)
-    expect(dispatchedIdempotencyKeys[0]).toBe(outboxEvent.idempotency_key)
+    // Persisted outbox event and post-commit publish should reuse the same created event.
+    expect(publishedEvents).toHaveLength(1)
+    expect(publishedEvents[0]).toEqual(outboxEvent)
+    expect(publishedEvents[0].event_id).toBe(outboxEvent.event_id)
+
+    // createId should be used for interview id + one created event id only.
+    expect(issuedIds).toHaveLength(2)
   })
 
   it('does not publish created event when create fails from auth problems', async function run() {

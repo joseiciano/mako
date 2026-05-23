@@ -31,10 +31,12 @@ describe('NotificationRepository', function notificationRepositorySuite() {
     )
   })
 
-  it('fetches pending outbox events ordered by created_at', async function run() {
+  it('fetches pending outbox events prioritizing pending before failed retries', async function run() {
+    const executedQueries: SqlQuery[] = []
     const repository = new NotificationRepository({
       queryExecutor: createQueryExecutor({
-        onQuery() {
+        onQuery(queryInput) {
+          executedQueries.push(queryInput)
           return {
             rows: [
               createOutboxEventRow({ idempotency_key: 'event-1' }),
@@ -50,6 +52,9 @@ describe('NotificationRepository', function notificationRepositorySuite() {
     expect(events).toHaveLength(2)
     expect(events[0]?.idempotency_key).toBe('event-1')
     expect(events[1]?.idempotency_key).toBe('event-2')
+    const sql = normalizeSql(executedQueries[0]?.text ?? '')
+    expect(sql).toContain("status = 'pending' OR status = 'failed'")
+    expect(sql).toContain("ORDER BY CASE WHEN status = 'pending' THEN 0 ELSE 1 END ASC, created_at ASC")
   })
 
   it('fetches a single outbox event by idempotency key', async function run() {
@@ -177,9 +182,11 @@ describe('NotificationRepository', function notificationRepositorySuite() {
   })
 
   it('lists due reminder schedules filtered by pending status', async function run() {
+    const executedQueries: SqlQuery[] = []
     const repository = new NotificationRepository({
       queryExecutor: createQueryExecutor({
-        onQuery() {
+        onQuery(queryInput) {
+          executedQueries.push(queryInput)
           return {
             rows: [
               createReminderScheduleRow({ id: 'schedule-1' }),
@@ -190,10 +197,64 @@ describe('NotificationRepository', function notificationRepositorySuite() {
       }),
     })
 
-    const schedules = await repository.listDueReminderSchedules('2026-05-22T12:00:00.000Z')
+    const schedules = await repository.listDueReminderSchedules('2026-05-22T12:00:00.000Z', 25)
 
     expect(schedules).toHaveLength(2)
     expect(schedules[0]?.id).toBe('schedule-1')
+    expect(normalizeSql(executedQueries[0]?.text ?? '')).toContain('LIMIT $2')
+    expect(executedQueries[0]?.values).toEqual(['2026-05-22T12:00:00.000Z', 25])
+  })
+
+  it('fetches interview states in batch by ids', async function run() {
+    const executedQueries: SqlQuery[] = []
+    const repository = new NotificationRepository({
+      queryExecutor: createQueryExecutor({
+        onQuery(queryInput) {
+          executedQueries.push(queryInput)
+          return {
+            rows: [
+              {
+                id: 'interview-1',
+                scheduler_id: 'scheduler-1',
+                interviewer_id: null,
+                type: 'system_design',
+                mode: 'ai_led',
+                tier: 'standard',
+                status: 'scheduled',
+                scheduled_at: '2026-05-22T14:00:00.000Z',
+                created_at: '2026-05-22T10:00:00.000Z',
+                updated_at: '2026-05-22T10:00:00.000Z',
+              },
+            ],
+          }
+        },
+      }),
+    })
+
+    const states = await repository.getInterviewStates(['interview-1', 'interview-2'])
+
+    expect(states.get('interview-1')?.status).toBe('scheduled')
+    expect(states.has('interview-2')).toBe(false)
+    expect(normalizeSql(executedQueries[0]?.text ?? '')).toContain('WHERE id = ANY($1)')
+    expect(executedQueries[0]?.values).toEqual([['interview-1', 'interview-2']])
+  })
+
+  it('marks reminder schedules as dispatched in batch', async function run() {
+    const executedQueries: SqlQuery[] = []
+    const repository = new NotificationRepository({
+      queryExecutor: createQueryExecutor({
+        onQuery(queryInput) {
+          executedQueries.push(queryInput)
+          return { rows: [] }
+        },
+      }),
+    })
+
+    await repository.markReminderDispatchedBatch(['schedule-1', 'schedule-2'])
+
+    expect(executedQueries).toHaveLength(1)
+    expect(normalizeSql(executedQueries[0]?.text ?? '')).toContain('WHERE id = ANY($1)')
+    expect(executedQueries[0]?.values).toEqual([['schedule-1', 'schedule-2']])
   })
 
   it('suppresses pending reminder schedules for an interview', async function run() {
