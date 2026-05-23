@@ -2,7 +2,7 @@ export default {
   async fetch(request, env) {
     const metadata = {
       service: "backend-api",
-      queue: env.INTERVIEW_PROVISIONING_QUEUE ? "configured" : "missing",
+      queue: env.NOTIFICATION_QUEUE ? "configured" : "missing",
       hyperdrive: env.HYPERDRIVE ? "configured" : "missing",
       workflow: env.INTERVIEW_WORKFLOW ? "configured" : "missing",
     }

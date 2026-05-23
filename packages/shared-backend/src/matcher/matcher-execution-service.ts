@@ -10,11 +10,18 @@ import type {
   MatchAttemptWriteResult,
 } from './types'
 import { MatcherService } from './matcher-service'
+import type {
+  NotificationService,
+  NotificationDispatchService,
+  NotificationTransport,
+} from '../notifications'
+import type { NotificationOutboxEventRow } from '../notifications/notification-types'
 
 export type MatcherExecutionRepository = {
   listCandidateRows(): Promise<MatcherCandidateRow[]>
   executePairAttemptTransaction(
     pairAttempt: MatcherPairAttempt,
+    buildOutboxEvent?: (interview: MatcherCreatedInterview) => NotificationOutboxEventRow,
   ): Promise<MatchAttemptWriteResult>
 }
 
@@ -40,10 +47,13 @@ type MatcherExecutionServiceDependencies = {
   }) => MatcherMatchCreatedEvent
   logger?: MatcherExecutionLogger
   createRunId?: () => string
+  notificationService?: NotificationService
+  notificationDispatchService?: NotificationDispatchService
+  notificationTransport?: NotificationTransport
 }
 
 export class MatcherExecutionService {
-  private readonly postCommitEventPublisher: MatcherPostCommitEventPublisher
+  private readonly postCommitEventPublisher?: MatcherPostCommitEventPublisher
 
   private readonly buildMatchCreatedEvent: (input: {
     interview: MatcherCreatedInterview
@@ -53,17 +63,25 @@ export class MatcherExecutionService {
 
   private readonly createRunId: () => string
 
+  private readonly notificationService?: NotificationService
+
+  private readonly notificationDispatchService?: NotificationDispatchService
+
+  private readonly notificationTransport?: NotificationTransport
+
   constructor(
     private readonly matcherRepository: MatcherExecutionRepository,
     private readonly matcherService: MatcherService = new MatcherService(),
     dependencies: MatcherExecutionServiceDependencies = {},
   ) {
-    this.postCommitEventPublisher =
-      dependencies.postCommitEventPublisher ?? missingMatcherPostCommitEventPublisher
+    this.postCommitEventPublisher = dependencies.postCommitEventPublisher
     this.buildMatchCreatedEvent =
       dependencies.buildMatchCreatedEvent ?? buildMatcherMatchCreatedEvent
     this.logger = dependencies.logger ?? noOpMatcherExecutionLogger
     this.createRunId = dependencies.createRunId ?? createDefaultRunId
+    this.notificationService = dependencies.notificationService
+    this.notificationDispatchService = dependencies.notificationDispatchService
+    this.notificationTransport = dependencies.notificationTransport
   }
 
   async runMatchCycle(): Promise<MatcherRunSummary> {
@@ -82,8 +100,25 @@ export class MatcherExecutionService {
     })
 
     for (const pairAttempt of pairAttempts) {
+      const buildOutboxEvent = this.notificationService
+        ? (interview: MatcherCreatedInterview) => {
+            const event = this.buildMatchCreatedEvent({ interview })
+            return {
+              idempotency_key: event.idempotency_key,
+              event_type: event.event_type,
+              event_payload: event as unknown as Record<string, unknown>,
+              status: 'pending' as const,
+              dispatch_attempts: 0,
+              last_dispatch_attempted_at: null,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            }
+          }
+        : undefined
+
       const writeResult = await this.matcherRepository.executePairAttemptTransaction(
         pairAttempt,
+        buildOutboxEvent,
       )
 
       transactionConflicts += writeResult.diagnostics.transactionConflicts
@@ -94,18 +129,35 @@ export class MatcherExecutionService {
           interview: writeResult.interview,
         })
 
-        try {
-          await this.postCommitEventPublisher.publish(matchCreatedEvent)
-        } catch (error) {
-          await this.logSafely('error', 'matcher.run.post_commit_publish_failure', {
-            run_id: runId,
-            attempt_key: pairAttempt.attempt_key,
-            slot_ids: [pairAttempt.left.slot_id, pairAttempt.right.slot_id],
-            request_ids: [pairAttempt.left.request_id, pairAttempt.right.request_id],
-            interview_id: writeResult.interviewId,
-            error_message: toErrorMessage(error),
-          })
-          throw error
+        if (this.notificationDispatchService && this.notificationTransport) {
+          try {
+            await this.notificationDispatchService.dispatchOutboxEventByIdempotencyKey(
+              matchCreatedEvent.idempotency_key,
+              this.notificationTransport,
+            )
+          } catch (error) {
+            await this.logSafely('error', 'matcher.run.post_commit_dispatch_failure', {
+              run_id: runId,
+              attempt_key: pairAttempt.attempt_key,
+              slot_ids: [pairAttempt.left.slot_id, pairAttempt.right.slot_id],
+              request_ids: [pairAttempt.left.request_id, pairAttempt.right.request_id],
+              interview_id: writeResult.interviewId,
+              error_message: toErrorMessage(error),
+            })
+          }
+        } else if (this.postCommitEventPublisher) {
+          try {
+            await this.postCommitEventPublisher.publish(matchCreatedEvent)
+          } catch (error) {
+            await this.logSafely('error', 'matcher.run.post_commit_publish_failure', {
+              run_id: runId,
+              attempt_key: pairAttempt.attempt_key,
+              slot_ids: [pairAttempt.left.slot_id, pairAttempt.right.slot_id],
+              request_ids: [pairAttempt.left.request_id, pairAttempt.right.request_id],
+              interview_id: writeResult.interviewId,
+              error_message: toErrorMessage(error),
+            })
+          }
         }
 
         createdInterviewIds.push(writeResult.interviewId)
@@ -149,18 +201,6 @@ export class MatcherExecutionService {
       // no-op: logging must never block matcher execution
     }
   }
-}
-
-const missingMatcherPostCommitEventPublisher: MatcherPostCommitEventPublisher = {
-  publish: publishMissingMatcherPostCommitEvent,
-}
-
-async function publishMissingMatcherPostCommitEvent(
-  _event: MatcherMatchCreatedEvent,
-): Promise<void> {
-  throw new Error(
-    'MatcherExecutionService post-commit event publisher is not configured',
-  )
 }
 
 const noOpMatcherExecutionLogger: MatcherExecutionLogger = {

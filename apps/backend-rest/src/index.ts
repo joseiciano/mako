@@ -24,6 +24,10 @@ import {
   registerAuthController,
   registerInterviewController,
   createInterviewQueuePostCommitEventPublisher,
+  NotificationRepository,
+  NotificationService,
+  NotificationDispatchService,
+  type NotificationDispatchServiceLogger,
   type AccountProfileRecord,
   type AccountRepositoryDataSource,
   type CreateInterviewRecordInput,
@@ -57,7 +61,7 @@ export type WorkerBindings = {
   BETTER_AUTH_SECRET?: string
   BETTER_AUTH_URL?: string
   BETTER_AUTH_TRUSTED_ORIGINS?: string
-  INTERVIEW_PROVISIONING_QUEUE?: Queue
+  NOTIFICATION_QUEUE?: Queue
 }
 
 const demoSession = {
@@ -84,6 +88,12 @@ const corsMaxAgeSeconds = '86400'
 const consoleInterviewServiceLogger: InterviewServiceLogger = {
   error(event, context) {
     console.error(`[InterviewService] ${event}`, context)
+  },
+}
+
+const consoleNotificationDispatchLogger: NotificationDispatchServiceLogger = {
+  error(event, context) {
+    console.error(`[NotificationDispatch] ${event}`, context)
   },
 }
 
@@ -129,16 +139,43 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
 
   registerInterviewController(app, {
     createService: function createService(context) {
+      const queryExecutor = hasDatabaseAccess(context.bindings)
+        ? createDatabaseQueryExecutor(context.bindings)
+        : undefined
+
+      let notificationService: NotificationService | undefined
+      let notificationDispatchService: NotificationDispatchService | undefined
+      const notificationTransport = context.bindings.NOTIFICATION_QUEUE
+        ? {
+            send: async function send(message: unknown) {
+              await context.bindings.NOTIFICATION_QUEUE!.send(message)
+            },
+          }
+        : undefined
+
+      if (queryExecutor) {
+        const notificationRepository = new NotificationRepository({ queryExecutor })
+        notificationService = new NotificationService(notificationRepository)
+        notificationDispatchService = new NotificationDispatchService(notificationService, undefined, consoleNotificationDispatchLogger)
+      }
+
       const repository = new InterviewRepository(
-        hasDatabaseAccess(context.bindings)
-          ? { queryExecutor: createDatabaseQueryExecutor(context.bindings) }
+        queryExecutor && notificationService
+          ? {
+              queryExecutor,
+              persistOutboxEvent: async function persistOutboxEvent(event) {
+                await notificationService!.persistOutboxEvent(
+                  event as Parameters<NotificationService['persistOutboxEvent']>[0],
+                )
+              },
+            }
           : demoDataSources.interview,
       )
-      const postCommitEventPublisher = context.bindings
-        .INTERVIEW_PROVISIONING_QUEUE
+
+      const postCommitEventPublisher = context.bindings.NOTIFICATION_QUEUE
         ? createInterviewQueuePostCommitEventPublisher({
             send: async function send(message) {
-              await context.bindings.INTERVIEW_PROVISIONING_QUEUE!.send(message)
+              await context.bindings.NOTIFICATION_QUEUE!.send(message)
             },
           })
         : undefined
@@ -150,6 +187,9 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
         undefined,
         postCommitEventPublisher,
         consoleInterviewServiceLogger,
+        notificationService,
+        notificationDispatchService,
+        notificationTransport,
       )
     },
     resolveSession: function resolveSession(context) {
@@ -224,7 +264,14 @@ function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
           free_ai_interviews: account.freeAiInterviews,
         }
       },
-      async createDirectInterview(input: CreateInterviewRecordInput) {
+      async getInterviewById(interviewId: string) {
+        const interview = interviewsById.get(interviewId)
+        return interview ? structuredClone(interview) : null
+      },
+      async createDirectInterview(
+        input: CreateInterviewRecordInput,
+        _outboxEvent?: unknown,
+      ) {
         const account = accountProfilesById.get(input.scheduler_id)
 
         if (!account) {

@@ -7,10 +7,11 @@ Terraform in this directory provisions Cloudflare and Neon resources required fo
 - Cloudflare Workers scripts:
   - `mako-backend-rest` (main backend API worker)
   - `mako-greedy-matcher` (cron worker)
-  - `mako-interview-provisioner` (queue consumer worker)
+  - `mako-notification-orchestrator` (queue consumer worker)
+
 - Cloudflare Workers Cron trigger for Greedy Matcher
-- Cloudflare Queue: `interview-provisioning`
-- Cloudflare Queue consumer for Interview Provisioner worker
+- Cloudflare Queue: `notification-orchestration`
+- Cloudflare Queue consumer for Notification Orchestrator worker
 - Cloudflare R2 buckets for recordings and screenshots
 - Cloudflare Hyperdrive configs for development and production Neon projects
 - Cloudflare Workflow (`interview-lifecycle`) and workflow binding
@@ -57,4 +58,5 @@ terraform init -reconfigure -backend-config=backend-r2.hcl
 
 - AI Gateway currently has no first-class Terraform resource in the Cloudflare provider. This setup exposes `AI_GATEWAY_BASE_URL` binding when `ai_gateway_name` is provided.
 - Worker scripts under `./workers` are bootstrap placeholders to establish Terraform-managed worker resources. Application deployments can later replace script content via CI/Wrangler.
+- `cloudflare_workers_script.notification_orchestrator` intentionally ignores script content/runtime binding drift so Wrangler remains the source of truth for that worker's deployed config.
 - Migration note: this stack no longer provisions a Realtime app. If you previously managed `cloudflare_calls_sfu_app.realtime` in state and want to keep that app, run `terraform state rm cloudflare_calls_sfu_app.realtime` before `terraform apply`, then set `realtime_app_id` in your tfvars.

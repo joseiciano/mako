@@ -1,0 +1,40 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "mako-notification-orchestrator",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-03-15",
+  "compatibility_flags": ["nodejs_compat"],
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "__HYPERDRIVE_ID__"
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "NOTIFICATION_QUEUE",
+        "queue": "notification-orchestration"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "notification-orchestration",
+        "max_batch_size": 10,
+        "max_batch_timeout": 5,
+        "max_retries": 3,
+        "dead_letter_queue": "notification-orchestration-dlq"
+      }
+    ]
+  },
+  "triggers": {
+    "crons": ["*/5 * * * *"]
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    }
+  }
+}

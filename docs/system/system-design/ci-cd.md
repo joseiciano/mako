@@ -17,7 +17,7 @@ We utilize GitHub Actions for our CI/CD pipeline to ensure code quality and auto
   - Steps: `terraform init`, `terraform validate`, and `terraform apply -auto-approve`
 - **Application Deployment** (`.github/workflows/deploy-applications.yml`)
   - Trigger: pushes to `main` that modify app/shared code paths
-  - Steps: migrate production database, then deploy backend and frontend workers through `cloudflare/wrangler-action`
+  - Steps: migrate production database, then deploy backend-rest, notification-orchestrator, and frontend workers through `cloudflare/wrangler-action`
   - Migration requirements:
     - Production migrations must be backward-compatible because the database is migrated before the backend deploys.
     - The `DATABASE_URL` secret used by CI must target the same database as the production Hyperdrive binding.
@@ -50,6 +50,7 @@ Secret sync behavior:
 
 - Terraform workflow consumes Cloudflare/Neon/Stripe secrets during infra apply.
 - Backend deploy injects `HYPERDRIVE_ID` into `apps/backend-rest/wrangler.jsonc` before deployment and syncs Worker runtime secrets (`BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `BETTER_AUTH_TRUSTED_ORIGINS`, `STRIPE_SECRET_KEY`). Postgres runtime access is provided through the Cloudflare Hyperdrive binding.
+- Notification orchestrator deploy also injects `HYPERDRIVE_ID` into `apps/notification-orchestrator/wrangler.jsonc` before deployment so queue consumers can reach Postgres through Hyperdrive.
 - Frontend deploy requires Cloudflare deployment credentials and `VITE_AUTH_BASE_URL`, which is injected at build time so the auth client knows the backend origin.
 
 ## CI/CD Setup Runbook

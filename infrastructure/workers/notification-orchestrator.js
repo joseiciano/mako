@@ -2,8 +2,8 @@ export default {
   async queue(batch, env) {
     for (const message of batch.messages) {
       const body = typeof message.body === "string" ? message.body : JSON.stringify(message.body)
-      console.log("interview-provisioner message", body)
-      message.ack()
+      console.log("notification-orchestrator bootstrap defers message", body)
+      message.retry()
     }
 
     if (env.REALTIME_APP_ID) {

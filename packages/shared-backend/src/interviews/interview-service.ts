@@ -12,8 +12,14 @@ import { InterviewRepository } from './interview-repository'
 import {
   buildInterviewCancelledEvent,
   buildInterviewCreatedEvent,
+  type InterviewCreatedEvent,
   type InterviewPostCommitEventPublisher,
 } from './interview-post-commit-event'
+import {
+  NotificationService,
+  NotificationDispatchService,
+  type NotificationTransport,
+} from '../notifications'
 import {
   InterviewBusinessRuleError,
   InterviewConflictError,
@@ -44,6 +50,9 @@ export class InterviewService {
     private readonly now: () => string = defaultNow,
     private readonly postCommitEventPublisher?: InterviewPostCommitEventPublisher,
     private readonly logger: InterviewServiceLogger = noOpInterviewServiceLogger,
+    private readonly notificationService?: NotificationService,
+    private readonly notificationDispatchService?: NotificationDispatchService,
+    private readonly notificationTransport?: NotificationTransport,
   ) {}
 
   async createInterview(
@@ -53,19 +62,36 @@ export class InterviewService {
     const userSession = this.requireSession(session)
     const schedulerId = authenticatedInterviewUserIdSchema.parse(userSession.userId)
 
-    const createdInterview = await this.createAiLedInterview({
+    const scheduledAt = input.scheduled_at === 'now' ? this.now() : input.scheduled_at
+    const timestamp = this.now()
+    const aliases = buildInterviewAliases('ai_led')
+    const interviewId = this.createId()
+
+    const { interview: createdInterview, outboxEvent } = await this.createAiLedInterview({
       schedulerId,
       type: input.type,
-      scheduledAt: input.scheduled_at === 'now' ? this.now() : input.scheduled_at,
+      scheduledAt,
+      id: interviewId,
+      aliases,
+      timestamp,
     })
 
-    if (this.postCommitEventPublisher) {
+    if (this.notificationDispatchService && this.notificationTransport) {
       try {
-        await this.postCommitEventPublisher.publish(
-          buildInterviewCreatedEvent({
-            interview: createdInterview,
-          }),
+        await this.notificationDispatchService.dispatchOutboxEventByIdempotencyKey(
+          outboxEvent.idempotency_key,
+          this.notificationTransport,
         )
+      } catch (error) {
+        await this.logSafely('interview.post_commit_dispatch_failure', {
+          operation: 'create',
+          interview_id: createdInterview.id,
+          error_message: toErrorMessage(error),
+        })
+      }
+    } else if (this.postCommitEventPublisher) {
+      try {
+        await this.postCommitEventPublisher.publish(outboxEvent)
       } catch (error) {
         await this.logSafely('interview.post_commit_publish_failure', {
           operation: 'create',
@@ -104,15 +130,41 @@ export class InterviewService {
     const participantUserId = authenticatedInterviewUserIdSchema.parse(
       userSession.userId,
     )
-    const cancelResult = await this.interviewRepository.cancelInterview({
-      interview_id: input.id,
-      participant_user_id: participantUserId,
-      updated_at: this.now(),
-    })
+
+    const existingInterview = await this.interviewRepository.getInterviewById(input.id)
+
+    const outboxEvent =
+      existingInterview && this.notificationService
+        ? buildInterviewCancelledEvent({
+            interview: { ...existingInterview, status: 'cancelled' },
+          })
+        : undefined
+
+    const cancelResult = await this.interviewRepository.cancelInterview(
+      {
+        interview_id: input.id,
+        participant_user_id: participantUserId,
+        updated_at: this.now(),
+      },
+      outboxEvent,
+    )
 
     switch (cancelResult.outcome) {
       case 'cancelled':
-        if (this.postCommitEventPublisher) {
+        if (this.notificationDispatchService && this.notificationTransport && outboxEvent) {
+          try {
+            await this.notificationDispatchService.dispatchOutboxEventByIdempotencyKey(
+              outboxEvent.idempotency_key,
+              this.notificationTransport,
+            )
+          } catch (error) {
+            await this.logSafely('interview.post_commit_dispatch_failure', {
+              operation: 'cancel',
+              interview_id: cancelResult.interview.id,
+              error_message: toErrorMessage(error),
+            })
+          }
+        } else if (this.postCommitEventPublisher) {
           try {
             await this.postCommitEventPublisher.publish(
               buildInterviewCancelledEvent({
@@ -147,7 +199,10 @@ export class InterviewService {
     schedulerId: string
     type: CreateInterviewRequest['type']
     scheduledAt: string
-  }): Promise<Interview> {
+    id?: string
+    aliases?: ReturnType<typeof buildInterviewAliases>
+    timestamp?: string
+  }): Promise<{ interview: Interview; outboxEvent: InterviewCreatedEvent }> {
     let lastConflictError: InterviewPolicyConflictError | null = null
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -164,25 +219,46 @@ export class InterviewService {
         this.interviewPolicyConfig,
       )
 
-      const timestamp = this.now()
-      const aliases = buildInterviewAliases('ai_led')
+      const timestamp = input.timestamp ?? this.now()
+      const aliases = input.aliases ?? buildInterviewAliases('ai_led')
+      const interviewId = input.id ?? this.createId()
+      const createdEvent = buildInterviewCreatedEvent(
+        {
+          interview: {
+            id: interviewId,
+            scheduler_id: input.schedulerId,
+            interviewer_id: null,
+            type: input.type,
+            mode: 'ai_led',
+            tier: resolvedPolicy.tier,
+            status: 'scheduled',
+            scheduled_at: input.scheduledAt,
+          },
+        },
+        { createEventId: this.createId, now: this.now },
+      )
 
       try {
-        return await this.interviewRepository.createDirectInterview({
-          id: this.createId(),
-          scheduler_id: input.schedulerId,
-          scheduler_alias: aliases.schedulerAlias,
-          interviewer_id: null,
-          interviewer_alias: aliases.interviewerAlias,
-          type: input.type,
-          mode: 'ai_led',
-          tier: resolvedPolicy.tier,
-          status: 'scheduled',
-          scheduled_at: input.scheduledAt,
-          created_at: timestamp,
-          updated_at: timestamp,
-          policy_consumption: resolvedPolicy.consumption,
-        })
+        const interview = await this.interviewRepository.createDirectInterview(
+          {
+            id: interviewId,
+            scheduler_id: input.schedulerId,
+            scheduler_alias: aliases.schedulerAlias,
+            interviewer_id: null,
+            interviewer_alias: aliases.interviewerAlias,
+            type: input.type,
+            mode: 'ai_led',
+            tier: resolvedPolicy.tier,
+            status: 'scheduled',
+            scheduled_at: input.scheduledAt,
+            created_at: timestamp,
+            updated_at: timestamp,
+            policy_consumption: resolvedPolicy.consumption,
+          },
+          createdEvent,
+        )
+
+        return { interview, outboxEvent: createdEvent }
       } catch (error) {
         if (!(error instanceof InterviewPolicyConflictError)) {
           throw error

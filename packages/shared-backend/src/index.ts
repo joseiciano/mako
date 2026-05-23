@@ -31,6 +31,18 @@ export * from './auth'
 export * from './interview'
 export * from './interviews'
 export * from './matcher'
+export * from './notifications'
+export {
+  interviewCreatedEventSchema,
+  interviewCancelledEventSchema,
+  interviewMatchCreatedEventSchema,
+  type InterviewCreatedEvent,
+  type InterviewCancelledEvent,
+  type InterviewMatchCreatedEvent,
+  type NotificationQueueEvent,
+  type NotificationQueueEventPublisher,
+  type NotificationQueueTransport,
+} from './notification-queue-event-contract'
 
 export type SqlQuery = {
   text: string

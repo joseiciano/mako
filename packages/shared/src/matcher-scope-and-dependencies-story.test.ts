@@ -49,12 +49,13 @@ describe('story 1.1 matcher scope and dependency lock', function () {
 
     expect(terraformMain).toContain('resource "cloudflare_workers_cron_trigger" "greedy_matcher"')
     expect(terraformMain).toContain('script_name = cloudflare_workers_script.greedy_matcher.script_name')
-    expect(terraformMain).toContain('resource "cloudflare_queue" "interview_provisioning"')
-    expect(terraformMain).toContain('resource "cloudflare_queue_consumer" "interview_provisioner"')
-    expect(terraformMain).toContain('queue_name = cloudflare_queue.interview_provisioning.queue_name')
+    expect(terraformMain).toContain('resource "cloudflare_queue" "notification_orchestration"')
+    expect(terraformMain).toContain('resource "cloudflare_queue_consumer" "notification_orchestrator"')
+    expect(terraformMain).toContain('queue_name = cloudflare_queue.notification_orchestration.queue_name')
 
     expect(greedyMatcherWorker).toContain('async scheduled')
-    expect(greedyMatcherWorker).toContain('env.INTERVIEW_PROVISIONING_QUEUE.send(payload)')
+    expect(greedyMatcherWorker).toContain('MUST NOT send any messages to the notification')
+    expect(greedyMatcherWorker).not.toContain('env.NOTIFICATION_QUEUE.send(payload)')
     expect(greedyMatcherWorker).not.toMatch(/realtime|excalidraw|\/api\/interviews\/:id\/provision/i)
   })
 })

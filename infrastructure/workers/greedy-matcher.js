@@ -1,11 +1,19 @@
+/**
+ * Greedy matcher cron worker.
+ *
+ * CONTRACT SAFETY: This worker MUST NOT send any messages to the notification
+ * queue. The notification queue only accepts interview lifecycle events
+ * (interview.created, interview.cancelled, interview.match.created) and
+ * reminder.due messages. Cron tick payloads are not valid queue messages.
+ *
+ * Matcher execution should be invoked directly or via a dedicated matcher queue,
+ * never by sending unrelated cron-tick payloads into the notification queue.
+ */
 export default {
-  async scheduled(controller, env) {
-    const payload = {
-      source: "greedy-matcher",
+  async scheduled(controller: { scheduledTime: number | Date }, env: Record<string, unknown>) {
+    console.log("greedy-matcher.cron.tick", {
       timestamp: new Date().toISOString(),
-      reason: "cron tick",
-    }
-
-    await env.INTERVIEW_PROVISIONING_QUEUE.send(payload)
+      scheduled_time: controller.scheduledTime,
+    })
   },
 }

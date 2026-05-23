@@ -13,8 +13,8 @@
   "queues": {
     "producers": [
       {
-        "binding": "INTERVIEW_PROVISIONING_QUEUE",
-        "queue": "interview-provisioning"
+        "binding": "NOTIFICATION_QUEUE",
+        "queue": "notification-orchestration"
       }
     ]
   },

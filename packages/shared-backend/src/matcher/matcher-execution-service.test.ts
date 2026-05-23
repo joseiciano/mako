@@ -323,7 +323,7 @@ describe('MatcherExecutionService', function matcherExecutionServiceSuite() {
     expect(publishedEvents).toEqual([])
   })
 
-  it('logs publish-failure context when post-commit emission fails', async function shouldLogPostCommitPublishFailureContext() {
+  it('logs publish-failure context when post-commit emission fails without throwing', async function shouldLogPostCommitPublishFailureContext() {
     const logEntries: Array<{ event: string; context: Record<string, unknown> }> = []
     const executionService = new MatcherExecutionService(
       {
@@ -389,8 +389,9 @@ describe('MatcherExecutionService', function matcherExecutionServiceSuite() {
       },
     )
 
-    await expect(executionService.runMatchCycle()).rejects.toThrow('publish failed')
+    const result = await executionService.runMatchCycle()
 
+    expect(result.matchesCreated).toBe(1)
     expect(logEntries).toContainEqual({
       event: 'matcher.run.post_commit_publish_failure',
       context: {
@@ -476,7 +477,7 @@ describe('MatcherExecutionService', function matcherExecutionServiceSuite() {
     })
   })
 
-  it('fails when a match is created without a configured post-commit publisher', async function shouldRequirePublisher() {
+  it('continues matcher execution when no post-commit publisher is configured', async function shouldContinueWithoutPublisher() {
     const executionService = new MatcherExecutionService({
       async listCandidateRows() {
         return [
@@ -520,9 +521,17 @@ describe('MatcherExecutionService', function matcherExecutionServiceSuite() {
       },
     })
 
-    await expect(executionService.runMatchCycle()).rejects.toThrow(
-      'MatcherExecutionService post-commit event publisher is not configured',
-    )
+    const summary = await executionService.runMatchCycle()
+
+    expect(summary).toEqual({
+      slotsScanned: 2,
+      pairsAttempted: 1,
+      matchesCreated: 1,
+      skippedAttempts: 0,
+      transactionConflicts: 0,
+      transactionRetries: 0,
+      createdInterviewIds: ['99999999-9999-4999-8999-999999999999'],
+    })
   })
 })
 
