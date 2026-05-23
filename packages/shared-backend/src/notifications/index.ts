@@ -32,6 +32,7 @@ export {
 export {
   NotificationConsumerService,
   type NotificationConsumerServiceLogger,
+  type NotificationDeliveryPort,
 } from './notification-consumer-service'
 
 export {

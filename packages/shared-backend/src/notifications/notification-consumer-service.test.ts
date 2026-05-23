@@ -12,6 +12,7 @@ import type {
 } from './notification-types'
 import type { NotificationRepositoryDataSource } from './notification-repository'
 import { NotificationService } from './notification-service'
+import type { NotificationDeliveryPort } from './notification-consumer-service'
 
 describe('NotificationConsumerService', function notificationConsumerServiceSuite() {
   it('processes interview.created by recording confirmation checkpoint and scheduling reminder', async function run() {
@@ -88,6 +89,66 @@ describe('NotificationConsumerService', function notificationConsumerServiceSuit
   it('suppresses reminder scheduling when interview is less than 30 minutes away', async function run() {
     const { consumer, dataSource } = createConsumerService({
       now: () => '2026-05-22T13:45:00.000Z',
+    })
+
+    await consumer.processInterviewCreated(
+      createInterviewCreatedEvent('2026-05-22T14:00:00.000Z'),
+    )
+
+    expect(dataSource.checkpoints).toHaveLength(2)
+    expect(dataSource.checkpoints[1]).toEqual({
+      idempotency_key: 'interview.created:interview-id',
+      checkpoint_key: 'interview.created:reminder',
+    })
+    expect(dataSource.reminderSchedules).toHaveLength(0)
+  })
+
+  it('schedules a reminder when interview.created is processed exactly 30 minutes before scheduled_at', async function run() {
+    const { consumer, dataSource } = createConsumerService({
+      now: () => '2026-05-22T13:30:00.000Z',
+    })
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: null,
+      type: 'system_design',
+      mode: 'ai_led',
+      tier: 'standard',
+      status: 'scheduled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
+
+    await consumer.processInterviewCreated(
+      createInterviewCreatedEvent('2026-05-22T14:00:00.000Z'),
+    )
+
+    expect(dataSource.checkpoints).toHaveLength(2)
+    expect(dataSource.checkpoints[1]).toEqual({
+      idempotency_key: 'interview.created:interview-id',
+      checkpoint_key: 'interview.created:reminder',
+    })
+    expect(dataSource.reminderSchedules).toHaveLength(1)
+    expect(dataSource.reminderSchedules[0]?.interview_id).toBe('interview-id')
+    expect(dataSource.reminderSchedules[0]?.reminder_due_at).toBe('2026-05-22T13:30:00.000Z')
+  })
+
+  it('suppresses reminder for AI immediate sessions when scheduled_at is now', async function run() {
+    const { consumer, dataSource } = createConsumerService({
+      now: () => '2026-05-22T14:00:00.000Z',
+    })
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: null,
+      type: 'system_design',
+      mode: 'ai_led',
+      tier: 'standard',
+      status: 'scheduled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
     })
 
     await consumer.processInterviewCreated(
@@ -199,6 +260,234 @@ describe('NotificationConsumerService', function notificationConsumerServiceSuit
     )
 
     await consumer.processInterviewMatchCreated(event)
+
+    expect(dataSource.checkpoints).toHaveLength(2)
+    expect(dataSource.checkpoints[1]).toEqual({
+      idempotency_key: 'interview.match.created:interview-id',
+      checkpoint_key: 'interview.match.created:reminder',
+    })
+    expect(dataSource.reminderSchedules).toHaveLength(0)
+  })
+
+  it('does not create a second reminder on replay when the first schedule is dispatched', async function run() {
+    const { consumer, dataSource, notificationService } = createConsumerService()
+    const event = createInterviewCreatedEvent()
+
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: null,
+      type: 'system_design',
+      mode: 'ai_led',
+      tier: 'standard',
+      status: 'scheduled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
+
+    // Simulate a previously created and dispatched reminder schedule
+    dataSource.reminderSchedules.push(
+      createReminderScheduleRow({
+        idempotency_key: event.idempotency_key,
+        status: 'dispatched',
+      }),
+    )
+
+    // Simulate crash before reminder checkpoint was recorded
+    await notificationService.recordCheckpoint(
+      event.idempotency_key,
+      'interview.created:confirmation',
+    )
+
+    await consumer.processInterviewCreated(event)
+
+    expect(dataSource.reminderSchedules).toHaveLength(1)
+    expect(dataSource.reminderSchedules[0]?.status).toBe('dispatched')
+    expect(dataSource.checkpoints).toHaveLength(2)
+    expect(dataSource.checkpoints[1]).toEqual({
+      idempotency_key: 'interview.created:interview-id',
+      checkpoint_key: 'interview.created:reminder',
+    })
+  })
+
+  it('does not create a second reminder on replay when the first schedule is suppressed', async function run() {
+    const { consumer, dataSource, notificationService } = createConsumerService()
+    const event = createInterviewCreatedEvent()
+
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: null,
+      type: 'system_design',
+      mode: 'ai_led',
+      tier: 'standard',
+      status: 'scheduled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
+
+    // Simulate a previously created and suppressed reminder schedule
+    dataSource.reminderSchedules.push(
+      createReminderScheduleRow({
+        idempotency_key: event.idempotency_key,
+        status: 'suppressed',
+      }),
+    )
+
+    // Simulate crash before reminder checkpoint was recorded
+    await notificationService.recordCheckpoint(
+      event.idempotency_key,
+      'interview.created:confirmation',
+    )
+
+    await consumer.processInterviewCreated(event)
+
+    expect(dataSource.reminderSchedules).toHaveLength(1)
+    expect(dataSource.reminderSchedules[0]?.status).toBe('suppressed')
+    expect(dataSource.checkpoints).toHaveLength(2)
+    expect(dataSource.checkpoints[1]).toEqual({
+      idempotency_key: 'interview.created:interview-id',
+      checkpoint_key: 'interview.created:reminder',
+    })
+  })
+
+  it('does not create a second match reminder on replay when the first schedule is dispatched', async function run() {
+    const { consumer, dataSource, notificationService } = createConsumerService()
+    const event = createInterviewMatchCreatedEvent()
+
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: 'interviewer-id',
+      type: 'system_design',
+      mode: 'peer_to_peer',
+      tier: 'standard',
+      status: 'scheduled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
+
+    // Simulate a previously created and dispatched reminder schedule
+    dataSource.reminderSchedules.push(
+      createReminderScheduleRow({
+        idempotency_key: event.idempotency_key,
+        status: 'dispatched',
+      }),
+    )
+
+    // Simulate crash before reminder checkpoint was recorded
+    await notificationService.recordCheckpoint(
+      event.idempotency_key,
+      'interview.match.created:confirmation',
+    )
+
+    await consumer.processInterviewMatchCreated(event)
+
+    expect(dataSource.reminderSchedules).toHaveLength(1)
+    expect(dataSource.reminderSchedules[0]?.status).toBe('dispatched')
+    expect(dataSource.checkpoints).toHaveLength(2)
+    expect(dataSource.checkpoints[1]).toEqual({
+      idempotency_key: 'interview.match.created:interview-id',
+      checkpoint_key: 'interview.match.created:reminder',
+    })
+  })
+
+  it('does not create a second match reminder on replay when the first schedule is suppressed', async function run() {
+    const { consumer, dataSource, notificationService } = createConsumerService()
+    const event = createInterviewMatchCreatedEvent()
+
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: 'interviewer-id',
+      type: 'system_design',
+      mode: 'peer_to_peer',
+      tier: 'standard',
+      status: 'scheduled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
+
+    // Simulate a previously created and suppressed reminder schedule
+    dataSource.reminderSchedules.push(
+      createReminderScheduleRow({
+        idempotency_key: event.idempotency_key,
+        status: 'suppressed',
+      }),
+    )
+
+    // Simulate crash before reminder checkpoint was recorded
+    await notificationService.recordCheckpoint(
+      event.idempotency_key,
+      'interview.match.created:confirmation',
+    )
+
+    await consumer.processInterviewMatchCreated(event)
+
+    expect(dataSource.reminderSchedules).toHaveLength(1)
+    expect(dataSource.reminderSchedules[0]?.status).toBe('suppressed')
+    expect(dataSource.checkpoints).toHaveLength(2)
+    expect(dataSource.checkpoints[1]).toEqual({
+      idempotency_key: 'interview.match.created:interview-id',
+      checkpoint_key: 'interview.match.created:reminder',
+    })
+  })
+
+  it('schedules a reminder when interview.match.created is processed exactly 30 minutes before scheduled_at', async function run() {
+    const { consumer, dataSource } = createConsumerService({
+      now: () => '2026-05-22T13:30:00.000Z',
+    })
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: 'interviewer-id',
+      type: 'system_design',
+      mode: 'peer_to_peer',
+      tier: 'standard',
+      status: 'scheduled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
+
+    await consumer.processInterviewMatchCreated(
+      createInterviewMatchCreatedEvent(),
+    )
+
+    expect(dataSource.checkpoints).toHaveLength(2)
+    expect(dataSource.checkpoints[1]).toEqual({
+      idempotency_key: 'interview.match.created:interview-id',
+      checkpoint_key: 'interview.match.created:reminder',
+    })
+    expect(dataSource.reminderSchedules).toHaveLength(1)
+    expect(dataSource.reminderSchedules[0]?.interview_id).toBe('interview-id')
+    expect(dataSource.reminderSchedules[0]?.reminder_due_at).toBe('2026-05-22T13:30:00.000Z')
+  })
+
+  it('suppresses reminder for peer-to-peer immediate sessions when scheduled_at is now', async function run() {
+    const { consumer, dataSource } = createConsumerService({
+      now: () => '2026-05-22T14:00:00.000Z',
+    })
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: 'interviewer-id',
+      type: 'system_design',
+      mode: 'peer_to_peer',
+      tier: 'standard',
+      status: 'scheduled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
+
+    await consumer.processInterviewMatchCreated(
+      createInterviewMatchCreatedEvent(),
+    )
 
     expect(dataSource.checkpoints).toHaveLength(2)
     expect(dataSource.checkpoints[1]).toEqual({
@@ -507,6 +796,303 @@ describe('NotificationConsumerService', function notificationConsumerServiceSuit
     expect(storedInterview?.status).toBe('scheduled')
     expect(storedInterview?.updated_at).toBe('2026-05-22T10:00:00.000Z')
   })
+
+  it('sends confirmation for interview.created with scheduler-only recipients', async function run() {
+    const { consumer, dataSource, deliveryCalls } = createConsumerService()
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: null,
+      type: 'system_design',
+      mode: 'ai_led',
+      tier: 'standard',
+      status: 'scheduled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
+
+    await consumer.processInterviewCreated(createInterviewCreatedEvent())
+
+    expect(deliveryCalls).toHaveLength(1)
+    expect(deliveryCalls[0]).toEqual({
+      kind: 'confirmation',
+      interviewId: 'interview-id',
+      scheduledAt: '2026-05-22T14:00:00.000Z',
+      recipientUserIds: ['scheduler-id'],
+      idempotencyKey: 'interview.created:interview-id/confirmation',
+    })
+  })
+
+  it('sends confirmation for interview.match.created with scheduler and interviewer recipients', async function run() {
+    const { consumer, dataSource, deliveryCalls } = createConsumerService()
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: 'interviewer-id',
+      type: 'system_design',
+      mode: 'peer_to_peer',
+      tier: 'standard',
+      status: 'scheduled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
+
+    await consumer.processInterviewMatchCreated(createInterviewMatchCreatedEvent())
+
+    expect(deliveryCalls).toHaveLength(1)
+    expect(deliveryCalls[0]).toEqual({
+      kind: 'confirmation',
+      interviewId: 'interview-id',
+      scheduledAt: '2026-05-22T14:00:00.000Z',
+      recipientUserIds: ['scheduler-id', 'interviewer-id'],
+      idempotencyKey: 'interview.match.created:interview-id/confirmation',
+    })
+  })
+
+  it('sends reminder for reminder.due with correct recipients based on interview mode', async function run() {
+    const { consumer, dataSource, deliveryCalls } = createConsumerService()
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: 'interviewer-id',
+      type: 'system_design',
+      mode: 'peer_to_peer',
+      tier: 'standard',
+      status: 'scheduled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
+
+    await consumer.processReminderDue({
+      message_type: 'reminder.due',
+      idempotency_key: 'reminder:interview-id',
+      interview_id: 'interview-id',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      reminder_due_at: '2026-05-22T13:30:00.000Z',
+    })
+
+    expect(deliveryCalls).toHaveLength(1)
+    expect(deliveryCalls[0]).toEqual({
+      kind: 'reminder',
+      interviewId: 'interview-id',
+      scheduledAt: '2026-05-22T14:00:00.000Z',
+      recipientUserIds: ['scheduler-id', 'interviewer-id'],
+      idempotencyKey: 'reminder:interview-id/delivery',
+    })
+  })
+
+  it('sends reminder for reminder.due with scheduler-only recipients for ai_led mode', async function run() {
+    const { consumer, dataSource, deliveryCalls } = createConsumerService()
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: null,
+      type: 'system_design',
+      mode: 'ai_led',
+      tier: 'standard',
+      status: 'scheduled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
+
+    await consumer.processReminderDue({
+      message_type: 'reminder.due',
+      idempotency_key: 'reminder:interview-id',
+      interview_id: 'interview-id',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      reminder_due_at: '2026-05-22T13:30:00.000Z',
+    })
+
+    expect(deliveryCalls).toHaveLength(1)
+    expect(deliveryCalls[0]).toEqual({
+      kind: 'reminder',
+      interviewId: 'interview-id',
+      scheduledAt: '2026-05-22T14:00:00.000Z',
+      recipientUserIds: ['scheduler-id'],
+      idempotencyKey: 'reminder:interview-id/delivery',
+    })
+  })
+
+  it('does not record checkpoint when delivery throws for interview.created', async function run() {
+    const errorDeliveryPort: NotificationDeliveryPort = {
+      async send(): Promise<void> {
+        throw new Error('delivery failed')
+      },
+    }
+    const { consumer, dataSource } = createConsumerService({
+      deliveryPort: errorDeliveryPort,
+    })
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: null,
+      type: 'system_design',
+      mode: 'ai_led',
+      tier: 'standard',
+      status: 'scheduled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
+
+    await expect(consumer.processInterviewCreated(createInterviewCreatedEvent())).rejects.toThrow(
+      'delivery failed',
+    )
+
+    expect(dataSource.checkpoints).toHaveLength(0)
+  })
+
+  it('does not record checkpoint when delivery throws for reminder.due', async function run() {
+    const errorDeliveryPort: NotificationDeliveryPort = {
+      async send(): Promise<void> {
+        throw new Error('delivery failed')
+      },
+    }
+    const { consumer, dataSource } = createConsumerService({
+      deliveryPort: errorDeliveryPort,
+    })
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: 'interviewer-id',
+      type: 'system_design',
+      mode: 'peer_to_peer',
+      tier: 'standard',
+      status: 'scheduled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
+
+    await expect(
+      consumer.processReminderDue({
+        message_type: 'reminder.due',
+        idempotency_key: 'reminder:interview-id',
+        interview_id: 'interview-id',
+        scheduled_at: '2026-05-22T14:00:00.000Z',
+        reminder_due_at: '2026-05-22T13:30:00.000Z',
+      }),
+    ).rejects.toThrow('delivery failed')
+
+    expect(dataSource.checkpoints).toHaveLength(0)
+  })
+
+  it('does not send on suppression paths for interview.created reminder', async function run() {
+    const { consumer, dataSource, deliveryCalls } = createConsumerService()
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: null,
+      type: 'system_design',
+      mode: 'ai_led',
+      tier: 'standard',
+      status: 'cancelled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
+
+    await consumer.processInterviewCreated(createInterviewCreatedEvent())
+
+    // Confirmation send still happens, but reminder suppression does not send
+    expect(deliveryCalls).toHaveLength(1)
+    expect(deliveryCalls[0]?.kind).toBe('confirmation')
+  })
+
+  it('does not send on suppression paths for reminder.due', async function run() {
+    const { consumer, dataSource, deliveryCalls } = createConsumerService()
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: 'interviewer-id',
+      type: 'system_design',
+      mode: 'peer_to_peer',
+      tier: 'standard',
+      status: 'cancelled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
+
+    await consumer.processReminderDue({
+      message_type: 'reminder.due',
+      idempotency_key: 'reminder:interview-id',
+      interview_id: 'interview-id',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      reminder_due_at: '2026-05-22T13:30:00.000Z',
+    })
+
+    expect(deliveryCalls).toHaveLength(0)
+    expect(dataSource.checkpoints).toHaveLength(1)
+  })
+
+  it('suppresses reminder.due when scheduled_at no longer matches message reminder_due_at', async function run() {
+    const { consumer, dataSource, deliveryCalls } = createConsumerService()
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: 'interviewer-id',
+      type: 'system_design',
+      mode: 'peer_to_peer',
+      tier: 'standard',
+      status: 'scheduled',
+      scheduled_at: '2026-05-22T15:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
+
+    await consumer.processReminderDue({
+      message_type: 'reminder.due',
+      idempotency_key: 'reminder:interview-id',
+      interview_id: 'interview-id',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      reminder_due_at: '2026-05-22T13:30:00.000Z',
+    })
+
+    expect(deliveryCalls).toHaveLength(0)
+    expect(dataSource.checkpoints).toHaveLength(1)
+    expect(dataSource.checkpoints[0]).toEqual({
+      idempotency_key: 'reminder:interview-id',
+      checkpoint_key: 'reminder.due:reminder:interview-id',
+    })
+  })
+
+  it('suppresses reminder.due when interview start time is already in the past even if status is still scheduled', async function run() {
+    const { consumer, dataSource, deliveryCalls } = createConsumerService({
+      now: () => '2026-05-22T15:00:00.000Z',
+    })
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: 'interviewer-id',
+      type: 'system_design',
+      mode: 'peer_to_peer',
+      tier: 'standard',
+      status: 'scheduled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
+
+    await consumer.processReminderDue({
+      message_type: 'reminder.due',
+      idempotency_key: 'reminder:interview-id',
+      interview_id: 'interview-id',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      reminder_due_at: '2026-05-22T13:30:00.000Z',
+    })
+
+    expect(deliveryCalls).toHaveLength(0)
+    expect(dataSource.checkpoints).toHaveLength(1)
+    expect(dataSource.checkpoints[0]).toEqual({
+      idempotency_key: 'reminder:interview-id',
+      checkpoint_key: 'reminder.due:reminder:interview-id',
+    })
+  })
 })
 
 type InMemoryNotificationDataSource = {
@@ -516,10 +1102,20 @@ type InMemoryNotificationDataSource = {
   interviews: Map<string, InterviewState>
 }
 
-function createConsumerService(options: { now?: () => string } = {}): {
+function createConsumerService(options: {
+  now?: () => string
+  deliveryPort?: NotificationDeliveryPort
+} = {}): {
   consumer: NotificationConsumerService
   dataSource: InMemoryNotificationDataSource
   notificationService: NotificationService
+  deliveryCalls: Array<{
+    kind: 'confirmation' | 'reminder'
+    interviewId: string
+    scheduledAt: string
+    recipientUserIds: string[]
+    idempotencyKey: string
+  }>
 } {
   const dataSource: InMemoryNotificationDataSource = {
     outboxEvents: [],
@@ -559,7 +1155,12 @@ function createConsumerService(options: { now?: () => string } = {}): {
     },
 
     async createReminderSchedule(schedule: NotificationReminderScheduleRow): Promise<void> {
-      dataSource.reminderSchedules.push({ ...schedule })
+      const exists = dataSource.reminderSchedules.some(
+        (s) => s.idempotency_key === schedule.idempotency_key,
+      )
+      if (!exists) {
+        dataSource.reminderSchedules.push({ ...schedule })
+      }
     },
 
     async listDueReminderSchedules(): Promise<NotificationReminderScheduleRow[]> {
@@ -590,12 +1191,28 @@ function createConsumerService(options: { now?: () => string } = {}): {
     options.now ?? (() => '2026-05-22T10:00:00.000Z'),
   )
 
+  const deliveryCalls: Array<{
+    kind: 'confirmation' | 'reminder'
+    interviewId: string
+    scheduledAt: string
+    recipientUserIds: string[]
+    idempotencyKey: string
+  }> = []
+
+  const defaultDeliveryPort: NotificationDeliveryPort = {
+    async send(input): Promise<void> {
+      deliveryCalls.push(input)
+    },
+  }
+
   const consumer = new NotificationConsumerService(
     service,
     options.now ?? (() => '2026-05-22T10:00:00.000Z'),
+    undefined,
+    options.deliveryPort ?? defaultDeliveryPort,
   )
 
-  return { consumer, dataSource, notificationService: service }
+  return { consumer, dataSource, notificationService: service, deliveryCalls }
 }
 
 function createInterviewCreatedEvent(
