@@ -178,7 +178,9 @@ describe('NotificationRepository', function notificationRepositorySuite() {
     expect(normalizeSql(executedQueries[0]?.text ?? '')).toContain(
       'INSERT INTO notification_reminder_schedules',
     )
-    expect(normalizeSql(executedQueries[0]?.text ?? '')).toContain('ON CONFLICT DO NOTHING')
+    expect(normalizeSql(executedQueries[0]?.text ?? '')).toContain(
+      'ON CONFLICT (idempotency_key) DO NOTHING',
+    )
   })
 
   it('lists due reminder schedules filtered by pending status', async function run() {
