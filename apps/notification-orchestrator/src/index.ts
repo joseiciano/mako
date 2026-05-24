@@ -3,6 +3,7 @@ import {
   NotificationService,
   NotificationConsumerService,
   type NotificationConsumerServiceLogger,
+  type NotificationDeliveryPort,
   NotificationDispatchService,
   type NotificationDispatchServiceLogger,
   type NotificationTransportMessage,
@@ -68,7 +69,24 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
             consoleLike.error(`[notification-consumer.warn] ${event}`, context)
           },
         }
-        const consumerService = new NotificationConsumerService(notificationService, undefined, consumerLogger)
+        const deliveryPort: NotificationDeliveryPort = {
+          async send(input) {
+            consoleLike.log('[notification-delivery]', {
+              kind: input.kind,
+              interview_id: input.interviewId,
+              scheduled_at: input.scheduledAt,
+              recipient_count: input.recipientUserIds.length,
+              recipients: input.recipientUserIds,
+              idempotency_key: input.idempotencyKey,
+            })
+          },
+        }
+        const consumerService = new NotificationConsumerService(
+          notificationService,
+          undefined,
+          consumerLogger,
+          deliveryPort,
+        )
 
         for (const message of batch.messages) {
           try {

@@ -6,6 +6,16 @@ import type {
 import type { ReminderDueTransportMessage } from './notification-transport-message'
 import type { NotificationService } from './notification-service'
 
+export type NotificationDeliveryPort = {
+  send(input: {
+    kind: 'confirmation' | 'reminder'
+    interviewId: string
+    scheduledAt: string
+    recipientUserIds: string[]
+    idempotencyKey: string
+  }): Promise<void>
+}
+
 export type NotificationConsumerServiceLogger = {
   error(event: string, context: Record<string, unknown>): void | Promise<void>
   warn(event: string, context: Record<string, unknown>): void | Promise<void>
@@ -16,6 +26,10 @@ const noOpLogger: NotificationConsumerServiceLogger = {
   warn: () => undefined,
 }
 
+const noOpDeliveryPort: NotificationDeliveryPort = {
+  async send(): Promise<void> {},
+}
+
 const THIRTY_MINUTES_MS = 30 * 60 * 1000
 
 export class NotificationConsumerService {
@@ -23,6 +37,7 @@ export class NotificationConsumerService {
     private readonly notificationService: NotificationService,
     private readonly now: () => string = defaultNow,
     private readonly logger: NotificationConsumerServiceLogger = noOpLogger,
+    private readonly deliveryPort: NotificationDeliveryPort = noOpDeliveryPort,
   ) {}
 
   async processInterviewCreated(event: InterviewCreatedEvent): Promise<void> {
@@ -34,6 +49,13 @@ export class NotificationConsumerService {
       confirmationKey,
     )
     if (!confirmationAlreadyExisted) {
+      await this.deliveryPort.send({
+        kind: 'confirmation',
+        interviewId: event.interview.id,
+        scheduledAt: event.interview.scheduled_at,
+        recipientUserIds: [event.interview.scheduler_id],
+        idempotencyKey: `${event.idempotency_key}/confirmation`,
+      })
       await this.notificationService.recordCheckpoint(event.idempotency_key, confirmationKey)
     }
 
@@ -50,7 +72,7 @@ export class NotificationConsumerService {
     const now = new Date(this.now()).getTime()
     const reminderDueAt = scheduledAt - THIRTY_MINUTES_MS
 
-    if (reminderDueAt <= now) {
+    if (reminderDueAt < now) {
       await this.notificationService.recordCheckpoint(event.idempotency_key, reminderKey)
       return
     }
@@ -100,6 +122,17 @@ export class NotificationConsumerService {
       confirmationKey,
     )
     if (!confirmationAlreadyExisted) {
+      const recipientUserIds = [event.interview.scheduler_id]
+      if (event.interview.interviewer_id) {
+        recipientUserIds.push(event.interview.interviewer_id)
+      }
+      await this.deliveryPort.send({
+        kind: 'confirmation',
+        interviewId: event.interview.id,
+        scheduledAt: event.interview.scheduled_at,
+        recipientUserIds,
+        idempotencyKey: `${event.idempotency_key}/confirmation`,
+      })
       await this.notificationService.recordCheckpoint(event.idempotency_key, confirmationKey)
     }
 
@@ -116,7 +149,7 @@ export class NotificationConsumerService {
     const now = new Date(this.now()).getTime()
     const reminderDueAt = scheduledAt - THIRTY_MINUTES_MS
 
-    if (reminderDueAt <= now) {
+    if (reminderDueAt < now) {
       await this.notificationService.recordCheckpoint(event.idempotency_key, reminderKey)
       return
     }
@@ -166,6 +199,45 @@ export class NotificationConsumerService {
       return
     }
 
+    const scheduledAtMs = new Date(interviewState.scheduled_at).getTime()
+    const nowMs = new Date(this.now()).getTime()
+    const expectedReminderDueAtMs = scheduledAtMs - THIRTY_MINUTES_MS
+    const messageReminderDueAtMs = new Date(message.reminder_due_at).getTime()
+
+    if (scheduledAtMs <= nowMs) {
+      await this.logger.warn('notification.consumer.reminder_suppressed', {
+        message_type: 'reminder.due',
+        interview_id: message.interview_id,
+        interview_status: interviewState.status,
+        reason: 'interview_start_time_in_past',
+      })
+      await this.notificationService.recordCheckpoint(message.idempotency_key, checkpointKey)
+      return
+    }
+
+    if (expectedReminderDueAtMs !== messageReminderDueAtMs) {
+      await this.logger.warn('notification.consumer.reminder_suppressed', {
+        message_type: 'reminder.due',
+        interview_id: message.interview_id,
+        interview_status: interviewState.status,
+        reason: 'reminder_due_time_mismatch',
+      })
+      await this.notificationService.recordCheckpoint(message.idempotency_key, checkpointKey)
+      return
+    }
+
+    const recipientUserIds = [interviewState.scheduler_id]
+    if (interviewState.mode === 'peer_to_peer' && interviewState.interviewer_id) {
+      recipientUserIds.push(interviewState.interviewer_id)
+    }
+
+    await this.deliveryPort.send({
+      kind: 'reminder',
+      interviewId: message.interview_id,
+      scheduledAt: interviewState.scheduled_at,
+      recipientUserIds,
+      idempotencyKey: `${message.idempotency_key}/delivery`,
+    })
     await this.notificationService.recordCheckpoint(message.idempotency_key, checkpointKey)
   }
 }

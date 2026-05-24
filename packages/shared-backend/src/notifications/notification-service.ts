@@ -105,22 +105,18 @@ export class NotificationService {
     await this.repository.markReminderDispatchedBatch(ids)
   }
 
-  async getInterviewState(id: string): Promise<{ status: string; scheduled_at: string } | null> {
+  async getInterviewState(id: string): Promise<import('./notification-types').InterviewState | null> {
     const interview = await this.repository.getInterviewState(id)
     if (!interview) return null
-    return { status: interview.status, scheduled_at: interview.scheduled_at }
+    return interview
   }
 
-  async getInterviewStates(ids: string[]): Promise<Map<string, { status: string; scheduled_at: string }>> {
+  async getInterviewStates(
+    ids: string[],
+  ): Promise<Map<string, import('./notification-types').InterviewState>> {
     const interviews = await this.repository.getInterviewStates(ids)
     return new Map(
-      Array.from(interviews.entries()).map(([id, interview]) => [
-        id,
-        {
-          status: interview.status,
-          scheduled_at: interview.scheduled_at,
-        },
-      ]),
+      Array.from(interviews.entries()).map(([id, interview]) => [id, interview]),
     )
   }
 

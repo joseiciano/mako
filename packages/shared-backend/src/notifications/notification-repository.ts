@@ -270,7 +270,7 @@ export class NotificationRepository {
             updated_at
           )
           VALUES ($1, $2, $3, $4, $5, $6, $7)
-          ON CONFLICT DO NOTHING;
+          ON CONFLICT (idempotency_key) DO NOTHING;
         `,
         [
           schedule.id,
