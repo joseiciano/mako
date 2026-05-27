@@ -18,9 +18,9 @@ describe('story 4.3 notification transport reliability and idempotency lock', fu
     expect(deployWorkflow).toContain('Deploy notification-orchestrator worker')
     expect(deployWorkflow).toContain('workingDirectory: apps/notification-orchestrator')
     expect(deployWorkflow).toContain('Inject Hyperdrive binding ID into notification-orchestrator Wrangler config')
-    expect(deployWorkflow).toContain('Ensure notification-orchestration DLQ exists')
-    expect(deployWorkflow).toContain('pnpm exec wrangler queues create notification-orchestration-dlq')
-    expect(deployWorkflow).toContain('Queue already exists')
+    expect(deployWorkflow).not.toContain('Ensure notification-orchestration DLQ exists')
+    expect(deployWorkflow).not.toContain('pnpm exec wrangler queues create notification-orchestration-dlq')
+    expect(deployWorkflow).not.toContain('Queue already exists')
     expect(deployWorkflow).toContain('Missing HYPERDRIVE_ID')
   })
 
