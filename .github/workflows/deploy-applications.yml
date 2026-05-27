@@ -170,25 +170,6 @@ jobs:
         run: |
           node -e "const fs=require('node:fs'); const filePath='wrangler.jsonc'; const placeholder='__HYPERDRIVE_ID__'; const hyperdriveId=process.env.HYPERDRIVE_ID; if (!hyperdriveId) throw new Error('Missing HYPERDRIVE_ID'); const current=fs.readFileSync(filePath, 'utf8'); if (!current.includes(placeholder)) throw new Error('Hyperdrive placeholder not found in wrangler.jsonc'); fs.writeFileSync(filePath, current.replaceAll(placeholder, hyperdriveId));"
 
-      - name: Ensure notification-orchestration DLQ exists
-        working-directory: apps/notification-orchestrator
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: |
-          output=$(pnpm exec wrangler queues create notification-orchestration-dlq 2>&1) && {
-            echo "$output"
-            exit 0
-          }
-
-          echo "$output"
-          if echo "$output" | grep -qi "already exists"; then
-            echo "Queue already exists, continuing"
-            exit 0
-          fi
-
-          exit 1
-
       - name: Deploy notification-orchestrator via Wrangler
         uses: cloudflare/wrangler-action@v3
         with:

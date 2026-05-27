@@ -40,3 +40,5 @@ While Terraform manages the "plumbing," **Wrangler** remains our primary tool fo
 
 1. **Infrastructure Changes**: Modified via Terraform in the `/infrastructure` directory. These changes must be merged and applied before code that depends on them is deployed.
 2. **Application Code**: Deployed via GitHub Actions using the official Cloudflare Wrangler action. This ensures that our Hono-based routes and business logic are updated safely.
+
+> **Operational Note**: Cloudflare Queues and other persistent resources must be created and owned by Terraform only. Do not use ad-hoc `wrangler` create commands in application deploy workflows. If a resource already exists outside Terraform state, operators must import it into Terraform state or delete and recreate it under Terraform control before the next apply.
