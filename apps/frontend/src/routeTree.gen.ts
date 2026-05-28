@@ -18,6 +18,7 @@ import { Route as AuthenticatedInterviewsRouteImport } from './routes/_authentic
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated.dashboard'
 import { Route as AuthenticatedBillingRouteImport } from './routes/_authenticated.billing'
 import { Route as AuthenticatedSettingsProfileRouteImport } from './routes/_authenticated.settings.profile'
+import { Route as AuthenticatedInterviewsNewRouteImport } from './routes/_authenticated.interviews.new'
 
 const RegisterRoute = RegisterRouteImport.update({
   id: '/register',
@@ -48,6 +49,11 @@ const AuthenticatedInterviewsRoute = AuthenticatedInterviewsRouteImport.update({
   path: '/interviews',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedInterviewsNewRoute = AuthenticatedInterviewsNewRouteImport.update({
+  id: '/new',
+  path: '/new',
+  getParentRoute: () => AuthenticatedInterviewsRoute,
+} as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   id: '/dashboard',
   path: '/dashboard',
@@ -71,7 +77,8 @@ export interface FileRoutesByFullPath {
   '/register': typeof RegisterRoute
   '/billing': typeof AuthenticatedBillingRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
-  '/interviews': typeof AuthenticatedInterviewsRoute
+  '/interviews': typeof AuthenticatedInterviewsRouteWithChildren
+  '/interviews/new': typeof AuthenticatedInterviewsNewRoute
   '/settings': typeof AuthenticatedSettingsRouteWithChildren
   '/settings/profile': typeof AuthenticatedSettingsProfileRoute
 }
@@ -82,6 +89,7 @@ export interface FileRoutesByTo {
   '/billing': typeof AuthenticatedBillingRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/interviews': typeof AuthenticatedInterviewsRoute
+  '/interviews/new': typeof AuthenticatedInterviewsNewRoute
   '/settings': typeof AuthenticatedSettingsRouteWithChildren
   '/settings/profile': typeof AuthenticatedSettingsProfileRoute
 }
@@ -93,7 +101,8 @@ export interface FileRoutesById {
   '/register': typeof RegisterRoute
   '/_authenticated/billing': typeof AuthenticatedBillingRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
-  '/_authenticated/interviews': typeof AuthenticatedInterviewsRoute
+  '/_authenticated/interviews': typeof AuthenticatedInterviewsRouteWithChildren
+  '/_authenticated/interviews/new': typeof AuthenticatedInterviewsNewRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRouteWithChildren
   '/_authenticated/settings/profile': typeof AuthenticatedSettingsProfileRoute
 }
@@ -106,6 +115,7 @@ export interface FileRouteTypes {
     | '/billing'
     | '/dashboard'
     | '/interviews'
+    | '/interviews/new'
     | '/settings'
     | '/settings/profile'
   fileRoutesByTo: FileRoutesByTo
@@ -116,6 +126,7 @@ export interface FileRouteTypes {
     | '/billing'
     | '/dashboard'
     | '/interviews'
+    | '/interviews/new'
     | '/settings'
     | '/settings/profile'
   id:
@@ -127,6 +138,7 @@ export interface FileRouteTypes {
     | '/_authenticated/billing'
     | '/_authenticated/dashboard'
     | '/_authenticated/interviews'
+    | '/_authenticated/interviews/new'
     | '/_authenticated/settings'
     | '/_authenticated/settings/profile'
   fileRoutesById: FileRoutesById
@@ -182,6 +194,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedInterviewsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
+    '/_authenticated/interviews/new': {
+      id: '/_authenticated/interviews/new'
+      path: '/new'
+      fullPath: '/interviews/new'
+      preLoaderRoute: typeof AuthenticatedInterviewsNewRouteImport
+      parentRoute: typeof AuthenticatedInterviewsRoute
+    }
     '/_authenticated/dashboard': {
       id: '/_authenticated/dashboard'
       path: '/dashboard'
@@ -206,6 +225,18 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AuthenticatedInterviewsRouteChildren {
+  AuthenticatedInterviewsNewRoute: typeof AuthenticatedInterviewsNewRoute
+}
+
+const AuthenticatedInterviewsRouteChildren: AuthenticatedInterviewsRouteChildren = {
+  AuthenticatedInterviewsNewRoute: AuthenticatedInterviewsNewRoute,
+}
+
+const AuthenticatedInterviewsRouteWithChildren = AuthenticatedInterviewsRoute._addFileChildren(
+  AuthenticatedInterviewsRouteChildren,
+)
+
 interface AuthenticatedSettingsRouteChildren {
   AuthenticatedSettingsProfileRoute: typeof AuthenticatedSettingsProfileRoute
 }
@@ -222,14 +253,14 @@ const AuthenticatedSettingsRouteWithChildren =
 interface AuthenticatedRouteChildren {
   AuthenticatedBillingRoute: typeof AuthenticatedBillingRoute
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
-  AuthenticatedInterviewsRoute: typeof AuthenticatedInterviewsRoute
+  AuthenticatedInterviewsRoute: typeof AuthenticatedInterviewsRouteWithChildren
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRouteWithChildren
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedBillingRoute: AuthenticatedBillingRoute,
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
-  AuthenticatedInterviewsRoute: AuthenticatedInterviewsRoute,
+  AuthenticatedInterviewsRoute: AuthenticatedInterviewsRouteWithChildren,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRouteWithChildren,
 }
 

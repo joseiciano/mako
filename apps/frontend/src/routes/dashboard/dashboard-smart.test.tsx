@@ -102,7 +102,14 @@ describe('dashboard-smart query state orchestration', function dashboardSmartSui
     expect(html).toContain('System Design')
     expect(html).toContain('Peer to Peer')
     expect(html).toContain('Scheduled')
-    expect(html).toContain('Apr 10, 2026, 10:30 AM UTC')
+    const expectedLocalTime = new Date('2026-04-10T10:30:00.000Z').toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    })
+    expect(html).toContain(expectedLocalTime)
     expect(html).toContain('Interviewer-Green')
     expect(html).toContain('Scheduler-Orange')
   })

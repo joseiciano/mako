@@ -1,7 +1,7 @@
 import { QueryClient } from '@tanstack/react-query'
 import { describe, expect, it, vi } from 'vitest'
 import { accountCompaniesQueryKey } from '#/hooks/use-account'
-import { scheduledInterviewsQueryKey } from '#/hooks/use-scheduled-interviews'
+import { interviewsQueryRootKey } from '#/hooks/use-interviews'
 import { accountQueryKey } from '#/hooks/use-account'
 import {
   AUTHENTICATED_REDIRECT_PATH,
@@ -41,14 +41,14 @@ describe('auth flow helpers', function () {
       queryKey: accountCompaniesQueryKey,
     })
     expect(cancelQueries).toHaveBeenCalledWith({
-      queryKey: scheduledInterviewsQueryKey,
+      queryKey: interviewsQueryRootKey,
     })
     expect(removeQueries).toHaveBeenCalledWith({ queryKey: accountQueryKey })
     expect(removeQueries).toHaveBeenCalledWith({
       queryKey: accountCompaniesQueryKey,
     })
     expect(removeQueries).toHaveBeenCalledWith({
-      queryKey: scheduledInterviewsQueryKey,
+      queryKey: interviewsQueryRootKey,
     })
     expect(navigate).toHaveBeenCalledWith(LOGGED_OUT_REDIRECT_PATH)
   })

@@ -19,6 +19,7 @@ const routeTitleMap: Record<string, string> = {
   '/': 'Dashboard',
   '/dashboard': 'Dashboard',
   '/interviews': 'Interviews',
+  '/interviews/new': 'Schedule Interview',
   '/billing': 'Billing',
   '/settings': 'Settings',
 }
