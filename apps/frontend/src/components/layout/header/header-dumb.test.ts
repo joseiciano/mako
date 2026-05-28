@@ -28,4 +28,20 @@ describe('header dumb helpers', function () {
       ],
     })
   })
+
+  it('returns correct breadcrumb for /interviews/new', function () {
+    expect(getRouteHeaderContent('/interviews/new')).toEqual({
+      title: 'Schedule Interview',
+      breadcrumbs: [
+        {
+          href: '/interviews',
+          label: 'Interviews',
+        },
+        {
+          href: '/interviews/new',
+          label: 'Schedule Interview',
+        },
+      ],
+    })
+  })
 })
