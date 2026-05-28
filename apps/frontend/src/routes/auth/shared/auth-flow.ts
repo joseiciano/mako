@@ -3,7 +3,7 @@ import {
   accountCompaniesQueryKey,
   accountQueryKey,
 } from '#/hooks/use-account'
-import { scheduledInterviewsQueryKey } from '#/hooks/use-scheduled-interviews'
+import { interviewsQueryRootKey } from '#/hooks/use-interviews'
 import { authSessionQueryKey } from '#/hooks/use-auth'
 
 export const AUTHENTICATED_REDIRECT_PATH = '/dashboard'
@@ -30,10 +30,10 @@ export async function handleSignOutSuccess(
   queryClient.setQueryData(authSessionQueryKey, null)
   await queryClient.cancelQueries({ queryKey: accountQueryKey })
   await queryClient.cancelQueries({ queryKey: accountCompaniesQueryKey })
-  await queryClient.cancelQueries({ queryKey: scheduledInterviewsQueryKey })
+  await queryClient.cancelQueries({ queryKey: interviewsQueryRootKey })
   queryClient.removeQueries({ queryKey: accountQueryKey })
   queryClient.removeQueries({ queryKey: accountCompaniesQueryKey })
-  queryClient.removeQueries({ queryKey: scheduledInterviewsQueryKey })
+  queryClient.removeQueries({ queryKey: interviewsQueryRootKey })
   await navigate(LOGGED_OUT_REDIRECT_PATH)
 }
 

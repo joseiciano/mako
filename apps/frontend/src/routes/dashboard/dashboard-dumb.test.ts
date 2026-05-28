@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest'
+import { formatScheduledTime } from '#/lib/format-scheduled-time'
 import {
   formatInterviewMode,
   formatInterviewStatus,
   formatInterviewType,
-  formatScheduledTime,
   selectCounterpartAlias,
 } from './dashboard-dumb'
 
@@ -32,6 +32,18 @@ describe('dashboard-dumb formatting helpers', function dashboardDumbHelpersSuite
     expect(formatInterviewType('system_design')).toBe('System Design')
     expect(formatInterviewMode('peer_to_peer')).toBe('Peer to Peer')
     expect(formatInterviewStatus('scheduled')).toBe('Scheduled')
+  })
+
+  it('formats scheduled time in local time', function run() {
+    const iso = '2026-04-10T10:30:00.000Z'
+    const expected = new Date(iso).toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+    })
+    expect(formatScheduledTime(iso)).toBe(expected)
   })
 
   it('handles invalid schedule strings safely', function run() {

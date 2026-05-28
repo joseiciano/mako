@@ -1,4 +1,5 @@
 import type { AccountProfile, InterviewListItem } from '@mako/shared'
+import { formatScheduledTime } from '#/lib/format-scheduled-time'
 
 export type DashboardState = 'loading' | 'error' | 'empty' | 'populated'
 
@@ -193,6 +194,8 @@ export function selectCounterpartAlias(
   return interview.scheduler_alias
 }
 
+export { formatScheduledTime } from '#/lib/format-scheduled-time'
+
 export function formatInterviewType(value: InterviewListItem['type']): string {
   if (value === 'system_design') {
     return 'System Design'
@@ -229,20 +232,3 @@ export function formatInterviewStatus(value: InterviewListItem['status']): strin
   return 'Cancelled'
 }
 
-export function formatScheduledTime(isoTime: string): string {
-  const scheduledTime = new Date(isoTime)
-
-  if (Number.isNaN(scheduledTime.valueOf())) {
-    return 'Unknown scheduled time'
-  }
-
-  return scheduledTime.toLocaleString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-    timeZone: 'UTC',
-    timeZoneName: 'short',
-  })
-}

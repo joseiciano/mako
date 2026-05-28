@@ -75,7 +75,7 @@ describe('use-scheduled-interviews hook', function useScheduledInterviewsSuite()
     ).rejects.toThrow('Unauthorized')
   })
 
-  it('falls back to a stable error message when payload omits error field', async function run() {
+  it('falls back to the generic error message when payload omits error field', async function run() {
     await expect(
       fetchScheduledInterviews(async function mockFetch() {
         return new Response(JSON.stringify({ message: 'Unauthorized' }), {
@@ -85,7 +85,7 @@ describe('use-scheduled-interviews hook', function useScheduledInterviewsSuite()
           },
         })
       }),
-    ).rejects.toThrow('Unable to fetch scheduled interviews.')
+    ).rejects.toThrow('Unable to fetch interviews.')
   })
 
   it('rejects response payloads that diverge from shared schema contracts', async function run() {
