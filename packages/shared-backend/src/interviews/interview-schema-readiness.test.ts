@@ -99,6 +99,112 @@ describe('interview schema readiness', function interviewSchemaReadinessSuite() 
       'CREATE UNIQUE INDEX IF NOT EXISTS idx_notification_reminder_schedules_active_interview ON notification_reminder_schedules (interview_id) WHERE status = \'pending\';',
     )
   })
+
+  it('documents interview optional columns in db-schemas.md and migration SQL', async function run() {
+    const [schemaDoc, migrationSql] = await Promise.all([
+      readFile(
+        new URL(
+          '../../../../docs/system/system-design/db-schemas.md',
+          import.meta.url,
+        ),
+        'utf8',
+      ),
+      readFile(
+        new URL(
+          '../../migrations/20260402123000_add_interviews_table.sql',
+          import.meta.url,
+        ),
+        'utf8',
+      ),
+    ])
+
+    const normalizedSchemaDoc = normalizeWhitespace(schemaDoc)
+    const normalizedMigrationSql = normalizeWhitespace(migrationSql)
+
+    const optionalColumns = [
+      'realtime_session_id',
+      'excalidraw_room_id',
+      'excalidraw_key',
+      'recording_url',
+      'screenshot_urls',
+      'feedback',
+    ]
+
+    for (const column of optionalColumns) {
+      expect(normalizedSchemaDoc).toContain(column)
+      expect(normalizedMigrationSql).toContain(column)
+    }
+  })
+
+  it('locks the full interviews column set and enum/check constraints in migration SQL', async function run() {
+    const migrationSql = await readFile(
+      new URL(
+        '../../migrations/20260402123000_add_interviews_table.sql',
+        import.meta.url,
+      ),
+      'utf8',
+    )
+
+    const normalized = normalizeWhitespace(migrationSql)
+
+    const requiredColumns = [
+      'id UUID PRIMARY KEY',
+      'scheduler_id UUID NOT NULL',
+      'scheduler_alias TEXT NOT NULL',
+      'interviewer_id UUID',
+      'interviewer_alias TEXT NOT NULL',
+      'type TEXT NOT NULL',
+      'mode TEXT NOT NULL',
+      'tier TEXT NOT NULL',
+      'status TEXT NOT NULL',
+      'scheduled_at TIMESTAMPTZ NOT NULL',
+      'created_at TIMESTAMPTZ NOT NULL',
+      'updated_at TIMESTAMPTZ NOT NULL',
+    ]
+
+    for (const column of requiredColumns) {
+      expect(normalized).toContain(column)
+    }
+
+    expect(normalized).toContain("type IN ('system_design', 'coding', 'behavioral')")
+    expect(normalized).toContain("mode IN ('peer_to_peer', 'ai_led')")
+    expect(normalized).toContain("tier IN ('standard', 'premium')")
+    expect(normalized).toContain("status IN ('scheduled', 'ongoing', 'completed', 'cancelled')")
+  })
+
+  it('locks nullable vs required expectations for interviewer_id and optional session fields', async function run() {
+    const migrationSql = await readFile(
+      new URL(
+        '../../migrations/20260402123000_add_interviews_table.sql',
+        import.meta.url,
+      ),
+      'utf8',
+    )
+
+    const normalized = normalizeWhitespace(migrationSql)
+
+    expect(normalized).toContain('interviewer_id UUID REFERENCES users(id)')
+    expect(normalized).not.toContain('interviewer_id UUID NOT NULL')
+
+    const nullableSessionFields = [
+      'realtime_session_id TEXT',
+      'excalidraw_room_id TEXT',
+      'excalidraw_key TEXT',
+      'recording_url TEXT',
+      'screenshot_urls JSONB',
+      'feedback JSONB',
+    ]
+
+    for (const field of nullableSessionFields) {
+      expect(normalized).toContain(field)
+      const fieldWithoutNullable = field.replace(/\s*$/, '')
+      expect(normalized).not.toContain(`${fieldWithoutNullable} NOT NULL`)
+    }
+
+    expect(normalized).toContain('scheduler_id UUID NOT NULL')
+    expect(normalized).toContain('scheduler_alias TEXT NOT NULL')
+    expect(normalized).toContain('interviewer_alias TEXT NOT NULL')
+  })
 })
 
 function normalizeWhitespace(value: string): string {

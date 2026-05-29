@@ -294,7 +294,15 @@ function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
           account.credits -= 1
         }
 
-        const interview = parseInterview(input)
+        const interview = parseInterview({
+          ...input,
+          realtime_session_id: null,
+          excalidraw_room_id: null,
+          excalidraw_key: null,
+          recording_url: null,
+          screenshot_urls: null,
+          feedback: null,
+        })
         interviewsById.set(interview.id, structuredClone(interview))
         return structuredClone(interview)
       },
