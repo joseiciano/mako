@@ -543,11 +543,14 @@ function hasRows<Row>(queryResult: QueryResult<Row>): boolean {
 }
 
 function compareInterviewListOrder(left: Interview, right: Interview): number {
-  if (left.scheduled_at < right.scheduled_at) {
+  const leftTime = new Date(left.scheduled_at).getTime()
+  const rightTime = new Date(right.scheduled_at).getTime()
+
+  if (leftTime < rightTime) {
     return -1
   }
 
-  if (left.scheduled_at > right.scheduled_at) {
+  if (leftTime > rightTime) {
     return 1
   }
 

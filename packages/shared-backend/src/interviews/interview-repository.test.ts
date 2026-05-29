@@ -1,8 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
-import { InterviewRepository } from './interview-repository'
+import {
+  InterviewRepository,
+  createInMemoryInterviewDataSource,
+} from './interview-repository'
 import { InterviewPolicyConflictError } from './types'
 import type { SqlQuery } from '../index'
 import type { NotificationQueueEvent } from '../notification-queue-event-contract'
+import type { Interview } from '@mako/shared'
 
 describe('InterviewRepository', function interviewRepositorySuite() {
   it('createDirectInterview persists outbox event before commit in SQL path', async function run() {
@@ -207,5 +211,61 @@ describe('InterviewRepository', function interviewRepositorySuite() {
 
     const rollbackIndex = queries.findIndex((q) => q.text.trim().toUpperCase() === 'ROLLBACK;')
     expect(rollbackIndex).toBeGreaterThan(-1)
+  })
+
+  it('in-memory listParticipantInterviews sorts chronologically by instant, not lexicographically, with id tiebreak (Story 3.2 regression)', async function run() {
+    const participantId = '11111111-1111-4111-8111-111111111111'
+
+    const earlierUtc: Interview = {
+      id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      scheduler_id: participantId,
+      scheduler_alias: 'Scheduler',
+      interviewer_id: null,
+      interviewer_alias: 'Interviewer',
+      type: 'system_design',
+      mode: 'ai_led',
+      tier: 'standard',
+      status: 'scheduled',
+      scheduled_at: '2026-05-01T14:00:00.000Z',
+      created_at: '2026-04-13T09:55:00.000Z',
+      updated_at: '2026-04-13T09:55:00.000Z',
+    }
+
+    const laterWithOffset: Interview = {
+      id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      scheduler_id: participantId,
+      scheduler_alias: 'Scheduler',
+      interviewer_id: null,
+      interviewer_alias: 'Interviewer',
+      type: 'system_design',
+      mode: 'ai_led',
+      tier: 'standard',
+      status: 'scheduled',
+      scheduled_at: '2026-05-01T10:00:00-05:00',
+      created_at: '2026-04-13T09:55:00.000Z',
+      updated_at: '2026-04-13T09:55:00.000Z',
+    }
+
+    const repository = new InterviewRepository(
+      createInMemoryInterviewDataSource(
+        [
+          {
+            userId: participantId,
+            credits: 0,
+            freeAiInterviews: 0,
+          },
+        ],
+        [laterWithOffset, earlierUtc],
+      ),
+    )
+
+    const result = await repository.listParticipantInterviews({
+      participant_user_id: participantId,
+      limit: 10,
+      offset: 0,
+    })
+
+    const ids = result.map((i) => i.id)
+    expect(ids).toEqual([earlierUtc.id, laterWithOffset.id])
   })
 })
