@@ -31,7 +31,7 @@ export const queueEventInterviewSchema = z.object({
   mode: interviewModeSchema,
   tier: interviewTierSchema,
   status: interviewStatusSchema,
-  scheduled_at: z.string().datetime(),
+  scheduled_at: z.string().datetime({ offset: true }),
 })
 
 const aiLedCreatedQueueEventInterviewSchema = queueEventInterviewSchema.extend({
@@ -58,7 +58,7 @@ export const matchedQueueEventInterviewSchema = z.object({
   mode: z.literal('peer_to_peer'),
   tier: z.literal('standard'),
   status: z.literal('scheduled'),
-  scheduled_at: z.string().datetime(),
+  scheduled_at: z.string().datetime({ offset: true }),
 })
 
 export const queueEventParticipantsSchema = z.object({

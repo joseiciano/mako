@@ -69,6 +69,29 @@ describe('notification queue event contract', function notificationQueueEventCon
       )
     })
 
+    it('accepts offset-aware scheduled_at', function shouldAcceptOffsetAwareScheduledAt() {
+      const event = buildInterviewCreatedEvent(
+        {
+          interview: {
+            id: '99999999-9999-4999-8999-999999999999',
+            scheduler_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            interviewer_id: null,
+            type: 'system_design',
+            mode: 'ai_led',
+            tier: 'standard',
+            status: 'scheduled',
+            scheduled_at: '2026-04-10T10:30:00-04:00',
+          },
+        },
+        {
+          createEventId: () => 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+          now: () => '2026-04-01T12:00:00.000Z',
+        },
+      )
+
+      expect(event.interview.scheduled_at).toBe('2026-04-10T10:30:00-04:00')
+    })
+
     it('allows nullable interviewer_id for ai_led mode', function shouldAllowNullableInterviewer() {
       const event = buildInterviewCreatedEvent(
         {
@@ -296,6 +319,29 @@ describe('notification queue event contract', function notificationQueueEventCon
       expect(result.success).toBe(false)
     })
 
+    it('accepts offset-aware scheduled_at', function shouldAcceptOffsetAwareScheduledAt() {
+      const event = buildInterviewCancelledEvent(
+        {
+          interview: {
+            id: '99999999-9999-4999-8999-999999999999',
+            scheduler_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            interviewer_id: null,
+            type: 'system_design',
+            mode: 'ai_led',
+            tier: 'standard',
+            status: 'cancelled',
+            scheduled_at: '2026-04-10T10:30:00+05:30',
+          },
+        },
+        {
+          createEventId: () => 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+          now: () => '2026-04-01T12:00:00.000Z',
+        },
+      )
+
+      expect(event.interview.scheduled_at).toBe('2026-04-10T10:30:00+05:30')
+    })
+
     it('allows peer_to_peer mode with non-null interviewer_id', function shouldAllowPeerToPeerWithInterviewer() {
       const event = buildInterviewCancelledEvent(
         {
@@ -473,6 +519,29 @@ describe('notification queue event contract', function notificationQueueEventCon
       })
 
       expect(result.success).toBe(false)
+    })
+
+    it('accepts offset-aware scheduled_at', function shouldAcceptOffsetAwareScheduledAt() {
+      const event = buildInterviewMatchCreatedEvent(
+        {
+          interview: {
+            id: '99999999-9999-4999-8999-999999999999',
+            scheduler_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            interviewer_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+            type: 'system_design',
+            mode: 'peer_to_peer',
+            tier: 'standard',
+            status: 'scheduled',
+            scheduled_at: '2026-04-10T10:30:00+01:00',
+          },
+        },
+        {
+          createEventId: () => 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+          now: () => '2026-04-01T12:00:00.000Z',
+        },
+      )
+
+      expect(event.interview.scheduled_at).toBe('2026-04-10T10:30:00+01:00')
     })
 
     it('rejects participant mirror mismatch', function shouldRejectMirrorMismatch() {

@@ -158,7 +158,7 @@ export const createInterviewRecordInputSchema = z.object({
   mode: z.literal('ai_led'),
   tier: interviewTierValueSchema,
   status: interviewStatusValueSchema,
-  scheduled_at: z.string().datetime(),
+  scheduled_at: z.string().datetime({ offset: true }),
   created_at: z.string().datetime(),
   updated_at: z.string().datetime(),
   policy_consumption: interviewCreateConsumptionSchema,

@@ -9,8 +9,8 @@ export const reminderDueTransportMessageSchema = z.object({
   message_type: z.literal('reminder.due'),
   idempotency_key: z.string().min(1),
   interview_id: z.string().uuid(),
-  scheduled_at: z.string().datetime(),
-  reminder_due_at: z.string().datetime(),
+  scheduled_at: z.string().datetime({ offset: true }),
+  reminder_due_at: z.string().datetime({ offset: true }),
 })
 
 export type ReminderDueTransportMessage = z.infer<typeof reminderDueTransportMessageSchema>

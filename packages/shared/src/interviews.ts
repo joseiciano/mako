@@ -17,7 +17,7 @@ export const interviewStatusSchema = z.enum([
   'cancelled',
 ])
 
-export const interviewScheduledAtSchema = z.string().datetime()
+export const interviewScheduledAtSchema = z.string().datetime({ offset: true })
 
 export const defaultInterviewListLimit = 50
 
