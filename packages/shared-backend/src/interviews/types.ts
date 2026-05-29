@@ -124,7 +124,7 @@ export type ParsedListParticipantInterviewsInput = z.output<
 export const cancelInterviewRecordInputSchema = z.object({
   interview_id: z.string().uuid(),
   participant_user_id: authenticatedInterviewUserIdSchema,
-  updated_at: z.string().datetime(),
+  updated_at: z.string().datetime({ offset: true }),
 })
 
 export type CancelInterviewRecordInput = z.infer<
@@ -159,8 +159,8 @@ export const createInterviewRecordInputSchema = z.object({
   tier: interviewTierValueSchema,
   status: interviewStatusValueSchema,
   scheduled_at: z.string().datetime({ offset: true }),
-  created_at: z.string().datetime(),
-  updated_at: z.string().datetime(),
+  created_at: z.string().datetime({ offset: true }),
+  updated_at: z.string().datetime({ offset: true }),
   policy_consumption: interviewCreateConsumptionSchema,
 })
 

@@ -39,8 +39,14 @@ export const interviewSchema = z.object({
   tier: interviewTierSchema,
   status: interviewStatusSchema,
   scheduled_at: interviewScheduledAtSchema,
-  created_at: z.string().datetime(),
-  updated_at: z.string().datetime(),
+  realtime_session_id: z.string().nullable(),
+  excalidraw_room_id: z.string().nullable(),
+  excalidraw_key: z.string().nullable(),
+  recording_url: z.string().nullable(),
+  screenshot_urls: z.array(z.string()).nullable(),
+  feedback: z.any().nullable(),
+  created_at: z.string().datetime({ offset: true }),
+  updated_at: z.string().datetime({ offset: true }),
 })
 
 export const interviewListItemSchema = interviewSchema

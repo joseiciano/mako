@@ -24,6 +24,12 @@ describe('interview shared contracts', function interviewSharedContractsSuite() 
           tier: 'standard',
           status: 'scheduled',
           scheduled_at: '2026-04-10T10:30:00.000Z',
+          realtime_session_id: null,
+          excalidraw_room_id: null,
+          excalidraw_key: null,
+          recording_url: null,
+          screenshot_urls: null,
+          feedback: null,
           created_at: '2026-04-01T10:00:00.000Z',
           updated_at: '2026-04-01T10:00:00.000Z',
         },
@@ -49,6 +55,12 @@ describe('interview shared contracts', function interviewSharedContractsSuite() 
             tier: 'standard',
             status: 'scheduled',
             scheduled_at: '2026-04-10T10:30:00.000Z',
+            realtime_session_id: null,
+            excalidraw_room_id: null,
+            excalidraw_key: null,
+            recording_url: null,
+            screenshot_urls: null,
+            feedback: null,
             created_at: '2026-04-01T10:00:00.000Z',
             updated_at: '2026-04-01T10:00:00.000Z',
           },
@@ -147,6 +159,12 @@ describe('interview shared contracts', function interviewSharedContractsSuite() 
           tier: 'standard',
           status: 'scheduled',
           scheduled_at: '2026-04-10T10:30:00.000+00:00',
+          realtime_session_id: null,
+          excalidraw_room_id: null,
+          excalidraw_key: null,
+          recording_url: null,
+          screenshot_urls: null,
+          feedback: null,
           created_at: '2026-04-01T10:00:00.000Z',
           updated_at: '2026-04-01T10:00:00.000Z',
         },
@@ -201,12 +219,46 @@ describe('interview shared contracts', function interviewSharedContractsSuite() 
         tier: 'standard',
         status: 'scheduled',
         scheduled_at: '2026-04-10T10:30:00.000Z',
+        realtime_session_id: null,
+        excalidraw_room_id: null,
+        excalidraw_key: null,
+        recording_url: null,
+        screenshot_urls: null,
+        feedback: null,
         created_at: '2026-04-01T10:00:00.000Z',
         updated_at: '2026-04-01T10:00:00.000Z',
       },
     })
 
     expect(payload.interview.mode).toBe('ai_led')
+  })
+
+  it('parses create response with timestamptz offset in created_at and updated_at', function run() {
+    const payload = createInterviewResponseSchema.parse({
+      interview: {
+        id: '11111111-1111-4111-8111-111111111111',
+        scheduler_id: '22222222-2222-4222-8222-222222222222',
+        scheduler_alias: 'Candidate-Blue',
+        interviewer_id: null,
+        interviewer_alias: 'Interviewer-Red',
+        type: 'system_design',
+        mode: 'ai_led',
+        tier: 'standard',
+        status: 'scheduled',
+        scheduled_at: '2026-04-10T10:30:00.000Z',
+        realtime_session_id: null,
+        excalidraw_room_id: null,
+        excalidraw_key: null,
+        recording_url: null,
+        screenshot_urls: null,
+        feedback: null,
+        created_at: '2026-04-01T10:00:00.000+00:00',
+        updated_at: '2026-04-01T10:00:00.000-05:00',
+      },
+    })
+
+    expect(payload.interview.created_at).toBe('2026-04-01T10:00:00.000+00:00')
+    expect(payload.interview.updated_at).toBe('2026-04-01T10:00:00.000-05:00')
   })
 
   it('parses cancel route params using the shared contract', function run() {
@@ -223,5 +275,120 @@ describe('interview shared contracts', function interviewSharedContractsSuite() 
     })
 
     expect(payload.success).toBe(true)
+  })
+
+  it('parses interview with all optional session fields populated', function run() {
+    const payload = {
+      interviews: [
+        {
+          id: '11111111-1111-4111-8111-111111111111',
+          scheduler_id: '22222222-2222-4222-8222-222222222222',
+          scheduler_alias: 'Candidate-Blue',
+          interviewer_id: null,
+          interviewer_alias: 'Interviewer-Red',
+          type: 'system_design',
+          mode: 'peer_to_peer',
+          tier: 'standard',
+          status: 'scheduled',
+          scheduled_at: '2026-04-10T10:30:00.000Z',
+          realtime_session_id: 'sess_abc123',
+          excalidraw_room_id: 'room_def456',
+          excalidraw_key: 'key_ghi789',
+          recording_url: 'https://r2.example.com/recording.mp4',
+          screenshot_urls: ['https://r2.example.com/ss1.png', 'https://r2.example.com/ss2.png'],
+          feedback: {
+            overall_score: 85,
+            strengths: ['Good communication'],
+            improvements: ['System design depth'],
+          },
+          created_at: '2026-04-01T10:00:00.000Z',
+          updated_at: '2026-04-01T10:00:00.000Z',
+        },
+      ],
+    }
+
+    const parsed = interviewListResponseSchema.parse(payload)
+
+    expect(parsed.interviews[0]?.realtime_session_id).toBe('sess_abc123')
+    expect(parsed.interviews[0]?.excalidraw_room_id).toBe('room_def456')
+    expect(parsed.interviews[0]?.excalidraw_key).toBe('key_ghi789')
+    expect(parsed.interviews[0]?.recording_url).toBe('https://r2.example.com/recording.mp4')
+    expect(parsed.interviews[0]?.screenshot_urls).toEqual([
+      'https://r2.example.com/ss1.png',
+      'https://r2.example.com/ss2.png',
+    ])
+    expect(parsed.interviews[0]?.feedback).toEqual({
+      overall_score: 85,
+      strengths: ['Good communication'],
+      improvements: ['System design depth'],
+    })
+  })
+
+  it('parses created_at and updated_at with explicit UTC offset matching Postgres timestamptz', function run() {
+    const payload = {
+      interviews: [
+        {
+          id: '11111111-1111-4111-8111-111111111111',
+          scheduler_id: '22222222-2222-4222-8222-222222222222',
+          scheduler_alias: 'Candidate-Blue',
+          interviewer_id: null,
+          interviewer_alias: 'Interviewer-Red',
+          type: 'system_design',
+          mode: 'peer_to_peer',
+          tier: 'standard',
+          status: 'scheduled',
+          scheduled_at: '2026-04-10T10:30:00.000Z',
+          realtime_session_id: null,
+          excalidraw_room_id: null,
+          excalidraw_key: null,
+          recording_url: null,
+          screenshot_urls: null,
+          feedback: null,
+          created_at: '2026-04-01T10:00:00.000+00:00',
+          updated_at: '2026-04-01T10:00:00.000-05:00',
+        },
+      ],
+    }
+
+    const parsed = interviewListResponseSchema.parse(payload)
+
+    expect(parsed.interviews[0]?.created_at).toBe('2026-04-01T10:00:00.000+00:00')
+    expect(parsed.interviews[0]?.updated_at).toBe('2026-04-01T10:00:00.000-05:00')
+  })
+
+  it('parses interview with all optional session fields as null', function run() {
+    const payload = {
+      interviews: [
+        {
+          id: '11111111-1111-4111-8111-111111111111',
+          scheduler_id: '22222222-2222-4222-8222-222222222222',
+          scheduler_alias: 'Candidate-Blue',
+          interviewer_id: null,
+          interviewer_alias: 'Interviewer-Red',
+          type: 'system_design',
+          mode: 'peer_to_peer',
+          tier: 'standard',
+          status: 'scheduled',
+          scheduled_at: '2026-04-10T10:30:00.000Z',
+          realtime_session_id: null,
+          excalidraw_room_id: null,
+          excalidraw_key: null,
+          recording_url: null,
+          screenshot_urls: null,
+          feedback: null,
+          created_at: '2026-04-01T10:00:00.000Z',
+          updated_at: '2026-04-01T10:00:00.000Z',
+        },
+      ],
+    }
+
+    const parsed = interviewListResponseSchema.parse(payload)
+
+    expect(parsed.interviews[0]?.realtime_session_id).toBeNull()
+    expect(parsed.interviews[0]?.excalidraw_room_id).toBeNull()
+    expect(parsed.interviews[0]?.excalidraw_key).toBeNull()
+    expect(parsed.interviews[0]?.recording_url).toBeNull()
+    expect(parsed.interviews[0]?.screenshot_urls).toBeNull()
+    expect(parsed.interviews[0]?.feedback).toBeNull()
   })
 })
