@@ -154,6 +154,12 @@ export class InterviewRepository {
               tier,
               status,
               scheduled_at,
+              realtime_session_id,
+              excalidraw_room_id,
+              excalidraw_key,
+              recording_url,
+              screenshot_urls,
+              feedback,
               created_at,
               updated_at;
           `,
@@ -232,6 +238,12 @@ export class InterviewRepository {
             tier,
             status,
             scheduled_at,
+            realtime_session_id,
+            excalidraw_room_id,
+            excalidraw_key,
+            recording_url,
+            screenshot_urls,
+            feedback,
             created_at,
             updated_at
           FROM interviews
@@ -279,6 +291,12 @@ export class InterviewRepository {
               tier,
               status,
               scheduled_at,
+              realtime_session_id,
+              excalidraw_room_id,
+              excalidraw_key,
+              recording_url,
+              screenshot_urls,
+              feedback,
               created_at,
               updated_at
             FROM interviews
@@ -334,6 +352,12 @@ export class InterviewRepository {
               tier,
               status,
               scheduled_at,
+              realtime_session_id,
+              excalidraw_room_id,
+              excalidraw_key,
+              recording_url,
+              screenshot_urls,
+              feedback,
               created_at,
               updated_at;
           `,
@@ -435,7 +459,15 @@ export function createInMemoryInterviewDataSource(
         accountState.credits -= 1
       }
 
-      const interview = parseInterview(parsedInput)
+      const interview = parseInterview({
+        ...parsedInput,
+        realtime_session_id: null,
+        excalidraw_room_id: null,
+        excalidraw_key: null,
+        recording_url: null,
+        screenshot_urls: null,
+        feedback: null,
+      })
       interviewsById.set(interview.id, structuredClone(interview))
       return structuredClone(interview)
     },
@@ -589,6 +621,12 @@ function buildListParticipantInterviewsQuery(
         tier,
         status,
         scheduled_at,
+        realtime_session_id,
+        excalidraw_room_id,
+        excalidraw_key,
+        recording_url,
+        screenshot_urls,
+        feedback,
         created_at,
         updated_at
       FROM (
@@ -603,6 +641,12 @@ function buildListParticipantInterviewsQuery(
           tier,
           status,
           scheduled_at,
+          realtime_session_id,
+          excalidraw_room_id,
+          excalidraw_key,
+          recording_url,
+          screenshot_urls,
+          feedback,
           created_at,
           updated_at
         FROM interviews
@@ -620,6 +664,12 @@ function buildListParticipantInterviewsQuery(
           tier,
           status,
           scheduled_at,
+          realtime_session_id,
+          excalidraw_room_id,
+          excalidraw_key,
+          recording_url,
+          screenshot_urls,
+          feedback,
           created_at,
           updated_at
         FROM interviews
