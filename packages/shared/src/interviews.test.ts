@@ -113,6 +113,49 @@ describe('interview shared contracts', function interviewSharedContractsSuite() 
     expect(payload.scheduled_at).toBe('2026-04-10T10:30:00.000Z')
   })
 
+  it('parses scheduled_at with explicit UTC offset (+00:00)', function run() {
+    const payload = createInterviewRequestSchema.parse({
+      type: 'coding',
+      mode: 'ai_led',
+      scheduled_at: '2026-04-10T10:30:00.000+00:00',
+    })
+
+    expect(payload.scheduled_at).toBe('2026-04-10T10:30:00.000+00:00')
+  })
+
+  it('parses scheduled_at with explicit negative UTC offset', function run() {
+    const payload = createInterviewRequestSchema.parse({
+      type: 'coding',
+      mode: 'ai_led',
+      scheduled_at: '2026-04-10T10:30:00.000-05:00',
+    })
+
+    expect(payload.scheduled_at).toBe('2026-04-10T10:30:00.000-05:00')
+  })
+
+  it('parses interview response with explicit UTC offset in scheduled_at', function run() {
+    const payload = interviewListResponseSchema.parse({
+      interviews: [
+        {
+          id: '11111111-1111-4111-8111-111111111111',
+          scheduler_id: '22222222-2222-4222-8222-222222222222',
+          scheduler_alias: 'Candidate-Blue',
+          interviewer_id: null,
+          interviewer_alias: 'Interviewer-Red',
+          type: 'system_design',
+          mode: 'peer_to_peer',
+          tier: 'standard',
+          status: 'scheduled',
+          scheduled_at: '2026-04-10T10:30:00.000+00:00',
+          created_at: '2026-04-01T10:00:00.000Z',
+          updated_at: '2026-04-01T10:00:00.000Z',
+        },
+      ],
+    })
+
+    expect(payload.interviews[0]?.scheduled_at).toBe('2026-04-10T10:30:00.000+00:00')
+  })
+
   it('rejects unsupported direct peer-to-peer create payloads', function run() {
     expect(function parseInvalidPayload() {
       createInterviewRequestSchema.parse({
