@@ -167,6 +167,75 @@ describe('InterviewService', function interviewServiceSuite() {
     })
   })
 
+  it('returns full interview detail for participants', async function run() {
+    const { service } = createInterviewService(
+      {
+        freeAiInterviews: 0,
+        credits: 0,
+      },
+      undefined,
+      [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          realtime_session_id: 'sess_abc123',
+          excalidraw_room_id: 'room_def456',
+          excalidraw_key: 'key_ghi789',
+          recording_url: 'https://r2.example.com/recording.mp4',
+        }),
+      ],
+    )
+
+    const response = await service.getInterview(activeSession, {
+      id: '33333333-3333-4333-8333-333333333333',
+    })
+
+    expect(response.interview.realtime_session_id).toBe('sess_abc123')
+    expect(response.interview.excalidraw_room_id).toBe('room_def456')
+    expect(response.interview.excalidraw_key).toBe('key_ghi789')
+    expect(response.interview.recording_url).toBe('https://r2.example.com/recording.mp4')
+  })
+
+  it('rejects get interview requests for non-participants', async function run() {
+    const { service } = createInterviewService(
+      {
+        freeAiInterviews: 0,
+        credits: 0,
+      },
+      undefined,
+      [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: '99999999-9999-4999-8999-999999999999',
+        }),
+      ],
+    )
+
+    await expect(
+      service.getInterview(activeSession, { id: '33333333-3333-4333-8333-333333333333' }),
+    ).rejects.toBeInstanceOf(InterviewNotFoundError)
+  })
+
+  it('rejects get interview requests without authentication', async function run() {
+    const { service } = createInterviewService(
+      {
+        freeAiInterviews: 0,
+        credits: 0,
+      },
+      undefined,
+      [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+    )
+
+    await expect(
+      service.getInterview(null, { id: '33333333-3333-4333-8333-333333333333' }),
+    ).rejects.toBeInstanceOf(InterviewUnauthorizedError)
+  })
+
   it('cancels scheduled interviews and treats repeated cancellation as idempotent success without emitting a second event', async function run() {
     const interviewId = '33333333-3333-4333-8333-333333333333'
     const publishedEvents: InterviewPostCommitEvent[] = []

@@ -341,7 +341,7 @@ describe('InterviewRepository', function interviewRepositorySuite() {
       return mockQueryExecutor
     }
 
-    it('listParticipantInterviews selects all optional columns', async function run() {
+    it('listParticipantInterviews selects only summary columns', async function run() {
       const mockQueryExecutor = createMockQueryExecutor({
         'FROM interviews': () => ({
           rows: [],
@@ -365,7 +365,7 @@ describe('InterviewRepository', function interviewRepositorySuite() {
       expect(listQuery).toBeDefined()
 
       for (const column of optionalColumns) {
-        expect(listQuery!.text).toContain(column)
+        expect(listQuery!.text).not.toContain(column)
       }
     })
 
@@ -465,6 +465,80 @@ describe('InterviewRepository', function interviewRepositorySuite() {
       for (const column of optionalColumns) {
         expect(getQuery!.text).toContain(column)
       }
+    })
+
+    it('getParticipantInterviewById selects all optional columns and scopes to participant', async function run() {
+      const mockQueryExecutor = createMockQueryExecutor({
+        'FROM interviews': () => ({
+          rows: [
+            {
+              id: '11111111-1111-4111-8111-111111111111',
+              scheduler_id: '22222222-2222-4222-8222-222222222222',
+              scheduler_alias: 'Scheduler',
+              interviewer_id: null,
+              interviewer_alias: 'Interviewer',
+              type: 'system_design',
+              mode: 'ai_led',
+              tier: 'standard',
+              status: 'scheduled',
+              scheduled_at: '2026-05-22T10:00:00.000Z',
+              realtime_session_id: 'sess_abc123',
+              excalidraw_room_id: 'room_def456',
+              excalidraw_key: 'key_ghi789',
+              recording_url: 'https://r2.example.com/recording.mp4',
+              screenshot_urls: null,
+              feedback: null,
+              created_at: '2026-05-22T09:00:00.000Z',
+              updated_at: '2026-05-22T09:00:00.000Z',
+            },
+          ],
+          rowCount: 1,
+        }),
+      })
+
+      const repository = new InterviewRepository({
+        queryExecutor: mockQueryExecutor,
+      })
+
+      const result = await repository.getParticipantInterviewById({
+        interview_id: '11111111-1111-4111-8111-111111111111',
+        participant_user_id: '22222222-2222-4222-8222-222222222222',
+      })
+
+      expect(result).not.toBeNull()
+      expect(result?.realtime_session_id).toBe('sess_abc123')
+      expect(result?.excalidraw_room_id).toBe('room_def456')
+
+      const getQuery = mockQueryExecutor.queries.find((q) =>
+        q.text.includes('FROM interviews'),
+      )
+      expect(getQuery).toBeDefined()
+      expect(getQuery!.text).toContain('scheduler_id = $2')
+      expect(getQuery!.text).toContain('interviewer_id = $2')
+
+      for (const column of optionalColumns) {
+        expect(getQuery!.text).toContain(column)
+      }
+    })
+
+    it('getParticipantInterviewById returns null for non-participants', async function run() {
+      const mockQueryExecutor = createMockQueryExecutor({
+        'FROM interviews': () => ({
+          rows: [],
+          rowCount: 0,
+        }),
+      })
+
+      const repository = new InterviewRepository({
+        queryExecutor: mockQueryExecutor,
+      })
+
+      const result = await repository.getParticipantInterviewById({
+        interview_id: '11111111-1111-4111-8111-111111111111',
+        participant_user_id: '99999999-9999-4999-8999-999999999999',
+      })
+
+      expect(result).toBeNull()
     })
 
     it('cancelInterview lookup selects all optional columns and scopes to participant', async function run() {

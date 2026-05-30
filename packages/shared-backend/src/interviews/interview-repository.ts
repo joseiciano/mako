@@ -1,17 +1,20 @@
-import type { Interview } from '@mako/shared'
+import type { Interview, InterviewListItem } from '@mako/shared'
 import { createSqlQuery, type SqlQuery } from '../index'
 import type { NotificationQueueEvent } from '../notification-queue-event-contract'
 import {
   cancelInterviewRecordInputSchema,
+  getParticipantInterviewByIdInputSchema,
   InterviewPolicyConflictError,
   listParticipantInterviewsInputSchema,
   authenticatedInterviewUserIdSchema,
   createInterviewRecordInputSchema,
   interviewAccountPolicySchema,
   parseInterview,
+  parseInterviewListItem,
   type CancelInterviewRecordInput,
   type CancelInterviewRecordResult,
   type CreateInterviewRecordInput,
+  type GetParticipantInterviewByIdInput,
   type InterviewAccountPolicy,
   type ListParticipantInterviewsInput,
   type ParsedListParticipantInterviewsInput,
@@ -30,9 +33,12 @@ export interface InterviewRepositoryDataSource {
   getAccountPolicy(userId: string): Promise<InterviewAccountPolicy | null>
   createDirectInterview(input: CreateInterviewRecordInput, outboxEvent?: NotificationQueueEvent): Promise<Interview>
   getInterviewById?(id: string): Promise<Interview | null>
+  getParticipantInterviewById?(
+    input: GetParticipantInterviewByIdInput,
+  ): Promise<Interview | null>
   listParticipantInterviews?(
     input: ListParticipantInterviewsInput,
-  ): Promise<Interview[]>
+  ): Promise<InterviewListItem[]>
   cancelInterview?(
     input: CancelInterviewRecordInput,
   ): Promise<CancelInterviewRecordResult>
@@ -200,7 +206,7 @@ export class InterviewRepository {
 
   async listParticipantInterviews(
     input: ListParticipantInterviewsInput,
-  ): Promise<Interview[]> {
+  ): Promise<InterviewListItem[]> {
     const parsedInput = listParticipantInterviewsInputSchema.parse(input)
     const dataSource = this.dependencies.dataSource
 
@@ -208,12 +214,12 @@ export class InterviewRepository {
       return dataSource.listParticipantInterviews(parsedInput)
     }
 
-    const result = await this.getQueryExecutor().query<Interview>(
+    const result = await this.getQueryExecutor().query<InterviewListItem>(
       buildListParticipantInterviewsQuery(parsedInput),
     )
 
     return result.rows.map(function parseInterviewRow(row) {
-      return parseInterview(row)
+      return parseInterviewListItem(row)
     })
   }
 
@@ -251,6 +257,51 @@ export class InterviewRepository {
           LIMIT 1;
         `,
         [id],
+      ),
+    )
+
+    const [row] = result.rows
+    return row ? parseInterview(row) : null
+  }
+
+  async getParticipantInterviewById(
+    input: GetParticipantInterviewByIdInput,
+  ): Promise<Interview | null> {
+    const parsedInput = getParticipantInterviewByIdInputSchema.parse(input)
+    const dataSource = this.dependencies.dataSource
+
+    if (typeof dataSource?.getParticipantInterviewById === 'function') {
+      return dataSource.getParticipantInterviewById(parsedInput)
+    }
+
+    const result = await this.getQueryExecutor().query<Interview>(
+      createSqlQuery(
+        `
+          SELECT
+            id,
+            scheduler_id,
+            scheduler_alias,
+            interviewer_id,
+            interviewer_alias,
+            type,
+            mode,
+            tier,
+            status,
+            scheduled_at,
+            realtime_session_id,
+            excalidraw_room_id,
+            excalidraw_key,
+            recording_url,
+            screenshot_urls,
+            feedback,
+            created_at,
+            updated_at
+          FROM interviews
+          WHERE id = $1
+            AND (scheduler_id = $2 OR interviewer_id = $2)
+          LIMIT 1;
+        `,
+        [parsedInput.interview_id, parsedInput.participant_user_id],
       ),
     )
 
@@ -473,7 +524,7 @@ export function createInMemoryInterviewDataSource(
     },
     async listParticipantInterviews(
       input: ListParticipantInterviewsInput,
-    ): Promise<Interview[]> {
+    ): Promise<InterviewListItem[]> {
       const parsedInput = listParticipantInterviewsInputSchema.parse(input)
 
       return Array.from(interviewsById.values())
@@ -491,12 +542,28 @@ export function createInMemoryInterviewDataSource(
         .sort(compareInterviewListOrder)
         .slice(parsedInput.offset, parsedInput.offset + parsedInput.limit)
         .map(function cloneInterview(interview) {
-          return structuredClone(interview)
+          return parseInterviewListItem(structuredClone(interview))
         })
     },
     async getInterviewById(id: string): Promise<Interview | null> {
       const interview = interviewsById.get(id)
       return interview ? structuredClone(interview) : null
+    },
+    async getParticipantInterviewById(
+      input: GetParticipantInterviewByIdInput,
+    ): Promise<Interview | null> {
+      const parsedInput = getParticipantInterviewByIdInputSchema.parse(input)
+      const interview = interviewsById.get(parsedInput.interview_id)
+
+      if (
+        !interview ||
+        (interview.scheduler_id !== parsedInput.participant_user_id &&
+          interview.interviewer_id !== parsedInput.participant_user_id)
+      ) {
+        return null
+      }
+
+      return structuredClone(interview)
     },
     async cancelInterview(
       input: CancelInterviewRecordInput,
@@ -621,12 +688,6 @@ function buildListParticipantInterviewsQuery(
         tier,
         status,
         scheduled_at,
-        realtime_session_id,
-        excalidraw_room_id,
-        excalidraw_key,
-        recording_url,
-        screenshot_urls,
-        feedback,
         created_at,
         updated_at
       FROM (
@@ -641,12 +702,6 @@ function buildListParticipantInterviewsQuery(
           tier,
           status,
           scheduled_at,
-          realtime_session_id,
-          excalidraw_room_id,
-          excalidraw_key,
-          recording_url,
-          screenshot_urls,
-          feedback,
           created_at,
           updated_at
         FROM interviews
@@ -664,12 +719,6 @@ function buildListParticipantInterviewsQuery(
           tier,
           status,
           scheduled_at,
-          realtime_session_id,
-          excalidraw_room_id,
-          excalidraw_key,
-          recording_url,
-          screenshot_urls,
-          feedback,
           created_at,
           updated_at
         FROM interviews

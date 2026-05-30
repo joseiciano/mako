@@ -268,6 +268,19 @@ function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
         const interview = interviewsById.get(interviewId)
         return interview ? structuredClone(interview) : null
       },
+      async getParticipantInterviewById(input) {
+        const interview = interviewsById.get(input.interview_id)
+
+        if (
+          !interview ||
+          (interview.scheduler_id !== input.participant_user_id &&
+            interview.interviewer_id !== input.participant_user_id)
+        ) {
+          return null
+        }
+
+        return structuredClone(interview)
+      },
       async createDirectInterview(
         input: CreateInterviewRecordInput,
         _outboxEvent?: unknown,

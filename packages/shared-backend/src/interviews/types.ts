@@ -2,6 +2,8 @@ import {
   cancelInterviewResponseSchema,
   createInterviewResponseSchema,
   defaultInterviewListLimit,
+  interviewDetailResponseSchema,
+  interviewListItemSchema,
   interviewSchema,
   interviewListResponseSchema,
   interviewStatusSchema,
@@ -11,6 +13,8 @@ import {
   type CancelInterviewResponse,
   type CreateInterviewResponse,
   type Interview,
+  type InterviewDetailResponse,
+  type InterviewListItem,
   type InterviewListResponse,
 } from '@mako/shared'
 import { z } from 'zod'
@@ -121,6 +125,15 @@ export type ParsedListParticipantInterviewsInput = z.output<
   typeof listParticipantInterviewsInputSchema
 >
 
+export const getParticipantInterviewByIdInputSchema = z.object({
+  interview_id: z.string().uuid(),
+  participant_user_id: authenticatedInterviewUserIdSchema,
+})
+
+export type GetParticipantInterviewByIdInput = z.infer<
+  typeof getParticipantInterviewByIdInputSchema
+>
+
 export const cancelInterviewRecordInputSchema = z.object({
   interview_id: z.string().uuid(),
   participant_user_id: authenticatedInterviewUserIdSchema,
@@ -172,6 +185,10 @@ export function parseInterview(input: unknown): Interview {
   return interviewSchema.parse(input)
 }
 
+export function parseInterviewListItem(input: unknown): InterviewListItem {
+  return interviewListItemSchema.parse(input)
+}
+
 export function toCreateInterviewResponse(
   interviewInput: unknown,
 ): CreateInterviewResponse {
@@ -185,12 +202,20 @@ export function toInterviewListResponse(
 ): InterviewListResponse {
   const parsedInterviews = Array.isArray(interviewsInput)
     ? interviewsInput.map(function parseInterviewInput(interviewInput) {
-        return parseInterview(interviewInput)
+        return parseInterviewListItem(interviewInput)
       })
     : interviewsInput
 
   return interviewListResponseSchema.parse({
     interviews: parsedInterviews,
+  })
+}
+
+export function toInterviewDetailResponse(
+  interviewInput: unknown,
+): InterviewDetailResponse {
+  return interviewDetailResponseSchema.parse({
+    interview: parseInterview(interviewInput),
   })
 }
 
