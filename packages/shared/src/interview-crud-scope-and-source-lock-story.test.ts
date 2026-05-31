@@ -85,7 +85,7 @@ describe('story 3.1 interview CRUD scope and source lock', function () {
     }
   })
 
-  it('requires GET /api/interviews example to be summary-only and GET /api/interviews/:id to include all nullable interview fields', function () {
+  it('requires GET /api/interviews example to be summary-only and GET /api/interviews/:id to include non-credential detail fields', function () {
     const apiRoutesDocument = readRepositoryFile(
       'docs',
       'system',
@@ -122,7 +122,17 @@ describe('story 3.1 interview CRUD scope and source lock', function () {
 
     const detailExamplePayload = getInterviewDetailExampleMatch?.[1] ?? ''
 
-    for (const field of detailOnlyFields) {
+    const credentialFields = [
+      'realtime_session_id',
+      'excalidraw_room_id',
+      'excalidraw_key',
+    ]
+    for (const field of credentialFields) {
+      expect(detailExamplePayload).not.toContain(field)
+    }
+
+    const nonCredentialDetailFields = ['recording_url', 'screenshot_urls', 'feedback']
+    for (const field of nonCredentialDetailFields) {
       expect(detailExamplePayload).toContain(field)
     }
   })

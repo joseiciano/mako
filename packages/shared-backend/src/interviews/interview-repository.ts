@@ -1,4 +1,4 @@
-import type { Interview, InterviewListItem } from '@mako/shared'
+import type { Interview, InterviewDetail, InterviewListItem } from '@mako/shared'
 import { createSqlQuery, type SqlQuery } from '../index'
 import type { NotificationQueueEvent } from '../notification-queue-event-contract'
 import {
@@ -10,6 +10,7 @@ import {
   createInterviewRecordInputSchema,
   interviewAccountPolicySchema,
   parseInterview,
+  parseInterviewDetail,
   parseInterviewListItem,
   type CancelInterviewRecordInput,
   type CancelInterviewRecordResult,
@@ -35,7 +36,7 @@ export interface InterviewRepositoryDataSource {
   getInterviewById?(id: string): Promise<Interview | null>
   getParticipantInterviewById?(
     input: GetParticipantInterviewByIdInput,
-  ): Promise<Interview | null>
+  ): Promise<InterviewDetail | null>
   listParticipantInterviews?(
     input: ListParticipantInterviewsInput,
   ): Promise<InterviewListItem[]>
@@ -266,7 +267,7 @@ export class InterviewRepository {
 
   async getParticipantInterviewById(
     input: GetParticipantInterviewByIdInput,
-  ): Promise<Interview | null> {
+  ): Promise<InterviewDetail | null> {
     const parsedInput = getParticipantInterviewByIdInputSchema.parse(input)
     const dataSource = this.dependencies.dataSource
 
@@ -274,7 +275,7 @@ export class InterviewRepository {
       return dataSource.getParticipantInterviewById(parsedInput)
     }
 
-    const result = await this.getQueryExecutor().query<Interview>(
+    const result = await this.getQueryExecutor().query<InterviewDetail>(
       createSqlQuery(
         `
           SELECT
@@ -288,9 +289,6 @@ export class InterviewRepository {
             tier,
             status,
             scheduled_at,
-            realtime_session_id,
-            excalidraw_room_id,
-            excalidraw_key,
             recording_url,
             screenshot_urls,
             feedback,
@@ -306,7 +304,7 @@ export class InterviewRepository {
     )
 
     const [row] = result.rows
-    return row ? parseInterview(row) : null
+    return row ? parseInterviewDetail(row) : null
   }
 
   async cancelInterview(
@@ -551,7 +549,7 @@ export function createInMemoryInterviewDataSource(
     },
     async getParticipantInterviewById(
       input: GetParticipantInterviewByIdInput,
-    ): Promise<Interview | null> {
+    ): Promise<InterviewDetail | null> {
       const parsedInput = getParticipantInterviewByIdInputSchema.parse(input)
       const interview = interviewsById.get(parsedInput.interview_id)
 
@@ -563,7 +561,14 @@ export function createInMemoryInterviewDataSource(
         return null
       }
 
-      return structuredClone(interview)
+      const detail = parseInterviewDetail({
+        ...interview,
+        realtime_session_id: undefined,
+        excalidraw_room_id: undefined,
+        excalidraw_key: undefined,
+      })
+
+      return structuredClone(detail)
     },
     async cancelInterview(
       input: CancelInterviewRecordInput,

@@ -3,6 +3,7 @@ import {
   createInterviewResponseSchema,
   defaultInterviewListLimit,
   interviewDetailResponseSchema,
+  interviewDetailSchema,
   interviewListItemSchema,
   interviewSchema,
   interviewListResponseSchema,
@@ -13,6 +14,7 @@ import {
   type CancelInterviewResponse,
   type CreateInterviewResponse,
   type Interview,
+  type InterviewDetail,
   type InterviewDetailResponse,
   type InterviewListItem,
   type InterviewListResponse,
@@ -189,6 +191,10 @@ export function parseInterviewListItem(input: unknown): InterviewListItem {
   return interviewListItemSchema.parse(input)
 }
 
+export function parseInterviewDetail(input: unknown): InterviewDetail {
+  return interviewDetailSchema.parse(input)
+}
+
 export function toCreateInterviewResponse(
   interviewInput: unknown,
 ): CreateInterviewResponse {
@@ -215,7 +221,7 @@ export function toInterviewDetailResponse(
   interviewInput: unknown,
 ): InterviewDetailResponse {
   return interviewDetailResponseSchema.parse({
-    interview: parseInterview(interviewInput),
+    interview: parseInterviewDetail(interviewInput),
   })
 }
 

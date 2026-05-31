@@ -195,7 +195,7 @@
   - **Query Params**: None
 
 - **`GET /api/interviews/:id`**
-  - **Description**: Retrieves the full interview detail payload for a participant, including all secret/detail-only fields.
+  - **Description**: Retrieves the interview detail payload for a participant. Includes detail-only fields such as `recording_url`, `screenshot_urls`, and `feedback`. Collaboration credentials (`realtime_session_id`, `excalidraw_room_id`, `excalidraw_key`) are provision-only and remain available via `POST /api/interviews/:id/provision`.
   - **Request Body**: None
   - **Response Body**:
     ```json
@@ -211,9 +211,6 @@
         "tier": "standard",
         "status": "scheduled",
         "scheduled_at": "2026-01-01T12:00:00.000Z",
-        "realtime_session_id": "rt_session_123",
-        "excalidraw_room_id": "wb_room_123",
-        "excalidraw_key": "wb_key_abc",
         "recording_url": "https://r2.example.com/recording.mp4",
         "screenshot_urls": ["https://r2.example.com/ss1.png"],
         "feedback": {

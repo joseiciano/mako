@@ -1,6 +1,7 @@
 import {
   createHealthResponse,
   type Interview,
+  type InterviewDetail,
 } from '@mako/shared'
 import {
   AccountRepository,
@@ -20,6 +21,7 @@ import {
   isAuthConfigured,
   listParticipantInterviewsInputSchema,
   parseInterview,
+  parseInterviewDetail,
   registerAccountController,
   registerAuthController,
   registerInterviewController,
@@ -268,7 +270,7 @@ function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
         const interview = interviewsById.get(interviewId)
         return interview ? structuredClone(interview) : null
       },
-      async getParticipantInterviewById(input) {
+      async getParticipantInterviewById(input): Promise<InterviewDetail | null> {
         const interview = interviewsById.get(input.interview_id)
 
         if (
@@ -279,7 +281,14 @@ function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
           return null
         }
 
-        return structuredClone(interview)
+        const detail = parseInterviewDetail({
+          ...interview,
+          realtime_session_id: undefined,
+          excalidraw_room_id: undefined,
+          excalidraw_key: undefined,
+        })
+
+        return structuredClone(detail)
       },
       async createDirectInterview(
         input: CreateInterviewRecordInput,

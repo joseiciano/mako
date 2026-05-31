@@ -467,7 +467,7 @@ describe('InterviewRepository', function interviewRepositorySuite() {
       }
     })
 
-    it('getParticipantInterviewById selects all optional columns and scopes to participant', async function run() {
+    it('getParticipantInterviewById omits credential columns and scopes to participant', async function run() {
       const mockQueryExecutor = createMockQueryExecutor({
         'FROM interviews': () => ({
           rows: [
@@ -482,9 +482,6 @@ describe('InterviewRepository', function interviewRepositorySuite() {
               tier: 'standard',
               status: 'scheduled',
               scheduled_at: '2026-05-22T10:00:00.000Z',
-              realtime_session_id: 'sess_abc123',
-              excalidraw_room_id: 'room_def456',
-              excalidraw_key: 'key_ghi789',
               recording_url: 'https://r2.example.com/recording.mp4',
               screenshot_urls: null,
               feedback: null,
@@ -506,8 +503,10 @@ describe('InterviewRepository', function interviewRepositorySuite() {
       })
 
       expect(result).not.toBeNull()
-      expect(result?.realtime_session_id).toBe('sess_abc123')
-      expect(result?.excalidraw_room_id).toBe('room_def456')
+      expect(result).not.toHaveProperty('realtime_session_id')
+      expect(result).not.toHaveProperty('excalidraw_room_id')
+      expect(result).not.toHaveProperty('excalidraw_key')
+      expect(result?.recording_url).toBe('https://r2.example.com/recording.mp4')
 
       const getQuery = mockQueryExecutor.queries.find((q) =>
         q.text.includes('FROM interviews'),
@@ -516,7 +515,17 @@ describe('InterviewRepository', function interviewRepositorySuite() {
       expect(getQuery!.text).toContain('scheduler_id = $2')
       expect(getQuery!.text).toContain('interviewer_id = $2')
 
-      for (const column of optionalColumns) {
+      const credentialColumns = [
+        'realtime_session_id',
+        'excalidraw_room_id',
+        'excalidraw_key',
+      ]
+      for (const column of credentialColumns) {
+        expect(getQuery!.text).not.toContain(column)
+      }
+
+      const detailColumns = ['recording_url', 'screenshot_urls', 'feedback']
+      for (const column of detailColumns) {
         expect(getQuery!.text).toContain(column)
       }
     })

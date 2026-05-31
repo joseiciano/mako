@@ -58,12 +58,18 @@ export const interviewListItemSchema = interviewSchema.omit({
   feedback: true,
 })
 
+export const interviewDetailSchema = interviewSchema.omit({
+  realtime_session_id: true,
+  excalidraw_room_id: true,
+  excalidraw_key: true,
+})
+
 export const interviewListResponseSchema = z.object({
   interviews: z.array(interviewListItemSchema),
 })
 
 export const interviewDetailResponseSchema = z.object({
-  interview: interviewSchema,
+  interview: interviewDetailSchema,
 })
 
 export const interviewListQuerySchema = z
@@ -101,6 +107,7 @@ export const cancelInterviewResponseSchema = z.object({
 export type Interview = z.infer<typeof interviewSchema>
 export type InterviewListItem = z.infer<typeof interviewListItemSchema>
 export type InterviewListResponse = z.infer<typeof interviewListResponseSchema>
+export type InterviewDetail = z.infer<typeof interviewDetailSchema>
 export type InterviewDetailResponse = z.infer<typeof interviewDetailResponseSchema>
 export type InterviewListQuery = z.infer<typeof interviewListQuerySchema>
 export type CreateInterviewRequest = z.infer<typeof createInterviewRequestSchema>

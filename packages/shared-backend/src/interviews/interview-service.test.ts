@@ -167,7 +167,7 @@ describe('InterviewService', function interviewServiceSuite() {
     })
   })
 
-  it('returns full interview detail for participants', async function run() {
+  it('returns interview detail without collaboration credentials for participants', async function run() {
     const { service } = createInterviewService(
       {
         freeAiInterviews: 0,
@@ -190,9 +190,9 @@ describe('InterviewService', function interviewServiceSuite() {
       id: '33333333-3333-4333-8333-333333333333',
     })
 
-    expect(response.interview.realtime_session_id).toBe('sess_abc123')
-    expect(response.interview.excalidraw_room_id).toBe('room_def456')
-    expect(response.interview.excalidraw_key).toBe('key_ghi789')
+    expect(response.interview).not.toHaveProperty('realtime_session_id')
+    expect(response.interview).not.toHaveProperty('excalidraw_room_id')
+    expect(response.interview).not.toHaveProperty('excalidraw_key')
     expect(response.interview.recording_url).toBe('https://r2.example.com/recording.mp4')
   })
 

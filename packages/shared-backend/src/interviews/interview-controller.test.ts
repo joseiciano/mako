@@ -304,7 +304,7 @@ describe('InterviewController', function interviewControllerSuite() {
     expect(body.interviews[0]).not.toHaveProperty('feedback')
   })
 
-  it('returns full interview detail for participants', async function run() {
+  it('returns interview detail without collaboration credentials for participants', async function run() {
     const app = createInterviewApp({
       session: activeSession,
       freeAiInterviews: 0,
@@ -327,9 +327,9 @@ describe('InterviewController', function interviewControllerSuite() {
 
     expect(response.status).toBe(200)
     const body = await response.json()
-    expect(body.interview.realtime_session_id).toBe('sess_abc123')
-    expect(body.interview.excalidraw_room_id).toBe('room_def456')
-    expect(body.interview.excalidraw_key).toBe('key_ghi789')
+    expect(body.interview).not.toHaveProperty('realtime_session_id')
+    expect(body.interview).not.toHaveProperty('excalidraw_room_id')
+    expect(body.interview).not.toHaveProperty('excalidraw_key')
     expect(body.interview.recording_url).toBe('https://r2.example.com/recording.mp4')
   })
 

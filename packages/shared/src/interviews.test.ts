@@ -266,7 +266,7 @@ describe('interview shared contracts', function interviewSharedContractsSuite() 
     expect(payload.success).toBe(true)
   })
 
-  it('parses interview detail response with all optional session fields populated', function run() {
+  it('parses interview detail response with non-credential detail fields populated', function run() {
     const payload = {
       interview: {
         id: '11111111-1111-4111-8111-111111111111',
@@ -279,9 +279,6 @@ describe('interview shared contracts', function interviewSharedContractsSuite() 
         tier: 'standard',
         status: 'scheduled',
         scheduled_at: '2026-04-10T10:30:00.000Z',
-        realtime_session_id: 'sess_abc123',
-        excalidraw_room_id: 'room_def456',
-        excalidraw_key: 'key_ghi789',
         recording_url: 'https://r2.example.com/recording.mp4',
         screenshot_urls: ['https://r2.example.com/ss1.png', 'https://r2.example.com/ss2.png'],
         feedback: {
@@ -296,9 +293,9 @@ describe('interview shared contracts', function interviewSharedContractsSuite() 
 
     const parsed = interviewDetailResponseSchema.parse(payload)
 
-    expect(parsed.interview.realtime_session_id).toBe('sess_abc123')
-    expect(parsed.interview.excalidraw_room_id).toBe('room_def456')
-    expect(parsed.interview.excalidraw_key).toBe('key_ghi789')
+    expect(parsed.interview).not.toHaveProperty('realtime_session_id')
+    expect(parsed.interview).not.toHaveProperty('excalidraw_room_id')
+    expect(parsed.interview).not.toHaveProperty('excalidraw_key')
     expect(parsed.interview.recording_url).toBe('https://r2.example.com/recording.mp4')
     expect(parsed.interview.screenshot_urls).toEqual([
       'https://r2.example.com/ss1.png',
@@ -381,9 +378,6 @@ describe('interview shared contracts', function interviewSharedContractsSuite() 
           tier: 'standard',
           status: 'scheduled',
           scheduled_at: '2026-04-10T10:30:00.000Z',
-          realtime_session_id: null,
-          excalidraw_room_id: null,
-          excalidraw_key: null,
           recording_url: null,
           screenshot_urls: null,
           feedback: 'not-an-object',
