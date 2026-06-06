@@ -22,6 +22,7 @@ import {
 import { z } from 'zod'
 
 export { defaultInterviewListLimit, maxInterviewListLimit }
+export type { InterviewDetail }
 
 export type InterviewSession = {
   userId: string
