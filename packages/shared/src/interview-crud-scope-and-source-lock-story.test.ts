@@ -84,4 +84,56 @@ describe('story 3.1 interview CRUD scope and source lock', function () {
       expect(storyDocument).not.toContain('`POST /api/interviews/:id/provision`')
     }
   })
+
+  it('requires GET /api/interviews example to be summary-only and GET /api/interviews/:id to include non-credential detail fields', function () {
+    const apiRoutesDocument = readRepositoryFile(
+      'docs',
+      'system',
+      'system-design',
+      'api-routes.md',
+    )
+
+    const getInterviewsExampleMatch = apiRoutesDocument.match(
+      /`GET \/api\/interviews`[\s\S]*?```json([\s\S]*?)```/,
+    )
+
+    expect(getInterviewsExampleMatch).toBeTruthy()
+
+    const listExamplePayload = getInterviewsExampleMatch?.[1] ?? ''
+
+    const detailOnlyFields = [
+      'realtime_session_id',
+      'excalidraw_room_id',
+      'excalidraw_key',
+      'recording_url',
+      'screenshot_urls',
+      'feedback',
+    ]
+
+    for (const field of detailOnlyFields) {
+      expect(listExamplePayload).not.toContain(field)
+    }
+
+    const getInterviewDetailExampleMatch = apiRoutesDocument.match(
+      /- \*\*`GET \/api\/interviews\/:id`\*\*[\s\S]*?```json([\s\S]*?)```/,
+    )
+
+    expect(getInterviewDetailExampleMatch).toBeTruthy()
+
+    const detailExamplePayload = getInterviewDetailExampleMatch?.[1] ?? ''
+
+    const credentialFields = [
+      'realtime_session_id',
+      'excalidraw_room_id',
+      'excalidraw_key',
+    ]
+    for (const field of credentialFields) {
+      expect(detailExamplePayload).not.toContain(field)
+    }
+
+    const nonCredentialDetailFields = ['recording_url', 'screenshot_urls', 'feedback']
+    for (const field of nonCredentialDetailFields) {
+      expect(detailExamplePayload).toContain(field)
+    }
+  })
 })

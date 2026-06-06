@@ -2,6 +2,9 @@ import {
   cancelInterviewResponseSchema,
   createInterviewResponseSchema,
   defaultInterviewListLimit,
+  interviewDetailResponseSchema,
+  interviewDetailSchema,
+  interviewListItemSchema,
   interviewSchema,
   interviewListResponseSchema,
   interviewStatusSchema,
@@ -11,11 +14,15 @@ import {
   type CancelInterviewResponse,
   type CreateInterviewResponse,
   type Interview,
+  type InterviewDetail,
+  type InterviewDetailResponse,
+  type InterviewListItem,
   type InterviewListResponse,
 } from '@mako/shared'
 import { z } from 'zod'
 
 export { defaultInterviewListLimit, maxInterviewListLimit }
+export type { InterviewDetail }
 
 export type InterviewSession = {
   userId: string
@@ -121,10 +128,19 @@ export type ParsedListParticipantInterviewsInput = z.output<
   typeof listParticipantInterviewsInputSchema
 >
 
+export const getParticipantInterviewByIdInputSchema = z.object({
+  interview_id: z.string().uuid(),
+  participant_user_id: authenticatedInterviewUserIdSchema,
+})
+
+export type GetParticipantInterviewByIdInput = z.infer<
+  typeof getParticipantInterviewByIdInputSchema
+>
+
 export const cancelInterviewRecordInputSchema = z.object({
   interview_id: z.string().uuid(),
   participant_user_id: authenticatedInterviewUserIdSchema,
-  updated_at: z.string().datetime(),
+  updated_at: z.string().datetime({ offset: true }),
 })
 
 export type CancelInterviewRecordInput = z.infer<
@@ -159,8 +175,8 @@ export const createInterviewRecordInputSchema = z.object({
   tier: interviewTierValueSchema,
   status: interviewStatusValueSchema,
   scheduled_at: z.string().datetime({ offset: true }),
-  created_at: z.string().datetime(),
-  updated_at: z.string().datetime(),
+  created_at: z.string().datetime({ offset: true }),
+  updated_at: z.string().datetime({ offset: true }),
   policy_consumption: interviewCreateConsumptionSchema,
 })
 
@@ -170,6 +186,14 @@ export type CreateInterviewRecordInput = z.infer<
 
 export function parseInterview(input: unknown): Interview {
   return interviewSchema.parse(input)
+}
+
+export function parseInterviewListItem(input: unknown): InterviewListItem {
+  return interviewListItemSchema.parse(input)
+}
+
+export function parseInterviewDetail(input: unknown): InterviewDetail {
+  return interviewDetailSchema.parse(input)
 }
 
 export function toCreateInterviewResponse(
@@ -185,12 +209,20 @@ export function toInterviewListResponse(
 ): InterviewListResponse {
   const parsedInterviews = Array.isArray(interviewsInput)
     ? interviewsInput.map(function parseInterviewInput(interviewInput) {
-        return parseInterview(interviewInput)
+        return parseInterviewListItem(interviewInput)
       })
     : interviewsInput
 
   return interviewListResponseSchema.parse({
     interviews: parsedInterviews,
+  })
+}
+
+export function toInterviewDetailResponse(
+  interviewInput: unknown,
+): InterviewDetailResponse {
+  return interviewDetailResponseSchema.parse({
+    interview: parseInterviewDetail(interviewInput),
   })
 }
 

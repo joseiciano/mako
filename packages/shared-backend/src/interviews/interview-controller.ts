@@ -3,6 +3,7 @@ import {
   cancelInterviewResponseSchema,
   createInterviewRequestSchema,
   createInterviewResponseSchema,
+  interviewDetailResponseSchema,
   interviewListQuerySchema,
   interviewListResponseSchema,
 } from '@mako/shared'
@@ -64,6 +65,21 @@ export function registerInterviewController<Bindings extends ControllerBindings>
       const interviews = await interviewService.listInterviews(session, parsedQuery)
 
       return c.json(interviewListResponseSchema.parse(interviews), 200)
+    } catch (error) {
+      return toErrorResponse(c, error)
+    }
+  })
+
+  app.get('/api/interviews/:id', async function getInterviewHandler(c) {
+    const interviewService = options.createService({ bindings: c.env })
+    const session = await options.resolveSession(c)
+
+    try {
+      const interview = await interviewService.getInterview(session, {
+        id: c.req.param('id'),
+      })
+
+      return c.json(interviewDetailResponseSchema.parse(interview), 200)
     } catch (error) {
       return toErrorResponse(c, error)
     }

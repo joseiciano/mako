@@ -575,6 +575,12 @@ function createDatabaseBinding(accountState: {
           tier: statementValues[7],
           status: statementValues[8],
           scheduled_at: statementValues[9],
+          realtime_session_id: null,
+          excalidraw_room_id: null,
+          excalidraw_key: null,
+          recording_url: null,
+          screenshot_urls: null,
+          feedback: null,
           created_at: statementValues[10],
           updated_at: statementValues[11],
         }

@@ -4,6 +4,7 @@ import type {
   CreateInterviewRequest,
   CreateInterviewResponse,
   Interview,
+  InterviewDetailResponse,
   InterviewListQuery,
   InterviewListResponse,
 } from '@mako/shared'
@@ -29,6 +30,7 @@ import {
   authenticatedInterviewUserIdSchema,
   toCancelInterviewResponse,
   toCreateInterviewResponse,
+  toInterviewDetailResponse,
   toInterviewListResponse,
   type InterviewPolicyConfig,
   type InterviewSession,
@@ -122,6 +124,29 @@ export class InterviewService {
     return toInterviewListResponse(interviews)
   }
 
+  async getInterview(
+    session: InterviewSession | null,
+    input: { id: string },
+  ): Promise<InterviewDetailResponse> {
+    const userSession = this.requireSession(session)
+    const participantUserId = authenticatedInterviewUserIdSchema.parse(
+      userSession.userId,
+    )
+
+    const interview = await this.interviewRepository.getParticipantInterviewById({
+      interview_id: input.id,
+      participant_user_id: participantUserId,
+    })
+
+    if (!interview) {
+      throw new InterviewNotFoundError(
+        'Interview was not found for the active participant.',
+      )
+    }
+
+    return toInterviewDetailResponse(interview)
+  }
+
   async cancelInterview(
     session: InterviewSession | null,
     input: CancelInterviewParams,
@@ -131,7 +156,10 @@ export class InterviewService {
       userSession.userId,
     )
 
-    const existingInterview = await this.interviewRepository.getInterviewById(input.id)
+    const existingInterview = await this.interviewRepository.getParticipantInterviewById({
+      interview_id: input.id,
+      participant_user_id: participantUserId,
+    })
 
     const outboxEvent =
       existingInterview && this.notificationService

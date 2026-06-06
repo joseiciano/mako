@@ -104,7 +104,7 @@
   - **Query Params**: None
 
 - **`GET /api/interviews`**
-  - **Description**: Lists interviews for the current user.
+  - **Description**: Lists interviews for the current user as a narrow summary.
   - **Request Body**: None
   - **Response Body**:
     ```json
@@ -128,6 +128,7 @@
     }
     ```
   - **Field Mapping**: API response uses snake_case and maps directly to DB columns.
+  - **Summary-only Contract**: The list response intentionally excludes detail-only fields (`realtime_session_id`, `excalidraw_room_id`, `excalidraw_key`, `recording_url`, `screenshot_urls`, `feedback`). Use `GET /api/interviews/:id` for the full detail payload.
   - **Role Semantics**:
     - For matcher-created peer-to-peer interviews, `scheduler_id` / `interviewer_id` are assigned deterministically from matched request order `(created_at ASC, id ASC)`.
     - For direct route-created sessions in Milestone 2, `scheduler_id` is the authenticated creator.
@@ -140,7 +141,7 @@
   - **Query Params**: None
 
 - **`POST /api/interviews/:id/provision`**
-  - **Description**: Provisions (or returns existing) Cloudflare Realtime + Excalidraw collaboration credentials for interview join.
+  - **Description**: Provisions (or returns existing) Cloudflare Realtime + Excalidraw collaboration credentials for interview join. This is the join-time credential route.
   - **Request Body**: None
   - **Response Body**:
     ```json
@@ -162,6 +163,7 @@
     - Retries/reconnects for the same active interview are idempotent and must reuse existing persisted values when present.
     - `peer_to_peer`: both participants receive credentials for the same shared room/key pair.
     - `ai_led`: return a single-user room/key pair scoped to the interview.
+    - Credentials returned here are not exposed through `GET /api/interviews`; use this route at join-time.
   - **Query Params**: None
 
 - **`POST /api/interviews/:id/ai-chat`**
@@ -192,10 +194,36 @@
     - Clients should send snapshots on explicit review actions and/or debounced intervals (not per-stroke).
   - **Query Params**: None
 
-- **GET /api/interviews/:id**
-  - **Description**: Retrieves full details of a specific interview, including feedback and recording URLs if available.
+- **`GET /api/interviews/:id`**
+  - **Description**: Retrieves the interview detail payload for a participant. Includes detail-only fields such as `recording_url`, `screenshot_urls`, and `feedback`. Collaboration credentials (`realtime_session_id`, `excalidraw_room_id`, `excalidraw_key`) are provision-only and remain available via `POST /api/interviews/:id/provision`.
   - **Request Body**: None
-  - **Response Body**: `{ interview: Interview }`
+  - **Response Body**:
+    ```json
+    {
+      "interview": {
+        "id": "uuid",
+        "scheduler_id": "uuid",
+        "scheduler_alias": "Candidate-Blue",
+        "interviewer_id": null,
+        "interviewer_alias": "Interviewer-Red",
+        "type": "system_design",
+        "mode": "peer_to_peer",
+        "tier": "standard",
+        "status": "scheduled",
+        "scheduled_at": "2026-01-01T12:00:00.000Z",
+        "recording_url": "https://r2.example.com/recording.mp4",
+        "screenshot_urls": ["https://r2.example.com/ss1.png"],
+        "feedback": {
+          "overall_score": 85,
+          "strengths": ["Good communication"],
+          "improvements": ["System design depth"]
+        },
+        "created_at": "2026-01-01T00:00:00.000Z",
+        "updated_at": "2026-01-01T00:00:00.000Z"
+      }
+    }
+    ```
+  - **Participant Scope**: Only the interview scheduler or interviewer can access this route. Non-participants receive a 404.
   - **Query Params**: None
 
 ### Availability

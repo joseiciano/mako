@@ -270,6 +270,115 @@ describe('InterviewController', function interviewControllerSuite() {
     })
   })
 
+  it('list response does not expose secret detail fields', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          realtime_session_id: 'sess_abc123',
+          excalidraw_room_id: 'room_def456',
+          excalidraw_key: 'key_ghi789',
+          recording_url: 'https://r2.example.com/recording.mp4',
+          screenshot_urls: ['https://r2.example.com/ss1.png'],
+          feedback: { score: 85 },
+        }),
+      ],
+    })
+
+    const response = await app.request('/api/interviews', {
+      method: 'GET',
+    })
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.interviews).toHaveLength(1)
+    expect(body.interviews[0]).not.toHaveProperty('realtime_session_id')
+    expect(body.interviews[0]).not.toHaveProperty('excalidraw_room_id')
+    expect(body.interviews[0]).not.toHaveProperty('excalidraw_key')
+    expect(body.interviews[0]).not.toHaveProperty('recording_url')
+    expect(body.interviews[0]).not.toHaveProperty('screenshot_urls')
+    expect(body.interviews[0]).not.toHaveProperty('feedback')
+  })
+
+  it('returns interview detail without collaboration credentials for participants', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          realtime_session_id: 'sess_abc123',
+          excalidraw_room_id: 'room_def456',
+          excalidraw_key: 'key_ghi789',
+          recording_url: 'https://r2.example.com/recording.mp4',
+        }),
+      ],
+    })
+
+    const response = await app.request('/api/interviews/33333333-3333-4333-8333-333333333333', {
+      method: 'GET',
+    })
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.interview).not.toHaveProperty('realtime_session_id')
+    expect(body.interview).not.toHaveProperty('excalidraw_room_id')
+    expect(body.interview).not.toHaveProperty('excalidraw_key')
+    expect(body.interview.recording_url).toBe('https://r2.example.com/recording.mp4')
+  })
+
+  it('returns 404 when non-participant requests interview detail', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: '99999999-9999-4999-8999-999999999999',
+        }),
+      ],
+    })
+
+    const response = await app.request('/api/interviews/33333333-3333-4333-8333-333333333333', {
+      method: 'GET',
+    })
+
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Interview was not found for the active participant.',
+    })
+  })
+
+  it('returns 401 when requesting interview detail without authentication', async function run() {
+    const app = createInterviewApp({
+      session: null,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+    })
+
+    const response = await app.request('/api/interviews/33333333-3333-4333-8333-333333333333', {
+      method: 'GET',
+    })
+
+    expect(response.status).toBe(401)
+    await expect(response.json()).resolves.toEqual({
+      error: 'You must be authenticated to access this resource.',
+    })
+  })
+
   it('returns 400 for invalid interview list query params', async function run() {
     const app = createInterviewApp({
       session: activeSession,
@@ -734,6 +843,12 @@ function createInterviewRecord(overrides: Partial<Interview> = {}): Interview {
     tier: 'standard',
     status: 'scheduled',
     scheduled_at: '2026-04-13T10:00:00.000Z',
+    realtime_session_id: null,
+    excalidraw_room_id: null,
+    excalidraw_key: null,
+    recording_url: null,
+    screenshot_urls: null,
+    feedback: null,
     created_at: '2026-04-13T09:55:00.000Z',
     updated_at: '2026-04-13T09:55:00.000Z',
     ...overrides,
