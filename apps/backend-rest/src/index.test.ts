@@ -309,6 +309,133 @@ describe('backend-rest smoke tests', function () {
     )
   })
 
+  it('emits one queue message after outbox insert on successful DB-backed create', async function () {
+    const app = createApp()
+    const dbBinding = createDatabaseBinding({ credits: 1, freeAiInterviews: 0 })
+    const trackingQueue = createTrackingQueue()
+
+    const response = await createInterview(
+      app,
+      { type: 'coding' },
+      { DB: dbBinding, NOTIFICATION_QUEUE: trackingQueue },
+    )
+
+    expect(response.status).toBe(201)
+    expect(trackingQueue.messages).toHaveLength(1)
+
+    const queueMessage = trackingQueue.messages[0] as { event_type: string }
+    expect(queueMessage.event_type).toBe('interview.created')
+
+    const outboxInsertIndex = dbBinding.executedStatements.findIndex((s) =>
+      s.includes('INSERT INTO notification_outbox_events'),
+    )
+    const commitIndex = dbBinding.executedStatements.findIndex((s) =>
+      s.includes('COMMIT;'),
+    )
+    expect(outboxInsertIndex).toBeGreaterThan(-1)
+    expect(commitIndex).toBeGreaterThan(-1)
+    expect(outboxInsertIndex).toBeLessThan(commitIndex)
+  })
+
+  it('emits one queue message after outbox insert on successful DB-backed cancel', async function () {
+    const app = createApp()
+    const dbBinding = createDatabaseBinding({ credits: 1, freeAiInterviews: 0 })
+    const trackingQueue = createTrackingQueue()
+
+    const createResponse = await createInterview(
+      app,
+      { type: 'coding' },
+      { DB: dbBinding, NOTIFICATION_QUEUE: trackingQueue },
+    )
+    expect(createResponse.status).toBe(201)
+
+    const createdPayload = (await createResponse.json()) as {
+      interview: { id: string }
+    }
+
+    const cancelResponse = await cancelInterview(
+      app,
+      createdPayload.interview.id,
+      { DB: dbBinding, NOTIFICATION_QUEUE: trackingQueue },
+    )
+    expect(cancelResponse.status).toBe(200)
+
+    expect(trackingQueue.messages).toHaveLength(2)
+    expect((trackingQueue.messages[0] as { event_type: string }).event_type).toBe(
+      'interview.created',
+    )
+    expect((trackingQueue.messages[1] as { event_type: string }).event_type).toBe(
+      'interview.cancelled',
+    )
+
+    const outboxInserts = dbBinding.executedStatements.filter((s) =>
+      s.includes('INSERT INTO notification_outbox_events'),
+    )
+    expect(outboxInserts).toHaveLength(2)
+  })
+
+  it('returns success and logs error when DB-backed queue send fails after commit', async function () {
+    const app = createApp()
+    const dbBinding = createDatabaseBinding({ credits: 1, freeAiInterviews: 0 })
+    const failingQueue = createFailingQueue()
+    const consoleErrorSpy = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {})
+
+    const response = await createInterview(
+      app,
+      { type: 'coding' },
+      { DB: dbBinding, NOTIFICATION_QUEUE: failingQueue },
+    )
+
+    expect(response.status).toBe(201)
+    expect(consoleErrorSpy).toHaveBeenCalled()
+
+    const dispatchFailureCall = consoleErrorSpy.mock.calls.find((call) =>
+      String(call[0]).includes('notification.dispatch_failure'),
+    )
+    expect(dispatchFailureCall).toBeDefined()
+
+    const outboxEvent = Array.from(dbBinding.outboxEvents.values())[0]
+    expect(outboxEvent).toBeDefined()
+    expect(outboxEvent.status).toBe('failed')
+    expect(outboxEvent.dispatch_attempts).toBe(1)
+
+    consoleErrorSpy.mockRestore()
+  })
+
+  it('does not duplicate queue sends on DB-backed create and cancel', async function () {
+    const app = createApp()
+    const dbBinding = createDatabaseBinding({ credits: 1, freeAiInterviews: 0 })
+    const trackingQueue = createTrackingQueue()
+
+    const createResponse = await createInterview(
+      app,
+      { type: 'coding' },
+      { DB: dbBinding, NOTIFICATION_QUEUE: trackingQueue },
+    )
+    expect(createResponse.status).toBe(201)
+
+    const createdPayload = (await createResponse.json()) as {
+      interview: { id: string }
+    }
+
+    const cancelResponse = await cancelInterview(
+      app,
+      createdPayload.interview.id,
+      { DB: dbBinding, NOTIFICATION_QUEUE: trackingQueue },
+    )
+    expect(cancelResponse.status).toBe(200)
+
+    expect(trackingQueue.messages).toHaveLength(2)
+    expect((trackingQueue.messages[0] as { event_type: string }).event_type).toBe(
+      'interview.created',
+    )
+    expect((trackingQueue.messages[1] as { event_type: string }).event_type).toBe(
+      'interview.cancelled',
+    )
+  })
+
   it('uses Hyperdrive-backed account and interview stores when HYPERDRIVE is configured', async function () {
     const app = createApp()
     const dbBinding = createDatabaseBinding({
@@ -417,6 +544,10 @@ describe('backend-rest smoke tests', function () {
   })
 })
 
+type TrackingQueue = Queue & {
+  messages: unknown[]
+}
+
 function createInterview(
   app: ReturnType<typeof createApp>,
   payload: {
@@ -489,9 +620,11 @@ function createDatabaseBinding(accountState: {
 }) {
   const executedStatements: string[] = []
   const interviewsById = new Map<string, Record<string, unknown>>()
+  const outboxEvents = new Map<string, Record<string, unknown>>()
 
   return {
     executedStatements,
+    outboxEvents,
     async query(statementText: string, ...statementValues: readonly unknown[]) {
       executedStatements.push(statementText)
 
@@ -655,6 +788,52 @@ function createDatabaseBinding(accountState: {
       }
 
       if (statementText.includes('INSERT INTO notification_outbox_events')) {
+        const event = {
+          idempotency_key: statementValues[0],
+          event_type: statementValues[1],
+          event_payload: JSON.parse(String(statementValues[2])),
+          status: statementValues[3],
+          dispatch_attempts: statementValues[4],
+          last_dispatch_attempted_at: statementValues[5],
+          created_at: statementValues[6],
+          updated_at: statementValues[7],
+        }
+        outboxEvents.set(String(statementValues[0]), event)
+        return { rows: [] }
+      }
+
+      if (
+        statementText.includes('FROM notification_outbox_events') &&
+        statementText.includes('idempotency_key = $1') &&
+        statementText.includes('LIMIT 1')
+      ) {
+        const idempotencyKey = String(statementValues[0])
+        const event = outboxEvents.get(idempotencyKey)
+        return { rows: event ? [event] : [] }
+      }
+
+      if (
+        statementText.includes('UPDATE notification_outbox_events') &&
+        statementText.includes("status = 'dispatched'")
+      ) {
+        const idempotencyKey = String(statementValues[0])
+        const event = outboxEvents.get(idempotencyKey)
+        if (event) {
+          event.status = 'dispatched'
+        }
+        return { rows: [] }
+      }
+
+      if (
+        statementText.includes('UPDATE notification_outbox_events') &&
+        statementText.includes("status = 'failed'")
+      ) {
+        const idempotencyKey = String(statementValues[0])
+        const event = outboxEvents.get(idempotencyKey)
+        if (event) {
+          event.status = 'failed'
+          event.dispatch_attempts = (event.dispatch_attempts as number) + 1
+        }
         return { rows: [] }
       }
 
@@ -674,6 +853,24 @@ function createDatabaseBinding(accountState: {
       throw new Error(`Unhandled DB statement: ${statementText}`)
     },
   }
+}
+
+function createTrackingQueue(): TrackingQueue {
+  const messages: unknown[] = []
+  return {
+    messages,
+    async send(message: unknown) {
+      messages.push(message)
+    },
+  } as unknown as TrackingQueue
+}
+
+function createFailingQueue(errorMessage: string = 'Queue send failed') {
+  return {
+    async send() {
+      throw new Error(errorMessage)
+    },
+  } as unknown as Queue
 }
 
 function createHyperdrivePool(dbBinding: ReturnType<typeof createDatabaseBinding>) {

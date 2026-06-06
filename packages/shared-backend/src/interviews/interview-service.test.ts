@@ -879,6 +879,201 @@ describe('InterviewService', function interviewServiceSuite() {
 
     expect(publishedEvents).toHaveLength(0)
   })
+
+  it('prefers notificationDispatchService+transport over legacy postCommitEventPublisher for create and does not double-send', async function run() {
+    const dispatchedIdempotencyKeys: string[] = []
+    const publishedEvents: InterviewPostCommitEvent[] = []
+
+    const mockNotificationDispatchService = {
+      async dispatchOutboxEventByIdempotencyKey(
+        idempotencyKey: string,
+        _transport: import('../notifications').NotificationTransport,
+      ): Promise<void> {
+        dispatchedIdempotencyKeys.push(idempotencyKey)
+      },
+    } as unknown as import('../notifications').NotificationDispatchService
+
+    const mockNotificationTransport = {
+      async send(): Promise<void> {},
+    } as unknown as import('../notifications').NotificationTransport
+
+    const { service } = createInterviewService(
+      {
+        freeAiInterviews: 1,
+        credits: 0,
+      },
+      undefined,
+      [],
+      {
+        async publish(event) {
+          publishedEvents.push(event)
+        },
+      },
+      undefined,
+      undefined,
+      mockNotificationDispatchService,
+      mockNotificationTransport,
+    )
+
+    await service.createInterview(activeSession, {
+      type: 'system_design',
+      mode: 'ai_led',
+      scheduled_at: 'now',
+    })
+
+    expect(dispatchedIdempotencyKeys).toHaveLength(1)
+    expect(publishedEvents).toHaveLength(0)
+  })
+
+  it('prefers notificationDispatchService+transport over legacy postCommitEventPublisher for cancel and does not double-send', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const dispatchedIdempotencyKeys: string[] = []
+    const publishedEvents: InterviewPostCommitEvent[] = []
+
+    const mockNotificationDispatchService = {
+      async dispatchOutboxEventByIdempotencyKey(
+        idempotencyKey: string,
+        _transport: import('../notifications').NotificationTransport,
+      ): Promise<void> {
+        dispatchedIdempotencyKeys.push(idempotencyKey)
+      },
+    } as unknown as import('../notifications').NotificationDispatchService
+
+    const mockNotificationTransport = {
+      async send(): Promise<void> {},
+    } as unknown as import('../notifications').NotificationTransport
+
+    const { service } = createInterviewService(
+      {
+        freeAiInterviews: 0,
+        credits: 0,
+      },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+      {
+        async publish(event) {
+          publishedEvents.push(event)
+        },
+      },
+      undefined,
+      {
+        async persistOutboxEvent(): Promise<void> {},
+      } as unknown as import('../notifications').NotificationService,
+      mockNotificationDispatchService,
+      mockNotificationTransport,
+    )
+
+    await service.cancelInterview(activeSession, { id: interviewId })
+
+    expect(dispatchedIdempotencyKeys).toHaveLength(1)
+    expect(publishedEvents).toHaveLength(0)
+  })
+
+  it('logs interview.post_commit_dispatch_failure and returns success when create dispatch fails', async function run() {
+    const loggedErrors: Array<{ event: string; context: Record<string, unknown> }> = []
+
+    const mockNotificationDispatchService = {
+      async dispatchOutboxEventByIdempotencyKey(): Promise<void> {
+        throw new Error('dispatch failed')
+      },
+    } as unknown as import('../notifications').NotificationDispatchService
+
+    const mockNotificationTransport = {
+      async send(): Promise<void> {},
+    } as unknown as import('../notifications').NotificationTransport
+
+    const { service } = createInterviewService(
+      {
+        freeAiInterviews: 1,
+        credits: 0,
+      },
+      undefined,
+      [],
+      undefined,
+      {
+        error(_event, context) {
+          loggedErrors.push({ event: _event, context })
+        },
+      },
+      undefined,
+      mockNotificationDispatchService,
+      mockNotificationTransport,
+    )
+
+    const response = await service.createInterview(activeSession, {
+      type: 'system_design',
+      mode: 'ai_led',
+      scheduled_at: 'now',
+    })
+
+    expect(response.interview).toMatchObject({
+      id: '22222222-2222-4222-8222-222222222222',
+      scheduler_id: activeSession.userId,
+    })
+    expect(loggedErrors).toHaveLength(1)
+    expect(loggedErrors[0].event).toBe('interview.post_commit_dispatch_failure')
+    expect(loggedErrors[0].context).toMatchObject({
+      operation: 'create',
+      interview_id: '22222222-2222-4222-8222-222222222222',
+      error_message: 'dispatch failed',
+    })
+  })
+
+  it('logs interview.post_commit_dispatch_failure and returns success when cancel dispatch fails', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const loggedErrors: Array<{ event: string; context: Record<string, unknown> }> = []
+
+    const mockNotificationDispatchService = {
+      async dispatchOutboxEventByIdempotencyKey(): Promise<void> {
+        throw new Error('dispatch failed')
+      },
+    } as unknown as import('../notifications').NotificationDispatchService
+
+    const mockNotificationTransport = {
+      async send(): Promise<void> {},
+    } as unknown as import('../notifications').NotificationTransport
+
+    const { service } = createInterviewService(
+      {
+        freeAiInterviews: 0,
+        credits: 0,
+      },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+      undefined,
+      {
+        error(_event, context) {
+          loggedErrors.push({ event: _event, context })
+        },
+      },
+      {
+        async persistOutboxEvent(): Promise<void> {},
+      } as unknown as import('../notifications').NotificationService,
+      mockNotificationDispatchService,
+      mockNotificationTransport,
+    )
+
+    const response = await service.cancelInterview(activeSession, { id: interviewId })
+
+    expect(response).toEqual({ success: true })
+    expect(loggedErrors).toHaveLength(1)
+    expect(loggedErrors[0].event).toBe('interview.post_commit_dispatch_failure')
+    expect(loggedErrors[0].context).toMatchObject({
+      operation: 'cancel',
+      interview_id: interviewId,
+      error_message: 'dispatch failed',
+    })
+  })
 })
 
 function createInterviewService(
