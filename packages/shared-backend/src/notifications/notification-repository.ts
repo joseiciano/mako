@@ -353,7 +353,8 @@ export class NotificationRepository {
           UPDATE notification_reminder_schedules
           SET status = 'dispatched',
               updated_at = NOW()
-          WHERE id = $1;
+          WHERE id = $1
+            AND status = 'pending';
         `,
         [id],
       ),
@@ -381,7 +382,8 @@ export class NotificationRepository {
           UPDATE notification_reminder_schedules
           SET status = 'dispatched',
               updated_at = NOW()
-          WHERE id = ANY($1);
+          WHERE id = ANY($1)
+            AND status = 'pending';
         `,
         [ids],
       ),

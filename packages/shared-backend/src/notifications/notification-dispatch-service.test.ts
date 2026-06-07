@@ -198,6 +198,68 @@ describe('NotificationDispatchService', function notificationDispatchServiceSuit
     expect(dataSource.reminderSchedules[0]?.status).toBe('dispatched')
   })
 
+  it('suppresses due reminders when interview status is not scheduled', async function run() {
+    const { dispatchService, dataSource, transport, sentMessages } = createDispatchService()
+    dataSource.reminderSchedules.push(
+      createReminderScheduleRow({
+        id: 'schedule-1',
+        interview_id: '11111111-1111-4111-8111-111111111111',
+        idempotency_key: 'reminder:interview-1',
+        reminder_due_at: '2026-05-22T12:00:00.000Z',
+        status: 'pending',
+      }),
+    )
+    dataSource.interviews.set('11111111-1111-4111-8111-111111111111', {
+      id: '11111111-1111-4111-8111-111111111111',
+      scheduler_id: 'scheduler-1',
+      interviewer_id: null,
+      type: 'system_design',
+      mode: 'ai_led',
+      tier: 'standard',
+      status: 'cancelled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T09:00:00.000Z',
+      updated_at: '2026-05-22T09:00:00.000Z',
+    })
+
+    await dispatchService.enqueueDueReminders(transport, '2026-05-22T13:00:00.000Z')
+
+    expect(sentMessages).toHaveLength(0)
+    expect(dataSource.reminderSchedules[0]?.status).toBe('pending')
+    expect(dataSource.markReminderDispatchedBatchCalls).toHaveLength(0)
+  })
+
+  it('suppresses due reminders when interview status is completed', async function run() {
+    const { dispatchService, dataSource, transport, sentMessages } = createDispatchService()
+    dataSource.reminderSchedules.push(
+      createReminderScheduleRow({
+        id: 'schedule-1',
+        interview_id: '11111111-1111-4111-8111-111111111111',
+        idempotency_key: 'reminder:interview-1',
+        reminder_due_at: '2026-05-22T12:00:00.000Z',
+        status: 'pending',
+      }),
+    )
+    dataSource.interviews.set('11111111-1111-4111-8111-111111111111', {
+      id: '11111111-1111-4111-8111-111111111111',
+      scheduler_id: 'scheduler-1',
+      interviewer_id: null,
+      type: 'system_design',
+      mode: 'ai_led',
+      tier: 'standard',
+      status: 'completed',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T09:00:00.000Z',
+      updated_at: '2026-05-22T09:00:00.000Z',
+    })
+
+    await dispatchService.enqueueDueReminders(transport, '2026-05-22T13:00:00.000Z')
+
+    expect(sentMessages).toHaveLength(0)
+    expect(dataSource.reminderSchedules[0]?.status).toBe('pending')
+    expect(dataSource.markReminderDispatchedBatchCalls).toHaveLength(0)
+  })
+
   it('enqueues due reminders in a bounded run and marks dispatched schedules in batch', async function run() {
     const { dispatchService, dataSource, transport, sentMessages } = createDispatchService()
     const firstInterviewId = '11111111-1111-4111-8111-111111111111'
@@ -370,7 +432,7 @@ function createDispatchService(): {
     },
 
     async markReminderDispatched(id: string): Promise<void> {
-      const schedule = dataSource.reminderSchedules.find((s) => s.id === id)
+      const schedule = dataSource.reminderSchedules.find((s) => s.id === id && s.status === 'pending')
       if (schedule) {
         schedule.status = 'dispatched'
       }
@@ -379,7 +441,7 @@ function createDispatchService(): {
     async markReminderDispatchedBatch(ids: string[]): Promise<void> {
       dataSource.markReminderDispatchedBatchCalls.push([...ids])
       for (const id of ids) {
-        const schedule = dataSource.reminderSchedules.find((s) => s.id === id)
+        const schedule = dataSource.reminderSchedules.find((s) => s.id === id && s.status === 'pending')
         if (schedule) {
           schedule.status = 'dispatched'
         }
