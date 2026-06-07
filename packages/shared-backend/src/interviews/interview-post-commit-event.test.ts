@@ -279,4 +279,124 @@ describe('interview post-commit event contract', function interviewPostCommitEve
 
     expect(sentMessages).toHaveLength(1)
   })
+
+  it('created event payload strips runtime provisioning fields', function shouldStripRuntimeFieldsFromCreated() {
+    const event = buildInterviewCreatedEvent(
+      {
+        interview: {
+          id: '99999999-9999-4999-8999-999999999999',
+          scheduler_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          interviewer_id: null,
+          type: 'system_design',
+          mode: 'ai_led',
+          tier: 'standard',
+          status: 'scheduled',
+          scheduled_at: '2026-04-10T10:30:00.000Z',
+          realtime_session_id: 'sess_abc123',
+          excalidraw_room_id: 'room_def456',
+          excalidraw_key: 'key_ghi789',
+          recording_url: 'https://r2.example.com/recording.mp4',
+          screenshot_urls: ['https://r2.example.com/ss1.png'],
+          feedback: { score: 85 },
+        } as unknown as Parameters<typeof buildInterviewCreatedEvent>[0]['interview'],
+      },
+      {
+        createEventId: function createFixedEventId() {
+          return 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+        },
+        now: function createFixedOccurredAt() {
+          return '2026-04-01T12:00:00.000Z'
+        },
+      },
+    )
+
+    expect(event.interview).not.toHaveProperty('realtime_session_id')
+    expect(event.interview).not.toHaveProperty('excalidraw_room_id')
+    expect(event.interview).not.toHaveProperty('excalidraw_key')
+    expect(event.interview).not.toHaveProperty('recording_url')
+    expect(event.interview).not.toHaveProperty('screenshot_urls')
+    expect(event.interview).not.toHaveProperty('feedback')
+    expect(event.participants.scheduler_user_id).toBe(event.interview.scheduler_id)
+    expect(event.participants.interviewer_user_id).toBe(event.interview.interviewer_id)
+  })
+
+  it('cancelled event payload strips runtime provisioning fields', function shouldStripRuntimeFieldsFromCancelled() {
+    const event = buildInterviewCancelledEvent(
+      {
+        interview: {
+          id: '99999999-9999-4999-8999-999999999999',
+          scheduler_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          interviewer_id: null,
+          type: 'system_design',
+          mode: 'ai_led',
+          tier: 'standard',
+          status: 'cancelled',
+          scheduled_at: '2026-04-10T10:30:00.000Z',
+          realtime_session_id: 'sess_abc123',
+          excalidraw_room_id: 'room_def456',
+          excalidraw_key: 'key_ghi789',
+          recording_url: 'https://r2.example.com/recording.mp4',
+          screenshot_urls: ['https://r2.example.com/ss1.png'],
+          feedback: { score: 85 },
+        } as unknown as Parameters<typeof buildInterviewCancelledEvent>[0]['interview'],
+      },
+      {
+        createEventId: function createFixedEventId() {
+          return 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+        },
+        now: function createFixedOccurredAt() {
+          return '2026-04-01T12:00:00.000Z'
+        },
+      },
+    )
+
+    expect(event.interview).not.toHaveProperty('realtime_session_id')
+    expect(event.interview).not.toHaveProperty('excalidraw_room_id')
+    expect(event.interview).not.toHaveProperty('excalidraw_key')
+    expect(event.interview).not.toHaveProperty('recording_url')
+    expect(event.interview).not.toHaveProperty('screenshot_urls')
+    expect(event.interview).not.toHaveProperty('feedback')
+    expect(event.participants.scheduler_user_id).toBe(event.interview.scheduler_id)
+    expect(event.participants.interviewer_user_id).toBe(event.interview.interviewer_id)
+  })
+
+  it('peer_to_peer cancelled event payload strips runtime provisioning fields and keeps mirrors aligned', function shouldStripRuntimeFieldsFromPeerToPeerCancelled() {
+    const event = buildInterviewCancelledEvent(
+      {
+        interview: {
+          id: '99999999-9999-4999-8999-999999999999',
+          scheduler_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          interviewer_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          type: 'system_design',
+          mode: 'peer_to_peer',
+          tier: 'standard',
+          status: 'cancelled',
+          scheduled_at: '2026-04-10T10:30:00.000Z',
+          realtime_session_id: 'sess_abc123',
+          excalidraw_room_id: 'room_def456',
+          excalidraw_key: 'key_ghi789',
+          recording_url: 'https://r2.example.com/recording.mp4',
+          screenshot_urls: ['https://r2.example.com/ss1.png'],
+          feedback: { score: 85 },
+        } as unknown as Parameters<typeof buildInterviewCancelledEvent>[0]['interview'],
+      },
+      {
+        createEventId: function createFixedEventId() {
+          return 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+        },
+        now: function createFixedOccurredAt() {
+          return '2026-04-01T12:00:00.000Z'
+        },
+      },
+    )
+
+    expect(event.interview).not.toHaveProperty('realtime_session_id')
+    expect(event.interview).not.toHaveProperty('excalidraw_room_id')
+    expect(event.interview).not.toHaveProperty('excalidraw_key')
+    expect(event.interview).not.toHaveProperty('recording_url')
+    expect(event.interview).not.toHaveProperty('screenshot_urls')
+    expect(event.interview).not.toHaveProperty('feedback')
+    expect(event.participants.scheduler_user_id).toBe(event.interview.scheduler_id)
+    expect(event.participants.interviewer_user_id).toBe(event.interview.interviewer_id)
+  })
 })

@@ -2,39 +2,40 @@
 
 **Milestone**: Milestone 2: Interview Scheduling & Dashboard
 **Description**: Define and verify post-commit create/cancel integration boundaries and event payload compatibility with notification orchestration.
-**Status**: Todo
+**Status**: Completed
 **Prerequisites**:
 - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/3-5-interview-create-route-post-api-interviews.md`
 - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/3-7-interview-cancel-route-post-api-interviews-id-cancel.md`
+- `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/1-5-post-commit-events-and-lifecycle-boundaries.md`
 
 ## What Needs to Be Done
 
-### 1. Post-commit integration boundary
-- [ ] Keep create/cancel orchestration integration-compatible with Story 4 notification subtasks, especially:
+### 1. Post-commit integration boundary (post-commit only)
+- [x] Keep create/cancel orchestration integration-compatible with Story 4 notification subtasks, especially:
   - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-1-notification-scope-and-lifecycle-boundary-lock.md`
   - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-2-notification-event-contract-and-producer-ownership.md`
   - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-3-notification-transport-reliability-and-idempotency.md`
-- [ ] Emit only after successful commit; do not emit lifecycle events when transaction fails/rolls back.
+- [x] Emit only after successful commit; do not emit lifecycle events when transaction fails/rolls back.
 
 ### 2. Event payload compatibility contract
-- [ ] Define create/cancel event payloads to match notification contract expectations:
+- [x] Define create/cancel event payloads to match notification contract expectations:
   - event naming compatibility (`interview.created`, `interview.cancelled`)
   - required interview/participant fields
   - idempotency and replay-safe identifiers
-- [ ] Keep producer ownership explicit: CRUD emits create/cancel; matcher emits `interview.match.created`.
+- [x] Keep producer ownership explicit: CRUD emits create/cancel; matcher emits `interview.match.created`.
 
 ### 3. Transaction-scope guardrails
-- [ ] Do not run reminder/confirmation orchestration inside transaction scope.
-- [ ] Keep reminder/confirmation handling in downstream post-commit notification orchestration.
+- [x] Do not run reminder/confirmation orchestration inside transaction scope.
+- [x] Keep reminder/confirmation handling in downstream post-commit notification orchestration.
 
 ### 4. Infrastructure/runtime alignment
-- [ ] Keep runtime and transport expectations aligned with:
+- [x] Keep runtime and transport expectations aligned with:
   - `docs/infrastructure/backend.md`
   - `docs/infrastructure/management.md`
   - `docs/product/stories/stories/milestone-1-foundation-authentication/1-2-cloud-infrastructure-iac.md`
 
 ### 5. Integration test coverage
-- [ ] Add/update post-commit integration tests validating:
+- [x] Add/update post-commit integration tests validating:
   - event payload shape
   - emit-after-commit behavior
   - no emission on rollback

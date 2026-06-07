@@ -931,6 +931,414 @@ describe('InterviewRepository', function interviewRepositorySuite() {
       })
 
       expect(result.outcome).toBe('not_found')
+
+    })
+
+    it('cancelInterview persists outbox event before commit in SQL path', async function run() {
+      const queries: Array<{ text: string; values: readonly unknown[] }> = []
+      let persistCallIndex = -1
+      let commitIndex = -1
+
+      const mockPersistOutboxEvent = vi.fn(async (_event: NotificationQueueEvent) => {
+        persistCallIndex = queries.length
+        queries.push({ text: 'PERSIST_OUTBOX_EVENT', values: [] })
+      })
+
+      const mockQueryExecutor = createMockQueryExecutor({
+        'FOR UPDATE': () => ({
+          rows: [
+            {
+              id: '11111111-1111-4111-8111-111111111111',
+              scheduler_id: '22222222-2222-4222-8222-222222222222',
+              scheduler_alias: 'Scheduler',
+              interviewer_id: null,
+              interviewer_alias: 'Interviewer',
+              type: 'system_design',
+              mode: 'ai_led',
+              tier: 'standard',
+              status: 'scheduled',
+              scheduled_at: '2026-05-22T10:00:00.000Z',
+              realtime_session_id: null,
+              excalidraw_room_id: null,
+              excalidraw_key: null,
+              recording_url: null,
+              screenshot_urls: null,
+              feedback: null,
+              created_at: '2026-05-22T09:00:00.000Z',
+              updated_at: '2026-05-22T09:00:00.000Z',
+            },
+          ],
+          rowCount: 1,
+        }),
+        'UPDATE interviews': () => ({
+          rows: [
+            {
+              id: '11111111-1111-4111-8111-111111111111',
+              scheduler_id: '22222222-2222-4222-8222-222222222222',
+              scheduler_alias: 'Scheduler',
+              interviewer_id: null,
+              interviewer_alias: 'Interviewer',
+              type: 'system_design',
+              mode: 'ai_led',
+              tier: 'standard',
+              status: 'cancelled',
+              scheduled_at: '2026-05-22T10:00:00.000Z',
+              realtime_session_id: null,
+              excalidraw_room_id: null,
+              excalidraw_key: null,
+              recording_url: null,
+              screenshot_urls: null,
+              feedback: null,
+              created_at: '2026-05-22T09:00:00.000Z',
+              updated_at: '2026-05-22T09:00:00.000Z',
+            },
+          ],
+          rowCount: 1,
+        }),
+      })
+
+      const originalQuery = mockQueryExecutor.query
+      mockQueryExecutor.query = async function query<Row>(q: SqlQuery) {
+        queries.push(q)
+        const normalized = q.text.trim().toUpperCase()
+        if (normalized === 'COMMIT;') {
+          commitIndex = queries.length - 1
+        }
+        return (await originalQuery.call(mockQueryExecutor, q)) as {
+          rows: Row[]
+          rowCount: number
+        }
+      }
+
+      const repository = new InterviewRepository({
+        queryExecutor: mockQueryExecutor,
+        persistOutboxEvent: mockPersistOutboxEvent,
+      })
+
+      const outboxEvent: NotificationQueueEvent = {
+        event_type: 'interview.cancelled',
+        event_id: '33333333-3333-4333-8333-333333333333',
+        idempotency_key: 'key',
+        occurred_at: '2026-05-22T10:00:00.000Z',
+        interview: {
+          id: '11111111-1111-4111-8111-111111111111',
+          scheduler_id: '22222222-2222-4222-8222-222222222222',
+          interviewer_id: null,
+          type: 'system_design',
+          mode: 'ai_led',
+          tier: 'standard',
+          status: 'cancelled',
+          scheduled_at: '2026-05-22T10:00:00.000Z',
+        },
+        participants: {
+          scheduler_user_id: '22222222-2222-4222-8222-222222222222',
+          interviewer_user_id: null,
+        },
+      }
+
+      await repository.cancelInterview(
+        {
+          interview_id: '11111111-1111-4111-8111-111111111111',
+          participant_user_id: '22222222-2222-4222-8222-222222222222',
+          updated_at: '2026-05-22T09:00:00.000Z',
+        },
+        outboxEvent,
+      )
+
+      expect(mockPersistOutboxEvent).toHaveBeenCalledTimes(1)
+      expect(mockPersistOutboxEvent).toHaveBeenCalledWith(outboxEvent)
+      expect(commitIndex).toBeGreaterThan(persistCallIndex)
+    })
+
+    it('cancelInterview rolls back when outbox persistence fails in SQL path', async function run() {
+      const queries: SqlQuery[] = []
+
+      const mockPersistOutboxEvent = vi.fn(async () => {
+        throw new Error('outbox persist failure')
+      })
+
+      const mockQueryExecutor = createMockQueryExecutor({
+        'FOR UPDATE': () => ({
+          rows: [
+            {
+              id: '11111111-1111-4111-8111-111111111111',
+              scheduler_id: '22222222-2222-4222-8222-222222222222',
+              scheduler_alias: 'Scheduler',
+              interviewer_id: null,
+              interviewer_alias: 'Interviewer',
+              type: 'system_design',
+              mode: 'ai_led',
+              tier: 'standard',
+              status: 'scheduled',
+              scheduled_at: '2026-05-22T10:00:00.000Z',
+              realtime_session_id: null,
+              excalidraw_room_id: null,
+              excalidraw_key: null,
+              recording_url: null,
+              screenshot_urls: null,
+              feedback: null,
+              created_at: '2026-05-22T09:00:00.000Z',
+              updated_at: '2026-05-22T09:00:00.000Z',
+            },
+          ],
+          rowCount: 1,
+        }),
+        'UPDATE interviews': () => ({
+          rows: [
+            {
+              id: '11111111-1111-4111-8111-111111111111',
+              scheduler_id: '22222222-2222-4222-8222-222222222222',
+              scheduler_alias: 'Scheduler',
+              interviewer_id: null,
+              interviewer_alias: 'Interviewer',
+              type: 'system_design',
+              mode: 'ai_led',
+              tier: 'standard',
+              status: 'cancelled',
+              scheduled_at: '2026-05-22T10:00:00.000Z',
+              realtime_session_id: null,
+              excalidraw_room_id: null,
+              excalidraw_key: null,
+              recording_url: null,
+              screenshot_urls: null,
+              feedback: null,
+              created_at: '2026-05-22T09:00:00.000Z',
+              updated_at: '2026-05-22T09:00:00.000Z',
+            },
+          ],
+          rowCount: 1,
+        }),
+      })
+
+      const originalQuery = mockQueryExecutor.query
+      mockQueryExecutor.query = async function query<Row>(q: SqlQuery) {
+        queries.push(q)
+        return (await originalQuery.call(mockQueryExecutor, q)) as {
+          rows: Row[]
+          rowCount: number
+        }
+      }
+
+      const repository = new InterviewRepository({
+        queryExecutor: mockQueryExecutor,
+        persistOutboxEvent: mockPersistOutboxEvent,
+      })
+
+      await expect(
+        repository.cancelInterview(
+          {
+            interview_id: '11111111-1111-4111-8111-111111111111',
+            participant_user_id: '22222222-2222-4222-8222-222222222222',
+            updated_at: '2026-05-22T09:00:00.000Z',
+          },
+          {
+            event_type: 'interview.cancelled',
+            event_id: '33333333-3333-4333-8333-333333333333',
+            idempotency_key: 'key',
+            occurred_at: '2026-05-22T10:00:00.000Z',
+            interview: {
+              id: '11111111-1111-4111-8111-111111111111',
+              scheduler_id: '22222222-2222-4222-8222-222222222222',
+              interviewer_id: null,
+              type: 'system_design',
+              mode: 'ai_led',
+              tier: 'standard',
+              status: 'cancelled',
+              scheduled_at: '2026-05-22T10:00:00.000Z',
+            },
+            participants: {
+              scheduler_user_id: '22222222-2222-4222-8222-222222222222',
+              interviewer_user_id: null,
+            },
+          } as NotificationQueueEvent,
+        ),
+      ).rejects.toThrow('outbox persist failure')
+
+      const rollbackIndex = queries.findIndex((q) => q.text.trim().toUpperCase() === 'ROLLBACK;')
+      expect(rollbackIndex).toBeGreaterThan(-1)
+    })
+
+    it('cancelInterview does not persist outbox for already_cancelled outcome', async function run() {
+      const mockPersistOutboxEvent = vi.fn(async () => {})
+
+      const mockQueryExecutor = createMockQueryExecutor({
+        'FOR UPDATE': () => ({
+          rows: [
+            {
+              id: '11111111-1111-4111-8111-111111111111',
+              scheduler_id: '22222222-2222-4222-8222-222222222222',
+              scheduler_alias: 'Scheduler',
+              interviewer_id: null,
+              interviewer_alias: 'Interviewer',
+              type: 'system_design',
+              mode: 'ai_led',
+              tier: 'standard',
+              status: 'cancelled',
+              scheduled_at: '2026-05-22T10:00:00.000Z',
+              realtime_session_id: null,
+              excalidraw_room_id: null,
+              excalidraw_key: null,
+              recording_url: null,
+              screenshot_urls: null,
+              feedback: null,
+              created_at: '2026-05-22T09:00:00.000Z',
+              updated_at: '2026-05-22T09:00:00.000Z',
+            },
+          ],
+          rowCount: 1,
+        }),
+      })
+
+      const repository = new InterviewRepository({
+        queryExecutor: mockQueryExecutor,
+        persistOutboxEvent: mockPersistOutboxEvent,
+      })
+
+      const result = await repository.cancelInterview(
+        {
+          interview_id: '11111111-1111-4111-8111-111111111111',
+          participant_user_id: '22222222-2222-4222-8222-222222222222',
+          updated_at: '2026-05-22T09:00:00.000Z',
+        },
+        {
+          event_type: 'interview.cancelled',
+          event_id: '33333333-3333-4333-8333-333333333333',
+          idempotency_key: 'key',
+          occurred_at: '2026-05-22T10:00:00.000Z',
+          interview: {
+            id: '11111111-1111-4111-8111-111111111111',
+            scheduler_id: '22222222-2222-4222-8222-222222222222',
+            interviewer_id: null,
+            type: 'system_design',
+            mode: 'ai_led',
+            tier: 'standard',
+            status: 'cancelled',
+            scheduled_at: '2026-05-22T10:00:00.000Z',
+          },
+          participants: {
+            scheduler_user_id: '22222222-2222-4222-8222-222222222222',
+            interviewer_user_id: null,
+          },
+        } as NotificationQueueEvent,
+      )
+
+      expect(result.outcome).toBe('already_cancelled')
+      expect(mockPersistOutboxEvent).not.toHaveBeenCalled()
+    })
+
+    it('cancelInterview does not persist outbox for invalid_status outcome', async function run() {
+      const mockPersistOutboxEvent = vi.fn(async () => {})
+
+      const mockQueryExecutor = createMockQueryExecutor({
+        'FOR UPDATE': () => ({
+          rows: [
+            {
+              id: '11111111-1111-4111-8111-111111111111',
+              scheduler_id: '22222222-2222-4222-8222-222222222222',
+              scheduler_alias: 'Scheduler',
+              interviewer_id: null,
+              interviewer_alias: 'Interviewer',
+              type: 'system_design',
+              mode: 'ai_led',
+              tier: 'standard',
+              status: 'completed',
+              scheduled_at: '2026-05-22T10:00:00.000Z',
+              realtime_session_id: null,
+              excalidraw_room_id: null,
+              excalidraw_key: null,
+              recording_url: null,
+              screenshot_urls: null,
+              feedback: null,
+              created_at: '2026-05-22T09:00:00.000Z',
+              updated_at: '2026-05-22T09:00:00.000Z',
+            },
+          ],
+          rowCount: 1,
+        }),
+      })
+
+      const repository = new InterviewRepository({
+        queryExecutor: mockQueryExecutor,
+        persistOutboxEvent: mockPersistOutboxEvent,
+      })
+
+      const result = await repository.cancelInterview(
+        {
+          interview_id: '11111111-1111-4111-8111-111111111111',
+          participant_user_id: '22222222-2222-4222-8222-222222222222',
+          updated_at: '2026-05-22T09:00:00.000Z',
+        },
+        {
+          event_type: 'interview.cancelled',
+          event_id: '33333333-3333-4333-8333-333333333333',
+          idempotency_key: 'key',
+          occurred_at: '2026-05-22T10:00:00.000Z',
+          interview: {
+            id: '11111111-1111-4111-8111-111111111111',
+            scheduler_id: '22222222-2222-4222-8222-222222222222',
+            interviewer_id: null,
+            type: 'system_design',
+            mode: 'ai_led',
+            tier: 'standard',
+            status: 'cancelled',
+            scheduled_at: '2026-05-22T10:00:00.000Z',
+          },
+          participants: {
+            scheduler_user_id: '22222222-2222-4222-8222-222222222222',
+            interviewer_user_id: null,
+          },
+        } as NotificationQueueEvent,
+      )
+
+      expect(result.outcome).toBe('invalid_status')
+      expect(mockPersistOutboxEvent).not.toHaveBeenCalled()
+    })
+
+    it('cancelInterview does not persist outbox for not_found outcome', async function run() {
+      const mockPersistOutboxEvent = vi.fn(async () => {})
+
+      const mockQueryExecutor = createMockQueryExecutor({
+        'FOR UPDATE': () => ({
+          rows: [],
+          rowCount: 0,
+        }),
+      })
+
+      const repository = new InterviewRepository({
+        queryExecutor: mockQueryExecutor,
+        persistOutboxEvent: mockPersistOutboxEvent,
+      })
+
+      const result = await repository.cancelInterview(
+        {
+          interview_id: '11111111-1111-4111-8111-111111111111',
+          participant_user_id: '22222222-2222-4222-8222-222222222222',
+          updated_at: '2026-05-22T09:00:00.000Z',
+        },
+        {
+          event_type: 'interview.cancelled',
+          event_id: '33333333-3333-4333-8333-333333333333',
+          idempotency_key: 'key',
+          occurred_at: '2026-05-22T10:00:00.000Z',
+          interview: {
+            id: '11111111-1111-4111-8111-111111111111',
+            scheduler_id: '22222222-2222-4222-8222-222222222222',
+            interviewer_id: null,
+            type: 'system_design',
+            mode: 'ai_led',
+            tier: 'standard',
+            status: 'cancelled',
+            scheduled_at: '2026-05-22T10:00:00.000Z',
+          },
+          participants: {
+            scheduler_user_id: '22222222-2222-4222-8222-222222222222',
+            interviewer_user_id: null,
+          },
+        } as NotificationQueueEvent,
+      )
+
+      expect(result.outcome).toBe('not_found')
+      expect(mockPersistOutboxEvent).not.toHaveBeenCalled()
     })
   })
 })
