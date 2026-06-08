@@ -200,7 +200,7 @@ export function toCreateInterviewResponse(
   interviewInput: unknown,
 ): CreateInterviewResponse {
   return createInterviewResponseSchema.parse({
-    interview: parseInterview(interviewInput),
+    interview: parseInterviewDetail(interviewInput),
   })
 }
 

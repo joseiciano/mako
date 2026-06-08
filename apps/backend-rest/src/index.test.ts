@@ -216,6 +216,45 @@ describe('backend-rest smoke tests', function () {
     })
   })
 
+  it('sorts demo interview list by instant across offsets and strips private fields', async function () {
+    const app = createApp()
+
+    const laterResponse = await createInterview(app, {
+      scheduled_at: '2026-05-01T10:00:00-05:00',
+    })
+    expect(laterResponse.status).toBe(201)
+    const laterInterview = (await laterResponse.json()) as {
+      interview: { id: string }
+    }
+
+    const earlierResponse = await createInterview(app, {
+      scheduled_at: '2026-05-01T14:00:00.000Z',
+    })
+    expect(earlierResponse.status).toBe(201)
+    const earlierInterview = (await earlierResponse.json()) as {
+      interview: { id: string }
+    }
+
+    const listResponse = await listInterviews(app)
+    expect(listResponse.status).toBe(200)
+
+    const body = (await listResponse.json()) as {
+      interviews: Array<Record<string, unknown>>
+    }
+
+    expect(body.interviews.map((interview) => interview.id)).toEqual([
+      earlierInterview.interview.id,
+      laterInterview.interview.id,
+    ])
+
+    expect(body.interviews[0]).not.toHaveProperty('realtime_session_id')
+    expect(body.interviews[0]).not.toHaveProperty('excalidraw_room_id')
+    expect(body.interviews[0]).not.toHaveProperty('excalidraw_key')
+    expect(body.interviews[0]).not.toHaveProperty('recording_url')
+    expect(body.interviews[0]).not.toHaveProperty('screenshot_urls')
+    expect(body.interviews[0]).not.toHaveProperty('feedback')
+  })
+
   it('keeps demo account balances in sync after interview creation', async function () {
     const app = createApp()
 
