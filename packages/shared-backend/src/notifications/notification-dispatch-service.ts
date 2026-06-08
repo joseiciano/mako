@@ -81,6 +81,15 @@ export class NotificationDispatchService {
           continue
         }
 
+        if (interviewState.status !== 'scheduled') {
+          await this.logSafely('notification.enqueue_reminder_interview_not_scheduled', {
+            schedule_id: schedule.id,
+            interview_id: schedule.interview_id,
+            interview_status: interviewState.status,
+          })
+          continue
+        }
+
         await transport.send({
           message_type: 'reminder.due',
           idempotency_key: schedule.idempotency_key,
@@ -98,7 +107,9 @@ export class NotificationDispatchService {
       }
     }
 
-    await this.notificationService.markReminderDispatchedBatch(dispatchedScheduleIds)
+    if (dispatchedScheduleIds.length > 0) {
+      await this.notificationService.markReminderDispatchedBatch(dispatchedScheduleIds)
+    }
   }
 
   private async dispatchEvent(

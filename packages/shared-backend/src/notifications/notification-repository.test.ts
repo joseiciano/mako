@@ -259,6 +259,25 @@ describe('NotificationRepository', function notificationRepositorySuite() {
     expect(executedQueries[0]?.values).toEqual([['schedule-1', 'schedule-2']])
   })
 
+  it('marks reminder schedules as dispatched in batch only when status is pending', async function run() {
+    const executedQueries: SqlQuery[] = []
+    const repository = new NotificationRepository({
+      queryExecutor: createQueryExecutor({
+        onQuery(queryInput) {
+          executedQueries.push(queryInput)
+          return { rows: [] }
+        },
+      }),
+    })
+
+    await repository.markReminderDispatchedBatch(['schedule-1', 'schedule-2'])
+
+    expect(executedQueries).toHaveLength(1)
+    expect(normalizeSql(executedQueries[0]?.text ?? '')).toContain('WHERE id = ANY($1)')
+    expect(normalizeSql(executedQueries[0]?.text ?? '')).toContain("status = 'pending'")
+    expect(executedQueries[0]?.values).toEqual([['schedule-1', 'schedule-2']])
+  })
+
   it('suppresses pending reminder schedules for an interview', async function run() {
     const repository = new NotificationRepository({
       queryExecutor: createQueryExecutor({
@@ -288,6 +307,24 @@ describe('NotificationRepository', function notificationRepositorySuite() {
 
     expect(executedQueries).toHaveLength(1)
     expect(normalizeSql(executedQueries[0]?.text ?? '')).toContain("status = 'dispatched'")
+  })
+
+  it('marks reminder schedules as dispatched only when status is pending', async function run() {
+    const executedQueries: SqlQuery[] = []
+    const repository = new NotificationRepository({
+      queryExecutor: createQueryExecutor({
+        onQuery(queryInput) {
+          executedQueries.push(queryInput)
+          return { rows: [] }
+        },
+      }),
+    })
+
+    await repository.markReminderDispatched('schedule-id')
+
+    expect(executedQueries).toHaveLength(1)
+    expect(normalizeSql(executedQueries[0]?.text ?? '')).toContain("status = 'dispatched'")
+    expect(normalizeSql(executedQueries[0]?.text ?? '')).toContain("status = 'pending'")
   })
 
   it('reads interview state by id', async function run() {
