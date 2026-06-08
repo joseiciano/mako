@@ -22,6 +22,7 @@ import {
   listParticipantInterviewsInputSchema,
   parseInterview,
   parseInterviewDetail,
+  parseInterviewListItem,
   registerAccountController,
   registerAuthController,
   registerInterviewController,
@@ -346,7 +347,7 @@ function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
           .sort(compareInterviewListOrder)
           .slice(parsedInput.offset, parsedInput.offset + parsedInput.limit)
           .map(function cloneInterview(interview) {
-            return structuredClone(interview)
+            return parseInterviewListItem(structuredClone(interview))
           })
       },
       async cancelInterview(
@@ -394,11 +395,14 @@ function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
 }
 
 function compareInterviewListOrder(left: Interview, right: Interview): number {
-  if (left.scheduled_at < right.scheduled_at) {
+  const leftTime = new Date(left.scheduled_at).getTime()
+  const rightTime = new Date(right.scheduled_at).getTime()
+
+  if (leftTime < rightTime) {
     return -1
   }
 
-  if (left.scheduled_at > right.scheduled_at) {
+  if (leftTime > rightTime) {
     return 1
   }
 

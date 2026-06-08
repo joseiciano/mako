@@ -19,7 +19,7 @@
     - **Create Matrix Note**: Direct create UI must not expose an `interviewer_id` picker for Milestone 2 and should treat direct `peer_to_peer` submissions as unsupported, routing Standard sessions through availability matching instead.
     - **Scope Note**: Current Story 5 UI implementation scope is `system_design` type selection. Additional API-documented interview types remain forward-compatible contract surface for later UI expansion.
 - **Interview Details (`/interviews/:id`)**: Comprehensive view of a specific interview's status and metadata.
-    - **Implementation Status**: Documented target route. Treat behavior as story-gated until the dedicated details/session follow-up stories are completed.
+    - **Implementation Status**: Core API route `GET /api/interviews/:id` is live. Full Interview Details / Session / Feedback page rollout remains follow-up work tied to later lifecycle stories.
     - **Features**: Recording playback, whiteboard screenshots, feedback summary, and participant info.
     - **Data**: `GET /api/interviews/:id`
 - **Interview Session (`/interviews/:id/session`)**: The immersive interview environment.
@@ -35,7 +35,7 @@
     - **Data**: `GET /api/interviews/:id`
 
 ### Route/Story Tracking Note
-- `GET /api/interviews/:id` is documented as a lifecycle page dependency but is explicitly out of Milestone 2 Story 3 CRUD scope; follow-up ownership is `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-9-interview-details-route-get-api-interviews-id.md`.
+- `GET /api/interviews/:id` is now implemented and available as lifecycle page dependency. Remaining ownership in `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-9-interview-details-route-get-api-interviews-id.md` covers downstream details/session/feedback page rollout and integration work, not initial route delivery.
 - `POST /api/interviews/:id/provision` is documented as a join-time lifecycle dependency but is explicitly out of Milestone 2 Story 3 CRUD scope; follow-up ownership is `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-2-whiteboard-provision-contract-and-backend-wiring.md`.
 - `POST /api/interviews/:id/ai-chat` is an AI-led interview route and should be delivered in dedicated AI-interviewer stories (Milestone 4 scope), starting with `docs/product/stories/stories/milestone-4-ai-interviewer-implementation/2-1-ai-chat-route-and-canvas-guidance.md`.
-- Keep them tied to dedicated follow-up stories before full rollout of details/session pages.
+- Keep downstream lifecycle pages and integrations tied to dedicated follow-up stories until full details/session/feedback rollout is complete.

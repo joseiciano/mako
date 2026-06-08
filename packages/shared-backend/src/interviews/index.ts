@@ -45,6 +45,7 @@ export {
   toCancelInterviewResponse,
   parseInterview,
   parseInterviewDetail,
+  parseInterviewListItem,
   toCreateInterviewResponse,
   toInterviewListResponse,
   type CancelInterviewRecordInput,

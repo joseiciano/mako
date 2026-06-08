@@ -222,6 +222,35 @@ describe('interview shared contracts', function interviewSharedContractsSuite() 
     expect(payload.interview.mode).toBe('ai_led')
   })
 
+  it('strips collaboration credential fields from create responses', function run() {
+    const parsed = createInterviewResponseSchema.parse({
+      interview: {
+        id: '11111111-1111-4111-8111-111111111111',
+        scheduler_id: '22222222-2222-4222-8222-222222222222',
+        scheduler_alias: 'Candidate-Blue',
+        interviewer_id: null,
+        interviewer_alias: 'Interviewer-Red',
+        type: 'system_design',
+        mode: 'ai_led',
+        tier: 'standard',
+        status: 'scheduled',
+        scheduled_at: '2026-04-10T10:30:00.000Z',
+        realtime_session_id: 'sess_abc123',
+        excalidraw_room_id: 'room_def456',
+        excalidraw_key: 'key_ghi789',
+        recording_url: null,
+        screenshot_urls: null,
+        feedback: null,
+        created_at: '2026-04-01T10:00:00.000Z',
+        updated_at: '2026-04-01T10:00:00.000Z',
+      },
+    })
+
+    expect(parsed.interview).not.toHaveProperty('realtime_session_id')
+    expect(parsed.interview).not.toHaveProperty('excalidraw_room_id')
+    expect(parsed.interview).not.toHaveProperty('excalidraw_key')
+  })
+
   it('parses create response with timestamptz offset in created_at and updated_at', function run() {
     const payload = createInterviewResponseSchema.parse({
       interview: {
@@ -381,6 +410,36 @@ describe('interview shared contracts', function interviewSharedContractsSuite() 
           recording_url: null,
           screenshot_urls: null,
           feedback: 'not-an-object',
+          created_at: '2026-04-01T10:00:00.000Z',
+          updated_at: '2026-04-01T10:00:00.000Z',
+        },
+      })
+    }).toThrow()
+  })
+
+
+  it('rejects feedback objects with non-json-serializable values', function run() {
+    expect(function parseInvalidPayload() {
+      interviewDetailResponseSchema.parse({
+        interview: {
+          id: '11111111-1111-4111-8111-111111111111',
+          scheduler_id: '22222222-2222-4222-8222-222222222222',
+          scheduler_alias: 'Candidate-Blue',
+          interviewer_id: null,
+          interviewer_alias: 'Interviewer-Red',
+          type: 'system_design',
+          mode: 'peer_to_peer',
+          tier: 'standard',
+          status: 'scheduled',
+          scheduled_at: '2026-04-10T10:30:00.000Z',
+          recording_url: null,
+          screenshot_urls: null,
+          feedback: {
+            strengths: ['Good communication'],
+            callback: function callback() {
+              return 'not-json'
+            },
+          },
           created_at: '2026-04-01T10:00:00.000Z',
           updated_at: '2026-04-01T10:00:00.000Z',
         },

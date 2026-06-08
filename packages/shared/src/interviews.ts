@@ -28,6 +28,25 @@ export const interviewCreateScheduledAtSchema = z.union([
   interviewScheduledAtSchema,
 ])
 
+type JsonValue =
+  | boolean
+  | null
+  | number
+  | string
+  | JsonValue[]
+  | { [key: string]: JsonValue }
+
+const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(function createJsonValueSchema() {
+  return z.union([
+    z.string(),
+    z.number().finite(),
+    z.boolean(),
+    z.null(),
+    z.array(jsonValueSchema),
+    z.record(z.string(), jsonValueSchema),
+  ])
+})
+
 export const interviewSchema = z.object({
   id: z.string().uuid(),
   scheduler_id: z.string().uuid(),
@@ -44,7 +63,7 @@ export const interviewSchema = z.object({
   excalidraw_key: z.string().nullable(),
   recording_url: z.string().nullable(),
   screenshot_urls: z.array(z.string()).nullable(),
-  feedback: z.record(z.string(), z.unknown()).nullable(),
+  feedback: z.record(z.string(), jsonValueSchema).nullable(),
   created_at: z.string().datetime({ offset: true }),
   updated_at: z.string().datetime({ offset: true }),
 })
@@ -93,7 +112,7 @@ export const createInterviewRequestSchema = z
   .strict()
 
 export const createInterviewResponseSchema = z.object({
-  interview: interviewSchema,
+  interview: interviewDetailSchema,
 })
 
 export const cancelInterviewParamsSchema = z.object({
