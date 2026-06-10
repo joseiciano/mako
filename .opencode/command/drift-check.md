@@ -20,4 +20,4 @@ Error 1: <Description of the issue>
 - Reason why this is a drift: <Reasoning>
 ```
 
-Aggregate all the issues, and create a plan document, plan_drift_resolve.md, to list out the discrepancies and how they are to be fixed. 
+Aggregate all the issues, and list out the discrepancies and how they are to be fixed.

@@ -21,7 +21,7 @@
 - [x] Validate event-type participant-B requiredness matrix:
   - `interview.created`: `interview.interviewer_id` / `participants.interviewer_user_id` nullable
   - `interview.match.created`: `interview.interviewer_id` / `participants.interviewer_user_id` required non-null
-- [x] Validate `interview.cancelled` participant-B field behavior mirrors persisted interview shape at cancellation time (non-null for peer-to-peer rows, nullable for AI-led rows).
+- [x] Validate `interview.cancelled` participant-B field behavior mirrors the persisted interview shape at cancellation time (non-null for peer-to-peer rows, nullable for AI-led rows).
 - [x] Validate canonical/derived participant identity consistency when both are present (`interview.*` IDs must equal `participants.*` IDs).
 
 ### 2. Commit boundary correctness tests
