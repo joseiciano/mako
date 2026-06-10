@@ -3,6 +3,7 @@ import { InterviewService } from '../interviews/interview-service'
 import {
   InterviewRepository,
   createInMemoryInterviewDataSource,
+  type InterviewRepositoryDataSource,
 } from '../interviews/interview-repository'
 import { NotificationService } from './notification-service'
 import { NotificationRepository } from './notification-repository'
@@ -17,7 +18,8 @@ import type {
   NotificationReminderScheduleRow,
   InterviewState,
 } from './notification-types'
-import type { NotificationTransport } from './notification-transport-message'
+import type { NotificationTransport, NotificationTransportMessage } from './notification-transport-message'
+import type { NotificationQueueEvent } from '../notification-queue-event-contract'
 import type { NotificationDeliveryPort } from './notification-consumer-service'
 
 const activeSession: InterviewSession = {
@@ -197,6 +199,25 @@ describe('Notification Integration', function notificationIntegrationSuite() {
       scheduler_user_id: activeSession.userId,
       interviewer_user_id: interviewerSession.userId,
     })
+  })
+
+  it('cancel interview fails with explicit error when harness data source omits cancelInterview', async function run() {
+    const interviewId = '55555555-5555-4555-8555-555555555555'
+    const harness = createIntegrationHarness(
+      { freeAiInterviews: 0, credits: 0 },
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          mode: 'ai_led',
+        }),
+      ],
+      { cancelInterview: undefined },
+    )
+
+    await expect(
+      harness.interviewService.cancelInterview(activeSession, { id: interviewId }),
+    ).rejects.toThrow('cancelInterview data source not configured in integration harness')
   })
 
   it('matcher write emits interview.match.created with required non-null participant B, mirrored identities, confirmation to both, and reminder schedule', async function run() {
@@ -396,8 +417,8 @@ describe('Notification Integration', function notificationIntegrationSuite() {
       harness.notificationTransport,
     )
     expect(harness.transportMessages.length).toBe(messageCountBefore + 1)
-    expect((harness.transportMessages[0] as { idempotency_key: string }).idempotency_key).toBe(idempotencyKey)
-    expect((harness.transportMessages[1] as { idempotency_key: string }).idempotency_key).toBe(idempotencyKey)
+    expect(harness.transportMessages[0]?.idempotency_key).toBe(idempotencyKey)
+    expect(harness.transportMessages[1]?.idempotency_key).toBe(idempotencyKey)
 
     // Consumer processes original delivery plus replay
     await harness.consumer.processInterviewCreated(
@@ -417,15 +438,29 @@ describe('Notification Integration', function notificationIntegrationSuite() {
   })
 })
 
+/** Converts a NotificationQueueEvent into a NotificationOutboxEventRow for test-harness persistence. */
+function toOutboxRow(event: NotificationQueueEvent): NotificationOutboxEventRow {
+  return {
+    idempotency_key: event.idempotency_key,
+    event_type: event.event_type,
+    event_payload: event as unknown as Record<string, unknown>,
+    status: 'pending',
+    dispatch_attempts: 0,
+    last_dispatch_attempted_at: null,
+    created_at: '2026-05-22T10:00:00.000Z',
+    updated_at: '2026-05-22T10:00:00.000Z',
+  }
+}
 function createIntegrationHarness(
   accountState: { freeAiInterviews: number; credits: number },
   seedInterviews: readonly Interview[] = [],
+  dataSourceOverrides: Partial<InterviewRepositoryDataSource> = {},
 ) {
   const outboxEvents: NotificationOutboxEventRow[] = []
   const checkpoints: Array<{ idempotency_key: string; checkpoint_key: string }> = []
   const reminderSchedules: NotificationReminderScheduleRow[] = []
   const interviews = new Map<string, InterviewState>()
-  const transportMessages: unknown[] = []
+  const transportMessages: NotificationTransportMessage[] = []
   const deliveryCalls: Array<{
     kind: 'confirmation' | 'reminder'
     interviewId: string
@@ -499,7 +534,7 @@ function createIntegrationHarness(
       },
       async listDueReminderSchedules(
         before: string,
-        limit: number = Number.MAX_SAFE_INTEGER,
+        limit?: number,
       ): Promise<NotificationReminderScheduleRow[]> {
         return reminderSchedules
           .filter((s) => s.status === 'pending' && s.reminder_due_at <= before)
@@ -574,30 +609,24 @@ function createIntegrationHarness(
     deliveryPort,
   )
 
-  // Build interview repository with outbox persistence wired into the data source
-  const inMemoryDataSource = createInMemoryInterviewDataSource(
-    [
-      {
-        userId: activeSession.userId,
-        credits: accountState.credits,
-        freeAiInterviews: accountState.freeAiInterviews,
-      },
-    ],
-    seedInterviews,
-  )
+  // Build interview repository with outbox persistence wired into data source
+  const inMemoryDataSource: InterviewRepositoryDataSource = {
+    ...createInMemoryInterviewDataSource(
+      [
+        {
+          userId: activeSession.userId,
+          credits: accountState.credits,
+          freeAiInterviews: accountState.freeAiInterviews,
+        },
+      ],
+      seedInterviews,
+    ),
+    ...dataSourceOverrides,
+  }
 
   const interviewRepository = new InterviewRepository({
     persistOutboxEvent: async (outboxEvent) => {
-      await notificationRepository.persistOutboxEvent({
-        idempotency_key: (outboxEvent as Record<string, unknown>).idempotency_key as string,
-        event_type: (outboxEvent as Record<string, unknown>).event_type as string,
-        event_payload: outboxEvent as unknown as Record<string, unknown>,
-        status: 'pending',
-        dispatch_attempts: 0,
-        last_dispatch_attempted_at: null,
-        created_at: '2026-05-22T10:00:00.000Z',
-        updated_at: '2026-05-22T10:00:00.000Z',
-      })
+      await notificationRepository.persistOutboxEvent(toOutboxRow(outboxEvent))
     },
     dataSource: {
       ...inMemoryDataSource,
@@ -605,16 +634,7 @@ function createIntegrationHarness(
         const interview = await inMemoryDataSource.createDirectInterview(input, outboxEvent)
 
         if (outboxEvent) {
-          await notificationRepository.persistOutboxEvent({
-            idempotency_key: (outboxEvent as Record<string, unknown>).idempotency_key as string,
-            event_type: (outboxEvent as Record<string, unknown>).event_type as string,
-            event_payload: outboxEvent as unknown as Record<string, unknown>,
-            status: 'pending',
-            dispatch_attempts: 0,
-            last_dispatch_attempted_at: null,
-            created_at: '2026-05-22T10:00:00.000Z',
-            updated_at: '2026-05-22T10:00:00.000Z',
-          })
+          await notificationRepository.persistOutboxEvent(toOutboxRow(outboxEvent))
         }
 
         interviews.set(interview.id, {
@@ -633,7 +653,13 @@ function createIntegrationHarness(
         return interview
       },
       async cancelInterview(input) {
-        const result = await inMemoryDataSource.cancelInterview!(input)
+        const cancelInterview = inMemoryDataSource.cancelInterview
+
+        if (!cancelInterview) {
+          throw new Error('cancelInterview data source not configured in integration harness')
+        }
+
+        const result = await cancelInterview(input)
 
         if (result.outcome === 'cancelled') {
           interviews.set(result.interview.id, {

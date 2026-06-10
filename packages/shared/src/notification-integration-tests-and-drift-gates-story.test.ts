@@ -10,17 +10,17 @@ function readRepositoryFile(...filePathSegments: string[]): string {
   return readFileSync(resolve(repositoryRoot, ...filePathSegments), 'utf8')
 }
 
+const storyDocument = readRepositoryFile(
+  'docs',
+  'product',
+  'stories',
+  'stories',
+  'milestone-2-interview-scheduling-dashboard',
+  '4-6-notification-integration-tests-and-drift-gates.md',
+)
+
 describe('story 4.6 notification integration tests and drift gates', function () {
   it('keeps Story 4.6 marked completed with no unchecked items and required references', function () {
-    const storyDocument = readRepositoryFile(
-      'docs',
-      'product',
-      'stories',
-      'stories',
-      'milestone-2-interview-scheduling-dashboard',
-      '4-6-notification-integration-tests-and-drift-gates.md',
-    )
-
     const requiredReferences = [
       'docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-1-notification-scope-and-lifecycle-boundary-lock.md',
       'docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/4-2-notification-event-contract-and-producer-ownership.md',
@@ -46,15 +46,6 @@ describe('story 4.6 notification integration tests and drift gates', function ()
   })
 
   it('locks create/cancel/matcher event type coverage', function () {
-    const storyDocument = readRepositoryFile(
-      'docs',
-      'product',
-      'stories',
-      'stories',
-      'milestone-2-interview-scheduling-dashboard',
-      '4-6-notification-integration-tests-and-drift-gates.md',
-    )
-
     expect(storyDocument).toContain('interview.created')
     expect(storyDocument).toContain('interview.cancelled')
     expect(storyDocument).toContain('interview.match.created')
@@ -64,43 +55,16 @@ describe('story 4.6 notification integration tests and drift gates', function ()
   })
 
   it('locks emit-after-commit behavior and no emission on rollback/failure', function () {
-    const storyDocument = readRepositoryFile(
-      'docs',
-      'product',
-      'stories',
-      'stories',
-      'milestone-2-interview-scheduling-dashboard',
-      '4-6-notification-integration-tests-and-drift-gates.md',
-    )
-
     expect(storyDocument).toContain('emit-after-commit behavior')
     expect(storyDocument).toContain('no emission on transaction rollback/failure paths')
   })
 
   it('locks deterministic idempotency key and duplicate/replayed delivery idempotency', function () {
-    const storyDocument = readRepositoryFile(
-      'docs',
-      'product',
-      'stories',
-      'stories',
-      'milestone-2-interview-scheduling-dashboard',
-      '4-6-notification-integration-tests-and-drift-gates.md',
-    )
-
     expect(storyDocument).toContain('deterministic `idempotency_key`')
     expect(storyDocument).toContain('duplicate/replayed delivery of the same emitted cancel event remains idempotent')
   })
 
   it('locks reminder 30-minute lead, suppression rules, and cancellation reminder suppression', function () {
-    const storyDocument = readRepositoryFile(
-      'docs',
-      'product',
-      'stories',
-      'stories',
-      'milestone-2-interview-scheduling-dashboard',
-      '4-6-notification-integration-tests-and-drift-gates.md',
-    )
-
     expect(storyDocument).toContain('reminder scheduling at 30-minute lead')
     expect(storyDocument).toContain('suppression for past-due and <30-minute windows')
     expect(storyDocument).toContain('cancellation suppresses/cancels pending reminders')
