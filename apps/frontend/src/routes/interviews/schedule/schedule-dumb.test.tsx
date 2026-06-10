@@ -126,7 +126,7 @@ describe('ScheduleDumb', function scheduleDumbSuite() {
     cleanup()
   })
 
-  it('communicates that peer-to-peer direct creation is unavailable', function testP2PMessage() {
+  it('communicates that peer-to-peer uses availability matching', function testP2PMessage() {
     render(
       <ScheduleDumb
         scheduledAt="now"
@@ -137,7 +137,7 @@ describe('ScheduleDumb', function scheduleDumbSuite() {
       />,
     )
 
-    const elements = screen.getAllByText(/peer-to-peer direct creation is currently unavailable/i)
+    const elements = screen.getAllByText(/peer-to-peer sessions use availability matching/i)
     expect(elements.length).toBeGreaterThan(0)
     cleanup()
   })
