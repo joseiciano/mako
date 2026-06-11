@@ -69,4 +69,22 @@ export type {
   InterviewListItem,
   InterviewListQuery,
   InterviewListResponse,
+  InterviewMode,
+  InterviewTier,
+  InterviewType,
 } from './interviews'
+
+export {
+  availabilityRequestSchema,
+  availabilitySlotInputSchema,
+  availabilitySlotSchema,
+  createAvailabilityRequestSchema,
+  createAvailabilityResponseSchema,
+} from './availability'
+export type {
+  AvailabilityRequest,
+  AvailabilitySlot,
+  AvailabilitySlotInput,
+  CreateAvailabilityRequest,
+  CreateAvailabilityResponse,
+} from './availability'

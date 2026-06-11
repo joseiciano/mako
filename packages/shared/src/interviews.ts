@@ -123,6 +123,9 @@ export const cancelInterviewResponseSchema = z.object({
   success: z.boolean(),
 })
 
+export type InterviewType = z.infer<typeof interviewTypeSchema>
+export type InterviewMode = z.infer<typeof interviewModeSchema>
+export type InterviewTier = z.infer<typeof interviewTierSchema>
 export type Interview = z.infer<typeof interviewSchema>
 export type InterviewListItem = z.infer<typeof interviewListItemSchema>
 export type InterviewListResponse = z.infer<typeof interviewListResponseSchema>
