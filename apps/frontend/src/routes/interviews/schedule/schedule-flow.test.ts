@@ -1,0 +1,592 @@
+import { describe, expect, it } from 'vitest'
+import {
+  initialScheduleState,
+  scheduleReducer,
+  isTimingComplete,
+  isAvailabilityComplete,
+  isStepComplete,
+  buildAiPayload,
+  buildP2pPayload,
+  getVisibleSteps,
+  type ScheduleState,
+} from './schedule-flow'
+
+describe('schedule-flow', function scheduleFlowSuite() {
+  describe('scheduleReducer', function reducerSuite() {
+    it('sets interview type', function () {
+      const next = scheduleReducer(initialScheduleState, {
+        type: 'SET_TYPE',
+        payload: 'system_design',
+      })
+      expect(next.interviewType).toBe('system_design')
+      expect(next.step).toBe('type')
+    })
+
+    it('sets mode and resets downstream state for ai_led', function () {
+      const state: ScheduleState = {
+        ...initialScheduleState,
+        interviewType: 'system_design',
+        mode: 'peer_to_peer',
+        maxMatches: 3,
+        slots: [{ startTime: '2026-06-10T10:00', endTime: '2026-06-10T11:00' }],
+      }
+      const next = scheduleReducer(state, {
+        type: 'SET_MODE',
+        payload: 'ai_led',
+      })
+      expect(next.mode).toBe('ai_led')
+      expect(next.maxMatches).toBeNull()
+      expect(next.slots).toEqual([])
+    })
+
+    it('sets mode and resets downstream state for peer_to_peer', function () {
+      const state: ScheduleState = {
+        ...initialScheduleState,
+        interviewType: 'system_design',
+        mode: 'ai_led',
+        scheduledAt: 'now',
+      }
+      const next = scheduleReducer(state, {
+        type: 'SET_MODE',
+        payload: 'peer_to_peer',
+      })
+      expect(next.mode).toBe('peer_to_peer')
+      expect(next.scheduledAt).toBeNull()
+    })
+
+    it('advances from type to mode when type is set', function () {
+      const state: ScheduleState = {
+        ...initialScheduleState,
+        interviewType: 'system_design',
+      }
+      const next = scheduleReducer(state, { type: 'NEXT' })
+      expect(next.step).toBe('mode')
+    })
+
+    it('blocks advance from type when type is null', function () {
+      const next = scheduleReducer(initialScheduleState, { type: 'NEXT' })
+      expect(next.step).toBe('type')
+    })
+
+    it('advances from mode to timing for ai_led', function () {
+      const state: ScheduleState = {
+        ...initialScheduleState,
+        interviewType: 'system_design',
+        mode: 'ai_led',
+        step: 'mode',
+      }
+      const next = scheduleReducer(state, { type: 'NEXT' })
+      expect(next.step).toBe('timing')
+    })
+
+    it('advances from mode to availability for peer_to_peer', function () {
+      const state: ScheduleState = {
+        ...initialScheduleState,
+        interviewType: 'system_design',
+        mode: 'peer_to_peer',
+        step: 'mode',
+      }
+      const next = scheduleReducer(state, { type: 'NEXT' })
+      expect(next.step).toBe('availability')
+    })
+
+    it('blocks advance from mode when mode is null', function () {
+      const state: ScheduleState = {
+        ...initialScheduleState,
+        interviewType: 'system_design',
+      }
+      const next = scheduleReducer(state, { type: 'NEXT' })
+      expect(next.step).toBe('mode')
+    })
+
+    it('advances from timing to confirm when complete', function () {
+      const state: ScheduleState = {
+        ...initialScheduleState,
+        interviewType: 'system_design',
+        mode: 'ai_led',
+        step: 'timing',
+        scheduledAt: 'now',
+      }
+      const next = scheduleReducer(state, { type: 'NEXT' })
+      expect(next.step).toBe('confirm')
+    })
+
+    it('blocks advance from timing when incomplete', function () {
+      const state: ScheduleState = {
+        ...initialScheduleState,
+        interviewType: 'system_design',
+        mode: 'ai_led',
+        step: 'timing',
+        scheduledAt: null,
+      }
+      const next = scheduleReducer(state, { type: 'NEXT' })
+      expect(next.step).toBe('timing')
+    })
+
+    it('advances from availability to confirm when complete', function () {
+      const state: ScheduleState = {
+        ...initialScheduleState,
+        interviewType: 'system_design',
+        mode: 'peer_to_peer',
+        step: 'availability',
+        maxMatches: 2,
+        slots: [{ startTime: '2026-06-10T10:00', endTime: '2026-06-10T11:00' }],
+      }
+      const next = scheduleReducer(state, { type: 'NEXT' })
+      expect(next.step).toBe('confirm')
+    })
+
+    it('blocks advance from availability when incomplete', function () {
+      const state: ScheduleState = {
+        ...initialScheduleState,
+        interviewType: 'system_design',
+        mode: 'peer_to_peer',
+        step: 'availability',
+        maxMatches: null,
+        slots: [],
+      }
+      const next = scheduleReducer(state, { type: 'NEXT' })
+      expect(next.step).toBe('availability')
+    })
+
+    it('blocks advance from confirm', function () {
+      const state: ScheduleState = {
+        ...initialScheduleState,
+        step: 'confirm',
+      }
+      const next = scheduleReducer(state, { type: 'NEXT' })
+      expect(next.step).toBe('confirm')
+    })
+
+    it('goes back from mode to type', function () {
+      const state: ScheduleState = {
+        ...initialScheduleState,
+        interviewType: 'system_design',
+        mode: 'ai_led',
+        step: 'mode',
+      }
+      const next = scheduleReducer(state, { type: 'BACK' })
+      expect(next.step).toBe('type')
+      expect(next.interviewType).toBe('system_design')
+    })
+
+    it('goes back from timing to mode', function () {
+      const state: ScheduleState = {
+        ...initialScheduleState,
+        interviewType: 'system_design',
+        mode: 'ai_led',
+        step: 'timing',
+        scheduledAt: 'now',
+      }
+      const next = scheduleReducer(state, { type: 'BACK' })
+      expect(next.step).toBe('mode')
+      expect(next.scheduledAt).toBe('now')
+    })
+
+    it('goes back from availability to mode', function () {
+      const state: ScheduleState = {
+        ...initialScheduleState,
+        interviewType: 'system_design',
+        mode: 'peer_to_peer',
+        step: 'availability',
+        maxMatches: 2,
+        slots: [{ startTime: '2026-06-10T10:00', endTime: '2026-06-10T11:00' }],
+      }
+      const next = scheduleReducer(state, { type: 'BACK' })
+      expect(next.step).toBe('mode')
+      expect(next.maxMatches).toBe(2)
+      expect(next.slots).toHaveLength(1)
+    })
+
+    it('goes back from confirm to timing for ai_led', function () {
+      const state: ScheduleState = {
+        ...initialScheduleState,
+        interviewType: 'system_design',
+        mode: 'ai_led',
+        step: 'confirm',
+        scheduledAt: 'now',
+      }
+      const next = scheduleReducer(state, { type: 'BACK' })
+      expect(next.step).toBe('timing')
+    })
+
+    it('goes back from confirm to availability for peer_to_peer', function () {
+      const state: ScheduleState = {
+        ...initialScheduleState,
+        interviewType: 'system_design',
+        mode: 'peer_to_peer',
+        step: 'confirm',
+        maxMatches: 2,
+        slots: [{ startTime: '2026-06-10T10:00', endTime: '2026-06-10T11:00' }],
+      }
+      const next = scheduleReducer(state, { type: 'BACK' })
+      expect(next.step).toBe('availability')
+    })
+
+    it('blocks back from type', function () {
+      const next = scheduleReducer(initialScheduleState, { type: 'BACK' })
+      expect(next.step).toBe('type')
+    })
+
+    it('navigates to a specific step via GO_TO_STEP', function () {
+      const state: ScheduleState = {
+        ...initialScheduleState,
+        interviewType: 'system_design',
+        mode: 'ai_led',
+        step: 'confirm',
+      }
+      const next = scheduleReducer(state, {
+        type: 'GO_TO_STEP',
+        payload: 'type',
+      })
+      expect(next.step).toBe('type')
+    })
+
+    it('resets to initial state', function () {
+      const state: ScheduleState = {
+        ...initialScheduleState,
+        interviewType: 'system_design',
+        mode: 'ai_led',
+        step: 'confirm',
+        scheduledAt: 'now',
+      }
+      const next = scheduleReducer(state, { type: 'RESET' })
+      expect(next).toEqual(initialScheduleState)
+    })
+
+    it('clears validation error on state change', function () {
+      const state: ScheduleState = {
+        ...initialScheduleState,
+        validationError: 'Bad input',
+      }
+      const next = scheduleReducer(state, {
+        type: 'SET_TYPE',
+        payload: 'system_design',
+      })
+      expect(next.validationError).toBeNull()
+    })
+  })
+
+  describe('isTimingComplete', function timingSuite() {
+    it('returns true for now', function () {
+      expect(
+        isTimingComplete({ ...initialScheduleState, scheduledAt: 'now' }),
+      ).toBe(true)
+    })
+
+    it('returns true for valid ISO datetime', function () {
+      expect(
+        isTimingComplete({
+          ...initialScheduleState,
+          scheduledAt: '2026-06-10T10:00:00.000Z',
+        }),
+      ).toBe(true)
+    })
+
+    it('returns false for null', function () {
+      expect(
+        isTimingComplete({ ...initialScheduleState, scheduledAt: null }),
+      ).toBe(false)
+    })
+
+    it('returns false for empty string', function () {
+      expect(
+        isTimingComplete({ ...initialScheduleState, scheduledAt: '' }),
+      ).toBe(false)
+    })
+
+    it('returns false for invalid datetime', function () {
+      expect(
+        isTimingComplete({
+          ...initialScheduleState,
+          scheduledAt: 'not-a-date',
+        }),
+      ).toBe(false)
+    })
+  })
+
+  describe('isAvailabilityComplete', function availabilitySuite() {
+    it('returns true with valid maxMatches and 60-minute slots', function () {
+      expect(
+        isAvailabilityComplete({
+          ...initialScheduleState,
+          maxMatches: 2,
+          slots: [
+            { startTime: '2026-06-10T10:00', endTime: '2026-06-10T11:00' },
+          ],
+        }),
+      ).toBe(true)
+    })
+
+    it('returns false when maxMatches is null', function () {
+      expect(
+        isAvailabilityComplete({
+          ...initialScheduleState,
+          maxMatches: null,
+          slots: [
+            { startTime: '2026-06-10T10:00', endTime: '2026-06-10T11:00' },
+          ],
+        }),
+      ).toBe(false)
+    })
+
+    it('returns false when maxMatches is zero', function () {
+      expect(
+        isAvailabilityComplete({
+          ...initialScheduleState,
+          maxMatches: 0,
+          slots: [
+            { startTime: '2026-06-10T10:00', endTime: '2026-06-10T11:00' },
+          ],
+        }),
+      ).toBe(false)
+    })
+
+    it('returns false when slots is empty', function () {
+      expect(
+        isAvailabilityComplete({
+          ...initialScheduleState,
+          maxMatches: 2,
+          slots: [],
+        }),
+      ).toBe(false)
+    })
+
+    it('returns false when a slot is not exactly 60 minutes', function () {
+      expect(
+        isAvailabilityComplete({
+          ...initialScheduleState,
+          maxMatches: 2,
+          slots: [
+            { startTime: '2026-06-10T10:00', endTime: '2026-06-10T10:30' },
+          ],
+        }),
+      ).toBe(false)
+    })
+
+    it('returns false when a slot has empty time', function () {
+      expect(
+        isAvailabilityComplete({
+          ...initialScheduleState,
+          maxMatches: 2,
+          slots: [{ startTime: '', endTime: '' }],
+        }),
+      ).toBe(false)
+    })
+  })
+
+  describe('isStepComplete', function stepCompleteSuite() {
+    it('type is complete when set', function () {
+      expect(
+        isStepComplete(
+          { ...initialScheduleState, interviewType: 'system_design' },
+          'type',
+        ),
+      ).toBe(true)
+    })
+
+    it('mode is complete when set', function () {
+      expect(
+        isStepComplete(
+          { ...initialScheduleState, mode: 'ai_led' },
+          'mode',
+        ),
+      ).toBe(true)
+    })
+
+    it('confirm is complete for ai_led when timing complete', function () {
+      expect(
+        isStepComplete(
+          {
+            ...initialScheduleState,
+            mode: 'ai_led',
+            scheduledAt: 'now',
+          },
+          'confirm',
+        ),
+      ).toBe(true)
+    })
+
+    it('confirm is complete for p2p when availability complete', function () {
+      expect(
+        isStepComplete(
+          {
+            ...initialScheduleState,
+            mode: 'peer_to_peer',
+            maxMatches: 2,
+            slots: [
+              {
+                startTime: '2026-06-10T10:00',
+                endTime: '2026-06-10T11:00',
+              },
+            ],
+          },
+          'confirm',
+        ),
+      ).toBe(true)
+    })
+  })
+
+  describe('buildAiPayload', function aiPayloadSuite() {
+    it('builds payload for now', function () {
+      const payload = buildAiPayload({
+        ...initialScheduleState,
+        interviewType: 'system_design',
+        mode: 'ai_led',
+        scheduledAt: 'now',
+      })
+      expect(payload).toEqual({
+        type: 'system_design',
+        mode: 'ai_led',
+        scheduled_at: 'now',
+      })
+    })
+
+    it('builds payload for scheduled datetime', function () {
+      const payload = buildAiPayload({
+        ...initialScheduleState,
+        interviewType: 'system_design',
+        mode: 'ai_led',
+        scheduledAt: '2026-06-10T10:00:00.000Z',
+      })
+      expect(payload).toEqual({
+        type: 'system_design',
+        mode: 'ai_led',
+        scheduled_at: '2026-06-10T10:00:00.000Z',
+      })
+    })
+
+    it('returns null when mode is not ai_led', function () {
+      expect(
+        buildAiPayload({
+          ...initialScheduleState,
+          interviewType: 'system_design',
+          mode: 'peer_to_peer',
+        }),
+      ).toBeNull()
+    })
+
+    it('returns null when timing incomplete', function () {
+      expect(
+        buildAiPayload({
+          ...initialScheduleState,
+          interviewType: 'system_design',
+          mode: 'ai_led',
+          scheduledAt: null,
+        }),
+      ).toBeNull()
+    })
+  })
+
+  describe('buildP2pPayload', function p2pPayloadSuite() {
+    it('builds payload when complete', function () {
+      const payload = buildP2pPayload({
+        ...initialScheduleState,
+        interviewType: 'system_design',
+        mode: 'peer_to_peer',
+        maxMatches: 2,
+        slots: [
+          { startTime: '2026-06-10T10:00:00.000Z', endTime: '2026-06-10T11:00:00.000Z' },
+        ],
+      })
+      expect(payload).toEqual({
+        interview_type: 'system_design',
+        max_matches: 2,
+        slots: [
+          {
+            start_time: '2026-06-10T10:00:00.000Z',
+            end_time: '2026-06-10T11:00:00.000Z',
+          },
+        ],
+      })
+    })
+
+    it('returns null when mode is not peer_to_peer', function () {
+      expect(
+        buildP2pPayload({
+          ...initialScheduleState,
+          interviewType: 'system_design',
+          mode: 'ai_led',
+        }),
+      ).toBeNull()
+    })
+
+    it('returns null when availability incomplete', function () {
+      expect(
+        buildP2pPayload({
+          ...initialScheduleState,
+          interviewType: 'system_design',
+          mode: 'peer_to_peer',
+          maxMatches: null,
+          slots: [],
+        }),
+      ).toBeNull()
+    })
+  })
+
+  describe('getVisibleSteps', function visibleStepsSuite() {
+    it('shows type and mode before mode is selected', function () {
+      expect(getVisibleSteps(initialScheduleState)).toEqual([
+        'type',
+        'mode',
+        'confirm',
+      ])
+    })
+
+    it('shows ai branch when ai_led selected', function () {
+      expect(
+        getVisibleSteps({
+          ...initialScheduleState,
+          mode: 'ai_led',
+        }),
+      ).toEqual(['type', 'mode', 'timing', 'confirm'])
+    })
+
+    it('shows p2p branch when peer_to_peer selected', function () {
+      expect(
+        getVisibleSteps({
+          ...initialScheduleState,
+          mode: 'peer_to_peer',
+        }),
+      ).toEqual(['type', 'mode', 'availability', 'confirm'])
+    })
+  })
+
+  describe('branch switch resets invalid downstream state', function branchResetSuite() {
+    it('switching from p2p to ai_led clears availability state', function () {
+      const state: ScheduleState = {
+        ...initialScheduleState,
+        interviewType: 'system_design',
+        mode: 'peer_to_peer',
+        step: 'availability',
+        maxMatches: 2,
+        slots: [{ startTime: '2026-06-10T10:00', endTime: '2026-06-10T11:00' }],
+      }
+      const next = scheduleReducer(state, {
+        type: 'SET_MODE',
+        payload: 'ai_led',
+      })
+      expect(next.mode).toBe('ai_led')
+      expect(next.maxMatches).toBeNull()
+      expect(next.slots).toEqual([])
+      expect(next.interviewType).toBe('system_design')
+    })
+
+    it('switching from ai_led to p2p clears timing state', function () {
+      const state: ScheduleState = {
+        ...initialScheduleState,
+        interviewType: 'system_design',
+        mode: 'ai_led',
+        step: 'timing',
+        scheduledAt: 'now',
+      }
+      const next = scheduleReducer(state, {
+        type: 'SET_MODE',
+        payload: 'peer_to_peer',
+      })
+      expect(next.mode).toBe('peer_to_peer')
+      expect(next.scheduledAt).toBeNull()
+      expect(next.interviewType).toBe('system_design')
+    })
+  })
+})

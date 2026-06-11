@@ -1,54 +1,151 @@
-import { useState, type FormEvent } from 'react'
+import { useReducer, useCallback } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useCreateInterview } from '#/hooks/use-interviews'
+import { useSubmitAvailability } from '#/hooks/use-submit-availability'
 import { ScheduleDumb } from './schedule-dumb'
+import {
+  initialScheduleState,
+  scheduleReducer,
+  canAdvance,
+  canGoBack,
+  getVisibleSteps,
+  isTimingComplete,
+  isAvailabilityComplete,
+  buildAiPayload,
+  buildP2pPayload,
+  type ScheduleStep,
+  type FlowSlot,
+} from './schedule-flow'
+import type { InterviewType, InterviewMode } from '@mako/shared'
 
 export function ScheduleSmart() {
   const navigate = useNavigate()
   const createInterview = useCreateInterview()
-  const [scheduledAt, setScheduledAt] = useState<string>('now')
-  const [validationError, setValidationError] = useState<string | null>(null)
+  const submitAvailability = useSubmitAvailability()
 
-  const isSubmitting = createInterview.isPending
-  const errorMessage = validationError ?? createInterview.error?.message ?? null
+  const [state, dispatch] = useReducer(scheduleReducer, initialScheduleState)
 
-  function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault()
-    setValidationError(null)
+  const isSubmitting = createInterview.isPending || submitAvailability.isPending
+  const mutationError =
+    createInterview.error?.message ?? submitAvailability.error?.message ?? null
+  const errorMessage = state.validationError ?? mutationError
 
-    if (scheduledAt !== 'now') {
-      const parsed = new Date(scheduledAt)
-      if (scheduledAt === '' || Number.isNaN(parsed.valueOf())) {
-        setValidationError('Please select a valid date and time.')
-        return
+  const handleSetType = useCallback(function handleSetType(type: InterviewType) {
+    dispatch({ type: 'SET_TYPE', payload: type })
+  }, [])
+
+  const handleSetMode = useCallback(function handleSetMode(mode: InterviewMode) {
+    dispatch({ type: 'SET_MODE', payload: mode })
+  }, [])
+
+  const handleSetScheduledAt = useCallback(
+    function handleSetScheduledAt(value: 'now' | string) {
+      dispatch({ type: 'SET_SCHEDULED_AT', payload: value })
+    },
+    [],
+  )
+
+  const handleSetMaxMatches = useCallback(
+    function handleSetMaxMatches(value: number) {
+      dispatch({ type: 'SET_MAX_MATCHES', payload: value })
+    },
+    [],
+  )
+
+  const handleSetSlots = useCallback(function handleSetSlots(slots: FlowSlot[]) {
+    dispatch({ type: 'SET_SLOTS', payload: slots })
+  }, [])
+
+  const handleNext = useCallback(function handleNext() {
+    dispatch({ type: 'NEXT' })
+  }, [])
+
+  const handleBack = useCallback(function handleBack() {
+    dispatch({ type: 'BACK' })
+  }, [])
+
+  const handleGoToStep = useCallback(function handleGoToStep(step: ScheduleStep) {
+    dispatch({ type: 'GO_TO_STEP', payload: step })
+  }, [])
+
+  const handleConfirm = useCallback(
+    function handleConfirm() {
+      dispatch({ type: 'SET_VALIDATION_ERROR', payload: null })
+
+      if (state.mode === 'ai_led') {
+        if (!isTimingComplete(state)) {
+          dispatch({
+            type: 'SET_VALIDATION_ERROR',
+            payload: 'Please select a valid date and time.',
+          })
+          return
+        }
+
+        const payload = buildAiPayload(state)
+        if (!payload) {
+          dispatch({
+            type: 'SET_VALIDATION_ERROR',
+            payload: 'Unable to build interview payload.',
+          })
+          return
+        }
+
+        createInterview.mutate(payload, {
+          onSuccess: async function onCreateSuccess() {
+            await navigate({ to: '/interviews' })
+          },
+        })
+      } else if (state.mode === 'peer_to_peer') {
+        if (!isAvailabilityComplete(state)) {
+          dispatch({
+            type: 'SET_VALIDATION_ERROR',
+            payload:
+              'Please provide at least one 60-minute slot and a positive max matches value.',
+          })
+          return
+        }
+
+        const payload = buildP2pPayload(state)
+        if (!payload) {
+          dispatch({
+            type: 'SET_VALIDATION_ERROR',
+            payload: 'Unable to build availability payload.',
+          })
+          return
+        }
+
+        submitAvailability.mutate(payload, {
+          onSuccess: async function onSubmitSuccess() {
+            await navigate({ to: '/interviews' })
+          },
+        })
       }
-    }
-
-    const scheduledAtValue =
-      scheduledAt === 'now'
-        ? ('now' as const)
-        : new Date(scheduledAt).toISOString()
-
-    const payload = {
-      type: 'system_design' as const,
-      mode: 'ai_led' as const,
-      scheduled_at: scheduledAtValue,
-    }
-
-    createInterview.mutate(payload, {
-      onSuccess: async function onCreateSuccess() {
-        await navigate({ to: '/interviews' })
-      },
-    })
-  }
+    },
+    [state, createInterview, submitAvailability, navigate],
+  )
 
   return (
     <ScheduleDumb
-      scheduledAt={scheduledAt}
+      step={state.step}
+      visibleSteps={getVisibleSteps(state)}
+      interviewType={state.interviewType}
+      mode={state.mode}
+      scheduledAt={state.scheduledAt}
+      maxMatches={state.maxMatches}
+      slots={state.slots}
       isSubmitting={isSubmitting}
       errorMessage={errorMessage}
-      onScheduledAtChange={setScheduledAt}
-      onSubmit={handleSubmit}
+      canAdvance={canAdvance(state)}
+      canGoBack={canGoBack(state)}
+      onSetType={handleSetType}
+      onSetMode={handleSetMode}
+      onSetScheduledAt={handleSetScheduledAt}
+      onSetMaxMatches={handleSetMaxMatches}
+      onSetSlots={handleSetSlots}
+      onNext={handleNext}
+      onBack={handleBack}
+      onGoToStep={handleGoToStep}
+      onConfirm={handleConfirm}
     />
   )
 }
