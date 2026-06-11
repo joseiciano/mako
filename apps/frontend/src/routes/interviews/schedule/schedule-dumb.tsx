@@ -1,5 +1,10 @@
 import type { InterviewType, InterviewMode } from '@mako/shared'
-import { getStepLabel, type ScheduleStep, type FlowSlot } from './schedule-flow'
+import {
+  getStepLabel,
+  type ScheduleStep,
+  type FlowSlot,
+  type ScheduleFieldErrors,
+} from './schedule-flow'
 
 export type ScheduleDumbProps = {
   step: ScheduleStep
@@ -11,6 +16,7 @@ export type ScheduleDumbProps = {
   slots: FlowSlot[]
   isSubmitting: boolean
   errorMessage: string | null
+  fieldErrors: ScheduleFieldErrors
   canAdvance: boolean
   canGoBack: boolean
   onSetType: (type: InterviewType) => void
@@ -84,6 +90,7 @@ function TypeStep(props: {
   value: InterviewType | null
   onChange: (type: InterviewType) => void
   disabled: boolean
+  error?: string
 }) {
   const selected = props.value === 'system_design'
 
@@ -107,6 +114,11 @@ function TypeStep(props: {
           {selected ? <span className="text-emerald-400">&#10003;</span> : null}
         </button>
       </div>
+      {props.error ? (
+        <p className="text-xs text-rose-300" role="alert">
+          {props.error}
+        </p>
+      ) : null}
       <p className="text-xs text-slate-400">
         Milestone 2 supports system design interviews only. Additional documented interview
         types remain reserved for later UI rollout.
@@ -119,6 +131,7 @@ function ModeStep(props: {
   value: InterviewMode | null
   onChange: (mode: InterviewMode) => void
   disabled: boolean
+  error?: string
 }) {
   const modes: { value: InterviewMode; label: string; description: string }[] = [
     {
@@ -161,6 +174,11 @@ function ModeStep(props: {
           )
         })}
       </div>
+      {props.error ? (
+        <p className="text-xs text-rose-300" role="alert">
+          {props.error}
+        </p>
+      ) : null}
     </div>
   )
 }
@@ -169,6 +187,7 @@ function TimingStep(props: {
   value: 'now' | string | null
   onChange: (value: 'now' | string) => void
   disabled: boolean
+  error?: string
 }) {
   const isNow = props.value === 'now'
   const isLater = props.value !== null && props.value !== 'now'
@@ -223,6 +242,11 @@ function TimingStep(props: {
               props.onChange(event.target.value)
             }}
           />
+          {props.error ? (
+            <p className="text-xs text-rose-300" role="alert">
+              {props.error}
+            </p>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -235,6 +259,8 @@ function AvailabilityStep(props: {
   onSetMaxMatches: (value: number) => void
   onSetSlots: (slots: FlowSlot[]) => void
   disabled: boolean
+  maxMatchesError?: string
+  slotsError?: string
 }) {
   function addSlot() {
     props.onSetSlots([...props.slots, { startTime: '', endTime: '' }])
@@ -274,6 +300,11 @@ function AvailabilityStep(props: {
             props.onSetMaxMatches(Number.isNaN(value) ? 0 : value)
           }}
         />
+        {props.maxMatchesError ? (
+          <p className="text-xs text-rose-300" role="alert">
+            {props.maxMatchesError}
+          </p>
+        ) : null}
         <p className="text-xs text-slate-400">
           How many interviews do you want to be matched for?
         </p>
@@ -281,6 +312,11 @@ function AvailabilityStep(props: {
 
       <div className="flex flex-col gap-3">
         <p className="text-sm font-medium text-slate-200">Time Slots (60 minutes each)</p>
+        {props.slotsError ? (
+          <p className="text-xs text-rose-300" role="alert">
+            {props.slotsError}
+          </p>
+        ) : null}
         {props.slots.map(function renderSlot(slot, index) {
           return (
             <div key={index} className="flex items-center gap-2">
@@ -499,6 +535,7 @@ export function ScheduleDumb(props: ScheduleDumbProps) {
             value={props.interviewType}
             onChange={props.onSetType}
             disabled={props.isSubmitting}
+            error={props.fieldErrors.interviewType}
           />
         ) : null}
         {props.step === 'mode' ? (
@@ -506,6 +543,7 @@ export function ScheduleDumb(props: ScheduleDumbProps) {
             value={props.mode}
             onChange={props.onSetMode}
             disabled={props.isSubmitting}
+            error={props.fieldErrors.mode}
           />
         ) : null}
         {props.step === 'timing' ? (
@@ -513,6 +551,7 @@ export function ScheduleDumb(props: ScheduleDumbProps) {
             value={props.scheduledAt}
             onChange={props.onSetScheduledAt}
             disabled={props.isSubmitting}
+            error={props.fieldErrors.scheduledAt}
           />
         ) : null}
         {props.step === 'availability' ? (
@@ -522,6 +561,8 @@ export function ScheduleDumb(props: ScheduleDumbProps) {
             onSetMaxMatches={props.onSetMaxMatches}
             onSetSlots={props.onSetSlots}
             disabled={props.isSubmitting}
+            maxMatchesError={props.fieldErrors.maxMatches}
+            slotsError={props.fieldErrors.slots}
           />
         ) : null}
         {props.step === 'confirm' ? (
