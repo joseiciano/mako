@@ -106,7 +106,7 @@ export function ScheduleDumb(props: ScheduleDumbProps) {
               Resolved automatically by the server based on your subscription and credits.
             </p>
             <p className="mt-2 text-xs text-slate-400">
-              Peer-to-peer direct creation is currently unavailable. All interviews are AI-led in Milestone 2.
+              Standard peer-to-peer sessions use availability matching rather than direct creation.
             </p>
           </div>
 
