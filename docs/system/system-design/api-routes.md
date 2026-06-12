@@ -166,6 +166,30 @@
     - Credentials returned here are not exposed through `GET /api/interviews`; use this route at join-time.
   - **Query Params**: None
 
+- **`POST /api/interviews/:id/start`**
+  - **Description**: Starts an interview session for a participant and transitions lifecycle state from `scheduled` to `ongoing` when valid.
+  - **Request Body**: None
+  - **Response Body**: `{ success: boolean, interview: Interview }`
+  - **Behavior Rules**:
+    - Route is participant-only.
+    - Valid transition: `scheduled -> ongoing`.
+    - Idempotent retry: repeated `start` on already `ongoing` interview returns success semantics without conflicting state mutation.
+    - Invalid transitions are rejected without state mutation (`cancelled -> start`, `completed -> start`).
+    - Successful `start` is route boundary that triggers Cloudflare Workflow timer orchestration; timer ownership must not begin in join provisioning or client-only code.
+  - **Query Params**: None
+
+- **`POST /api/interviews/:id/end`**
+  - **Description**: Ends an active interview session for a participant and transitions lifecycle state from `ongoing` to `completed` when valid.
+  - **Request Body**: None
+  - **Response Body**: `{ success: boolean, interview: Interview }`
+  - **Behavior Rules**:
+    - Route is participant-only.
+    - Valid transition: `ongoing -> completed`.
+    - Idempotent retry: repeated `end` on already `completed` interview returns success semantics without conflicting state mutation.
+    - Invalid transitions are rejected without state mutation (`scheduled -> end`, `cancelled -> end`).
+    - Manual `end` must safely converge with workflow-driven timeout completion so terminal writes do not conflict.
+  - **Query Params**: None
+
 - **`POST /api/interviews/:id/ai-chat`**
   - **Description**: Submits a user chat turn for AI-led interviews and returns guidance/review grounded in chat context + Excalidraw canvas snapshot.
   - **Request Body**:

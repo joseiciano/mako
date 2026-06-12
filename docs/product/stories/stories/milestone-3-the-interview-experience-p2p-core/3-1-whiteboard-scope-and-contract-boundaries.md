@@ -4,8 +4,8 @@
 **Description**: Lock collaborative whiteboard scope and reconcile API/schema boundaries before implementation.
 **Status**: Todo
 **Prerequisites**:
-- `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/room-provisioning.md`
-- `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/real-time-communication.md`
+- `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-2-whiteboard-provision-contract-and-backend-wiring.md`
+- `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-6-real-time-communication.md`
 
 ## What Needs to Be Done
 
@@ -28,7 +28,7 @@
 - [ ] Document that AI guidance should consume Excalidraw scene JSON (or normalized derivative) as source-of-truth input; Mermaid is optional derived output (reporting/export), not required request input.
 - [ ] Document Excalidraw MCP boundary: MCP may access a session only when explicitly joined with room credentials, not by implicit/global access.
 - [ ] Mark post-interview artifact processing (for example `screenshot_urls` analysis/reporting) as follow-up scope for Milestone 5 stories.
-- [ ] Keep lifecycle timer/start/end orchestration ownership in `session-lifecycle.md` scope, not this ticket.
+- [ ] Keep lifecycle timer/start/end orchestration ownership in session lifecycle stories (`3-8`, `3-10`, `3-11`, `3-12`), not this ticket.
 
 ## End Goal
 Collaborative whiteboard scope and contracts are unambiguous, with no drift between route docs, schema docs, and lifecycle boundaries before coding begins.
