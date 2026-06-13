@@ -12,7 +12,7 @@
 ### 1. Session route scaffolding and data boundaries
 - [ ] Add TanStack Router route file(s) in `apps/frontend/src/routes/` for `/interviews/:id/session`.
 - [ ] For Milestone 3 P2P scope, keep data dependencies limited to `GET /api/interviews/:id` and `POST /api/interviews/:id/provision` as defined in `docs/system/system-design/frontend-pages.md`.
-- [ ] Keep `POST /api/interviews/:id/ai-chat` explicitly out of this story scope (AI-led session behavior owned by Milestone 4, starting with `docs/product/stories/stories/milestone-4-ai-interviewer-implementation/2-1-ai-chat-route-and-canvas-guidance.md`).
+- [ ] Keep `POST /api/interviews/:id/ai-chat` explicitly out of this story scope (AI-led session behavior owned by Milestone 4, beginning with `docs/product/stories/stories/milestone-4-ai-interviewer-implementation/4-1-ai-chat-shared-contracts-and-module-wiring.md`).
 - [ ] Update existing interview list route (`apps/frontend/src/routes/_authenticated.interviews.tsx`) with navigation into the session route where applicable.
 
 ### 2. Smart/dumb component split for the session screen

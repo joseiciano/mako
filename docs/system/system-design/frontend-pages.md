@@ -44,5 +44,5 @@
   - `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-10-session-workflow-timer-orchestration.md`
   - `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-11-session-lifecycle-frontend-controls-and-timer.md`
   - `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-12-session-lifecycle-concurrency-and-observability.md`
-- `POST /api/interviews/:id/ai-chat` is an AI-led interview route and should be delivered in dedicated AI-interviewer stories (Milestone 4 scope), starting with `docs/product/stories/stories/milestone-4-ai-interviewer-implementation/2-1-ai-chat-route-and-canvas-guidance.md`.
+- `POST /api/interviews/:id/ai-chat` is an AI-led interview route and should be delivered in dedicated AI-interviewer stories (Milestone 4 scope), beginning with `docs/product/stories/stories/milestone-4-ai-interviewer-implementation/4-1-ai-chat-shared-contracts-and-module-wiring.md` and continuing through the Milestone 4 AI chat subtasks.
 - Keep downstream lifecycle pages and integrations tied to dedicated follow-up stories until full details/session/feedback rollout is complete.
