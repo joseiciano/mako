@@ -24,12 +24,14 @@
     - **Data**: `GET /api/interviews/:id`
 - **Interview Session (`/interviews/:id/session`)**: The immersive interview environment.
     - **Features**: Realtime Video/Audio, Shared Excalidraw Whiteboard, Session Timer.
-    - **Data**: `GET /api/interviews/:id`, `POST /api/interviews/:id/provision`, `POST /api/interviews/:id/ai-chat` (**AI-led only**)
+    - **Data**: `GET /api/interviews/:id`, `POST /api/interviews/:id/provision`, `POST /api/interviews/:id/start`, `POST /api/interviews/:id/end`, `POST /api/interviews/:id/ai-chat` (**AI-led only**)
     - **Notes**:
       - Initial UX can be a minimal shell with interview context + explicit join CTA.
       - `peer_to_peer` sessions share one room/key pair across both participants.
       - `ai_led` sessions use a single-user room/key pair plus chat guidance.
       - AI chat guidance uses Excalidraw JSON snapshots as source-of-truth input; Mermaid is optional derived output for reporting/export.
+      - Lifecycle/timer UI must consume backend-backed interview status and workflow-backed timer state rather than local-only inferred countdown state.
+      - `Start Session` / `End Session` controls are participant-scoped lifecycle actions, not whiteboard provisioning actions.
 - **Post-Interview Feedback (`/interviews/:id/feedback`)**: Detailed report and AI-driven insights.
     - **Features**: Performance scores, transcript, and whiteboard captures.
     - **Data**: `GET /api/interviews/:id`
@@ -37,5 +39,10 @@
 ### Route/Story Tracking Note
 - `GET /api/interviews/:id` is now implemented and available as lifecycle page dependency. Remaining ownership in `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-9-interview-details-route-get-api-interviews-id.md` covers downstream details/session/feedback page rollout and integration work, not initial route delivery.
 - `POST /api/interviews/:id/provision` is documented as a join-time lifecycle dependency but is explicitly out of Milestone 2 Story 3 CRUD scope; follow-up ownership is `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-2-whiteboard-provision-contract-and-backend-wiring.md`.
-- `POST /api/interviews/:id/ai-chat` is an AI-led interview route and should be delivered in dedicated AI-interviewer stories (Milestone 4 scope), starting with `docs/product/stories/stories/milestone-4-ai-interviewer-implementation/2-1-ai-chat-route-and-canvas-guidance.md`.
+- Lifecycle start/end route ownership is split across dedicated Milestone 3 stories:
+  - `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-8-session-lifecycle.md`
+  - `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-10-session-workflow-timer-orchestration.md`
+  - `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-11-session-lifecycle-frontend-controls-and-timer.md`
+  - `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-12-session-lifecycle-concurrency-and-observability.md`
+- `POST /api/interviews/:id/ai-chat` is an AI-led interview route and should be delivered in dedicated AI-interviewer stories (Milestone 4 scope), beginning with `docs/product/stories/stories/milestone-4-ai-interviewer-implementation/4-1-ai-chat-shared-contracts-and-module-wiring.md` and continuing through the Milestone 4 AI chat subtasks.
 - Keep downstream lifecycle pages and integrations tied to dedicated follow-up stories until full details/session/feedback rollout is complete.

@@ -69,6 +69,7 @@ Story tickets must:
 - [ ] Confirm no discrepancy with `docs/system/system-design/matching-tiers.md`, `docs/system/system-design/db-schemas.md`, and `docs/system/system-design/concurrency-data-integrity.md`.
 - [ ] If any discrepancy is found, update story details before implementation.
    - If there are any contradictions, ask for clarifications and how we should resolve them. 
+6. They must be actionable. No "umbrella" tickets, or "verification" tickets. Tickets should be considered actionable by a singular unit (a person working on it)
 
 **NOTE**: Do not have an explicit "drift check" in the final tickets. These should be implicitly done. Prior to planning tickets, check existing documentation to make sure there are no contradictions with the ticket details and existing documentation. 
 

@@ -8,14 +8,15 @@ Flow is as follows:
 1. **Scheduling & Post-Commit Orchestration:** The Backend API Worker (Hono) schedules the interview and commits lifecycle state in Postgres.
 2. **Queue Hand-off (Post-Commit):** After commit, lifecycle events are emitted to Cloudflare Queues for async notification/reminder orchestration.
 3. **Session Provisioning (Join-Time Route):** At the scheduled time, the user navigates to the interview page and clicks the "Join" button (`POST /api/interviews/:id/provision`). The Backend API Worker initializes and provisions Cloudflare Realtime resources in this route boundary.
-4. **Lifecycle Orchestration:** A Cloudflare Workflow is triggered to manage the interview timer (60 minutes).
-5. **Client Connection:** The Frontend (TanStack Start) connects to the Realtime session via the RealtimeKit SDK for live audio/video/data streaming.
-6. **In-Session Events:** During the interview, Cloudflare Workflows sends events (e.g., 5-minute warnings) via Realtime to the clients.
-7. **Session Termination:** Upon timer expiration or manual completion, the Workflow locks the Realtime session and triggers the post-interview process.
-8. **Data Persistence & Feedback:** 
+4. **Session Start (Lifecycle Route):** Participant explicitly starts live session via `POST /api/interviews/:id/start`, transitioning interview state from `scheduled` to `ongoing` when valid.
+5. **Lifecycle Orchestration:** Successful `start` triggers Cloudflare Workflow to manage interview timer (60 minutes).
+6. **Client Connection:** The Frontend (TanStack Start) connects to the Realtime session via the RealtimeKit SDK for live audio/video/data streaming.
+7. **In-Session Events:** During interview, Cloudflare Workflow sends events (e.g., 5-minute warnings) via Realtime to clients.
+8. **Session Termination:** Upon timer expiration or manual completion via `POST /api/interviews/:id/end`, lifecycle converges on `completed`, Workflow locks Realtime session, and post-interview process begins.
+9. **Data Persistence & Feedback:** 
    - Session recordings and screenshots are persisted to Cloudflare R2.
    - AI Feedback is generated using Cloudflare AI Gateway and LLM providers.
-9. **Collaboration Tools**:
+10. **Collaboration Tools**:
    - For system design interviews, a **shared Excalidraw collaboration session** is provisioned. Both participants join this session using a unique Room ID and Encryption Key.
    - For peer-to-peer interviews, both users join the same interview-scoped room/key pair.
    - For AI-led interviews, the user gets a single interview-scoped room/key pair (no second human participant).
@@ -31,6 +32,7 @@ Cancellation transition behavior (must stay aligned with `state-management-lifec
 
 Provisioning note: join-time provisioning is a runtime route phase (`POST /api/interviews/:id/provision`), not a persisted interview `status` value.
 Provisioning should be idempotent for reconnect/retry behavior within the same active interview so room/key/session values are reused rather than regenerated.
+Lifecycle note: workflow timer ownership begins from successful `POST /api/interviews/:id/start`, and manual `POST /api/interviews/:id/end` must converge safely with workflow timeout completion.
 
 ### Creating account/updating 
 

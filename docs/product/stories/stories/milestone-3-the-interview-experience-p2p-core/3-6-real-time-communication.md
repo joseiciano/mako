@@ -4,7 +4,7 @@
 **Description**: Implement reliable peer-to-peer audio/video communication in the interview session experience using Cloudflare RealtimeKit.
 **Status**: Todo
 **Prerequisites**:
-- `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/room-provisioning.md`
+- `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-2-whiteboard-provision-contract-and-backend-wiring.md`
 - `docs/system/system-design/api-routes.md`
 - `docs/system/system-design/state-management-lifecycle.md`
 - `docs/system/system-design/diagrams.md`
@@ -48,7 +48,7 @@
   - `docs/system/system-design/frontend-pages.md`
 - This story is focused on **P2P** live communication behavior for Milestone 3.
 - Whiteboard-specific rendering/sync work is handled in dedicated whiteboard stories under the same milestone.
-- Session timer warnings, start/end orchestration, and terminal state transitions remain owned by `session-lifecycle.md` and Cloudflare Workflow boundaries.
+- Session timer warnings, start/end orchestration, and terminal state transitions remain owned by session lifecycle stories (`3-8`, `3-10`, `3-11`, `3-12`) and Cloudflare Workflow boundaries.
 - Recording, screenshot persistence, and post-interview feedback generation are out of scope for this story.
 
 ## End Goal
