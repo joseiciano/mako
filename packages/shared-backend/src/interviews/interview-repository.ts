@@ -1,5 +1,5 @@
 import type { Interview, InterviewDetail, InterviewListItem } from '@mako/shared'
-import { createSqlQuery, type SqlQuery } from '../index'
+import { createSqlQuery, type SqlQuery, type SqlQueryExecutor, type QueryResult } from '../index'
 import type { NotificationQueueEvent } from '../notification-queue-event-contract'
 import {
   cancelInterviewRecordInputSchema,
@@ -21,14 +21,6 @@ import {
   type ParsedListParticipantInterviewsInput,
 } from './types'
 
-export type QueryResult<Row> = {
-  rows: Row[]
-  rowCount?: number
-}
-
-export type SqlQueryExecutor = {
-  query<Row>(query: SqlQuery): Promise<QueryResult<Row>>
-}
 
 export interface InterviewRepositoryDataSource {
   getAccountPolicy(userId: string): Promise<InterviewAccountPolicy | null>

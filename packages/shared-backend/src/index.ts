@@ -30,6 +30,7 @@ export * from './account'
 export * from './auth'
 export * from './interview'
 export * from './interviews'
+export * from './availability'
 export * from './matcher'
 export * from './notifications'
 export {
@@ -47,6 +48,15 @@ export {
 export type SqlQuery = {
   text: string
   values: readonly unknown[]
+}
+
+export type QueryResult<Row> = {
+  rows: Row[]
+  rowCount?: number
+}
+
+export type SqlQueryExecutor = {
+  query<Row>(query: SqlQuery): Promise<QueryResult<Row>>
 }
 
 export function createSqlQuery(

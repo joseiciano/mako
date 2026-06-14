@@ -6,6 +6,8 @@ import {
 import {
   AccountRepository,
   AccountService,
+  AvailabilityRepository,
+  AvailabilityService,
   type CancelInterviewRecordInput,
   type CancelInterviewRecordResult,
   InterviewPolicyConflictError,
@@ -14,6 +16,7 @@ import {
   type InterviewServiceLogger,
   backendRuntime,
   createPostgresConnectionPool,
+  createInMemoryAvailabilityDataSource,
   createAuthSessionMiddleware,
   createBetterAuth,
   createHeaderSessionResolver,
@@ -25,6 +28,7 @@ import {
   parseInterviewListItem,
   registerAccountController,
   registerAuthController,
+  registerAvailabilityController,
   registerInterviewController,
   createInterviewQueuePostCommitEventPublisher,
   NotificationRepository,
@@ -33,6 +37,7 @@ import {
   type NotificationDispatchServiceLogger,
   type AccountProfileRecord,
   type AccountRepositoryDataSource,
+  type AvailabilityRepositoryDataSource,
   type CreateInterviewRecordInput,
   type InterviewRepositoryDataSource,
   type SqlQueryExecutor,
@@ -200,6 +205,25 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
     },
   })
 
+  registerAvailabilityController(app, {
+    createService: function createService(context) {
+      const queryExecutor = hasDatabaseAccess(context.bindings)
+        ? createDatabaseQueryExecutor(context.bindings)
+        : undefined
+
+      const repository = new AvailabilityRepository(
+        queryExecutor
+          ? { queryExecutor }
+          : demoDataSources.availability,
+      )
+
+      return new AvailabilityService(repository)
+    },
+    resolveSession: function resolveSession(context) {
+      return resolveAppSession(context, demoSessionResolver)
+    },
+  })
+
   app.get('/', function rootHandler(c) {
     return c.json({
       message: 'Mako backend API is running.',
@@ -221,9 +245,11 @@ export default app
 function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
   account: AccountRepositoryDataSource
   interview: InterviewRepositoryDataSource
+  availability: AvailabilityRepositoryDataSource
 } {
   const accountProfilesById = new Map<string, AccountProfileRecord>()
   const interviewsById = new Map<string, Interview>()
+  const availabilityDataSource = createInMemoryAvailabilityDataSource()
 
   for (const account of seedAccounts) {
     accountProfilesById.set(account.id, structuredClone(account))
@@ -391,6 +417,7 @@ function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
         }
       },
     },
+    availability: availabilityDataSource,
   }
 }
 

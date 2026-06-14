@@ -1,5 +1,4 @@
-import { createSqlQuery, type SqlQuery } from '../index'
-import type { SqlQueryExecutor } from '../interviews/interview-repository'
+import { createSqlQuery, type SqlQuery, type SqlQueryExecutor } from '../index'
 import type {
   InterviewState,
   NotificationOutboxEventRow,
