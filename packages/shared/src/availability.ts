@@ -25,12 +25,12 @@ export const availabilitySlotInputSchema = z
       message: 'start_time must be before end_time.',
     },
   )
-
+export const maxAvailabilitySlotsPerRequest = 200
 export const createAvailabilityRequestSchema = z
   .object({
     interview_type: interviewTypeSchema,
     max_matches: z.number().int().positive(),
-    slots: z.array(availabilitySlotInputSchema).min(1),
+    slots: z.array(availabilitySlotInputSchema).min(1).max(maxAvailabilitySlotsPerRequest),
   })
   .strict()
 

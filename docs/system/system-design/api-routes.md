@@ -258,6 +258,7 @@
   - **Validation Rules**:
     - Each slot must be exactly 60 minutes (`end_time = start_time + 60m`).
     - `start_time < end_time`.
+    - `slots` array max 200 items.
 
 - **`GET /api/availability`**
   - **Description**: Lists active availability requests for the current user.
