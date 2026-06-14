@@ -4,31 +4,9 @@ import {
   createAvailability,
   useCreateAvailability,
 } from './use-availability'
-import { readHeader } from './test-utils/read-header'
 import { renderHook, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import React from 'react'
-
-const requestFixture = {
-  id: '11111111-1111-4111-8111-111111111111',
-  user_id: '22222222-2222-4222-8222-222222222222',
-  interview_type: 'system_design',
-  max_matches: 2,
-  current_matches: 0,
-  status: 'active',
-  created_at: '2026-04-01T10:00:00.000Z',
-  updated_at: '2026-04-01T10:00:00.000Z',
-}
-
-const slotFixture = {
-  id: '33333333-3333-4333-8333-333333333333',
-  request_id: '11111111-1111-4111-8111-111111111111',
-  start_time: '2026-04-10T10:00:00.000Z',
-  end_time: '2026-04-10T11:00:00.000Z',
-  status: 'available',
-  created_at: '2026-04-01T10:00:00.000Z',
-  updated_at: '2026-04-01T10:00:00.000Z',
-}
 
 function createTestQueryClient(): QueryClient {
   return new QueryClient({
@@ -60,37 +38,12 @@ describe('use-availability data layer', function useAvailabilitySuite() {
     expect(availabilityQueryRootKey).toEqual(['availability'])
   })
 
-  it('submits availability via POST and parses the response', async function run() {
-    vi.stubEnv(
-      'VITE_AUTH_BASE_URL',
-      'https://example.com/api/auth',
-    )
+  it('rejects valid payload with temporary unavailable message without calling fetch', async function run() {
+    const fetchSpy = vi.fn()
 
-    const result = await createAvailability(
-      {
-        interview_type: 'system_design',
-        max_matches: 2,
-        slots: [
-          {
-            start_time: '2026-04-10T10:00:00.000Z',
-            end_time: '2026-04-10T11:00:00.000Z',
-          },
-        ],
-      },
-      async function mockFetch(input, init) {
-        expect(input).toBe(
-          'https://example.com/api/availability',
-        )
-        expect(init?.method).toBe('POST')
-        expect(readHeader(init?.headers, 'content-type')).toBe(
-          'application/json',
-        )
-        expect(readHeader(init?.headers, 'x-user-id')).toBe(
-          '11111111-1111-4111-8111-111111111111',
-        )
-
-        const body = JSON.parse((init?.body as string) ?? '{}')
-        expect(body).toEqual({
+    await expect(
+      createAvailability(
+        {
           interview_type: 'system_design',
           max_matches: 2,
           slots: [
@@ -99,157 +52,34 @@ describe('use-availability data layer', function useAvailabilitySuite() {
               end_time: '2026-04-10T11:00:00.000Z',
             },
           ],
-        })
-
-        return new Response(
-          JSON.stringify({
-            request: requestFixture,
-            slots: [slotFixture],
-          }),
-          {
-            status: 201,
-            headers: {
-              'content-type': 'application/json',
-            },
-          },
-        )
-      },
-    )
-
-    expect(result.request.status).toBe('active')
-    expect(result.slots).toHaveLength(1)
-    expect(result.slots[0]?.status).toBe('available')
-  })
-
-  it('surfaces backend error message for failed submissions', async function run() {
-    vi.stubEnv(
-      'VITE_AUTH_BASE_URL',
-      'https://example.com/api/auth',
-    )
-
-    await expect(
-      createAvailability(
-        {
-          interview_type: 'coding',
-          max_matches: 1,
-          slots: [
-            {
-              start_time: '2026-04-10T10:00:00.000Z',
-              end_time: '2026-04-10T11:00:00.000Z',
-            },
-          ],
         },
-        async function mockFetch() {
-          return new Response(
-            JSON.stringify({ error: 'Invalid slot range' }),
-            {
-              status: 400,
-              headers: {
-                'content-type': 'application/json',
-              },
-            },
-          )
-        },
+        fetchSpy,
       ),
-    ).rejects.toThrow('Invalid slot range')
-  })
-
-  it('falls back to a stable error message when payload omits error field', async function run() {
-    vi.stubEnv(
-      'VITE_AUTH_BASE_URL',
-      'https://example.com/api/auth',
+    ).rejects.toThrow(
+      'Peer-to-peer matching is temporarily unavailable. Your availability was not submitted.',
     )
 
-    await expect(
-      createAvailability(
-        {
-          interview_type: 'behavioral',
-          max_matches: 1,
-          slots: [
-            {
-              start_time: '2026-04-10T10:00:00.000Z',
-              end_time: '2026-04-10T11:00:00.000Z',
-            },
-          ],
-        },
-        async function mockFetch() {
-          return new Response(
-            JSON.stringify({ message: 'Something went wrong' }),
-            {
-              status: 500,
-              headers: {
-                'content-type': 'application/json',
-              },
-            },
-          )
-        },
-      ),
-    ).rejects.toThrow('Unable to submit availability.')
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 
-  it('rejects response payloads that diverge from shared schema contracts', async function run() {
+  it('rejects invalid payload with schema error without calling fetch', async function run() {
+    const fetchSpy = vi.fn()
+
     await expect(
       createAvailability(
         {
           interview_type: 'system_design',
-          max_matches: 1,
-          slots: [
-            {
-              start_time: '2026-04-10T10:00:00.000Z',
-              end_time: '2026-04-10T11:00:00.000Z',
-            },
-          ],
-        },
-        async function mockFetch() {
-          return new Response(
-            JSON.stringify({
-              request: {
-                id: '11111111-1111-4111-8111-111111111111',
-                user_id: '22222222-2222-4222-8222-222222222222',
-                interview_type: 'system_design',
-                max_matches: 1,
-                current_matches: 0,
-                status: 'active',
-                created_at: '2026-04-01T10:00:00.000Z',
-              },
-              slots: [],
-            }),
-            {
-              status: 200,
-              headers: {
-                'content-type': 'application/json',
-              },
-            },
-          )
-        },
+          max_matches: 0,
+          slots: [],
+        } as unknown as Parameters<typeof createAvailability>[0],
+        fetchSpy,
       ),
     ).rejects.toThrow()
+
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 
-  it('invalidates availability queries on mutation success', async function run() {
-    vi.stubEnv(
-      'VITE_AUTH_BASE_URL',
-      'https://example.com/api/auth',
-    )
-
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async function fetchMock() {
-        return new Response(
-          JSON.stringify({
-            request: requestFixture,
-            slots: [slotFixture],
-          }),
-          {
-            status: 201,
-            headers: {
-              'content-type': 'application/json',
-            },
-          },
-        )
-      }),
-    )
-
+  it('keeps availability mutation in temporary unavailable error state without invalidating queries', async function run() {
     const queryClient = createTestQueryClient()
     const invalidateQueriesSpy = vi.spyOn(queryClient, 'invalidateQueries')
 
@@ -269,11 +99,10 @@ describe('use-availability data layer', function useAvailabilitySuite() {
     })
 
     await waitFor(function waitForMutation() {
-      return result.current.isSuccess
+      return result.current.isError
     })
 
-    expect(invalidateQueriesSpy).toHaveBeenCalledWith({
-      queryKey: availabilityQueryRootKey,
-    })
+    // Because createAvailability rejects immediately, invalidateQueries should not be called
+    expect(invalidateQueriesSpy).not.toHaveBeenCalled()
   })
 })

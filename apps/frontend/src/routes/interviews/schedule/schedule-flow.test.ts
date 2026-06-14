@@ -8,8 +8,13 @@ import {
   buildAiPayload,
   buildP2pPayload,
   getVisibleSteps,
+  isSupportedInterviewType,
+  isSupportedMode,
+  getFieldErrors,
+  hasFieldErrors,
   type ScheduleState,
 } from './schedule-flow'
+import type { InterviewMode } from '@mako/shared'
 
 describe('schedule-flow', function scheduleFlowSuite() {
   describe('scheduleReducer', function reducerSuite() {
@@ -265,6 +270,26 @@ describe('schedule-flow', function scheduleFlowSuite() {
       })
       expect(next.validationError).toBeNull()
     })
+
+    it('clears field errors on state change', function () {
+      const state: ScheduleState = {
+        ...initialScheduleState,
+        fieldErrors: { interviewType: 'Bad type' },
+      }
+      const next = scheduleReducer(state, {
+        type: 'SET_TYPE',
+        payload: 'system_design',
+      })
+      expect(next.fieldErrors).toBeNull()
+    })
+
+    it('sets field errors via SET_FIELD_ERRORS', function () {
+      const next = scheduleReducer(initialScheduleState, {
+        type: 'SET_FIELD_ERRORS',
+        payload: { maxMatches: 'Too low' },
+      })
+      expect(next.fieldErrors).toEqual({ maxMatches: 'Too low' })
+    })
   })
 
   describe('isTimingComplete', function timingSuite() {
@@ -310,6 +335,8 @@ describe('schedule-flow', function scheduleFlowSuite() {
       expect(
         isAvailabilityComplete({
           ...initialScheduleState,
+          interviewType: 'system_design',
+          mode: 'peer_to_peer',
           maxMatches: 2,
           slots: [
             { startTime: '2026-06-10T10:00', endTime: '2026-06-10T11:00' },
@@ -322,6 +349,8 @@ describe('schedule-flow', function scheduleFlowSuite() {
       expect(
         isAvailabilityComplete({
           ...initialScheduleState,
+          interviewType: 'system_design',
+          mode: 'peer_to_peer',
           maxMatches: null,
           slots: [
             { startTime: '2026-06-10T10:00', endTime: '2026-06-10T11:00' },
@@ -334,6 +363,8 @@ describe('schedule-flow', function scheduleFlowSuite() {
       expect(
         isAvailabilityComplete({
           ...initialScheduleState,
+          interviewType: 'system_design',
+          mode: 'peer_to_peer',
           maxMatches: 0,
           slots: [
             { startTime: '2026-06-10T10:00', endTime: '2026-06-10T11:00' },
@@ -346,6 +377,8 @@ describe('schedule-flow', function scheduleFlowSuite() {
       expect(
         isAvailabilityComplete({
           ...initialScheduleState,
+          interviewType: 'system_design',
+          mode: 'peer_to_peer',
           maxMatches: 2,
           slots: [],
         }),
@@ -356,6 +389,8 @@ describe('schedule-flow', function scheduleFlowSuite() {
       expect(
         isAvailabilityComplete({
           ...initialScheduleState,
+          interviewType: 'system_design',
+          mode: 'peer_to_peer',
           maxMatches: 2,
           slots: [
             { startTime: '2026-06-10T10:00', endTime: '2026-06-10T10:30' },
@@ -368,8 +403,38 @@ describe('schedule-flow', function scheduleFlowSuite() {
       expect(
         isAvailabilityComplete({
           ...initialScheduleState,
+          interviewType: 'system_design',
+          mode: 'peer_to_peer',
           maxMatches: 2,
           slots: [{ startTime: '', endTime: '' }],
+        }),
+      ).toBe(false)
+    })
+
+    it('returns false when maxMatches is fractional', function () {
+      expect(
+        isAvailabilityComplete({
+          ...initialScheduleState,
+          interviewType: 'system_design',
+          mode: 'peer_to_peer',
+          maxMatches: 1.5,
+          slots: [
+            { startTime: '2026-06-10T10:00', endTime: '2026-06-10T11:00' },
+          ],
+        }),
+      ).toBe(false)
+    })
+
+    it('returns false when interview type is unsupported by current scheduling UI', function () {
+      expect(
+        isAvailabilityComplete({
+          ...initialScheduleState,
+          interviewType: 'coding',
+          mode: 'peer_to_peer',
+          maxMatches: 1,
+          slots: [
+            { startTime: '2026-06-10T10:00', endTime: '2026-06-10T11:00' },
+          ],
         }),
       ).toBe(false)
     })
@@ -412,6 +477,7 @@ describe('schedule-flow', function scheduleFlowSuite() {
         isStepComplete(
           {
             ...initialScheduleState,
+            interviewType: 'system_design',
             mode: 'peer_to_peer',
             maxMatches: 2,
             slots: [
@@ -476,6 +542,28 @@ describe('schedule-flow', function scheduleFlowSuite() {
         }),
       ).toBeNull()
     })
+
+    it('returns null when interview type is unsupported by current scheduling UI', function () {
+      expect(
+        buildAiPayload({
+          ...initialScheduleState,
+          interviewType: 'coding',
+          mode: 'ai_led',
+          scheduledAt: 'now',
+        }),
+      ).toBeNull()
+    })
+
+    it('contains only allowed keys', function () {
+      const payload = buildAiPayload({
+        ...initialScheduleState,
+        interviewType: 'system_design',
+        mode: 'ai_led',
+        scheduledAt: 'now',
+      })
+      expect(payload).not.toBeNull()
+      expect(Object.keys(payload!).sort()).toEqual(['mode', 'scheduled_at', 'type'])
+    })
   })
 
   describe('buildP2pPayload', function p2pPayloadSuite() {
@@ -521,6 +609,63 @@ describe('schedule-flow', function scheduleFlowSuite() {
           slots: [],
         }),
       ).toBeNull()
+    })
+
+    it('returns null when maxMatches is fractional', function () {
+      expect(
+        buildP2pPayload({
+          ...initialScheduleState,
+          interviewType: 'system_design',
+          mode: 'peer_to_peer',
+          maxMatches: 1.5,
+          slots: [
+            { startTime: '2026-06-10T10:00:00.000Z', endTime: '2026-06-10T11:00:00.000Z' },
+          ],
+        }),
+      ).toBeNull()
+    })
+
+    it('returns null when interview type is unsupported by current scheduling UI', function () {
+      expect(
+        buildP2pPayload({
+          ...initialScheduleState,
+          interviewType: 'coding',
+          mode: 'peer_to_peer',
+          maxMatches: 1,
+          slots: [
+            { startTime: '2026-06-10T10:00:00.000Z', endTime: '2026-06-10T11:00:00.000Z' },
+          ],
+        }),
+      ).toBeNull()
+    })
+
+    it('contains only allowed keys', function () {
+      const payload = buildP2pPayload({
+        ...initialScheduleState,
+        interviewType: 'system_design',
+        mode: 'peer_to_peer',
+        maxMatches: 2,
+        slots: [
+          { startTime: '2026-06-10T10:00:00.000Z', endTime: '2026-06-10T11:00:00.000Z' },
+        ],
+      })
+      expect(payload).not.toBeNull()
+      expect(Object.keys(payload!).sort()).toEqual(['interview_type', 'max_matches', 'slots'])
+    })
+
+    it('normalizes non-ISO slot times to ISO', function () {
+      const payload = buildP2pPayload({
+        ...initialScheduleState,
+        interviewType: 'system_design',
+        mode: 'peer_to_peer',
+        maxMatches: 1,
+        slots: [
+          { startTime: '2026-06-10T10:00', endTime: '2026-06-10T11:00' },
+        ],
+      })
+      expect(payload).not.toBeNull()
+      expect(payload!.slots[0]!.start_time).toBe(new Date('2026-06-10T10:00').toISOString())
+      expect(payload!.slots[0]!.end_time).toBe(new Date('2026-06-10T11:00').toISOString())
     })
   })
 
@@ -587,6 +732,89 @@ describe('schedule-flow', function scheduleFlowSuite() {
       expect(next.mode).toBe('peer_to_peer')
       expect(next.scheduledAt).toBeNull()
       expect(next.interviewType).toBe('system_design')
+    })
+  })
+
+  describe('isSupportedInterviewType', function supportedTypeSuite() {
+    it('returns true for system_design', function () {
+      expect(isSupportedInterviewType('system_design')).toBe(true)
+    })
+
+    it('returns false for coding', function () {
+      expect(isSupportedInterviewType('coding')).toBe(false)
+    })
+
+    it('returns false for behavioral', function () {
+      expect(isSupportedInterviewType('behavioral')).toBe(false)
+    })
+  })
+
+  describe('isSupportedMode', function supportedModeSuite() {
+    it('returns true for ai_led', function () {
+      expect(isSupportedMode('ai_led')).toBe(true)
+    })
+
+    it('returns true for peer_to_peer', function () {
+      expect(isSupportedMode('peer_to_peer')).toBe(true)
+    })
+  })
+
+  describe('getFieldErrors', function fieldErrorsSuite() {
+    it('returns empty object for valid initial state', function () {
+      expect(getFieldErrors(initialScheduleState)).toEqual({})
+    })
+
+    it('flags unsupported interview type', function () {
+      const errors = getFieldErrors({
+        ...initialScheduleState,
+        interviewType: 'coding',
+      })
+      expect(errors.interviewType).toBeDefined()
+    })
+
+    it('flags unsupported mode', function () {
+      const errors = getFieldErrors({
+        ...initialScheduleState,
+        mode: 'unsupported_mode' as InterviewMode,
+      })
+      expect(errors.mode).toBeDefined()
+    })
+
+    it('flags invalid scheduledAt for ai_led', function () {
+      const errors = getFieldErrors({
+        ...initialScheduleState,
+        mode: 'ai_led',
+        scheduledAt: 'not-a-date',
+      })
+      expect(errors.scheduledAt).toBeDefined()
+    })
+
+    it('flags non-positive maxMatches for p2p', function () {
+      const errors = getFieldErrors({
+        ...initialScheduleState,
+        mode: 'peer_to_peer',
+        maxMatches: 0,
+      })
+      expect(errors.maxMatches).toBeDefined()
+    })
+
+    it('flags invalid slot duration for p2p', function () {
+      const errors = getFieldErrors({
+        ...initialScheduleState,
+        mode: 'peer_to_peer',
+        slots: [{ startTime: '2026-06-10T10:00', endTime: '2026-06-10T10:30' }],
+      })
+      expect(errors.slots).toBeDefined()
+    })
+  })
+
+  describe('hasFieldErrors', function hasErrorsSuite() {
+    it('returns false for empty errors', function () {
+      expect(hasFieldErrors({})).toBe(false)
+    })
+
+    it('returns true when errors exist', function () {
+      expect(hasFieldErrors({ maxMatches: 'Too low' })).toBe(true)
     })
   })
 })

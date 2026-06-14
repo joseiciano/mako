@@ -1,5 +1,8 @@
 import type { InterviewType, InterviewMode } from '@mako/shared'
 
+export const supportedInterviewTypes: InterviewType[] = ['system_design']
+export const supportedModes: InterviewMode[] = ['ai_led', 'peer_to_peer']
+
 export type ScheduleStep =
   | 'type'
   | 'mode'
@@ -12,6 +15,14 @@ export type FlowSlot = {
   endTime: string
 }
 
+export type ScheduleFieldErrors = {
+  interviewType?: string
+  mode?: string
+  scheduledAt?: string
+  maxMatches?: string
+  slots?: string
+}
+
 export type ScheduleState = {
   step: ScheduleStep
   interviewType: InterviewType | null
@@ -20,6 +31,7 @@ export type ScheduleState = {
   maxMatches: number | null
   slots: FlowSlot[]
   validationError: string | null
+  fieldErrors: ScheduleFieldErrors | null
 }
 
 export const initialScheduleState: ScheduleState = {
@@ -30,6 +42,7 @@ export const initialScheduleState: ScheduleState = {
   maxMatches: null,
   slots: [],
   validationError: null,
+  fieldErrors: null,
 }
 
 export type ScheduleAction =
@@ -42,6 +55,7 @@ export type ScheduleAction =
   | { type: 'BACK' }
   | { type: 'GO_TO_STEP'; payload: ScheduleStep }
   | { type: 'SET_VALIDATION_ERROR'; payload: string | null }
+  | { type: 'SET_FIELD_ERRORS'; payload: ScheduleFieldErrors | null }
   | { type: 'RESET' }
 
 function toIsoString(value: string): string | null {
@@ -64,6 +78,7 @@ export function scheduleReducer(
         ...state,
         interviewType: action.payload,
         validationError: null,
+        fieldErrors: null,
       }
     }
     case 'SET_MODE': {
@@ -77,6 +92,7 @@ export function scheduleReducer(
         mode: nextMode,
         ...resets,
         validationError: null,
+        fieldErrors: null,
       }
     }
     case 'SET_SCHEDULED_AT': {
@@ -84,6 +100,7 @@ export function scheduleReducer(
         ...state,
         scheduledAt: action.payload,
         validationError: null,
+        fieldErrors: null,
       }
     }
     case 'SET_MAX_MATCHES': {
@@ -91,6 +108,7 @@ export function scheduleReducer(
         ...state,
         maxMatches: action.payload,
         validationError: null,
+        fieldErrors: null,
       }
     }
     case 'SET_SLOTS': {
@@ -98,6 +116,7 @@ export function scheduleReducer(
         ...state,
         slots: action.payload,
         validationError: null,
+        fieldErrors: null,
       }
     }
     case 'NEXT': {
@@ -116,6 +135,9 @@ export function scheduleReducer(
     case 'SET_VALIDATION_ERROR': {
       return { ...state, validationError: action.payload }
     }
+    case 'SET_FIELD_ERRORS': {
+      return { ...state, fieldErrors: action.payload }
+    }
     case 'RESET': {
       return initialScheduleState
     }
@@ -128,9 +150,11 @@ export function scheduleReducer(
 export function getNextStep(state: ScheduleState): ScheduleStep | null {
   switch (state.step) {
     case 'type':
-      return state.interviewType !== null ? 'mode' : null
+      return state.interviewType !== null && isSupportedInterviewType(state.interviewType)
+        ? 'mode'
+        : null
     case 'mode':
-      return state.mode !== null
+      return state.mode !== null && isSupportedMode(state.mode)
         ? state.mode === 'ai_led'
           ? 'timing'
           : 'availability'
@@ -171,7 +195,20 @@ export function isTimingComplete(state: ScheduleState): boolean {
 }
 
 export function isAvailabilityComplete(state: ScheduleState): boolean {
-  if (state.maxMatches === null || state.maxMatches <= 0) return false
+  if (
+    state.interviewType === null ||
+    !isSupportedInterviewType(state.interviewType)
+  ) {
+    return false
+  }
+  if (state.mode !== 'peer_to_peer') return false
+  if (
+    state.maxMatches === null ||
+    !Number.isInteger(state.maxMatches) ||
+    state.maxMatches <= 0
+  ) {
+    return false
+  }
   if (state.slots.length === 0) return false
   return state.slots.every(function slotIsValid(slot) {
     if (slot.startTime === '' || slot.endTime === '') return false
@@ -191,9 +228,9 @@ export function isStepComplete(
 ): boolean {
   switch (step) {
     case 'type':
-      return state.interviewType !== null
+      return state.interviewType !== null && isSupportedInterviewType(state.interviewType)
     case 'mode':
-      return state.mode !== null
+      return state.mode !== null && isSupportedMode(state.mode)
     case 'timing':
       return isTimingComplete(state)
     case 'availability':
@@ -215,10 +252,64 @@ export function canGoBack(state: ScheduleState): boolean {
   return getPreviousStep(state) !== null
 }
 
+export function isSupportedInterviewType(type: InterviewType): boolean {
+  return supportedInterviewTypes.includes(type)
+}
+
+export function isSupportedMode(mode: InterviewMode): boolean {
+  return supportedModes.includes(mode)
+}
+
+export function getFieldErrors(state: ScheduleState): ScheduleFieldErrors {
+  const errors: ScheduleFieldErrors = {}
+
+  if (state.interviewType !== null && !isSupportedInterviewType(state.interviewType)) {
+    errors.interviewType = 'Selected interview type is not supported in the current UI.'
+  }
+
+  if (state.mode !== null && !isSupportedMode(state.mode)) {
+    errors.mode = 'Selected scheduling mode is not supported.'
+  }
+
+  if (state.mode === 'ai_led' && state.scheduledAt !== null && state.scheduledAt !== 'now') {
+    const parsed = new Date(state.scheduledAt)
+    if (state.scheduledAt === '' || Number.isNaN(parsed.valueOf())) {
+      errors.scheduledAt = 'Please enter a valid date and time.'
+    }
+  }
+
+  if (state.mode === 'peer_to_peer') {
+    if (state.maxMatches !== null && (!Number.isInteger(state.maxMatches) || state.maxMatches <= 0)) {
+      errors.maxMatches = 'Max matches must be a positive integer.'
+    }
+
+    if (state.slots.length > 0) {
+      const hasInvalidSlot = state.slots.some(function slotHasError(slot) {
+        if (slot.startTime === '' || slot.endTime === '') return true
+        const start = new Date(slot.startTime)
+        const end = new Date(slot.endTime)
+        if (Number.isNaN(start.valueOf()) || Number.isNaN(end.valueOf())) return true
+        const diffMs = end.getTime() - start.getTime()
+        return diffMs !== 60 * 60 * 1000
+      })
+      if (hasInvalidSlot) {
+        errors.slots = 'Each slot must be exactly 60 minutes with valid start and end times.'
+      }
+    }
+  }
+
+  return errors
+}
+
+export function hasFieldErrors(errors: ScheduleFieldErrors): boolean {
+  return Object.keys(errors).length > 0
+}
+
 export function buildAiPayload(
   state: ScheduleState,
 ): { type: InterviewType; mode: 'ai_led'; scheduled_at: 'now' | string } | null {
   if (state.interviewType === null || state.mode !== 'ai_led') return null
+  if (!isSupportedInterviewType(state.interviewType)) return null
   if (!isTimingComplete(state)) return null
 
   const scheduledAtValue =

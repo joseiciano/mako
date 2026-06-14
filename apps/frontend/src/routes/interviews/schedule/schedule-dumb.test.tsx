@@ -15,6 +15,7 @@ function renderSchedule(props: Partial<ScheduleDumbProps> = {}) {
     slots: [],
     isSubmitting: false,
     errorMessage: null,
+    fieldErrors: {},
     canAdvance: false,
     canGoBack: false,
     onSetType: vi.fn(),
@@ -246,6 +247,110 @@ describe('ScheduleDumb', function scheduleDumbSuite() {
     })
     expect(screen.getByTestId('confirm-max-matches')).toHaveTextContent('3')
     expect(screen.getByText('2026-06-10T10:00 — 2026-06-10T11:00')).toBeDefined()
+    cleanup()
+  })
+
+  it('shows field-level error for interview type', function testTypeFieldError() {
+    renderSchedule({
+      step: 'type',
+      fieldErrors: { interviewType: 'Unsupported type selected' },
+    })
+    expect(screen.getByText('Unsupported type selected')).toBeDefined()
+    cleanup()
+  })
+
+  it('shows field-level error for mode', function testModeFieldError() {
+    renderSchedule({
+      step: 'mode',
+      visibleSteps: ['type', 'mode', 'timing', 'confirm'],
+      interviewType: 'system_design',
+      fieldErrors: { mode: 'Unsupported mode selected' },
+    })
+    expect(screen.getByText('Unsupported mode selected')).toBeDefined()
+    cleanup()
+  })
+
+  it('shows field-level error for scheduledAt', function testTimingFieldError() {
+    renderSchedule({
+      step: 'timing',
+      visibleSteps: ['type', 'mode', 'timing', 'confirm'],
+      interviewType: 'system_design',
+      mode: 'ai_led',
+      scheduledAt: '',
+      fieldErrors: { scheduledAt: 'Invalid date' },
+    })
+    expect(screen.getByText('Invalid date')).toBeDefined()
+    cleanup()
+  })
+
+  it('shows field-level error for maxMatches', function testMaxMatchesFieldError() {
+    renderSchedule({
+      step: 'availability',
+      visibleSteps: ['type', 'mode', 'availability', 'confirm'],
+      interviewType: 'system_design',
+      mode: 'peer_to_peer',
+      fieldErrors: { maxMatches: 'Must be positive' },
+    })
+    expect(screen.getByText('Must be positive')).toBeDefined()
+    cleanup()
+  })
+
+  it('shows field-level error for slots', function testSlotsFieldError() {
+    renderSchedule({
+      step: 'availability',
+      visibleSteps: ['type', 'mode', 'availability', 'confirm'],
+      interviewType: 'system_design',
+      mode: 'peer_to_peer',
+      slots: [{ startTime: '2026-06-10T10:00', endTime: '2026-06-10T10:30' }],
+      fieldErrors: { slots: 'Each slot must be 60 minutes' },
+    })
+    expect(screen.getByText('Each slot must be 60 minutes')).toBeDefined()
+    cleanup()
+  })
+
+  it('disables type selection while submitting', function testDisabledType() {
+    renderSchedule({
+      step: 'type',
+      isSubmitting: true,
+    })
+    expect(screen.getByRole('button', { name: 'System Design' })).toHaveProperty('disabled', true)
+    cleanup()
+  })
+
+  it('disables mode selection while submitting', function testDisabledMode() {
+    renderSchedule({
+      step: 'mode',
+      visibleSteps: ['type', 'mode', 'timing', 'confirm'],
+      interviewType: 'system_design',
+      isSubmitting: true,
+    })
+    const modeButtons = screen.getAllByRole('button').filter((b) => b.textContent?.includes('AI-Led') || b.textContent?.includes('Peer-to-Peer'))
+    expect(modeButtons[0]).toHaveProperty('disabled', true)
+    cleanup()
+  })
+
+  it('disables timing inputs while submitting', function testDisabledTiming() {
+    renderSchedule({
+      step: 'timing',
+      visibleSteps: ['type', 'mode', 'timing', 'confirm'],
+      interviewType: 'system_design',
+      mode: 'ai_led',
+      isSubmitting: true,
+    })
+    expect(screen.getByRole('button', { name: 'Start now' })).toHaveProperty('disabled', true)
+    cleanup()
+  })
+
+  it('disables availability inputs while submitting', function testDisabledAvailability() {
+    renderSchedule({
+      step: 'availability',
+      visibleSteps: ['type', 'mode', 'availability', 'confirm'],
+      interviewType: 'system_design',
+      mode: 'peer_to_peer',
+      isSubmitting: true,
+    })
+    expect(screen.getByLabelText(/maximum matches/i)).toHaveProperty('disabled', true)
+    expect(screen.getByRole('button', { name: /add slot/i })).toHaveProperty('disabled', true)
     cleanup()
   })
 })

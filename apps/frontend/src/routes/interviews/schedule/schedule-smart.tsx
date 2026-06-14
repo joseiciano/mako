@@ -1,7 +1,6 @@
-import { useReducer, useCallback } from 'react'
+import { useReducer, useCallback, useRef } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useCreateInterview } from '#/hooks/use-interviews'
-import { useSubmitAvailability } from '#/hooks/use-submit-availability'
 import { ScheduleDumb } from './schedule-dumb'
 import {
   initialScheduleState,
@@ -13,22 +12,26 @@ import {
   isAvailabilityComplete,
   buildAiPayload,
   buildP2pPayload,
+  getFieldErrors,
   type ScheduleStep,
   type FlowSlot,
 } from './schedule-flow'
 import type { InterviewType, InterviewMode } from '@mako/shared'
 
+const P2P_TEMPORARILY_UNAVAILABLE_MESSAGE =
+  'Peer-to-peer matching is temporarily unavailable. Your availability was not submitted.'
+
 export function ScheduleSmart() {
   const navigate = useNavigate()
   const createInterview = useCreateInterview()
-  const submitAvailability = useSubmitAvailability()
 
   const [state, dispatch] = useReducer(scheduleReducer, initialScheduleState)
+  const isDispatchingRef = useRef(false)
 
-  const isSubmitting = createInterview.isPending || submitAvailability.isPending
-  const mutationError =
-    createInterview.error?.message ?? submitAvailability.error?.message ?? null
+  const isSubmitting = createInterview.isPending
+  const mutationError = createInterview.error?.message ?? null
   const errorMessage = state.validationError ?? mutationError
+  const fieldErrors = state.fieldErrors ?? getFieldErrors(state)
 
   const handleSetType = useCallback(function handleSetType(type: InterviewType) {
     dispatch({ type: 'SET_TYPE', payload: type })
@@ -70,7 +73,10 @@ export function ScheduleSmart() {
 
   const handleConfirm = useCallback(
     function handleConfirm() {
+      if (isDispatchingRef.current) return
+
       dispatch({ type: 'SET_VALIDATION_ERROR', payload: null })
+      dispatch({ type: 'SET_FIELD_ERRORS', payload: null })
 
       if (state.mode === 'ai_led') {
         if (!isTimingComplete(state)) {
@@ -90,9 +96,13 @@ export function ScheduleSmart() {
           return
         }
 
+        isDispatchingRef.current = true
         createInterview.mutate(payload, {
           onSuccess: async function onCreateSuccess() {
             await navigate({ to: '/interviews' })
+          },
+          onSettled: function onCreateSettled() {
+            isDispatchingRef.current = false
           },
         })
       } else if (state.mode === 'peer_to_peer') {
@@ -114,14 +124,13 @@ export function ScheduleSmart() {
           return
         }
 
-        submitAvailability.mutate(payload, {
-          onSuccess: async function onSubmitSuccess() {
-            await navigate({ to: '/interviews' })
-          },
+        dispatch({
+          type: 'SET_VALIDATION_ERROR',
+          payload: P2P_TEMPORARILY_UNAVAILABLE_MESSAGE,
         })
       }
     },
-    [state, createInterview, submitAvailability, navigate],
+    [state, createInterview, navigate],
   )
 
   return (
@@ -135,6 +144,7 @@ export function ScheduleSmart() {
       slots={state.slots}
       isSubmitting={isSubmitting}
       errorMessage={errorMessage}
+      fieldErrors={fieldErrors}
       canAdvance={canAdvance(state)}
       canGoBack={canGoBack(state)}
       onSetType={handleSetType}

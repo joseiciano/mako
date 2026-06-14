@@ -25,31 +25,13 @@ vi.mock('#/hooks/use-interviews', () => ({
   }),
 }))
 
-const mockSubmitMutate = vi.fn()
-let mockSubmitIsPending = false
-let mockSubmitError: Error | null = null
-
-vi.mock('#/hooks/use-submit-availability', () => ({
-  useSubmitAvailability: () => ({
-    mutate: mockSubmitMutate,
-    get isPending() {
-      return mockSubmitIsPending
-    },
-    get error() {
-      return mockSubmitError
-    },
-  }),
-}))
 
 describe('ScheduleSmart', function scheduleSmartSuite() {
   beforeEach(function () {
     mockNavigate.mockClear()
     mockCreateMutate.mockClear()
-    mockSubmitMutate.mockClear()
     mockCreateIsPending = false
     mockCreateError = null
-    mockSubmitIsPending = false
-    mockSubmitError = null
   })
 
   it('renders the schedule form starting at type step', function testRender() {
@@ -94,7 +76,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
     cleanup()
   })
 
-  it('allows step progression through p2p flow and submits', async function testP2pFlow() {
+  it('shows temporary unavailable message for p2p flow without backend write', async function testP2pTempUnavailable() {
     const user = userEvent.setup()
     render(<ScheduleSmart />)
 
@@ -119,19 +101,10 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
     expect(screen.getByText('Confirm Your Interview')).toBeDefined()
     await user.click(screen.getByRole('button', { name: /confirm & schedule/i }))
 
-    expect(mockSubmitMutate).toHaveBeenCalledTimes(1)
-    const payload = mockSubmitMutate.mock.calls[0]![0]
-    expect(payload.interview_type).toBe('system_design')
-    expect(payload.max_matches).toBe(2)
-    expect(payload.slots).toHaveLength(1)
-    expect(payload.slots[0]!.start_time).toBe(new Date('2026-06-10T10:00').toISOString())
-    expect(payload.slots[0]!.end_time).toBe(new Date('2026-06-10T11:00').toISOString())
-
-    const onSuccess = mockSubmitMutate.mock.calls[0]![1].onSuccess
-    await onSuccess()
-    await waitFor(function () {
-      expect(mockNavigate).toHaveBeenCalledWith({ to: '/interviews' })
-    })
+    expect(mockCreateMutate).not.toHaveBeenCalled()
+    expect(
+      screen.getByText(/peer-to-peer matching is temporarily unavailable/i),
+    ).toBeDefined()
 
     cleanup()
   })
@@ -229,7 +202,6 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
     await user.click(screen.getByRole('button', { name: 'Next' }))
 
     expect(mockCreateMutate).not.toHaveBeenCalled()
-    expect(mockSubmitMutate).not.toHaveBeenCalled()
 
     cleanup()
   })
@@ -256,6 +228,85 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
     await user.click(editButtons[0]!)
 
     expect(screen.getByText('Select Interview Type')).toBeDefined()
+
+    cleanup()
+  })
+
+  it('disables submit and back while mutation is in-flight', async function testDisabledInFlight() {
+    const user = userEvent.setup()
+    render(<ScheduleSmart />)
+
+    await user.click(screen.getByText('System Design'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('Start now'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    mockCreateIsPending = true
+
+    // Trigger re-render by clicking confirm
+    const confirmButton = screen.getByRole('button', { name: /confirm & schedule/i })
+    await user.click(confirmButton)
+
+    expect(screen.getByRole('button', { name: /submitting/i })).toHaveProperty(
+      'disabled',
+      true,
+    )
+    expect(screen.getByRole('button', { name: 'Back' })).toHaveProperty(
+      'disabled',
+      true,
+    )
+
+    cleanup()
+  })
+
+  it('prevents duplicate dispatch on double click', async function testDuplicatePrevention() {
+    const user = userEvent.setup()
+    render(<ScheduleSmart />)
+
+    await user.click(screen.getByText('System Design'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('Start now'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    // Simulate double click by calling confirm twice rapidly
+    const confirmButton = screen.getByRole('button', { name: /confirm & schedule/i })
+    await user.click(confirmButton)
+    await user.click(confirmButton)
+
+    expect(mockCreateMutate).toHaveBeenCalledTimes(1)
+
+    cleanup()
+  })
+
+  it('preserves state after server failure so user can retry', async function testRetryPreservesState() {
+    const user = userEvent.setup()
+    render(<ScheduleSmart />)
+
+    await user.click(screen.getByText('System Design'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('Start now'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    expect(screen.getByText('Confirm Your Interview')).toBeDefined()
+
+    // Simulate failure by calling onSettled without onSuccess
+    mockCreateMutate.mockImplementationOnce(function (_payload, options) {
+      if (options?.onSettled) {
+        options.onSettled()
+      }
+    })
+
+    await user.click(screen.getByRole('button', { name: /confirm & schedule/i }))
+
+    // State should be preserved - still on confirm step
+    expect(screen.getByText('Confirm Your Interview')).toBeDefined()
+    expect(screen.getByText('System Design')).toBeDefined()
 
     cleanup()
   })
