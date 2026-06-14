@@ -18,11 +18,11 @@
 - [ ] Export provision contract types from `packages/shared/src/index.ts`.
 - [ ] Keep route fields aligned with `docs/system/system-design/api-routes.md`:
   - `mode`
-  - `realtime.session_id`
+  - `realtime.realtime_session_id`
   - `realtime.token`
-  - `whiteboard.room_id`
-  - `whiteboard.key`
-- [ ] Keep persistence mapping aligned with `docs/system/system-design/db-schemas.md` interview columns:
+  - `excalidraw.excalidraw_room_id`
+  - `excalidraw.excalidraw_key`
+- [ ] Keep response fields and persistence mapping aligned with `docs/system/system-design/db-schemas.md` interview columns:
   - `realtime_session_id`
   - `excalidraw_room_id`
   - `excalidraw_key`
