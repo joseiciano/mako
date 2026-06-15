@@ -24,7 +24,7 @@
     - **Data**: `GET /api/interviews/:id`
 - **Interview Session (`/interviews/:id/session`)**: The immersive interview environment.
     - **Features**: Realtime Video/Audio, Shared Excalidraw Whiteboard, Session Timer.
-    - **Data**: `GET /api/interviews/:id`, `POST /api/interviews/:id/provision`, `POST /api/interviews/:id/start`, `POST /api/interviews/:id/end`, `POST /api/interviews/:id/ai-chat` (**AI-led only**)
+    - **Data**: `GET /api/interviews/:id`, `POST /api/interviews/:id/provision` (returns `mode`, Realtime `realtime_session_id` + token, and Excalidraw `excalidraw_room_id` + `excalidraw_key`), `POST /api/interviews/:id/start`, `POST /api/interviews/:id/end`, `POST /api/interviews/:id/ai-chat` (**AI-led only**)
     - **Notes**:
       - Initial UX can be a minimal shell with interview context + explicit join CTA.
       - `peer_to_peer` sessions share one room/key pair across both participants.
@@ -32,6 +32,7 @@
       - AI chat guidance uses Excalidraw JSON snapshots as source-of-truth input; Mermaid is optional derived output for reporting/export.
       - Lifecycle/timer UI must consume backend-backed interview status and workflow-backed timer state rather than local-only inferred countdown state.
       - `Start Session` / `End Session` controls are participant-scoped lifecycle actions, not whiteboard provisioning actions.
+      - Session timer/start/end controls are owned by the dedicated lifecycle stories and routes, not by whiteboard provisioning.
 - **Post-Interview Feedback (`/interviews/:id/feedback`)**: Detailed report and AI-driven insights.
     - **Features**: Performance scores, transcript, and whiteboard captures.
     - **Data**: `GET /api/interviews/:id`
