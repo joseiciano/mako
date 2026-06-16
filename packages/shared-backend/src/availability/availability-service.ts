@@ -65,7 +65,7 @@ export class AvailabilityService {
 
     return {
       request: result.request,
-      slots: result.slots.sort(compareSlotOrder),
+      slots: [...result.slots].sort(compareSlotOrder),
     }
   }
 

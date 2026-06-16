@@ -252,13 +252,15 @@
 
 ### Availability
 - **`POST /api/availability`**
-  - **Description**: Submits a new availability request with multiple time slots.
+  - **Description**: Submits a new availability request with one or more time slots.
   - **Request Body**: `{ interview_type: 'system_design' | 'coding' | 'behavioral', max_matches: number, slots: Array<{ start_time: string, end_time: string }> }`
   - **Response Body**: `{ request: Availability_Request, slots: Availability_Slot[] }`
   - **Validation Rules**:
     - Each slot must be exactly 60 minutes (`end_time = start_time + 60m`).
     - `start_time < end_time`.
-    - `slots` array max 200 items.
+    - `max_matches` must be a positive integer.
+    - `slots` array must contain 1 to 200 items.
+    - Duplicate slot windows (same `start_time` and `end_time`) are not allowed in a single request.
 
 - **`GET /api/availability`**
   - **Description**: Lists active availability requests for the current user.

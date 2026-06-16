@@ -82,6 +82,8 @@ function isZodError(error: unknown): error is { issues: unknown[] } {
   return (
     typeof error === 'object' &&
     error !== null &&
+    'name' in error &&
+    error.name === 'ZodError' &&
     'issues' in error &&
     Array.isArray(error.issues)
   )

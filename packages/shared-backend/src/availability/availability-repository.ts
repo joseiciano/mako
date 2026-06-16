@@ -1,5 +1,5 @@
 import type { AvailabilityRequest, AvailabilitySlot } from '@mako/shared'
-import { createSqlQuery, type SqlQuery } from '../index'
+import { createSqlQuery } from '../index'
 import {
   parseAvailabilityRequestRow,
   parseAvailabilitySlotRow,
@@ -111,11 +111,11 @@ export class AvailabilityRepository {
         const valuesPlaceholders: string[] = []
         const slotValues: unknown[] = []
 
-        for (let i = 0; i < input.slots.length; i++) {
-          const offset = i * 7
-          const slot = input.slots[i]!
+        let parameterIndex = 1
+
+        for (const slot of input.slots) {
           valuesPlaceholders.push(
-            `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4}, $${offset + 5}, $${offset + 6}, $${offset + 7})`,
+            `($${parameterIndex}, $${parameterIndex + 1}, $${parameterIndex + 2}, $${parameterIndex + 3}, $${parameterIndex + 4}, $${parameterIndex + 5}, $${parameterIndex + 6})`,
           )
           slotValues.push(
             slot.id,
@@ -126,6 +126,7 @@ export class AvailabilityRepository {
             slot.created_at,
             slot.updated_at,
           )
+          parameterIndex += 7
         }
 
         const slotsResult = await queryExecutor.query<AvailabilitySlotRow>(

@@ -1,10 +1,8 @@
 import {
   availabilityRequestSchema,
   availabilitySlotSchema,
-  createAvailabilityResponseSchema,
   type AvailabilityRequest,
   type AvailabilitySlot,
-  type CreateAvailabilityResponse,
 } from '@mako/shared'
 import { z } from 'zod'
 

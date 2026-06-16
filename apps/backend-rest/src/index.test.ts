@@ -690,6 +690,81 @@ describe('backend-rest smoke tests', function () {
     )
     expect(interviewInserts).toHaveLength(0)
   })
+
+  it('creates all requested availability slots through Hyperdrive-backed stores', async function () {
+    const app = createApp()
+    const dbBinding = createDatabaseBinding({
+      credits: 1,
+      freeAiInterviews: 0,
+    })
+
+    vi.spyOn(sharedBackend, 'createPostgresConnectionPool').mockReturnValue(
+      createHyperdrivePool(dbBinding) as ReturnType<
+        typeof sharedBackend.createPostgresConnectionPool
+      >,
+    )
+    vi.spyOn(sharedBackend, 'createBetterAuth').mockReturnValue({
+      handler: vi.fn(),
+      api: {
+        async getSession() {
+          return {
+            user: {
+              id: '11111111-1111-4111-8111-111111111111',
+              email: 'db-candidate@mako.dev',
+            },
+            session: {
+              id: 'session-1',
+            },
+          }
+        },
+      },
+    })
+
+    const hyperdriveEnv: WorkerBindings = {
+      HYPERDRIVE: {
+        connectionString: 'postgres://hyperdrive.local/mako',
+      },
+      BETTER_AUTH_SECRET: 'test-secret',
+    }
+
+    const response = await createAvailability(
+      app,
+      {
+        slots: [
+          {
+            start_time: '2026-04-13T10:00:00.000Z',
+            end_time: '2026-04-13T11:00:00.000Z',
+          },
+          {
+            start_time: '2026-04-13T12:00:00.000Z',
+            end_time: '2026-04-13T13:00:00.000Z',
+          },
+        ],
+      },
+      hyperdriveEnv,
+    )
+
+    expect(response.status).toBe(201)
+    const body = (await response.json()) as {
+      slots: Array<{ start_time: string; end_time: string; status: string }>
+    }
+
+    expect(body.slots).toHaveLength(2)
+    expect(body.slots).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'available',
+          start_time: '2026-04-13T10:00:00.000Z',
+          end_time: '2026-04-13T11:00:00.000Z',
+        }),
+        expect.objectContaining({
+          status: 'available',
+          start_time: '2026-04-13T12:00:00.000Z',
+          end_time: '2026-04-13T13:00:00.000Z',
+        }),
+      ]),
+    )
+  })
 })
 
 type TrackingQueue = Queue & {
@@ -1049,20 +1124,25 @@ function createDatabaseBinding(accountState: {
       }
 
       if (statementText.includes('INSERT INTO availability_slots')) {
-        const slotRecord = {
-          id: statementValues[0],
-          request_id: statementValues[1],
-          start_time: statementValues[2],
-          end_time: statementValues[3],
-          status: statementValues[4],
-          created_at: statementValues[5],
-          updated_at: statementValues[6],
+        const slotRecords: Array<Record<string, unknown>> = []
+
+        for (let index = 0; index < statementValues.length; index += 7) {
+          const slotRecord = {
+            id: statementValues[index],
+            request_id: statementValues[index + 1],
+            start_time: statementValues[index + 2],
+            end_time: statementValues[index + 3],
+            status: statementValues[index + 4],
+            created_at: statementValues[index + 5],
+            updated_at: statementValues[index + 6],
+          }
+
+          availabilitySlotsById.set(String(statementValues[index]), slotRecord)
+          slotRecords.push(slotRecord)
         }
 
-        availabilitySlotsById.set(String(statementValues[0]), slotRecord)
-
         return {
-          rows: [slotRecord],
+          rows: slotRecords,
         }
       }
       throw new Error(`Unhandled DB statement: ${statementText}`)

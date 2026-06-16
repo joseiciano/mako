@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   AvailabilityRepository,
   createInMemoryAvailabilityDataSource,
+  type CreateAvailabilityRecordInput,
+  type CreateAvailabilityRecordResult,
 } from './availability-repository'
 import { AvailabilityService } from './availability-service'
 import {
@@ -118,6 +120,64 @@ describe('AvailabilityService', function availabilityServiceSuite() {
       '2026-04-13T10:00:00.000Z',
       '2026-04-13T11:00:00.000Z',
       '2026-04-13T12:00:00.000Z',
+    ])
+  })
+
+  it('does not mutate repository returned slots while ordering response', async function run() {
+    let seq = 0
+    let repositoryReturnedSlots: CreateAvailabilityRecordResult['slots'] = []
+    const service = new AvailabilityService(
+      new AvailabilityRepository({
+        async createAvailability(
+          input: CreateAvailabilityRecordInput,
+        ): Promise<CreateAvailabilityRecordResult> {
+          const response = {
+            request: input.request,
+            slots: input.slots.map((slot) => ({ ...slot })),
+          }
+          repositoryReturnedSlots = response.slots
+
+          return response
+        },
+      }),
+      function createId() {
+        return `00000000-0000-4000-8000-${String(seq++).padStart(12, '0')}`
+      },
+      function now() {
+        return '2026-04-13T09:00:00.000Z'
+      },
+    )
+
+    const response = await service.createAvailability(activeSession, {
+      interview_type: 'coding',
+      max_matches: 3,
+      slots: [
+        {
+          start_time: '2026-04-13T12:00:00.000Z',
+          end_time: '2026-04-13T13:00:00.000Z',
+        },
+        {
+          start_time: '2026-04-13T10:00:00.000Z',
+          end_time: '2026-04-13T11:00:00.000Z',
+        },
+        {
+          start_time: '2026-04-13T11:00:00.000Z',
+          end_time: '2026-04-13T12:00:00.000Z',
+        },
+      ],
+    })
+
+    expect(response.slots.map((slot) => slot.start_time)).toEqual([
+      '2026-04-13T10:00:00.000Z',
+      '2026-04-13T11:00:00.000Z',
+      '2026-04-13T12:00:00.000Z',
+    ])
+    const unsortedRepositorySlots = repositoryReturnedSlots
+
+    expect(unsortedRepositorySlots.map((slot) => slot.start_time)).toEqual([
+      '2026-04-13T12:00:00.000Z',
+      '2026-04-13T10:00:00.000Z',
+      '2026-04-13T11:00:00.000Z',
     ])
   })
 
