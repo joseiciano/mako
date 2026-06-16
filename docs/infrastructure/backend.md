@@ -22,7 +22,7 @@ This document goes over all the tools we will be using for our backend services
 - **Better Auth**: We will use better auth to handle authentication as well as email verification. It uses **HTTP-only cookies** for secure session management by default. [Docs](https://better-auth.com/docs/introduction)
 - **Zod**: Zod is used for defining data schemas. This is to be used for things like API request shapes. [Docs](https://zod.dev/)
 - **zod-openapi**: (or `hono-openapi`) We use this to automatically generate OpenAPI specifications from our Zod schemas and Hono routes, ensuring the documentation stays in sync with the code. [Docs](https://hono.dev/examples/zod-openapi)
-- **Excalidraw MCP**: Used by the AI interviewer to interact with and analyze the whiteboard during system design interviews.
+- **Excalidraw MCP**: Used by the AI interviewer to interact with and analyze explicitly joined whiteboard sessions; MCP access requires interview room credentials and must not assume implicit/global access to Excalidraw sessions.
 
 
 **NOTE**: We are speaking to our postgres database directly with SQL queries, speaking to it with Cloudflare Hyperdrive. We are not, and never will be using an orm. Never recommend an orm, never use an orm, never mention an orm. 

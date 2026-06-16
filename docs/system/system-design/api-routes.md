@@ -148,15 +148,17 @@
     {
       "mode": "peer_to_peer",
       "realtime": {
-        "session_id": "rt_session_123",
+        "realtime_session_id": "rt_session_123",
         "token": "rt_token_abc"
       },
-      "whiteboard": {
-        "room_id": "wb_room_123",
-        "key": "wb_key_abc"
+      "excalidraw": {
+        "excalidraw_room_id": "wb_room_123",
+        "excalidraw_key": "wb_key_abc"
       }
     }
     ```
+  - **Canonical Provision Contract**: Response field names intentionally match persisted interview columns where applicable. `realtime.realtime_session_id` maps to `interviews.realtime_session_id`; `excalidraw.excalidraw_room_id` maps to `interviews.excalidraw_room_id`; `excalidraw.excalidraw_key` maps to `interviews.excalidraw_key`. `realtime.token` is an ephemeral join token and is not stored on the interview row.
+  - **Mode Contract**: `mode` is either `peer_to_peer` or `ai_led` and determines whether credentials represent a shared two-participant collaboration room or a single-user interview-scoped room.
   - **Behavior Rules**:
     - Route is participant-only (interview participants can provision/join; non-participants are rejected).
     - Provisioning is join-time runtime behavior and does not introduce a separate persisted interview `status`.

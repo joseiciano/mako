@@ -25,6 +25,7 @@ The platform manages interview state across frontend and backend with explicit r
   - Retry/reconnect behavior must be idempotent (reuse existing room/key/session values for the active interview).
   - This phase is **not** stored as a `status` value on the interview row.
   - This is **not** queue-triggered provisioning.
+  - Session start/end/timer orchestration remains owned by lifecycle controls (Stories 3.8, 3.10, 3.11, and 3.12), not by whiteboard provisioning.
 
 - **Ongoing**
   - Live audio/video/whiteboard state is synchronized via Cloudflare Realtime.

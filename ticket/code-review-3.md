@@ -1,30 +1,26 @@
-# Code Review 3 — Story 5.4 Availability Create Route
+# Code Review 3
 
-**Decision: LGTM**
+**Decision**: LGTM
 
-## Scope
+**Risk:** Low — documentation-contract reconciliation only for Story 3.1 scope.
 
-- `POST /api/availability` route, controller, service, repository, shared contracts, docs, and backend wiring.
-- Ticket: `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/5-4-availability-route-post-api-availability.md`
+## Scope Reviewed
+- Story 3.1 whiteboard scope and contract boundaries after rebase onto latest `origin/main`
+- Provision response naming alignment across API, schema, lifecycle, diagrams, frontend-page docs, and follow-up implementation stories
+- Join-time provisioning boundary vs queue/lifecycle ownership
+- Excalidraw JSON/Mermaid/MCP/artifact scope boundaries
 
-## Result
+## Findings
 
-All review findings resolved:
+No blocking findings.
 
-- Auth rejection happens before body parsing for unauthenticated requests.
-- Request schema validates enum, positive `max_matches`, exact 60-minute slots, `start_time < end_time`, strict objects, and max 200 slots.
-- Duplicate slot detection uses normalized epoch keys without collision-prone hashing.
-- SQL path writes only `availability_requests` and `availability_slots` in one transaction.
-- Slot persistence uses one batched parameterized insert, avoiding per-slot DB round-trips.
-- Response remains validated at route boundary.
-- API route docs and story validation rules mention max 200 slots.
-- DB-backed availability smoke test verifies Hyperdrive wiring and no interview inserts.
+## Notes
+- Canonical provision fields align to `realtime.realtime_session_id`, `realtime.token`, `excalidraw.excalidraw_room_id`, and `excalidraw.excalidraw_key`.
+- Provisioning remains a join-time runtime route (`POST /api/interviews/:id/provision`) and not queue-triggered behavior.
+- Lifecycle start/end/timer ownership stays with dedicated lifecycle stories (`3-8`, `3-10`, `3-11`, `3-12`) after rebasing on latest main.
+- Excalidraw MCP access requires explicit room credentials; no implicit/global access path is documented.
 
 ## Verification
-
-- `pnpm --filter @mako/shared test` — pass, 71 tests
-- `pnpm --filter @mako/shared-backend test` — pass, 302 tests
-- `pnpm --filter @mako/backend-rest test` — pass, 22 tests
-- `pnpm --filter @mako/shared typecheck` — pass
-- `pnpm --filter @mako/shared-backend typecheck` — pass
-- `pnpm --filter @mako/backend-rest typecheck` — pass
+- Rebased branch onto latest `origin/main` (`74a6c1758a12169b7d63da2608f37643012d7755`).
+- Reviewed current docs-only diff: 9 files, +48/-36 before adding this review artifact.
+- Ran `git diff --check origin/main...HEAD`: clean.

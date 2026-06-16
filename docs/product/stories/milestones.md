@@ -30,10 +30,10 @@ This document outlines the high-level milestones for the Mako platform, breaking
 ## Milestone 3: The Interview Experience (P2P Core)
 **Objective**: Build the real-time environment for peer-to-peer system design interviews.
 
-- **Room Provisioning**: Logic to generate Cloudflare Realtime session tokens and Excalidraw room IDs.
+- **Room Provisioning**: Join-time route behavior to generate/reuse Cloudflare Realtime session tokens and Excalidraw room IDs/keys.
 - **Real-time Communication**: Integrate audio/video streaming for participants.
-- **Collaborative Whiteboard**: Embed and sync the Excalidraw canvas across sessions.
-- **Session Lifecycle**: Implement "Join", "Start", "Timer", and "End Session" functionality with state persistence.
+- **Collaborative Whiteboard**: Embed and sync the Excalidraw canvas for live sessions.
+- **Session Lifecycle**: Implement "Join", "Start", "Timer", and "End Session" functionality with state persistence; timer/start/end orchestration remains separate from whiteboard provisioning.
 
 ## Milestone 4: AI Interviewer Implementation
 **Objective**: Launch the AI-led interview mode where an LLM acts as the interviewer.
@@ -47,9 +47,9 @@ This document outlines the high-level milestones for the Mako platform, breaking
 **Objective**: Provide users with automated, high-quality feedback after their sessions.
 
 - **Transcription Pipeline**: Process session recordings using Cloudflare AI (Whisper) to generate transcripts.
-- **AI Feedback Engine**: Analyze transcripts and whiteboard snapshots via high-reasoning LLMs.
+- **AI Feedback Engine**: Analyze transcripts and whiteboard snapshots via high-reasoning LLMs; post-interview whiteboard artifact processing belongs here, not live whiteboard scope.
 - **Feedback Report UI**: Design and build the post-interview summary page with scores and insights.
-- **Asset Storage**: Manage R2 storage for session recordings and whiteboard captures.
+- **Asset Storage**: Manage R2 storage for session recordings and whiteboard captures, including persisted screenshot artifacts.
 
 ## Milestone 6: Monetization & Credit System
 **Objective**: Implement the platform's economic model and payment processing.

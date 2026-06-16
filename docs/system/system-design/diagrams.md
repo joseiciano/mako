@@ -13,17 +13,17 @@ Flow is as follows:
 6. **Client Connection:** The Frontend (TanStack Start) connects to the Realtime session via the RealtimeKit SDK for live audio/video/data streaming.
 7. **In-Session Events:** During interview, Cloudflare Workflow sends events (e.g., 5-minute warnings) via Realtime to clients.
 8. **Session Termination:** Upon timer expiration or manual completion via `POST /api/interviews/:id/end`, lifecycle converges on `completed`, Workflow locks Realtime session, and post-interview process begins.
-9. **Data Persistence & Feedback:** 
+9. **Data Persistence & Feedback:**
    - Session recordings and screenshots are persisted to Cloudflare R2.
    - AI Feedback is generated using Cloudflare AI Gateway and LLM providers.
 10. **Collaboration Tools**:
-   - For system design interviews, a **shared Excalidraw collaboration session** is provisioned. Both participants join this session using a unique Room ID and Encryption Key.
+   - For system design interviews, a **shared Excalidraw live collaboration session** is provisioned. Participants join using the persisted `excalidraw_room_id` and `excalidraw_key` returned by `POST /api/interviews/:id/provision`.
    - For peer-to-peer interviews, both users join the same interview-scoped room/key pair.
    - For AI-led interviews, the user gets a single interview-scoped room/key pair (no second human participant).
    - Whiteboard state synchronization is handled efficiently over **Cloudflare Realtime**, ensuring a low-latency collaborative experience without manual "streaming" of the canvas.
-   - For AI-led guidance, the backend sends Excalidraw scene snapshots (JSON) with chat context/rubric prompts to the LLM.
+   - For AI-led guidance, the backend sends Excalidraw scene JSON snapshots (or a normalized derivative) with chat context/rubric prompts to the LLM.
    - Mermaid can be produced as an optional derived artifact for reporting/export, but Excalidraw scene data remains the source-of-truth payload for AI guidance.
-   - If Excalidraw MCP is used for AI interviewer behavior, MCP access must be explicitly wired with the interview's room credentials; it does not gain implicit/global read access to sessions.
+   - If Excalidraw MCP is used for AI interviewer behavior, MCP access must be explicitly joined with the interview's room credentials; it does not gain implicit/global read access to sessions.
 
 Cancellation transition behavior (must stay aligned with `state-management-lifecycle.md`):
 - `scheduled -> cancelled`: allowed

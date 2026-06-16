@@ -139,11 +139,11 @@ Core entity for tracking mock sessions and AI-led interviews.
 - **`tier`**: `enum` ('standard', 'premium') - In Milestone 2, this is a policy label/input (quota/limits), not a separate creation flow. Verified-interviewer assignment behavior is future milestone scope.
 - **`status`**: `enum` ('scheduled', 'ongoing', 'completed', 'cancelled')
 - **`scheduled_at`**: `timestamptz` - Time the interview is set to start.
-- **`realtime_session_id`**: `text` (Optional) - Cloudflare Realtime session identifier.
-- **`excalidraw_room_id`**: `text` (Optional) - Unique ID for the collaborative whiteboard session.
-- **`excalidraw_key`**: `text` (Optional) - Encryption key for the whiteboard data.
+- **`realtime_session_id`**: `text` (Optional) - Cloudflare Realtime session identifier persisted/reused by join-time provisioning (`POST /api/interviews/:id/provision`).
+- **`excalidraw_room_id`**: `text` (Optional) - Excalidraw live collaboration room ID persisted/reused by join-time provisioning.
+- **`excalidraw_key`**: `text` (Optional) - Excalidraw room key persisted/reused with the room ID for whiteboard live collaboration.
 - **`recording_url`**: `text` (Optional) - URL for the session recording in R2.
-- **`screenshot_urls`**: `jsonb` (Optional) - Array of URLs for whiteboard captures or session screenshots stored in R2.
+- **`screenshot_urls`**: `jsonb` (Optional) - Array of URLs for whiteboard captures or session screenshots stored in R2; post-interview artifact analysis/reporting is Milestone 5 scope.
 - **`feedback`**: `jsonb` (Optional) - Stores AI-generated feedback, scores, and improvement areas.
 - **`created_at`**: `timestamptz`
 - **`updated_at`**: `timestamptz`
