@@ -1,6 +1,7 @@
-import { useReducer, useCallback, useRef } from 'react'
+import { useReducer, useCallback, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useCreateInterview } from '#/hooks/use-interviews'
+import { useSubmitAvailability } from '#/hooks/use-submit-availability'
 import { ScheduleDumb } from './schedule-dumb'
 import {
   initialScheduleState,
@@ -18,58 +19,108 @@ import {
 } from './schedule-flow'
 import type { InterviewType, InterviewMode } from '@mako/shared'
 
-const P2P_TEMPORARILY_UNAVAILABLE_MESSAGE =
-  'Peer-to-peer matching is temporarily unavailable. Your availability was not submitted.'
+type SubmissionBranch = 'ai_led' | 'peer_to_peer'
+
+const P2P_ACCEPTED_MESSAGE =
+  'Availability submitted for matcher processing. Your interview will appear after matcher success.'
 
 export function ScheduleSmart() {
   const navigate = useNavigate()
   const createInterview = useCreateInterview()
+  const submitAvailability = useSubmitAvailability()
 
   const [state, dispatch] = useReducer(scheduleReducer, initialScheduleState)
+  const [lastSubmissionBranch, setLastSubmissionBranch] =
+    useState<SubmissionBranch | null>(null)
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const isDispatchingRef = useRef(false)
 
-  const isSubmitting = createInterview.isPending
-  const mutationError = createInterview.error?.message ?? null
+  const isSubmitting = createInterview.isPending || submitAvailability.isPending
+  const mutationError =
+    lastSubmissionBranch === 'peer_to_peer'
+      ? submitAvailability.error?.message ?? null
+      : lastSubmissionBranch === 'ai_led'
+        ? createInterview.error?.message ?? null
+        : null
   const errorMessage = state.validationError ?? mutationError
+  const retryLabel =
+    state.validationError === null && mutationError !== null
+      ? lastSubmissionBranch === 'peer_to_peer'
+        ? 'Retry submitting availability'
+        : lastSubmissionBranch === 'ai_led'
+          ? 'Retry scheduling'
+          : null
+      : null
   const fieldErrors = state.fieldErrors ?? getFieldErrors(state)
 
-  const handleSetType = useCallback(function handleSetType(type: InterviewType) {
-    dispatch({ type: 'SET_TYPE', payload: type })
+  const clearSubmissionFeedback = useCallback(function clearSubmissionFeedback() {
+    setLastSubmissionBranch(null)
+    setSuccessMessage(null)
   }, [])
 
-  const handleSetMode = useCallback(function handleSetMode(mode: InterviewMode) {
-    dispatch({ type: 'SET_MODE', payload: mode })
-  }, [])
+  const handleSetType = useCallback(
+    function handleSetType(type: InterviewType) {
+      clearSubmissionFeedback()
+      dispatch({ type: 'SET_TYPE', payload: type })
+    },
+    [clearSubmissionFeedback],
+  )
+
+  const handleSetMode = useCallback(
+    function handleSetMode(mode: InterviewMode) {
+      clearSubmissionFeedback()
+      dispatch({ type: 'SET_MODE', payload: mode })
+    },
+    [clearSubmissionFeedback],
+  )
 
   const handleSetScheduledAt = useCallback(
     function handleSetScheduledAt(value: 'now' | string) {
+      clearSubmissionFeedback()
       dispatch({ type: 'SET_SCHEDULED_AT', payload: value })
     },
-    [],
+    [clearSubmissionFeedback],
   )
 
   const handleSetMaxMatches = useCallback(
     function handleSetMaxMatches(value: number) {
+      clearSubmissionFeedback()
       dispatch({ type: 'SET_MAX_MATCHES', payload: value })
     },
-    [],
+    [clearSubmissionFeedback],
   )
 
-  const handleSetSlots = useCallback(function handleSetSlots(slots: FlowSlot[]) {
-    dispatch({ type: 'SET_SLOTS', payload: slots })
-  }, [])
+  const handleSetSlots = useCallback(
+    function handleSetSlots(slots: FlowSlot[]) {
+      clearSubmissionFeedback()
+      dispatch({ type: 'SET_SLOTS', payload: slots })
+    },
+    [clearSubmissionFeedback],
+  )
 
-  const handleNext = useCallback(function handleNext() {
-    dispatch({ type: 'NEXT' })
-  }, [])
+  const handleNext = useCallback(
+    function handleNext() {
+      clearSubmissionFeedback()
+      dispatch({ type: 'NEXT' })
+    },
+    [clearSubmissionFeedback],
+  )
 
-  const handleBack = useCallback(function handleBack() {
-    dispatch({ type: 'BACK' })
-  }, [])
+  const handleBack = useCallback(
+    function handleBack() {
+      clearSubmissionFeedback()
+      dispatch({ type: 'BACK' })
+    },
+    [clearSubmissionFeedback],
+  )
 
-  const handleGoToStep = useCallback(function handleGoToStep(step: ScheduleStep) {
-    dispatch({ type: 'GO_TO_STEP', payload: step })
-  }, [])
+  const handleGoToStep = useCallback(
+    function handleGoToStep(step: ScheduleStep) {
+      clearSubmissionFeedback()
+      dispatch({ type: 'GO_TO_STEP', payload: step })
+    },
+    [clearSubmissionFeedback],
+  )
 
   const handleConfirm = useCallback(
     function handleConfirm() {
@@ -77,6 +128,7 @@ export function ScheduleSmart() {
 
       dispatch({ type: 'SET_VALIDATION_ERROR', payload: null })
       dispatch({ type: 'SET_FIELD_ERRORS', payload: null })
+      setSuccessMessage(null)
 
       if (state.mode === 'ai_led') {
         if (!isTimingComplete(state)) {
@@ -97,6 +149,7 @@ export function ScheduleSmart() {
         }
 
         isDispatchingRef.current = true
+        setLastSubmissionBranch('ai_led')
         createInterview.mutate(payload, {
           onSuccess: async function onCreateSuccess() {
             await navigate({ to: '/interviews' })
@@ -124,13 +177,26 @@ export function ScheduleSmart() {
           return
         }
 
-        dispatch({
-          type: 'SET_VALIDATION_ERROR',
-          payload: P2P_TEMPORARILY_UNAVAILABLE_MESSAGE,
+        isDispatchingRef.current = true
+        setLastSubmissionBranch('peer_to_peer')
+        submitAvailability.mutate(payload, {
+          onSuccess: function onAvailabilitySuccess() {
+            setSuccessMessage(P2P_ACCEPTED_MESSAGE)
+          },
+          onSettled: function onAvailabilitySettled() {
+            isDispatchingRef.current = false
+          },
         })
       }
     },
-    [state, createInterview, navigate],
+    [state, createInterview, submitAvailability, navigate],
+  )
+
+  const handleRetry = useCallback(
+    function handleRetry() {
+      handleConfirm()
+    },
+    [handleConfirm],
   )
 
   return (
@@ -143,7 +209,9 @@ export function ScheduleSmart() {
       maxMatches={state.maxMatches}
       slots={state.slots}
       isSubmitting={isSubmitting}
+      successMessage={successMessage}
       errorMessage={errorMessage}
+      retryLabel={retryLabel}
       fieldErrors={fieldErrors}
       canAdvance={canAdvance(state)}
       canGoBack={canGoBack(state)}
@@ -156,6 +224,7 @@ export function ScheduleSmart() {
       onBack={handleBack}
       onGoToStep={handleGoToStep}
       onConfirm={handleConfirm}
+      onRetry={handleRetry}
     />
   )
 }

@@ -15,7 +15,9 @@ export type ScheduleDumbProps = {
   maxMatches: number | null
   slots: FlowSlot[]
   isSubmitting: boolean
+  successMessage: string | null
   errorMessage: string | null
+  retryLabel: string | null
   fieldErrors: ScheduleFieldErrors
   canAdvance: boolean
   canGoBack: boolean
@@ -28,6 +30,7 @@ export type ScheduleDumbProps = {
   onBack: () => void
   onGoToStep: (step: ScheduleStep) => void
   onConfirm: () => void
+  onRetry: () => void
 }
 
 function StepIndicator(props: {
@@ -518,6 +521,25 @@ export function ScheduleDumb(props: ScheduleDumbProps) {
           role="alert"
         >
           <p>{props.errorMessage}</p>
+          {props.retryLabel ? (
+            <button
+              type="button"
+              onClick={props.onRetry}
+              disabled={props.isSubmitting}
+              className="mt-3 inline-flex w-fit items-center justify-center rounded-lg border border-rose-300/60 px-3 py-1.5 text-xs font-semibold text-rose-50 transition hover:bg-rose-500/20 disabled:cursor-not-allowed disabled:opacity-70"
+            >
+              {props.retryLabel}
+            </button>
+          ) : null}
+        </section>
+      ) : null}
+
+      {props.successMessage ? (
+        <section
+          className="rounded-xl border border-emerald-500/60 bg-emerald-500/10 p-4 text-sm text-emerald-100"
+          role="status"
+        >
+          <p>{props.successMessage}</p>
         </section>
       ) : null}
 
