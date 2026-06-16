@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import type { SqlQuery } from '../index'
-import type { SqlQueryExecutor } from '../interviews/interview-repository'
+import type { SqlQuery, SqlQueryExecutor } from '../index'
 import { NotificationRepository } from './notification-repository'
 import type {
   InterviewState,

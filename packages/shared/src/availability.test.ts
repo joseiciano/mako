@@ -86,6 +86,27 @@ describe('availability shared contracts', function availabilitySharedContractsSu
     }).toThrow()
   })
 
+  it('rejects more than maxAvailabilitySlotsPerRequest slots', function run() {
+    const tooManySlots = Array.from({ length: 201 }, (_, i) => {
+      const hour = i % 24
+      const day = 10 + Math.floor(i / 24)
+      const pad = (n: number) => String(n).padStart(2, '0')
+      const start = `2026-04-${pad(day)}T${pad(hour)}:00:00.000Z`
+      const endHour = (hour + 1) % 24
+      const endDay = day + (hour + 1 >= 24 ? 1 : 0)
+      const end = `2026-04-${pad(endDay)}T${pad(endHour)}:00:00.000Z`
+      return { start_time: start, end_time: end }
+    })
+
+    expect(function parseInvalidPayload() {
+      createAvailabilityRequestSchema.parse({
+        interview_type: 'system_design',
+        max_matches: 1,
+        slots: tooManySlots,
+      })
+    }).toThrow()
+  })
+
   it('rejects slot shorter than 60 minutes', function run() {
     expect(function parseInvalidPayload() {
       createAvailabilityRequestSchema.parse({

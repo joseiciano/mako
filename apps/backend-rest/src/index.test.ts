@@ -581,6 +581,190 @@ describe('backend-rest smoke tests', function () {
 
     consoleErrorSpy.mockRestore()
   })
+
+  it('creates availability in demo mode without a DB binding', async function () {
+    const app = createApp()
+
+    const response = await createAvailability(app)
+
+    expect(response.status).toBe(201)
+    await expect(response.json()).resolves.toMatchObject({
+      request: {
+        user_id: '11111111-1111-4111-8111-111111111111',
+        interview_type: 'system_design',
+        max_matches: 2,
+        current_matches: 0,
+        status: 'active',
+      },
+      slots: [
+        {
+          status: 'available',
+          start_time: '2026-04-13T10:00:00.000Z',
+          end_time: '2026-04-13T11:00:00.000Z',
+        },
+      ],
+    })
+  })
+
+  it('returns 401 for availability without auth when Hyperdrive is configured but Better Auth unavailable', async function () {
+    const app = createApp()
+    const hyperdriveEnv: WorkerBindings = {
+      HYPERDRIVE: {
+        connectionString: 'postgres://hyperdrive.local/mako',
+      },
+    }
+
+    const response = await createAvailability(app, {}, hyperdriveEnv)
+
+    expect(response.status).toBe(401)
+    await expect(response.json()).resolves.toEqual({
+      error: 'You must be authenticated to access this resource.',
+    })
+  })
+
+  it('uses Hyperdrive-backed availability stores when HYPERDRIVE is configured', async function () {
+    const app = createApp()
+    const dbBinding = createDatabaseBinding({
+      credits: 1,
+      freeAiInterviews: 0,
+    })
+
+    vi.spyOn(sharedBackend, 'createPostgresConnectionPool').mockReturnValue(
+      createHyperdrivePool(dbBinding) as ReturnType<
+        typeof sharedBackend.createPostgresConnectionPool
+      >,
+    )
+    vi.spyOn(sharedBackend, 'createBetterAuth').mockReturnValue({
+      handler: vi.fn(),
+      api: {
+        async getSession() {
+          return {
+            user: {
+              id: '11111111-1111-4111-8111-111111111111',
+              email: 'db-candidate@mako.dev',
+            },
+            session: {
+              id: 'session-1',
+            },
+          }
+        },
+      },
+    })
+
+    const hyperdriveEnv: WorkerBindings = {
+      HYPERDRIVE: {
+        connectionString: 'postgres://hyperdrive.local/mako',
+      },
+      BETTER_AUTH_SECRET: 'test-secret',
+    }
+
+    const response = await createAvailability(app, {}, hyperdriveEnv)
+
+    expect(response.status).toBe(201)
+    await expect(response.json()).resolves.toMatchObject({
+      request: {
+        user_id: '11111111-1111-4111-8111-111111111111',
+        interview_type: 'system_design',
+        max_matches: 2,
+        current_matches: 0,
+        status: 'active',
+      },
+      slots: [
+        {
+          status: 'available',
+          start_time: '2026-04-13T10:00:00.000Z',
+          end_time: '2026-04-13T11:00:00.000Z',
+        },
+      ],
+    })
+
+    expect(dbBinding.executedStatements).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining('INSERT INTO availability_requests'),
+        expect.stringContaining('INSERT INTO availability_slots'),
+      ]),
+    )
+
+    const interviewInserts = dbBinding.executedStatements.filter((s) =>
+      s.includes('INSERT INTO interviews'),
+    )
+    expect(interviewInserts).toHaveLength(0)
+  })
+
+  it('creates all requested availability slots through Hyperdrive-backed stores', async function () {
+    const app = createApp()
+    const dbBinding = createDatabaseBinding({
+      credits: 1,
+      freeAiInterviews: 0,
+    })
+
+    vi.spyOn(sharedBackend, 'createPostgresConnectionPool').mockReturnValue(
+      createHyperdrivePool(dbBinding) as ReturnType<
+        typeof sharedBackend.createPostgresConnectionPool
+      >,
+    )
+    vi.spyOn(sharedBackend, 'createBetterAuth').mockReturnValue({
+      handler: vi.fn(),
+      api: {
+        async getSession() {
+          return {
+            user: {
+              id: '11111111-1111-4111-8111-111111111111',
+              email: 'db-candidate@mako.dev',
+            },
+            session: {
+              id: 'session-1',
+            },
+          }
+        },
+      },
+    })
+
+    const hyperdriveEnv: WorkerBindings = {
+      HYPERDRIVE: {
+        connectionString: 'postgres://hyperdrive.local/mako',
+      },
+      BETTER_AUTH_SECRET: 'test-secret',
+    }
+
+    const response = await createAvailability(
+      app,
+      {
+        slots: [
+          {
+            start_time: '2026-04-13T10:00:00.000Z',
+            end_time: '2026-04-13T11:00:00.000Z',
+          },
+          {
+            start_time: '2026-04-13T12:00:00.000Z',
+            end_time: '2026-04-13T13:00:00.000Z',
+          },
+        ],
+      },
+      hyperdriveEnv,
+    )
+
+    expect(response.status).toBe(201)
+    const body = (await response.json()) as {
+      slots: Array<{ start_time: string; end_time: string; status: string }>
+    }
+
+    expect(body.slots).toHaveLength(2)
+    expect(body.slots).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          status: 'available',
+          start_time: '2026-04-13T10:00:00.000Z',
+          end_time: '2026-04-13T11:00:00.000Z',
+        }),
+        expect.objectContaining({
+          status: 'available',
+          start_time: '2026-04-13T12:00:00.000Z',
+          end_time: '2026-04-13T13:00:00.000Z',
+        }),
+      ]),
+    )
+  })
 })
 
 type TrackingQueue = Queue & {
@@ -604,6 +788,33 @@ function createInterview(
       type: payload.type ?? 'system_design',
       mode: 'ai_led',
       scheduled_at: payload.scheduled_at ?? 'now',
+    }),
+  }, env)
+}
+
+function createAvailability(
+  app: ReturnType<typeof createApp>,
+  payload: {
+    interview_type?: 'system_design' | 'coding' | 'behavioral'
+    max_matches?: number
+    slots?: Array<{ start_time: string; end_time: string }>
+  } = {},
+  env: Partial<WorkerBindings> = {},
+) {
+  return app.request('/api/availability', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+    },
+    body: JSON.stringify({
+      interview_type: payload.interview_type ?? 'system_design',
+      max_matches: payload.max_matches ?? 2,
+      slots: payload.slots ?? [
+        {
+          start_time: '2026-04-13T10:00:00.000Z',
+          end_time: '2026-04-13T11:00:00.000Z',
+        },
+      ],
     }),
   }, env)
 }
@@ -660,6 +871,9 @@ function createDatabaseBinding(accountState: {
   const executedStatements: string[] = []
   const interviewsById = new Map<string, Record<string, unknown>>()
   const outboxEvents = new Map<string, Record<string, unknown>>()
+
+  const availabilityRequestsById = new Map<string, Record<string, unknown>>()
+  const availabilitySlotsById = new Map<string, Record<string, unknown>>()
 
   return {
     executedStatements,
@@ -889,6 +1103,48 @@ function createDatabaseBinding(accountState: {
         }
       }
 
+
+      if (statementText.includes('INSERT INTO availability_requests')) {
+        const requestRecord = {
+          id: statementValues[0],
+          user_id: statementValues[1],
+          interview_type: statementValues[2],
+          max_matches: statementValues[3],
+          current_matches: statementValues[4],
+          status: statementValues[5],
+          created_at: statementValues[6],
+          updated_at: statementValues[7],
+        }
+
+        availabilityRequestsById.set(String(statementValues[0]), requestRecord)
+
+        return {
+          rows: [requestRecord],
+        }
+      }
+
+      if (statementText.includes('INSERT INTO availability_slots')) {
+        const slotRecords: Array<Record<string, unknown>> = []
+
+        for (let index = 0; index < statementValues.length; index += 7) {
+          const slotRecord = {
+            id: statementValues[index],
+            request_id: statementValues[index + 1],
+            start_time: statementValues[index + 2],
+            end_time: statementValues[index + 3],
+            status: statementValues[index + 4],
+            created_at: statementValues[index + 5],
+            updated_at: statementValues[index + 6],
+          }
+
+          availabilitySlotsById.set(String(statementValues[index]), slotRecord)
+          slotRecords.push(slotRecord)
+        }
+
+        return {
+          rows: slotRecords,
+        }
+      }
       throw new Error(`Unhandled DB statement: ${statementText}`)
     },
   }
