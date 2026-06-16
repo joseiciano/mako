@@ -58,6 +58,6 @@ Scheduling validation and guardrails are explicit, branch-aware, and test-covere
 - `schedule-flow.ts` exposes `getFieldErrors`, `hasFieldErrors`, `isSupportedInterviewType`, and `isSupportedMode` helpers. Field errors are cleared on every state change via the reducer.
 - AI payload builder returns an exact allowlist `{ type, mode: 'ai_led', scheduled_at }`; P2P payload builder returns `{ interview_type, max_matches, slots }`. No `tier` or `interviewer_id` is ever included.
 - `ScheduleSmart` uses a `useRef` dispatch guard to prevent same-tick double clicks from triggering multiple mutations.
-- P2P final submit does not call any backend mutation. It validates the contract-shaped payload and surfaces `"Peer-to-peer matching is temporarily unavailable. Your availability was not submitted."` via `SET_VALIDATION_ERROR`.
-- `createAvailability` in `use-availability.ts` validates the request schema with Zod and then rejects with the temporary-unavailable message without performing a fetch. This keeps exports compatible for when Story 5.4 implements the backend route.
+- P2P final submit now dispatches the contract-shaped availability payload to `POST /api/availability` and shows asynchronous matcher-processing copy after acceptance.
+- `createAvailability` in `use-availability.ts` validates the request schema with Zod before fetch, posts to the availability route, validates the response schema, and surfaces backend errors without creating interview rows client-side.
 - All inputs, back buttons, and submit buttons are disabled while `isSubmitting` is true.
