@@ -2,6 +2,9 @@ import type { InterviewType, InterviewMode } from '@mako/shared'
 
 export const supportedInterviewTypes: InterviewType[] = ['system_design']
 export const supportedModes: InterviewMode[] = ['ai_led', 'peer_to_peer']
+export const SCHEDULE_DRAFT_STORAGE_KEY = 'mako:schedule-flow:draft:v1'
+
+const SCHEDULE_DRAFT_VERSION = 1
 
 export type ScheduleStep =
   | 'type'
@@ -47,6 +50,16 @@ export const initialScheduleState: ScheduleState = {
   fieldErrors: null,
 }
 
+type ScheduleDraftData = Pick<
+  ScheduleState,
+  'step' | 'interviewType' | 'mode' | 'scheduledAt' | 'maxMatches' | 'slots'
+>
+
+type ScheduleDraftEnvelope = {
+  version: typeof SCHEDULE_DRAFT_VERSION
+  draft: ScheduleDraftData
+}
+
 export type ScheduleAction =
   | { type: 'SET_TYPE'; payload: InterviewType }
   | { type: 'SET_MODE'; payload: InterviewMode }
@@ -59,6 +72,207 @@ export type ScheduleAction =
   | { type: 'SET_VALIDATION_ERROR'; payload: string | null }
   | { type: 'SET_FIELD_ERRORS'; payload: ScheduleFieldErrors | null }
   | { type: 'RESET' }
+
+const supportedSteps: ScheduleStep[] = [
+  'type',
+  'mode',
+  'timing',
+  'availability',
+  'confirm',
+]
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function isSupportedStep(value: unknown): value is ScheduleStep {
+  return typeof value === 'string' && supportedSteps.includes(value as ScheduleStep)
+}
+
+function isDraftInterviewType(value: unknown): InterviewType | null {
+  if (value === null) return null
+  return typeof value === 'string' ? (value as InterviewType) : null
+}
+
+function isDraftMode(value: unknown): InterviewMode | null {
+  if (value === null) return null
+  return typeof value === 'string' ? (value as InterviewMode) : null
+}
+
+function isDraftScheduledAt(value: unknown): 'now' | string | null {
+  if (value === null) return null
+  return typeof value === 'string' ? value : null
+}
+
+function isDraftMaxMatches(value: unknown): number | null {
+  if (value === null) return null
+  return typeof value === 'number' ? value : null
+}
+
+function isFlowSlot(value: unknown): value is FlowSlot {
+  return (
+    isRecord(value) &&
+    typeof value.startTime === 'string' &&
+    typeof value.endTime === 'string'
+  )
+}
+
+function parseDraftData(value: unknown): ScheduleDraftData | null {
+  if (!isRecord(value)) return null
+  if (!isSupportedStep(value.step)) return null
+
+  const slots = Array.isArray(value.slots) ? value.slots : null
+  if (slots === null || !slots.every(isFlowSlot)) return null
+
+  const maxMatches = isDraftMaxMatches(value.maxMatches)
+  if (maxMatches === null && value.maxMatches !== null) return null
+
+  return {
+    step: value.step,
+    interviewType: isDraftInterviewType(value.interviewType),
+    mode: isDraftMode(value.mode),
+    scheduledAt: isDraftScheduledAt(value.scheduledAt),
+    maxMatches,
+    slots,
+  }
+}
+
+function hasValidScheduledAt(value: 'now' | string | null): boolean {
+  if (value === null) return false
+  if (value === 'now') return true
+  if (value === '') return false
+  return !Number.isNaN(new Date(value).valueOf())
+}
+
+function isValidSlot(slot: FlowSlot): boolean {
+  if (slot.startTime === '' || slot.endTime === '') return false
+  const start = new Date(slot.startTime)
+  const end = new Date(slot.endTime)
+  if (Number.isNaN(start.valueOf()) || Number.isNaN(end.valueOf())) return false
+  return end.getTime() - start.getTime() === 60 * 60 * 1000
+}
+
+function clampStepForState(state: ScheduleState, requestedStep: ScheduleStep): ScheduleStep {
+  if (state.interviewType === null || !isSupportedInterviewType(state.interviewType)) {
+    return 'type'
+  }
+
+  if (state.mode === null || !isSupportedMode(state.mode)) {
+    return requestedStep === 'type' ? 'type' : 'mode'
+  }
+
+  const orderedSteps: ScheduleStep[] =
+    state.mode === 'ai_led'
+      ? ['type', 'mode', 'timing', 'confirm']
+      : ['type', 'mode', 'availability', 'confirm']
+  const maxStep: ScheduleStep =
+    state.mode === 'ai_led'
+      ? isTimingComplete(state)
+        ? 'confirm'
+        : 'timing'
+      : isAvailabilityComplete(state)
+        ? 'confirm'
+        : 'availability'
+  const requestedIndex = orderedSteps.indexOf(requestedStep)
+  const maxIndex = orderedSteps.indexOf(maxStep)
+
+  if (requestedIndex === -1 || requestedIndex > maxIndex) {
+    return maxStep
+  }
+
+  return requestedStep
+}
+
+export function normalizeRestoredScheduleState(state: ScheduleState): ScheduleState {
+  const next: ScheduleState = {
+    ...initialScheduleState,
+    step: state.step,
+    interviewType: state.interviewType,
+    mode: state.mode,
+    scheduledAt: state.scheduledAt,
+    maxMatches: state.maxMatches,
+    slots: state.slots,
+  }
+
+  if (next.interviewType === null || !isSupportedInterviewType(next.interviewType)) {
+    return initialScheduleState
+  }
+
+  if (next.mode === null || !isSupportedMode(next.mode)) {
+    return {
+      ...initialScheduleState,
+      interviewType: next.interviewType,
+      step: clampStepForState({ ...next, mode: null }, next.step),
+    }
+  }
+
+  if (next.mode === 'ai_led') {
+    next.maxMatches = null
+    next.slots = []
+    if (!hasValidScheduledAt(next.scheduledAt)) {
+      next.scheduledAt = null
+    }
+  } else {
+    next.scheduledAt = null
+    next.maxMatches =
+      next.maxMatches !== null &&
+      Number.isInteger(next.maxMatches) &&
+      next.maxMatches > 0
+        ? next.maxMatches
+        : null
+    next.slots = next.slots.filter(isValidSlot)
+  }
+
+  next.step = clampStepForState(next, next.step)
+  return next
+}
+
+export function shouldPersistScheduleDraft(state: ScheduleState): boolean {
+  return (
+    state.interviewType !== null ||
+    state.mode !== null ||
+    state.scheduledAt !== null ||
+    state.maxMatches !== null ||
+    state.slots.length > 0 ||
+    state.step !== initialScheduleState.step
+  )
+}
+
+export function serializeScheduleDraft(state: ScheduleState): string {
+  const normalized = normalizeRestoredScheduleState(state)
+  const envelope: ScheduleDraftEnvelope = {
+    version: SCHEDULE_DRAFT_VERSION,
+    draft: {
+      step: normalized.step,
+      interviewType: normalized.interviewType,
+      mode: normalized.mode,
+      scheduledAt: normalized.scheduledAt,
+      maxMatches: normalized.maxMatches,
+      slots: normalized.slots,
+    },
+  }
+  return JSON.stringify(envelope)
+}
+
+export function restoreScheduleDraft(serialized: string | null): ScheduleState | null {
+  if (serialized === null) return null
+
+  try {
+    const parsed: unknown = JSON.parse(serialized)
+    if (!isRecord(parsed) || parsed.version !== SCHEDULE_DRAFT_VERSION) return null
+
+    const draft = parseDraftData(parsed.draft)
+    if (draft === null) return null
+
+
+    return normalizeRestoredScheduleState({
+      ...initialScheduleState,
+      ...draft,
+    })
+  } catch {
+    return null
+  }
+}
 
 function toIsoString(value: string): string | null {
   const parsed = new Date(value)

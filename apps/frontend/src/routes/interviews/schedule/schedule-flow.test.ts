@@ -13,6 +13,10 @@ import {
   getFieldErrors,
   hasFieldErrors,
   getRetryLabel,
+  normalizeRestoredScheduleState,
+  restoreScheduleDraft,
+  serializeScheduleDraft,
+  shouldPersistScheduleDraft,
   type ScheduleState,
 } from './schedule-flow'
 import type { InterviewMode } from '@mako/shared'
@@ -836,6 +840,133 @@ describe('schedule-flow', function scheduleFlowSuite() {
 
     it('hides retry copy when no mutation error exists', function () {
       expect(getRetryLabel(null, null, 'peer_to_peer')).toBeNull()
+    })
+  })
+
+  describe('schedule draft restore helpers', function draftRestoreSuite() {
+    it('serializes only draft-safe scheduling fields', function () {
+      const serialized = serializeScheduleDraft({
+        ...initialScheduleState,
+        step: 'confirm',
+        interviewType: 'system_design',
+        mode: 'ai_led',
+        scheduledAt: 'now',
+        validationError: 'Do not persist me',
+        fieldErrors: { scheduledAt: 'Do not persist me' },
+      })
+
+      const parsed = JSON.parse(serialized)
+      expect(parsed).toEqual({
+        version: 1,
+        draft: {
+          step: 'confirm',
+          interviewType: 'system_design',
+          mode: 'ai_led',
+          scheduledAt: 'now',
+          maxMatches: null,
+          slots: [],
+        },
+      })
+    })
+
+    it('restores valid ai draft state', function () {
+      const state: ScheduleState = {
+        ...initialScheduleState,
+        step: 'confirm',
+        interviewType: 'system_design',
+        mode: 'ai_led',
+        scheduledAt: 'now',
+      }
+
+      expect(restoreScheduleDraft(serializeScheduleDraft(state))).toEqual(state)
+    })
+
+    it('restores valid p2p draft state', function () {
+      const state: ScheduleState = {
+        ...initialScheduleState,
+        step: 'confirm',
+        interviewType: 'system_design',
+        mode: 'peer_to_peer',
+        maxMatches: 2,
+        slots: [{ startTime: '2026-06-10T10:00', endTime: '2026-06-10T11:00' }],
+      }
+
+      expect(restoreScheduleDraft(serializeScheduleDraft(state))).toEqual(state)
+    })
+
+    it('rejects malformed and unsupported draft envelopes', function () {
+      expect(restoreScheduleDraft(null)).toBeNull()
+      expect(restoreScheduleDraft('{not-json')).toBeNull()
+      expect(restoreScheduleDraft(JSON.stringify({ version: 99, draft: {} }))).toBeNull()
+    })
+
+    it('clears p2p-only fields from restored ai drafts', function () {
+      const next = normalizeRestoredScheduleState({
+        ...initialScheduleState,
+        step: 'confirm',
+        interviewType: 'system_design',
+        mode: 'ai_led',
+        scheduledAt: 'now',
+        maxMatches: 3,
+        slots: [{ startTime: '2026-06-10T10:00', endTime: '2026-06-10T11:00' }],
+      })
+
+      expect(next.maxMatches).toBeNull()
+      expect(next.slots).toEqual([])
+      expect(next.step).toBe('confirm')
+    })
+
+    it('clears ai-only fields from restored p2p drafts', function () {
+      const next = normalizeRestoredScheduleState({
+        ...initialScheduleState,
+        step: 'confirm',
+        interviewType: 'system_design',
+        mode: 'peer_to_peer',
+        scheduledAt: 'now',
+        maxMatches: 2,
+        slots: [{ startTime: '2026-06-10T10:00', endTime: '2026-06-10T11:00' }],
+      })
+
+      expect(next.scheduledAt).toBeNull()
+      expect(next.step).toBe('confirm')
+    })
+
+    it('downgrades confirm when restored ai timing is invalid', function () {
+      const next = normalizeRestoredScheduleState({
+        ...initialScheduleState,
+        step: 'confirm',
+        interviewType: 'system_design',
+        mode: 'ai_led',
+        scheduledAt: 'not-a-date',
+      })
+
+      expect(next.scheduledAt).toBeNull()
+      expect(next.step).toBe('timing')
+    })
+
+    it('downgrades confirm when restored p2p availability is invalid', function () {
+      const next = normalizeRestoredScheduleState({
+        ...initialScheduleState,
+        step: 'confirm',
+        interviewType: 'system_design',
+        mode: 'peer_to_peer',
+        maxMatches: 0,
+        slots: [{ startTime: '2026-06-10T10:00', endTime: '2026-06-10T10:30' }],
+      })
+
+      expect(next.maxMatches).toBeNull()
+      expect(next.slots).toEqual([])
+      expect(next.step).toBe('availability')
+    })
+
+    it('reports whether draft contains meaningful progress', function () {
+      expect(shouldPersistScheduleDraft(initialScheduleState)).toBe(false)
+      expect(
+        shouldPersistScheduleDraft({
+          ...initialScheduleState,
+          interviewType: 'system_design',
+        }),
+      ).toBe(true)
     })
   })
 })
