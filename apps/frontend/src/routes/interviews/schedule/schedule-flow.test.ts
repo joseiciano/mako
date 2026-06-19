@@ -12,6 +12,7 @@ import {
   isSupportedMode,
   getFieldErrors,
   hasFieldErrors,
+  getRetryLabel,
   type ScheduleState,
 } from './schedule-flow'
 import type { InterviewMode } from '@mako/shared'
@@ -815,6 +816,26 @@ describe('schedule-flow', function scheduleFlowSuite() {
 
     it('returns true when errors exist', function () {
       expect(hasFieldErrors({ maxMatches: 'Too low' })).toBe(true)
+    })
+  })
+
+  describe('getRetryLabel', function retryLabelSuite() {
+    it('returns p2p retry copy after availability mutation failures', function () {
+      expect(getRetryLabel(null, 'Matcher queue unavailable', 'peer_to_peer')).toBe(
+        'Retry submitting availability',
+      )
+    })
+
+    it('returns ai retry copy after create mutation failures', function () {
+      expect(getRetryLabel(null, 'Insufficient credits', 'ai_led')).toBe('Retry scheduling')
+    })
+
+    it('hides retry copy when validation errors are present', function () {
+      expect(getRetryLabel('Please select a valid date and time.', 'Server failed', 'ai_led')).toBeNull()
+    })
+
+    it('hides retry copy when no mutation error exists', function () {
+      expect(getRetryLabel(null, null, 'peer_to_peer')).toBeNull()
     })
   })
 })

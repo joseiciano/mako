@@ -12,6 +12,9 @@ vi.mock('@tanstack/react-router', () => ({
 const mockCreateMutate = vi.fn()
 let mockCreateIsPending = false
 let mockCreateError: Error | null = null
+const mockAvailabilityMutate = vi.fn()
+let mockAvailabilityIsPending = false
+let mockAvailabilityError: Error | null = null
 
 vi.mock('#/hooks/use-interviews', () => ({
   useCreateInterview: () => ({
@@ -25,13 +28,28 @@ vi.mock('#/hooks/use-interviews', () => ({
   }),
 }))
 
+vi.mock('#/hooks/use-submit-availability', () => ({
+  useSubmitAvailability: () => ({
+    mutate: mockAvailabilityMutate,
+    get isPending() {
+      return mockAvailabilityIsPending
+    },
+    get error() {
+      return mockAvailabilityError
+    },
+  }),
+}))
+
 
 describe('ScheduleSmart', function scheduleSmartSuite() {
   beforeEach(function () {
     mockNavigate.mockClear()
     mockCreateMutate.mockClear()
+    mockAvailabilityMutate.mockClear()
     mockCreateIsPending = false
     mockCreateError = null
+    mockAvailabilityIsPending = false
+    mockAvailabilityError = null
   })
 
   it('renders the schedule form starting at type step', function testRender() {
@@ -66,6 +84,9 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
       mode: 'ai_led',
       scheduled_at: 'now',
     })
+    expect(payload).not.toHaveProperty('tier')
+    expect(payload).not.toHaveProperty('interviewer_id')
+    expect(mockAvailabilityMutate).not.toHaveBeenCalled()
 
     const onSuccess = mockCreateMutate.mock.calls[0]![1].onSuccess
     await onSuccess()
@@ -76,7 +97,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
     cleanup()
   })
 
-  it('shows temporary unavailable message for p2p flow without backend write', async function testP2pTempUnavailable() {
+  it('allows step progression through p2p flow and submits availability contract', async function testP2pFlow() {
     const user = userEvent.setup()
     render(<ScheduleSmart />)
 
@@ -102,9 +123,20 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
     await user.click(screen.getByRole('button', { name: /confirm & schedule/i }))
 
     expect(mockCreateMutate).not.toHaveBeenCalled()
-    expect(
-      screen.getByText(/peer-to-peer matching is temporarily unavailable/i),
-    ).toBeDefined()
+    expect(mockAvailabilityMutate).toHaveBeenCalledTimes(1)
+    const payload = mockAvailabilityMutate.mock.calls[0]![0]
+    expect(payload).toEqual({
+      interview_type: 'system_design',
+      max_matches: 2,
+      slots: [
+        {
+          start_time: new Date('2026-06-10T10:00').toISOString(),
+          end_time: new Date('2026-06-10T11:00').toISOString(),
+        },
+      ],
+    })
+    expect(payload).not.toHaveProperty('tier')
+    expect(payload).not.toHaveProperty('interviewer_id')
 
     cleanup()
   })
@@ -206,10 +238,10 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
     cleanup()
   })
 
-  it('surfaces inline error when creation fails', function testInlineError() {
+  it('does not surface mutation errors before a branch submit is tracked', function testUntrackedMutationError() {
     mockCreateError = new Error('Insufficient credits')
     render(<ScheduleSmart />)
-    expect(screen.getByRole('alert')).toHaveTextContent('Insufficient credits')
+    expect(screen.queryByRole('alert')).toBeNull()
     cleanup()
   })
 
@@ -307,6 +339,222 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
     // State should be preserved - still on confirm step
     expect(screen.getByText('Confirm Your Interview')).toBeDefined()
     expect(screen.getByText('System Design')).toBeDefined()
+
+    cleanup()
+  })
+
+  it('shows async matcher success copy after p2p availability is accepted', async function testP2pAcceptedCopy() {
+    const user = userEvent.setup()
+    mockAvailabilityMutate.mockImplementationOnce(function (_payload, options) {
+      if (options?.onSuccess) {
+        options.onSuccess()
+      }
+      if (options?.onSettled) {
+        options.onSettled()
+      }
+    })
+
+    render(<ScheduleSmart />)
+
+    await user.click(screen.getByText('System Design'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('Peer-to-Peer'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    const maxMatchesInput = screen.getByLabelText(/maximum matches/i)
+    await user.clear(maxMatchesInput)
+    await user.type(maxMatchesInput, '2')
+    await user.click(screen.getByRole('button', { name: /add slot/i }))
+    fireEvent.change(screen.getByLabelText(/slot 1 start time/i), {
+      target: { value: '2026-06-10T10:00' },
+    })
+    fireEvent.change(screen.getByLabelText(/slot 1 end time/i), {
+      target: { value: '2026-06-10T11:00' },
+    })
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: /confirm & schedule/i }))
+
+    expect(screen.getByText(/availability submitted/i)).toBeDefined()
+    expect(screen.getByText(/interview will appear after matcher success/i)).toBeDefined()
+    expect(mockNavigate).not.toHaveBeenCalled()
+
+    cleanup()
+  })
+
+  it('disables p2p confirm after accepted availability to prevent duplicate submits', async function testP2pAcceptedDisablesConfirm() {
+    const user = userEvent.setup()
+    mockAvailabilityMutate.mockImplementationOnce(function (_payload, options) {
+      if (options?.onSuccess) {
+        options.onSuccess()
+      }
+      if (options?.onSettled) {
+        options.onSettled()
+      }
+    })
+
+    render(<ScheduleSmart />)
+
+    await user.click(screen.getByText('System Design'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('Peer-to-Peer'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    const maxMatchesInput = screen.getByLabelText(/maximum matches/i)
+    await user.clear(maxMatchesInput)
+    await user.type(maxMatchesInput, '2')
+    await user.click(screen.getByRole('button', { name: /add slot/i }))
+    fireEvent.change(screen.getByLabelText(/slot 1 start time/i), {
+      target: { value: '2026-06-10T10:00' },
+    })
+    fireEvent.change(screen.getByLabelText(/slot 1 end time/i), {
+      target: { value: '2026-06-10T11:00' },
+    })
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    const confirmButton = screen.getByRole('button', { name: /confirm & schedule/i })
+    await user.click(confirmButton)
+
+    expect(screen.getByText(/availability submitted/i)).toBeDefined()
+    expect(confirmButton).toHaveProperty('disabled', true)
+
+    await user.click(confirmButton)
+
+    expect(mockAvailabilityMutate).toHaveBeenCalledTimes(1)
+
+    cleanup()
+  })
+
+  it('clears p2p accepted copy when user edits scheduling state', async function testP2pAcceptedCopyClearsOnEdit() {
+    const user = userEvent.setup()
+    mockAvailabilityMutate.mockImplementationOnce(function (_payload, options) {
+      if (options?.onSuccess) {
+        options.onSuccess()
+      }
+      if (options?.onSettled) {
+        options.onSettled()
+      }
+    })
+
+    render(<ScheduleSmart />)
+
+    await user.click(screen.getByText('System Design'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('Peer-to-Peer'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    const maxMatchesInput = screen.getByLabelText(/maximum matches/i)
+    await user.clear(maxMatchesInput)
+    await user.type(maxMatchesInput, '2')
+    await user.click(screen.getByRole('button', { name: /add slot/i }))
+    fireEvent.change(screen.getByLabelText(/slot 1 start time/i), {
+      target: { value: '2026-06-10T10:00' },
+    })
+    fireEvent.change(screen.getByLabelText(/slot 1 end time/i), {
+      target: { value: '2026-06-10T11:00' },
+    })
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: /confirm & schedule/i }))
+
+    expect(screen.getByText(/availability submitted/i)).toBeDefined()
+    await user.click(screen.getAllByText('Edit')[1]!)
+
+    expect(screen.queryByText(/availability submitted/i)).toBeNull()
+
+    cleanup()
+  })
+
+  it('shows AI-specific retry action after create failure', async function testAiRetryAction() {
+    const user = userEvent.setup()
+    mockCreateMutate.mockImplementationOnce(function (_payload, options) {
+      if (options?.onSettled) {
+        options.onSettled()
+      }
+    })
+    const { rerender } = render(<ScheduleSmart />)
+
+    await user.click(screen.getByText('System Design'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('Start now'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: /confirm & schedule/i }))
+
+    mockCreateError = new Error('Insufficient credits')
+    rerender(<ScheduleSmart />)
+
+    await user.click(screen.getByRole('button', { name: /retry scheduling/i }))
+
+    expect(mockCreateMutate).toHaveBeenCalledTimes(2)
+    expect(mockAvailabilityMutate).not.toHaveBeenCalled()
+
+    cleanup()
+  })
+
+  it('clears stale AI retry state when user changes branch after failure', async function testRetryClearsOnModeChange() {
+    const user = userEvent.setup()
+    mockCreateMutate.mockImplementationOnce(function (_payload, options) {
+      if (options?.onSettled) {
+        options.onSettled()
+      }
+    })
+    const { rerender } = render(<ScheduleSmart />)
+
+    await user.click(screen.getByText('System Design'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('Start now'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: /confirm & schedule/i }))
+
+    mockCreateError = new Error('Insufficient credits')
+    rerender(<ScheduleSmart />)
+    expect(screen.getByRole('button', { name: /retry scheduling/i })).toBeDefined()
+
+    await user.click(screen.getAllByText('Edit')[1]!)
+    await user.click(screen.getByText('Peer-to-Peer'))
+
+    expect(screen.queryByRole('button', { name: /retry scheduling/i })).toBeNull()
+    expect(screen.queryByRole('alert')).toBeNull()
+
+    cleanup()
+  })
+
+  it('shows p2p-specific retry action after availability failure', async function testP2pRetryAction() {
+    const user = userEvent.setup()
+    mockAvailabilityMutate.mockImplementationOnce(function (_payload, options) {
+      if (options?.onSettled) {
+        options.onSettled()
+      }
+    })
+    const { rerender } = render(<ScheduleSmart />)
+
+    await user.click(screen.getByText('System Design'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('Peer-to-Peer'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    const maxMatchesInput = screen.getByLabelText(/maximum matches/i)
+    await user.clear(maxMatchesInput)
+    await user.type(maxMatchesInput, '2')
+    await user.click(screen.getByRole('button', { name: /add slot/i }))
+    fireEvent.change(screen.getByLabelText(/slot 1 start time/i), {
+      target: { value: '2026-06-10T10:00' },
+    })
+    fireEvent.change(screen.getByLabelText(/slot 1 end time/i), {
+      target: { value: '2026-06-10T11:00' },
+    })
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: /confirm & schedule/i }))
+
+    mockAvailabilityError = new Error('Matcher queue unavailable')
+    rerender(<ScheduleSmart />)
+
+    await user.click(screen.getByRole('button', { name: /retry submitting availability/i }))
+
+    expect(mockAvailabilityMutate).toHaveBeenCalledTimes(2)
+    expect(mockCreateMutate).not.toHaveBeenCalled()
 
     cleanup()
   })

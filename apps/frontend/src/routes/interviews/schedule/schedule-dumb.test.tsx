@@ -14,7 +14,9 @@ function renderSchedule(props: Partial<ScheduleDumbProps> = {}) {
     maxMatches: null,
     slots: [],
     isSubmitting: false,
+    successMessage: null,
     errorMessage: null,
+    retryLabel: null,
     fieldErrors: {},
     canAdvance: false,
     canGoBack: false,
@@ -27,6 +29,7 @@ function renderSchedule(props: Partial<ScheduleDumbProps> = {}) {
     onBack: vi.fn(),
     onGoToStep: vi.fn(),
     onConfirm: vi.fn(),
+    onRetry: vi.fn(),
     ...props,
   }
   return render(<ScheduleDumb {...defaultProps} />)
@@ -181,6 +184,28 @@ describe('ScheduleDumb', function scheduleDumbSuite() {
   it('surfaces error messages inline', function testError() {
     renderSchedule({ errorMessage: 'Something went wrong' })
     expect(screen.getByRole('alert')).toHaveTextContent('Something went wrong')
+    cleanup()
+  })
+
+  it('renders retry action when error includes retry label', async function testRetryAction() {
+    const onRetry = vi.fn()
+    renderSchedule({
+      errorMessage: 'Something went wrong',
+      retryLabel: 'Retry scheduling',
+      onRetry,
+    })
+    await userEvent.click(screen.getByRole('button', { name: /retry scheduling/i }))
+    expect(onRetry).toHaveBeenCalledTimes(1)
+    cleanup()
+  })
+
+  it('surfaces success messages for accepted async submissions', function testSuccess() {
+    renderSchedule({
+      successMessage:
+        'Availability submitted for matcher processing. Your interview will appear after matcher success.',
+    })
+    expect(screen.getByRole('status')).toHaveTextContent(/availability submitted/i)
+    expect(screen.getByRole('status')).toHaveTextContent(/matcher success/i)
     cleanup()
   })
 

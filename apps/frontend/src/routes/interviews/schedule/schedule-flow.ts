@@ -15,6 +15,8 @@ export type FlowSlot = {
   endTime: string
 }
 
+export type SubmissionBranch = 'ai_led' | 'peer_to_peer'
+
 export type ScheduleFieldErrors = {
   interviewType?: string
   mode?: string
@@ -303,6 +305,23 @@ export function getFieldErrors(state: ScheduleState): ScheduleFieldErrors {
 
 export function hasFieldErrors(errors: ScheduleFieldErrors): boolean {
   return Object.keys(errors).length > 0
+}
+
+export function getRetryLabel(
+  validationError: string | null,
+  mutationError: string | null,
+  lastSubmissionBranch: SubmissionBranch | null,
+): string | null {
+  if (validationError !== null || mutationError === null) return null
+
+  switch (lastSubmissionBranch) {
+    case 'peer_to_peer':
+      return 'Retry submitting availability'
+    case 'ai_led':
+      return 'Retry scheduling'
+    default:
+      return null
+  }
 }
 
 export function buildAiPayload(
