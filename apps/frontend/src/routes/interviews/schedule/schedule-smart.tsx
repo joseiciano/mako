@@ -20,6 +20,7 @@ import {
   shouldPersistScheduleDraft,
   SCHEDULE_DRAFT_STORAGE_KEY,
   type ScheduleStep,
+  type ScheduleState,
   type FlowSlot,
   type SubmissionBranch,
 } from './schedule-flow'
@@ -45,7 +46,7 @@ function clearScheduleDraft() {
   window.sessionStorage.removeItem(SCHEDULE_DRAFT_STORAGE_KEY)
 }
 
-function writeScheduleDraft(state: typeof initialScheduleState) {
+function writeScheduleDraft(state: ScheduleState) {
   if (typeof window === 'undefined') return
 
   if (!shouldPersistScheduleDraft(state)) {

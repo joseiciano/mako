@@ -89,22 +89,22 @@ function isSupportedStep(value: unknown): value is ScheduleStep {
   return typeof value === 'string' && supportedSteps.includes(value as ScheduleStep)
 }
 
-function isDraftInterviewType(value: unknown): InterviewType | null {
+function parseDraftInterviewType(value: unknown): InterviewType | null {
   if (value === null) return null
   return typeof value === 'string' ? (value as InterviewType) : null
 }
 
-function isDraftMode(value: unknown): InterviewMode | null {
+function parseDraftMode(value: unknown): InterviewMode | null {
   if (value === null) return null
   return typeof value === 'string' ? (value as InterviewMode) : null
 }
 
-function isDraftScheduledAt(value: unknown): 'now' | string | null {
+function parseDraftScheduledAt(value: unknown): 'now' | string | null {
   if (value === null) return null
   return typeof value === 'string' ? value : null
 }
 
-function isDraftMaxMatches(value: unknown): number | null {
+function parseDraftMaxMatches(value: unknown): number | null {
   if (value === null) return null
   return typeof value === 'number' ? value : null
 }
@@ -124,14 +124,14 @@ function parseDraftData(value: unknown): ScheduleDraftData | null {
   const slots = Array.isArray(value.slots) ? value.slots : null
   if (slots === null || !slots.every(isFlowSlot)) return null
 
-  const maxMatches = isDraftMaxMatches(value.maxMatches)
-  if (maxMatches === null && value.maxMatches !== null) return null
+  if (value.maxMatches !== null && typeof value.maxMatches !== 'number') return null
+  const maxMatches = parseDraftMaxMatches(value.maxMatches)
 
   return {
     step: value.step,
-    interviewType: isDraftInterviewType(value.interviewType),
-    mode: isDraftMode(value.mode),
-    scheduledAt: isDraftScheduledAt(value.scheduledAt),
+    interviewType: parseDraftInterviewType(value.interviewType),
+    mode: parseDraftMode(value.mode),
+    scheduledAt: parseDraftScheduledAt(value.scheduledAt),
     maxMatches,
     slots,
   }

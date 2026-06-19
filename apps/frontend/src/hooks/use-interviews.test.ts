@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { QueryClient } from '@tanstack/react-query'
 import {
   buildInterviewsQueryKey,
   cancelInterview,
@@ -58,8 +59,12 @@ describe('use-interviews data layer', function useInterviewsSuite() {
 
   it('invalidates all interview surfaces from the root query key', async function run() {
     const invalidateQueries = vi.fn().mockResolvedValue(undefined)
+    const queryClient = { invalidateQueries } as unknown as Pick<
+      QueryClient,
+      'invalidateQueries'
+    >
 
-    await invalidateInterviewSurfaces({ invalidateQueries } as never)
+    await invalidateInterviewSurfaces(queryClient)
 
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: interviewsQueryRootKey,
