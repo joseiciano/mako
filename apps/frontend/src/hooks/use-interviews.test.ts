@@ -4,6 +4,7 @@ import {
   cancelInterview,
   createInterview,
   fetchInterviews,
+  invalidateInterviewSurfaces,
   interviewsQueryRootKey,
 } from './use-interviews'
 import { readHeader } from './test-utils/read-header'
@@ -53,6 +54,16 @@ describe('use-interviews data layer', function useInterviewsSuite() {
     expect(
       buildInterviewsQueryKey({ status: 'scheduled', limit: 10, offset: 5 }),
     ).toEqual(['interviews', { status: 'scheduled', limit: 10, offset: 5 }])
+  })
+
+  it('invalidates all interview surfaces from the root query key', async function run() {
+    const invalidateQueries = vi.fn().mockResolvedValue(undefined)
+
+    await invalidateInterviewSurfaces({ invalidateQueries } as never)
+
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: interviewsQueryRootKey,
+    })
   })
 
   it('fetches interviews without filters', async function run() {
