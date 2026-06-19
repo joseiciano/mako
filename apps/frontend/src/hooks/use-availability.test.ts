@@ -68,7 +68,7 @@ describe('use-availability data layer', function useAvailabilitySuite() {
     vi.stubEnv('VITE_API_BASE_URL', '')
     vi.stubEnv(
       'VITE_AUTH_BASE_URL',
-      'https://mako-backend-rest.icianojn.workers.dev/api/auth',
+      'https://api.test.local/api/auth',
     )
 
     const result = await createAvailability(
@@ -84,7 +84,7 @@ describe('use-availability data layer', function useAvailabilitySuite() {
       },
       async function mockFetch(input, init) {
         expect(input).toBe(
-          'https://mako-backend-rest.icianojn.workers.dev/api/availability',
+          'https://api.test.local/api/availability',
         )
         expect(init?.method).toBe('POST')
         expect(readHeader(init?.headers, 'content-type')).toBe('application/json')

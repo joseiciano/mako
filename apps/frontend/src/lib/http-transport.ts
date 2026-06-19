@@ -1,7 +1,9 @@
-export const demoSessionHeaders = {
-  'x-user-id': '11111111-1111-4111-8111-111111111111',
-  'x-user-email': 'demo@mako.dev',
-}
+export const demoSessionHeaders: Record<string, string> = import.meta.env.DEV
+  ? {
+      'x-user-id': '11111111-1111-4111-8111-111111111111',
+      'x-user-email': 'demo@mako.dev',
+    }
+  : {}
 
 export function createApiUrl(path: string): string {
   const apiBaseUrl = getApiBaseUrl().replace(/\/$/, '')
@@ -35,6 +37,11 @@ export function readErrorMessage(
 
   const maybeError = (payload as Record<string, unknown>).error
   if (typeof maybeError === 'string' && maybeError.length > 0) {
+    // Cap length and reject multiline messages to prevent
+    // internal details (stack traces, SQL fragments) from leaking to end users.
+    if (maybeError.length > 200 || maybeError.includes('\n')) {
+      return fallbackMessage
+    }
     return maybeError
   }
 

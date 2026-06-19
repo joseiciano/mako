@@ -9,14 +9,14 @@ describe('http transport', function httpTransportSuite() {
   it('resolves app API paths from the configured auth backend URL', function run() {
     vi.stubEnv(
       'VITE_AUTH_BASE_URL',
-      'https://mako-backend-rest.icianojn.workers.dev/api/auth',
+      'https://api.test.local/api/auth',
     )
 
     expect(createApiUrl('/api/account')).toBe(
-      'https://mako-backend-rest.icianojn.workers.dev/api/account',
+      'https://api.test.local/api/account',
     )
     expect(createApiUrl('/api/interviews?status=scheduled')).toBe(
-      'https://mako-backend-rest.icianojn.workers.dev/api/interviews?status=scheduled',
+      'https://api.test.local/api/interviews?status=scheduled',
     )
   })
 

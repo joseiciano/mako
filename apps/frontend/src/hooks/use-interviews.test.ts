@@ -58,13 +58,13 @@ describe('use-interviews data layer', function useInterviewsSuite() {
   it('fetches interviews without filters', async function run() {
     vi.stubEnv(
       'VITE_AUTH_BASE_URL',
-      'https://mako-backend-rest.icianojn.workers.dev/api/auth',
+      'https://api.test.local/api/auth',
     )
 
     const result = await fetchInterviews(
       async function mockFetch(input, init) {
         expect(input).toBe(
-          'https://mako-backend-rest.icianojn.workers.dev/api/interviews',
+          'https://api.test.local/api/interviews',
         )
         expect(init?.method).toBe('GET')
         expect(init?.credentials).toBe('include')
@@ -86,13 +86,13 @@ describe('use-interviews data layer', function useInterviewsSuite() {
   it('fetches interviews with status filter', async function run() {
     vi.stubEnv(
       'VITE_AUTH_BASE_URL',
-      'https://mako-backend-rest.icianojn.workers.dev/api/auth',
+      'https://api.test.local/api/auth',
     )
 
     const result = await fetchInterviews(
       async function mockFetch(input, init) {
         expect(input).toBe(
-          'https://mako-backend-rest.icianojn.workers.dev/api/interviews?status=scheduled',
+          'https://api.test.local/api/interviews?status=scheduled',
         )
         expect(init?.method).toBe('GET')
 
@@ -113,13 +113,13 @@ describe('use-interviews data layer', function useInterviewsSuite() {
   it('fetches interviews with limit and offset', async function run() {
     vi.stubEnv(
       'VITE_AUTH_BASE_URL',
-      'https://mako-backend-rest.icianojn.workers.dev/api/auth',
+      'https://api.test.local/api/auth',
     )
 
     await fetchInterviews(
       async function mockFetch(input, init) {
         expect(input).toBe(
-          'https://mako-backend-rest.icianojn.workers.dev/api/interviews?limit=10&offset=5',
+          'https://api.test.local/api/interviews?limit=10&offset=5',
         )
         expect(init?.method).toBe('GET')
 
@@ -208,7 +208,7 @@ describe('use-interviews data layer', function useInterviewsSuite() {
   it('creates an interview via POST and parses the response', async function run() {
     vi.stubEnv(
       'VITE_AUTH_BASE_URL',
-      'https://mako-backend-rest.icianojn.workers.dev/api/auth',
+      'https://api.test.local/api/auth',
     )
 
     const result = await createInterview(
@@ -219,7 +219,7 @@ describe('use-interviews data layer', function useInterviewsSuite() {
       },
       async function mockFetch(input, init) {
         expect(input).toBe(
-          'https://mako-backend-rest.icianojn.workers.dev/api/interviews',
+          'https://api.test.local/api/interviews',
         )
         expect(init?.method).toBe('POST')
         expect(readHeader(init?.headers, 'content-type')).toBe(
@@ -277,7 +277,7 @@ describe('use-interviews data layer', function useInterviewsSuite() {
   it('supports future datetime for scheduled_at', async function run() {
     vi.stubEnv(
       'VITE_AUTH_BASE_URL',
-      'https://mako-backend-rest.icianojn.workers.dev/api/auth',
+      'https://api.test.local/api/auth',
     )
 
     const futureDate = '2026-05-01T14:00:00.000Z'
@@ -331,7 +331,7 @@ describe('use-interviews data layer', function useInterviewsSuite() {
   it('surfaces backend error message for failed create requests', async function run() {
     vi.stubEnv(
       'VITE_AUTH_BASE_URL',
-      'https://mako-backend-rest.icianojn.workers.dev/api/auth',
+      'https://api.test.local/api/auth',
     )
 
     await expect(
@@ -359,7 +359,7 @@ describe('use-interviews data layer', function useInterviewsSuite() {
   it('falls back to a stable error message when create payload omits error field', async function run() {
     vi.stubEnv(
       'VITE_AUTH_BASE_URL',
-      'https://mako-backend-rest.icianojn.workers.dev/api/auth',
+      'https://api.test.local/api/auth',
     )
 
     await expect(
@@ -387,14 +387,14 @@ describe('use-interviews data layer', function useInterviewsSuite() {
   it('cancels an interview via POST', async function run() {
     vi.stubEnv(
       'VITE_AUTH_BASE_URL',
-      'https://mako-backend-rest.icianojn.workers.dev/api/auth',
+      'https://api.test.local/api/auth',
     )
 
     const result = await cancelInterview(
       { id: '11111111-1111-4111-8111-111111111111' },
       async function mockFetch(input, init) {
         expect(input).toBe(
-          'https://mako-backend-rest.icianojn.workers.dev/api/interviews/11111111-1111-4111-8111-111111111111/cancel',
+          'https://api.test.local/api/interviews/11111111-1111-4111-8111-111111111111/cancel',
         )
         expect(init?.method).toBe('POST')
         expect(init?.credentials).toBe('include')

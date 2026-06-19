@@ -381,6 +381,49 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
     cleanup()
   })
 
+  it('disables p2p confirm after accepted availability to prevent duplicate submits', async function testP2pAcceptedDisablesConfirm() {
+    const user = userEvent.setup()
+    mockAvailabilityMutate.mockImplementationOnce(function (_payload, options) {
+      if (options?.onSuccess) {
+        options.onSuccess()
+      }
+      if (options?.onSettled) {
+        options.onSettled()
+      }
+    })
+
+    render(<ScheduleSmart />)
+
+    await user.click(screen.getByText('System Design'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('Peer-to-Peer'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    const maxMatchesInput = screen.getByLabelText(/maximum matches/i)
+    await user.clear(maxMatchesInput)
+    await user.type(maxMatchesInput, '2')
+    await user.click(screen.getByRole('button', { name: /add slot/i }))
+    fireEvent.change(screen.getByLabelText(/slot 1 start time/i), {
+      target: { value: '2026-06-10T10:00' },
+    })
+    fireEvent.change(screen.getByLabelText(/slot 1 end time/i), {
+      target: { value: '2026-06-10T11:00' },
+    })
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    const confirmButton = screen.getByRole('button', { name: /confirm & schedule/i })
+    await user.click(confirmButton)
+
+    expect(screen.getByText(/availability submitted/i)).toBeDefined()
+    expect(confirmButton).toHaveProperty('disabled', true)
+
+    await user.click(confirmButton)
+
+    expect(mockAvailabilityMutate).toHaveBeenCalledTimes(1)
+
+    cleanup()
+  })
+
   it('clears p2p accepted copy when user edits scheduling state', async function testP2pAcceptedCopyClearsOnEdit() {
     const user = userEvent.setup()
     mockAvailabilityMutate.mockImplementationOnce(function (_payload, options) {

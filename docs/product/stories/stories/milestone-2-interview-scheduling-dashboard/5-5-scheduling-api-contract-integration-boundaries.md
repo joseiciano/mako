@@ -47,3 +47,18 @@
 
 ## End Goal
 Scheduling Flow submissions are contract-accurate for both AI and P2P channels, with explicit branch routing, safe error handling, and no lifecycle ownership drift.
+
+## Implementation Notes
+
+### AI submit success behavior
+
+- **Future-scheduled**: navigates to `/interviews` (interview list). User can review the newly created interview there.
+- **Immediate AI (`scheduled_at: 'now'`)**: currently navigates to `/interviews` (same as future-scheduled). This is temporary — Story `4-8` (`4-8-immediate-ai-session-handoff-and-lifecycle-safe-routing.md`) will implement post-create handoff that routes the user directly into `/interviews/:id/session` for immediate-mode sessions.
+
+### P2P submit success behavior
+
+- Shows a success message: _"Availability submitted for matcher processing. Your interview will appear after matcher success."_ User stays on the scheduling page. Interview rows only appear after backend matcher processes the availability request.
+
+### Source
+
+Behavior lives in `apps/frontend/src/routes/interviews/schedule/schedule-smart.tsx`.

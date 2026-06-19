@@ -14,12 +14,12 @@ import {
   buildAiPayload,
   buildP2pPayload,
   getFieldErrors,
+  getRetryLabel,
   type ScheduleStep,
   type FlowSlot,
+  type SubmissionBranch,
 } from './schedule-flow'
 import type { InterviewType, InterviewMode } from '@mako/shared'
-
-type SubmissionBranch = 'ai_led' | 'peer_to_peer'
 
 const P2P_ACCEPTED_MESSAGE =
   'Availability submitted for matcher processing. Your interview will appear after matcher success.'
@@ -43,15 +43,14 @@ export function ScheduleSmart() {
         ? createInterview.error?.message ?? null
         : null
   const errorMessage = state.validationError ?? mutationError
-  const retryLabel =
-    state.validationError === null && mutationError !== null
-      ? lastSubmissionBranch === 'peer_to_peer'
-        ? 'Retry submitting availability'
-        : lastSubmissionBranch === 'ai_led'
-          ? 'Retry scheduling'
-          : null
-      : null
+  const retryLabel = getRetryLabel(
+    state.validationError,
+    mutationError,
+    lastSubmissionBranch,
+  )
   const fieldErrors = state.fieldErrors ?? getFieldErrors(state)
+  const isP2pSubmissionAccepted =
+    lastSubmissionBranch === 'peer_to_peer' && successMessage !== null
 
   const clearSubmissionFeedback = useCallback(function clearSubmissionFeedback() {
     setLastSubmissionBranch(null)
@@ -124,7 +123,7 @@ export function ScheduleSmart() {
 
   const handleConfirm = useCallback(
     function handleConfirm() {
-      if (isDispatchingRef.current) return
+      if (isDispatchingRef.current || isP2pSubmissionAccepted) return
 
       dispatch({ type: 'SET_VALIDATION_ERROR', payload: null })
       dispatch({ type: 'SET_FIELD_ERRORS', payload: null })
@@ -189,7 +188,7 @@ export function ScheduleSmart() {
         })
       }
     },
-    [state, createInterview, submitAvailability, navigate],
+    [state, createInterview, submitAvailability, navigate, isP2pSubmissionAccepted],
   )
 
   const handleRetry = useCallback(

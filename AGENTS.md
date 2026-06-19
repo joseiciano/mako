@@ -69,3 +69,32 @@ Reference `../docs/infrastructure/frontend.md` for frontend services.
 Reference `./docs/system/system-design/ci-cd.md` on how to use Git and create Pull Requests
 
 **ALWAYS REFERENCE THIS GIT FILE WHEN CREATING COMMITS OR PULL REQUESTS**
+
+## Commands
+
+Runnable commands for this repository (run from repo root):
+
+| Command | Scope |
+|---|---|
+| `pnpm test` | Run all tests across workspace |
+| `pnpm typecheck` | Type-check all packages |
+| `pnpm lint` | Run package lint scripts where present |
+| `pnpm build` | Build all packages |
+| `pnpm test:watch` | Watch mode for all tests |
+
+**Scoped examples**:
+
+```bash
+# Frontend tests only
+pnpm --filter @mako/frontend test
+
+# Single test file
+pnpm --filter @mako/frontend test -- src/hooks/use-availability.test.ts
+
+# Backend tests only
+pnpm --filter @mako/backend-rest test
+
+# Shared package tests
+pnpm --filter @mako/shared test
+pnpm --filter @mako/shared-backend test
+```

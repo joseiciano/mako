@@ -13,13 +13,13 @@ describe('use-scheduled-interviews hook', function useScheduledInterviewsSuite()
   it('fetches scheduled interviews and parses documented response fields', async function run() {
     vi.stubEnv(
       'VITE_AUTH_BASE_URL',
-      'https://mako-backend-rest.icianojn.workers.dev/api/auth',
+      'https://api.test.local/api/auth',
     )
 
     const result = await fetchScheduledInterviews(
       async function mockFetch(input, init) {
         expect(input).toBe(
-          'https://mako-backend-rest.icianojn.workers.dev/api/interviews?status=scheduled',
+          'https://api.test.local/api/interviews?status=scheduled',
         )
         expect(init?.method).toBe('GET')
         expect(init?.credentials).toBe('include')

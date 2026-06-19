@@ -614,10 +614,14 @@ export function ScheduleDumb(props: ScheduleDumbProps) {
             <button
               type="button"
               onClick={props.onConfirm}
-              disabled={props.isSubmitting}
+              disabled={props.isSubmitting || props.successMessage !== null}
               className="inline-flex w-fit items-center justify-center rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {props.isSubmitting ? 'Submitting...' : 'Confirm & Schedule'}
+              {props.successMessage
+                ? 'Submitted'
+                : props.isSubmitting
+                  ? 'Submitting...'
+                  : 'Confirm & Schedule'}
             </button>
           ) : (
             <button
