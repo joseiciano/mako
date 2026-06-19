@@ -1,4 +1,4 @@
-import { useReducer, useCallback, useRef, useState } from 'react'
+import { useReducer, useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useCreateInterview } from '#/hooks/use-interviews'
 import { useSubmitAvailability } from '#/hooks/use-submit-availability'
@@ -15,6 +15,10 @@ import {
   buildP2pPayload,
   getFieldErrors,
   getRetryLabel,
+  restoreScheduleDraft,
+  serializeScheduleDraft,
+  shouldPersistScheduleDraft,
+  SCHEDULE_DRAFT_STORAGE_KEY,
   type ScheduleStep,
   type FlowSlot,
   type SubmissionBranch,
@@ -24,12 +28,44 @@ import type { InterviewType, InterviewMode } from '@mako/shared'
 const P2P_ACCEPTED_MESSAGE =
   'Availability submitted for matcher processing. Your interview will appear after matcher success.'
 
+function readInitialScheduleState() {
+  if (typeof window === 'undefined') return initialScheduleState
+
+  const serialized = window.sessionStorage.getItem(SCHEDULE_DRAFT_STORAGE_KEY)
+  const restored = restoreScheduleDraft(serialized)
+  if (serialized !== null && restored === null) {
+    window.sessionStorage.removeItem(SCHEDULE_DRAFT_STORAGE_KEY)
+  }
+
+  return restored ?? initialScheduleState
+}
+
+function clearScheduleDraft() {
+  if (typeof window === 'undefined') return
+  window.sessionStorage.removeItem(SCHEDULE_DRAFT_STORAGE_KEY)
+}
+
+function writeScheduleDraft(state: typeof initialScheduleState) {
+  if (typeof window === 'undefined') return
+
+  if (!shouldPersistScheduleDraft(state)) {
+    clearScheduleDraft()
+    return
+  }
+
+  window.sessionStorage.setItem(SCHEDULE_DRAFT_STORAGE_KEY, serializeScheduleDraft(state))
+}
+
 export function ScheduleSmart() {
   const navigate = useNavigate()
   const createInterview = useCreateInterview()
   const submitAvailability = useSubmitAvailability()
 
-  const [state, dispatch] = useReducer(scheduleReducer, initialScheduleState)
+  const [state, dispatch] = useReducer(
+    scheduleReducer,
+    initialScheduleState,
+    readInitialScheduleState,
+  )
   const [lastSubmissionBranch, setLastSubmissionBranch] =
     useState<SubmissionBranch | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
@@ -51,6 +87,18 @@ export function ScheduleSmart() {
   const fieldErrors = state.fieldErrors ?? getFieldErrors(state)
   const isP2pSubmissionAccepted =
     lastSubmissionBranch === 'peer_to_peer' && successMessage !== null
+
+  useEffect(
+    function persistScheduleDraft() {
+      if (isP2pSubmissionAccepted) {
+        clearScheduleDraft()
+        return
+      }
+
+      writeScheduleDraft(state)
+    },
+    [state, isP2pSubmissionAccepted],
+  )
 
   const clearSubmissionFeedback = useCallback(function clearSubmissionFeedback() {
     setLastSubmissionBranch(null)
@@ -151,7 +199,10 @@ export function ScheduleSmart() {
         setLastSubmissionBranch('ai_led')
         createInterview.mutate(payload, {
           onSuccess: async function onCreateSuccess() {
-            await navigate({ to: '/interviews' })
+            clearScheduleDraft()
+            await navigate({
+              to: payload.scheduled_at === 'now' ? '/interviews' : '/dashboard',
+            })
           },
           onSettled: function onCreateSettled() {
             isDispatchingRef.current = false
@@ -180,6 +231,7 @@ export function ScheduleSmart() {
         setLastSubmissionBranch('peer_to_peer')
         submitAvailability.mutate(payload, {
           onSuccess: function onAvailabilitySuccess() {
+            clearScheduleDraft()
             setSuccessMessage(P2P_ACCEPTED_MESSAGE)
           },
           onSettled: function onAvailabilitySettled() {

@@ -2,6 +2,7 @@ import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/re
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import userEvent from '@testing-library/user-event'
 import { ScheduleSmart } from './schedule-smart'
+import { SCHEDULE_DRAFT_STORAGE_KEY, serializeScheduleDraft } from './schedule-flow'
 
 const mockNavigate = vi.fn()
 
@@ -50,6 +51,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
     mockCreateError = null
     mockAvailabilityIsPending = false
     mockAvailabilityError = null
+    window.sessionStorage.clear()
   })
 
   it('renders the schedule form starting at type step', function testRender() {
@@ -555,6 +557,148 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     expect(mockAvailabilityMutate).toHaveBeenCalledTimes(2)
     expect(mockCreateMutate).not.toHaveBeenCalled()
+
+    cleanup()
+  })
+
+  it('restores a saved ai draft when returning to the schedule route', function testRestoreAiDraft() {
+    window.sessionStorage.setItem(
+      SCHEDULE_DRAFT_STORAGE_KEY,
+      serializeScheduleDraft({
+        step: 'confirm',
+        interviewType: 'system_design',
+        mode: 'ai_led',
+        scheduledAt: 'now',
+        maxMatches: null,
+        slots: [],
+        validationError: null,
+        fieldErrors: null,
+      }),
+    )
+
+    render(<ScheduleSmart />)
+
+    expect(screen.getByText('Confirm Your Interview')).toBeDefined()
+    expect(screen.getByText('AI-Led')).toBeDefined()
+    expect(screen.getByText('Start now')).toBeDefined()
+
+    cleanup()
+  })
+
+  it('persists draft progress when user leaves mid-flow', async function testPersistDraft() {
+    const user = userEvent.setup()
+    render(<ScheduleSmart />)
+
+    await user.click(screen.getByText('System Design'))
+    await waitFor(function () {
+      expect(window.sessionStorage.getItem(SCHEDULE_DRAFT_STORAGE_KEY)).not.toBeNull()
+    })
+
+    cleanup()
+    render(<ScheduleSmart />)
+
+    expect(screen.getByText('System Design')).toBeDefined()
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    expect(screen.getByText('Select Mode')).toBeDefined()
+
+    cleanup()
+  })
+
+  it('clears draft after successful ai submit', async function testClearDraftAfterAiSuccess() {
+    const user = userEvent.setup()
+    render(<ScheduleSmart />)
+
+    await user.click(screen.getByText('System Design'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('Start now'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    expect(window.sessionStorage.getItem(SCHEDULE_DRAFT_STORAGE_KEY)).not.toBeNull()
+    await user.click(screen.getByRole('button', { name: /confirm & schedule/i }))
+
+    const onSuccess = mockCreateMutate.mock.calls[0]![1].onSuccess
+    await onSuccess()
+
+    expect(window.sessionStorage.getItem(SCHEDULE_DRAFT_STORAGE_KEY)).toBeNull()
+
+    cleanup()
+  })
+
+  it('keeps draft after failed ai submit', async function testKeepDraftAfterAiFailure() {
+    const user = userEvent.setup()
+    mockCreateMutate.mockImplementationOnce(function (_payload, options) {
+      if (options?.onSettled) options.onSettled()
+    })
+    render(<ScheduleSmart />)
+
+    await user.click(screen.getByText('System Design'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('Start now'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: /confirm & schedule/i }))
+
+    expect(window.sessionStorage.getItem(SCHEDULE_DRAFT_STORAGE_KEY)).not.toBeNull()
+
+    cleanup()
+  })
+
+  it('navigates future ai schedules to dashboard after success', async function testFutureAiDashboard() {
+    const user = userEvent.setup()
+    render(<ScheduleSmart />)
+
+    await user.click(screen.getByText('System Design'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('Schedule for later'))
+    fireEvent.change(screen.getByLabelText(/date and time/i), {
+      target: { value: '2026-06-10T10:00' },
+    })
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: /confirm & schedule/i }))
+
+    const onSuccess = mockCreateMutate.mock.calls[0]![1].onSuccess
+    await onSuccess()
+
+    await waitFor(function () {
+      expect(mockNavigate).toHaveBeenCalledWith({ to: '/dashboard' })
+    })
+
+    cleanup()
+  })
+
+  it('clears draft after accepted p2p availability without navigating', async function testClearDraftAfterP2pSuccess() {
+    const user = userEvent.setup()
+    mockAvailabilityMutate.mockImplementationOnce(function (_payload, options) {
+      if (options?.onSuccess) options.onSuccess()
+      if (options?.onSettled) options.onSettled()
+    })
+    render(<ScheduleSmart />)
+
+    await user.click(screen.getByText('System Design'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('Peer-to-Peer'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.clear(screen.getByLabelText(/maximum matches/i))
+    await user.type(screen.getByLabelText(/maximum matches/i), '2')
+    await user.click(screen.getByRole('button', { name: /add slot/i }))
+    fireEvent.change(screen.getByLabelText(/slot 1 start time/i), {
+      target: { value: '2026-06-10T10:00' },
+    })
+    fireEvent.change(screen.getByLabelText(/slot 1 end time/i), {
+      target: { value: '2026-06-10T11:00' },
+    })
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    expect(window.sessionStorage.getItem(SCHEDULE_DRAFT_STORAGE_KEY)).not.toBeNull()
+    await user.click(screen.getByRole('button', { name: /confirm & schedule/i }))
+
+    expect(window.sessionStorage.getItem(SCHEDULE_DRAFT_STORAGE_KEY)).toBeNull()
+    expect(mockNavigate).not.toHaveBeenCalled()
 
     cleanup()
   })
