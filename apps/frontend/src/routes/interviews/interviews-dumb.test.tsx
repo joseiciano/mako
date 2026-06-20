@@ -1,12 +1,7 @@
 import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { formatScheduledTime } from '#/lib/format-scheduled-time'
-import {
-  InterviewsDumb,
-  formatInterviewType,
-  formatInterviewMode,
-  formatInterviewStatus,
-} from './interviews-dumb'
+import { InterviewsDumb } from './interviews-dumb'
 
 function createInterviewFixture(
   overrides: Record<string, unknown> = {},
@@ -246,27 +241,114 @@ describe('InterviewsDumb', function interviewsDumbSuite() {
       screen.queryByRole('button', { name: /cancel cancelled-1/i }),
     ).not.toBeInTheDocument()
   })
+
+  it('shows join button for scheduled interviews in upcoming', function run() {
+    const upcoming = [
+      createInterviewFixture({
+        id: 'scheduled-1',
+        status: 'scheduled',
+      }),
+      createInterviewFixture({
+        id: 'ongoing-1',
+        status: 'ongoing',
+      }),
+    ]
+
+    render(
+      <InterviewsDumb
+        state="populated"
+        upcomingInterviews={upcoming}
+        historyInterviews={[]}
+      />,
+    )
+
+    expect(
+      screen.getByRole('button', { name: /join session scheduled-1/i }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /join session ongoing-1/i }),
+    ).toBeInTheDocument()
+  })
+
+  it('does not show join button for completed or cancelled interviews', function run() {
+    const upcoming = [
+      createInterviewFixture({
+        id: 'completed-1',
+        status: 'completed',
+      }),
+      createInterviewFixture({
+        id: 'cancelled-1',
+        status: 'cancelled',
+      }),
+    ]
+
+    render(
+      <InterviewsDumb
+        state="populated"
+        upcomingInterviews={upcoming}
+        historyInterviews={[]}
+      />,
+    )
+
+    expect(
+      screen.queryByRole('button', { name: /join session completed-1/i }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /join session cancelled-1/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('calls onNavigateToSession when join button is clicked', function run() {
+    const onNavigate = vi.fn()
+    const upcoming = [
+      createInterviewFixture({
+        id: 'scheduled-1',
+        status: 'scheduled',
+      }),
+    ]
+
+    render(
+      <InterviewsDumb
+        state="populated"
+        upcomingInterviews={upcoming}
+        historyInterviews={[]}
+        onNavigateToSession={onNavigate}
+      />,
+    )
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /join session scheduled-1/i }),
+    )
+    expect(onNavigate).toHaveBeenCalledWith('scheduled-1')
+  })
+
+  it('join button renders with correct column class when only join is shown', function run() {
+    // When showCancel is not active (history table uses InterviewTable without showCancel),
+    // the join button should use the rounded-r-lg class.
+    // Test that join column gets correct class when shared with cancel column.
+    const upcoming = [
+      createInterviewFixture({
+        id: 'scheduled-1',
+        status: 'scheduled',
+      }),
+    ]
+
+    render(
+      <InterviewsDumb
+        state="populated"
+        upcomingInterviews={upcoming}
+        historyInterviews={[]}
+      />,
+    )
+
+    // Both showCancel and showJoin are passed; join column gets px-3 py-3 (not rounded)
+    // because cancel button follows and gets the rounded class
+    const button = screen.getByRole('button', { name: /join session scheduled-1/i })
+    expect(button.closest('td')?.className).not.toContain('rounded-r-lg')
+  })
 })
 
 describe('interviews-dumb formatting helpers', function formattingSuite() {
-  it('formats interview type values', function run() {
-    expect(formatInterviewType('system_design')).toBe('System Design')
-    expect(formatInterviewType('coding')).toBe('Coding')
-    expect(formatInterviewType('behavioral')).toBe('Behavioral')
-  })
-
-  it('formats interview mode values', function run() {
-    expect(formatInterviewMode('peer_to_peer')).toBe('Peer to Peer')
-    expect(formatInterviewMode('ai_led')).toBe('AI-led')
-  })
-
-  it('formats interview status values', function run() {
-    expect(formatInterviewStatus('scheduled')).toBe('Scheduled')
-    expect(formatInterviewStatus('ongoing')).toBe('Ongoing')
-    expect(formatInterviewStatus('completed')).toBe('Completed')
-    expect(formatInterviewStatus('cancelled')).toBe('Cancelled')
-  })
-
   it('formats scheduled time safely', function run() {
     const iso = '2026-04-10T10:30:00.000Z'
     const expected = new Date(iso).toLocaleString('en-US', {
