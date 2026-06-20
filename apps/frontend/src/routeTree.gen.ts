@@ -213,7 +213,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/interviews/new'
       preLoaderRoute: typeof AuthenticatedInterviewsNewRouteImport
       parentRoute: typeof AuthenticatedInterviewsRoute
-      parentRoute: typeof AuthenticatedInterviewsRoute
     }
     '/_authenticated/interviews/$id/session': {
       id: '/_authenticated/interviews/$id/session'
