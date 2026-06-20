@@ -489,4 +489,78 @@ describe('interview shared contracts', function interviewSharedContractsSuite() 
       })
     }).toThrow()
   })
+
+  it('parses provision params with a valid interview id', function run() {
+    const parsed = provisionInterviewParamsSchema.parse({
+      id: '11111111-1111-4111-8111-111111111111',
+    })
+
+    expect(parsed.id).toBe('11111111-1111-4111-8111-111111111111')
+  })
+
+  it('rejects provision params with an invalid id', function run() {
+    expect(function parseInvalidParams() {
+      provisionInterviewParamsSchema.parse({ id: 'not-a-uuid' })
+    }).toThrow()
+  })
+
+  it('parses a valid provision response with realtime and excalidraw credentials', function run() {
+    const parsed = provisionInterviewResponseSchema.parse({
+      mode: 'peer_to_peer',
+      realtime: {
+        realtime_session_id: 'sess_abc123',
+        token: 'tok_abc123',
+      },
+      excalidraw: {
+        excalidraw_room_id: 'room_def456',
+        excalidraw_key: 'key_ghi789',
+      },
+    })
+
+    expect(parsed.mode).toBe('peer_to_peer')
+    expect(parsed.realtime.realtime_session_id).toBe('sess_abc123')
+    expect(parsed.realtime.token).toBe('tok_abc123')
+    expect(parsed.excalidraw.excalidraw_room_id).toBe('room_def456')
+    expect(parsed.excalidraw.excalidraw_key).toBe('key_ghi789')
+  })
+
+  it('rejects provision response missing realtime credentials', function run() {
+    expect(function parseInvalidProvision() {
+      provisionInterviewResponseSchema.parse({
+        mode: 'ai_led',
+        excalidraw: {
+          excalidraw_room_id: 'room_def456',
+          excalidraw_key: 'key_ghi789',
+        },
+      })
+    }).toThrow()
+  })
+
+  it('rejects provision response missing excalidraw credentials', function run() {
+    expect(function parseInvalidProvision() {
+      provisionInterviewResponseSchema.parse({
+        mode: 'ai_led',
+        realtime: {
+          realtime_session_id: 'sess_abc123',
+          token: 'tok_abc123',
+        },
+      })
+    }).toThrow()
+  })
+
+  it('rejects provision response with an invalid mode', function run() {
+    expect(function parseInvalidProvision() {
+      provisionInterviewResponseSchema.parse({
+        mode: 'invalid_mode',
+        realtime: {
+          realtime_session_id: 'sess_abc123',
+          token: 'tok_abc123',
+        },
+        excalidraw: {
+          excalidraw_room_id: 'room_def456',
+          excalidraw_key: 'key_ghi789',
+        },
+      })
+    }).toThrow()
+  })
 })
