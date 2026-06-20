@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { QueryClient } from '@tanstack/react-query'
 import {
   buildInterviewsQueryKey,
   cancelInterview,
   createInterview,
   fetchInterviews,
+  invalidateInterviewSurfaces,
   interviewsQueryRootKey,
 } from './use-interviews'
 import { readHeader } from './test-utils/read-header'
@@ -53,6 +55,20 @@ describe('use-interviews data layer', function useInterviewsSuite() {
     expect(
       buildInterviewsQueryKey({ status: 'scheduled', limit: 10, offset: 5 }),
     ).toEqual(['interviews', { status: 'scheduled', limit: 10, offset: 5 }])
+  })
+
+  it('invalidates all interview surfaces from the root query key', async function run() {
+    const invalidateQueries = vi.fn().mockResolvedValue(undefined)
+    const queryClient = { invalidateQueries } as unknown as Pick<
+      QueryClient,
+      'invalidateQueries'
+    >
+
+    await invalidateInterviewSurfaces(queryClient)
+
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: interviewsQueryRootKey,
+    })
   })
 
   it('fetches interviews without filters', async function run() {

@@ -17,6 +17,7 @@ import {
   useMutation,
   useQuery,
   useQueryClient,
+  type QueryClient,
   type UseMutationResult,
   type UseQueryResult,
 } from '@tanstack/react-query'
@@ -65,10 +66,16 @@ export function useCreateInterview(): UseMutationResult<
       return createInterview(payload)
     },
     onSuccess: async function onCreateSuccess() {
-      await queryClient.invalidateQueries({
-        queryKey: interviewsQueryRootKey,
-      })
+      await invalidateInterviewSurfaces(queryClient)
     },
+  })
+}
+
+export async function invalidateInterviewSurfaces(
+  queryClient: Pick<QueryClient, 'invalidateQueries'>,
+): Promise<void> {
+  await queryClient.invalidateQueries({
+    queryKey: interviewsQueryRootKey,
   })
 }
 
