@@ -123,6 +123,22 @@ export const cancelInterviewResponseSchema = z.object({
   success: z.boolean(),
 })
 
+export const provisionInterviewParamsSchema = z.object({
+  id: z.string().uuid(),
+})
+
+export const provisionInterviewResponseSchema = z.object({
+  mode: interviewModeSchema,
+  realtime: z.object({
+    realtime_session_id: z.string(),
+    token: z.string(),
+  }),
+  excalidraw: z.object({
+    excalidraw_room_id: z.string(),
+    excalidraw_key: z.string(),
+  }),
+})
+
 export type InterviewType = z.infer<typeof interviewTypeSchema>
 export type InterviewMode = z.infer<typeof interviewModeSchema>
 export type InterviewTier = z.infer<typeof interviewTierSchema>
@@ -136,6 +152,8 @@ export type CreateInterviewRequest = z.infer<typeof createInterviewRequestSchema
 export type CreateInterviewResponse = z.infer<typeof createInterviewResponseSchema>
 export type CancelInterviewParams = z.infer<typeof cancelInterviewParamsSchema>
 export type CancelInterviewResponse = z.infer<typeof cancelInterviewResponseSchema>
+export type ProvisionInterviewParams = z.infer<typeof provisionInterviewParamsSchema>
+export type ProvisionInterviewResponse = z.infer<typeof provisionInterviewResponseSchema>
 
 function queryIntegerParameterSchema<TSchema extends z.ZodType<number>>(
   schema: TSchema,
