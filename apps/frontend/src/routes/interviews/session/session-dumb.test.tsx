@@ -1,13 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import {
-  SessionDumb,
-  type SessionDumbProps,
-  formatInterviewType,
-  formatInterviewMode,
-  formatInterviewStatus,
-} from './session-dumb'
+import { SessionDumb, type SessionDumbProps } from './session-dumb'
 import type { InterviewDetail } from '@mako/shared'
 
 function makeInterview(overrides?: Partial<InterviewDetail>): InterviewDetail {
@@ -34,8 +28,8 @@ function makeInterview(overrides?: Partial<InterviewDetail>): InterviewDetail {
 function makeProps(overrides?: Partial<SessionDumbProps>): SessionDumbProps {
   return {
     interview: null,
+    isLoading: false,
     status: 'idle',
-    provisionData: null,
     errorMessage: null,
     onJoin: vi.fn(),
     onBackToInterviews: vi.fn(),
@@ -49,8 +43,8 @@ describe('SessionDumb', function () {
     expect(screen.getByRole('button', { name: /back to interviews/i })).toBeInTheDocument()
   })
 
-  it('shows loading state when idle with no interview', function () {
-    render(<SessionDumb {...makeProps()} />)
+  it('shows loading state when isLoading is true', function () {
+    render(<SessionDumb {...makeProps({ isLoading: true })} />)
     expect(screen.getByRole('status')).toHaveTextContent(/loading interview details/i)
   })
 
@@ -117,11 +111,6 @@ describe('SessionDumb', function () {
         {...makeProps({
           interview: makeInterview(),
           status: 'provisioned',
-          provisionData: {
-            mode: 'ai_led',
-            realtime: { realtime_session_id: 'rt-1', token: 'token-1' },
-            excalidraw: { excalidraw_room_id: 'room-1', excalidraw_key: 'key-1' },
-          },
         })}
       />,
     )
@@ -157,47 +146,5 @@ describe('SessionDumb', function () {
     )
     await user.click(screen.getByRole('button', { name: /back to interviews/i }))
     expect(onBackToInterviews).toHaveBeenCalledOnce()
-  })
-})
-
-describe('formatInterviewType', function () {
-  it('formats system_design', function () {
-    expect(formatInterviewType('system_design')).toBe('System Design')
-  })
-
-  it('formats coding', function () {
-    expect(formatInterviewType('coding')).toBe('Coding')
-  })
-
-  it('formats behavioral as default', function () {
-    expect(formatInterviewType('behavioral')).toBe('Behavioral')
-  })
-})
-
-describe('formatInterviewMode', function () {
-  it('formats peer_to_peer', function () {
-    expect(formatInterviewMode('peer_to_peer')).toBe('Peer to Peer')
-  })
-
-  it('formats ai_led as AI-led', function () {
-    expect(formatInterviewMode('ai_led')).toBe('AI-led')
-  })
-})
-
-describe('formatInterviewStatus', function () {
-  it('formats scheduled', function () {
-    expect(formatInterviewStatus('scheduled')).toBe('Scheduled')
-  })
-
-  it('formats ongoing', function () {
-    expect(formatInterviewStatus('ongoing')).toBe('Ongoing')
-  })
-
-  it('formats completed', function () {
-    expect(formatInterviewStatus('completed')).toBe('Completed')
-  })
-
-  it('formats cancelled', function () {
-    expect(formatInterviewStatus('cancelled')).toBe('Cancelled')
   })
 })

@@ -1,27 +1,22 @@
-import type { InterviewDetail, ProvisionInterviewResponse } from '@mako/shared'
+import type { InterviewDetail } from '@mako/shared'
 
 export type SessionStatus = 'idle' | 'joining' | 'provisioned' | 'error'
 
 export type SessionState = {
-  interview: InterviewDetail | null
   status: SessionStatus
-  provisionData: ProvisionInterviewResponse | null
   errorMessage: string | null
 }
 
 export const initialSessionState: SessionState = {
-  interview: null,
   status: 'idle',
-  provisionData: null,
   errorMessage: null,
 }
 
 export type SessionAction =
-  | { type: 'SET_INTERVIEW'; payload: InterviewDetail }
-  | { type: 'FETCH_ERROR'; payload: string }
   | { type: 'JOIN' }
-  | { type: 'PROVISION_SUCCESS'; payload: ProvisionInterviewResponse }
+  | { type: 'PROVISION_SUCCESS' }
   | { type: 'PROVISION_ERROR'; payload: string }
+  // TODO: Use for whiteboard/session teardown flow in Story 3.4.
   | { type: 'RESET' }
 
 export function sessionReducer(
@@ -29,18 +24,6 @@ export function sessionReducer(
   action: SessionAction,
 ): SessionState {
   switch (action.type) {
-    case 'SET_INTERVIEW': {
-      return { ...state, interview: action.payload }
-    }
-
-    case 'FETCH_ERROR': {
-      return {
-        ...state,
-        status: 'error',
-        errorMessage: action.payload,
-      }
-    }
-
     case 'JOIN': {
       if (state.status === 'joining') return state
       return { ...state, status: 'joining', errorMessage: null }
@@ -50,7 +33,6 @@ export function sessionReducer(
       return {
         ...state,
         status: 'provisioned',
-        provisionData: action.payload,
         errorMessage: null,
       }
     }
@@ -73,14 +55,10 @@ export function sessionReducer(
   }
 }
 
-export function canJoin(state: SessionState): boolean {
-  return (state.status === 'idle' || state.status === 'error') && state.interview !== null
-}
-
-export function isJoining(state: SessionState): boolean {
-  return state.status === 'joining'
-}
-
-export function isProvisioned(state: SessionState): boolean {
-  return state.status === 'provisioned' && state.provisionData !== null
+export function canJoin(state: SessionState, interview: InterviewDetail | null): boolean {
+  return (
+    (state.status === 'idle' || state.status === 'error') &&
+    interview !== null &&
+    (interview.status === 'scheduled' || interview.status === 'ongoing')
+  )
 }

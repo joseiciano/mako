@@ -3,11 +3,9 @@ import {
   sessionReducer,
   initialSessionState,
   canJoin,
-  isJoining,
-  isProvisioned,
   type SessionAction,
 } from './session-flow'
-import type { InterviewDetail, ProvisionInterviewResponse } from '@mako/shared'
+import type { InterviewDetail } from '@mako/shared'
 
 function makeInterview(overrides?: Partial<InterviewDetail>): InterviewDetail {
   return {
@@ -30,16 +28,6 @@ function makeInterview(overrides?: Partial<InterviewDetail>): InterviewDetail {
   }
 }
 
-function makeProvisionResponse(
-  overrides?: Partial<ProvisionInterviewResponse>,
-): ProvisionInterviewResponse {
-  return {
-    mode: 'ai_led',
-    realtime: { realtime_session_id: 'rt-1', token: 'token-1' },
-    excalidraw: { excalidraw_room_id: 'room-1', excalidraw_key: 'key-1' },
-    ...overrides,
-  }
-}
 
 describe('sessionReducer', function () {
   it('returns initial state on default action', function () {
@@ -47,29 +35,9 @@ describe('sessionReducer', function () {
     expect(next).toEqual(initialSessionState)
   })
 
-  it('SET_INTERVIEW stores interview detail', function () {
-    const interview = makeInterview()
-    const next = sessionReducer(initialSessionState, {
-      type: 'SET_INTERVIEW',
-      payload: interview,
-    })
-    expect(next.interview).toBe(interview)
-    expect(next.status).toBe('idle')
-  })
-
-  it('FETCH_ERROR transitions to error with message', function () {
-    const next = sessionReducer(initialSessionState, {
-      type: 'FETCH_ERROR',
-      payload: 'Interview not found',
-    })
-    expect(next.status).toBe('error')
-    expect(next.errorMessage).toBe('Interview not found')
-  })
-
   it('JOIN transitions to joining and clears error', function () {
     const state = {
       ...initialSessionState,
-      interview: makeInterview(),
       status: 'error' as const,
       errorMessage: 'previous error',
     }
@@ -81,33 +49,26 @@ describe('sessionReducer', function () {
   it('JOIN is idempotent when already joining', function () {
     const state = {
       ...initialSessionState,
-      interview: makeInterview(),
       status: 'joining' as const,
     }
     const next = sessionReducer(state, { type: 'JOIN' })
     expect(next).toBe(state)
   })
 
-  it('PROVISION_SUCCESS stores provision data and transitions to provisioned', function () {
-    const provision = makeProvisionResponse()
+  it('PROVISION_SUCCESS transitions to provisioned without storing credential payload', function () {
     const state = {
       ...initialSessionState,
-      interview: makeInterview(),
       status: 'joining' as const,
     }
-    const next = sessionReducer(state, {
-      type: 'PROVISION_SUCCESS',
-      payload: provision,
-    })
+    const next = sessionReducer(state, { type: 'PROVISION_SUCCESS' })
     expect(next.status).toBe('provisioned')
-    expect(next.provisionData).toBe(provision)
+    expect('provisionData' in next).toBe(false)
     expect(next.errorMessage).toBeNull()
   })
 
   it('PROVISION_ERROR stores error message and transitions to error', function () {
     const state = {
       ...initialSessionState,
-      interview: makeInterview(),
       status: 'joining' as const,
     }
     const next = sessionReducer(state, {
@@ -121,87 +82,53 @@ describe('sessionReducer', function () {
   it('RESET returns to initial state', function () {
     const state = {
       ...initialSessionState,
-      interview: makeInterview(),
-      status: 'provisioned' as const,
-      provisionData: makeProvisionResponse(),
       errorMessage: null,
     }
     const next = sessionReducer(state, { type: 'RESET' })
     expect(next).toEqual(initialSessionState)
   })
+
 })
 
 describe('canJoin', function () {
   it('returns true when idle with interview loaded', function () {
-    const state = { ...initialSessionState, interview: makeInterview() }
-    expect(canJoin(state)).toBe(true)
+    const state = { ...initialSessionState }
+    expect(canJoin(state, makeInterview())).toBe(true)
   })
 
   it('returns false when no interview', function () {
-    expect(canJoin(initialSessionState)).toBe(false)
+    expect(canJoin(initialSessionState, null)).toBe(false)
   })
 
   it('returns false when already joining', function () {
     const state = {
       ...initialSessionState,
-      interview: makeInterview(),
       status: 'joining' as const,
     }
-    expect(canJoin(state)).toBe(false)
+    expect(canJoin(state, makeInterview())).toBe(false)
   })
 
   it('returns false when provisioned', function () {
     const state = {
       ...initialSessionState,
-      interview: makeInterview(),
       status: 'provisioned' as const,
-      provisionData: makeProvisionResponse(),
     }
-    expect(canJoin(state)).toBe(false)
+    expect(canJoin(state, makeInterview())).toBe(false)
   })
 
   it('returns true when error state with interview loaded', function () {
     const state = {
       ...initialSessionState,
-      interview: makeInterview(),
       status: 'error' as const,
       errorMessage: 'previous error',
     }
-    expect(canJoin(state)).toBe(true)
-  })
-})
-
-describe('isJoining', function () {
-  it('returns true when status is joining', function () {
-    const state = { ...initialSessionState, status: 'joining' as const }
-    expect(isJoining(state)).toBe(true)
+    expect(canJoin(state, makeInterview())).toBe(true)
   })
 
-  it('returns false when status is idle', function () {
-    expect(isJoining(initialSessionState)).toBe(false)
-  })
-})
+  it('returns false when interview is completed or cancelled', function () {
+    const state = { ...initialSessionState }
 
-describe('isProvisioned', function () {
-  it('returns true when provisioned with provision data', function () {
-    const state = {
-      ...initialSessionState,
-      status: 'provisioned' as const,
-      provisionData: makeProvisionResponse(),
-    }
-    expect(isProvisioned(state)).toBe(true)
-  })
-
-  it('returns false when provisioned but no provision data', function () {
-    const state = {
-      ...initialSessionState,
-      status: 'provisioned' as const,
-      provisionData: null,
-    }
-    expect(isProvisioned(state)).toBe(false)
-  })
-
-  it('returns false when not provisioned', function () {
-    expect(isProvisioned(initialSessionState)).toBe(false)
+    expect(canJoin(state, makeInterview({ status: 'completed' }))).toBe(false)
+    expect(canJoin(state, makeInterview({ status: 'cancelled' }))).toBe(false)
   })
 })

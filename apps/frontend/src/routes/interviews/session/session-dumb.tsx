@@ -1,4 +1,4 @@
-import type { InterviewDetail, ProvisionInterviewResponse } from '@mako/shared'
+import type { InterviewDetail } from '@mako/shared'
 import type { SessionStatus } from './session-flow'
 import {
   formatInterviewType,
@@ -8,8 +8,8 @@ import {
 
 export type SessionDumbProps = {
   interview: InterviewDetail | null
+  isLoading: boolean
   status: SessionStatus
-  provisionData: ProvisionInterviewResponse | null
   errorMessage: string | null
   onJoin: () => void
   onBackToInterviews: () => void
@@ -43,7 +43,7 @@ export function SessionDumb(props: SessionDumbProps) {
 }
 
 function renderContent(props: SessionDumbProps) {
-  if (props.status === 'idle' && !props.interview) {
+  if (props.isLoading) {
     return (
       <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
         <p
@@ -53,26 +53,6 @@ function renderContent(props: SessionDumbProps) {
         >
           Loading interview details...
         </p>
-      </section>
-    )
-  }
-
-  if (props.status === 'error' && props.errorMessage) {
-    return (
-      <section
-        className="rounded-xl border border-red-900 bg-red-950/40 p-4 text-red-200"
-        role="alert"
-      >
-        <p>{props.errorMessage}</p>
-        {props.interview ? (
-          <button
-            className="mt-3 inline-flex rounded-md border border-red-400 px-3 py-1.5 text-xs font-medium text-red-200 transition hover:bg-red-500/20"
-            onClick={props.onJoin}
-            type="button"
-          >
-            Retry
-          </button>
-        ) : null}
       </section>
     )
   }
@@ -91,7 +71,7 @@ function renderContent(props: SessionDumbProps) {
     )
   }
 
-  if (props.status === 'provisioned' && props.provisionData) {
+  if (props.status === 'provisioned') {
     return (
       <div className="flex flex-col gap-6">
         <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
@@ -110,6 +90,26 @@ function renderContent(props: SessionDumbProps) {
           </div>
         </section>
       </div>
+    )
+  }
+
+  if (props.errorMessage) {
+    return (
+      <section
+        className="rounded-xl border border-red-900 bg-red-950/40 p-4 text-red-200"
+        role="alert"
+      >
+        <p>{props.errorMessage}</p>
+        {props.interview ? (
+          <button
+            className="mt-3 inline-flex rounded-md border border-red-400 px-3 py-1.5 text-xs font-medium text-red-200 transition hover:bg-red-500/20"
+            onClick={props.onJoin}
+            type="button"
+          >
+            Retry
+          </button>
+        ) : null}
+      </section>
     )
   }
 
@@ -179,9 +179,3 @@ function InterviewMetadata(props: { interview: InterviewDetail | null }) {
     </div>
   )
 }
-
-export {
-  formatInterviewType,
-  formatInterviewMode,
-  formatInterviewStatus,
-} from '#/lib/format-interview'

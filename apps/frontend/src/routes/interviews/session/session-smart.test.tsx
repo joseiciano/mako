@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { SessionSmart } from './session-smart'
 import type { InterviewDetail } from '@mako/shared'
@@ -120,7 +120,27 @@ describe('SessionSmart', function () {
     )
   })
 
-  it('shows joining state after join dispatched', function () {
+  it('ignores rapid duplicate join clicks while provision is in flight', function () {
+    vi.mocked(useInterviewDetail).mockReturnValue({
+      data: makeInterview(),
+      isPending: false,
+      isError: false,
+      error: null,
+    } as any)
+
+    render(<SessionSmart interviewId="int-1" />)
+
+    const joinButton = screen.getByRole('button', { name: /join session/i })
+    act(function clickTwiceBeforeRerender() {
+      fireEvent.click(joinButton)
+      fireEvent.click(joinButton)
+    })
+
+    expect(mockMutate).toHaveBeenCalledTimes(1)
+  })
+
+  it('shows joining state after join dispatched', async function () {
+    const user = userEvent.setup()
     vi.mocked(useInterviewDetail).mockReturnValue({
       data: makeInterview(),
       isPending: false,
@@ -132,12 +152,12 @@ describe('SessionSmart', function () {
       isPending: true,
     } as any)
     render(<SessionSmart interviewId="int-1" />)
-    // The component uses useReducer internally; after dispatch, it shows joining
-    // Since we can't easily test internal state, just verify the component renders
-    expect(screen.getByRole('button', { name: /join session/i })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /join session/i }))
+    expect(screen.getByText('Joining session...')).toBeInTheDocument()
   })
 
-  it('shows provisioned state after provision success', function () {
+  it('shows provisioned state after provision success', async function () {
+    const user = userEvent.setup()
     vi.mocked(useInterviewDetail).mockReturnValue({
       data: makeInterview(),
       isPending: false,
@@ -153,7 +173,10 @@ describe('SessionSmart', function () {
       isPending: false,
     } as any)
 
-    const { rerender } = render(<SessionSmart interviewId="int-1" />)
+    render(<SessionSmart interviewId="int-1" />)
+
+    // Trigger the mutation to capture the success callback
+    await user.click(screen.getByRole('button', { name: /join session/i }))
 
     // Simulate successful provision
     successCallback?.({
@@ -162,7 +185,9 @@ describe('SessionSmart', function () {
       excalidraw: { excalidraw_room_id: 'room-1', excalidraw_key: 'key-1' },
     })
 
-    rerender(<SessionSmart interviewId="int-1" />)
-    expect(screen.getByText('Interview Details')).toBeInTheDocument()
+    // Wait for React to process the dispatch and re-render
+    await waitFor(function () {
+      expect(screen.getByText('Whiteboard')).toBeInTheDocument()
+    })
   })
 })
