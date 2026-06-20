@@ -7,6 +7,9 @@ import {
   fetchInterviews,
   invalidateInterviewSurfaces,
   interviewsQueryRootKey,
+  interviewDetailStaleTimeMs,
+  fetchInterviewDetail,
+  provisionInterview,
 } from './use-interviews'
 import { readHeader } from './test-utils/read-header'
 
@@ -38,6 +41,10 @@ describe('use-interviews data layer', function useInterviewsSuite() {
 
   it('exports stable root query key', function run() {
     expect(interviewsQueryRootKey).toEqual(['interviews'])
+  })
+
+  it('keeps interview detail data fresh for five minutes', function run() {
+    expect(interviewDetailStaleTimeMs).toBe(5 * 60 * 1000)
   })
 
   it('builds query key without filters', function run() {
@@ -454,5 +461,164 @@ describe('use-interviews data layer', function useInterviewsSuite() {
         },
       ),
     ).rejects.toThrow('Unable to cancel interview.')
+  })
+
+  it('fetches interview detail via GET', async function run() {
+    vi.stubEnv(
+      'VITE_AUTH_BASE_URL',
+      'https://api.test.local/api/auth',
+    )
+
+    const result = await fetchInterviewDetail(
+      async function mockFetch(input, init) {
+        expect(input).toBe(
+          'https://api.test.local/api/interviews/11111111-1111-4111-8111-111111111111',
+        )
+        expect(init?.method).toBe('GET')
+        expect(init?.credentials).toBe('include')
+
+        return new Response(
+          JSON.stringify({
+            interview: {
+              ...interviewFixture,
+              type: 'coding',
+              mode: 'ai_led',
+              status: 'scheduled',
+            },
+          }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        )
+      },
+      '11111111-1111-4111-8111-111111111111',
+    )
+
+    expect(result.type).toBe('coding')
+    expect(result.mode).toBe('ai_led')
+    expect(result.status).toBe('scheduled')
+  })
+
+  it('surfaces backend error message for failed detail requests', async function run() {
+    await expect(
+      fetchInterviewDetail(
+        async function mockFetch() {
+          return new Response(
+            JSON.stringify({ error: 'Interview not found' }),
+            {
+              status: 404,
+              headers: { 'content-type': 'application/json' },
+            },
+          )
+        },
+        '11111111-1111-4111-8111-111111111111',
+      ),
+    ).rejects.toThrow('Interview not found')
+  })
+
+  it('falls back to a stable error message when detail payload omits error field', async function run() {
+    await expect(
+      fetchInterviewDetail(
+        async function mockFetch() {
+          return new Response(JSON.stringify({ message: 'Not Found' }), {
+            status: 404,
+            headers: { 'content-type': 'application/json' },
+          })
+        },
+        '11111111-1111-4111-8111-111111111111',
+      ),
+    ).rejects.toThrow('Unable to fetch interview details.')
+  })
+
+  it('fetchInterviewDetail forwards abort signal into fetch init', async function run() {
+    const controller = new AbortController()
+    const signal = controller.signal
+
+    await fetchInterviewDetail(
+      async function mockFetch(_input, init) {
+        expect(init?.signal).toBe(signal)
+        return new Response(
+          JSON.stringify({ interview: interviewFixture }),
+          { status: 200 },
+        )
+      },
+      '11111111-1111-4111-8111-111111111111',
+      signal,
+    )
+  })
+
+  it('validates interview detail id before fetching', async function run() {
+    const fetchSpy = vi.fn()
+
+    await expect(fetchInterviewDetail(fetchSpy, 'not-a-uuid')).rejects.toThrow()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('provisions an interview via POST', async function run() {
+    vi.stubEnv(
+      'VITE_AUTH_BASE_URL',
+      'https://api.test.local/api/auth',
+    )
+
+    const result = await provisionInterview(
+      { id: '11111111-1111-4111-8111-111111111111' },
+      async function mockFetch(input, init) {
+        expect(input).toBe(
+          'https://api.test.local/api/interviews/11111111-1111-4111-8111-111111111111/provision',
+        )
+        expect(init?.method).toBe('POST')
+        expect(init?.credentials).toBe('include')
+
+        return new Response(
+          JSON.stringify({
+            mode: 'ai_led',
+            realtime: { realtime_session_id: 'rt-1', token: 'token-1' },
+            excalidraw: { excalidraw_room_id: 'room-1', excalidraw_key: 'key-1' },
+          }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        )
+      },
+    )
+
+    expect(result.mode).toBe('ai_led')
+    expect(result.realtime.realtime_session_id).toBe('rt-1')
+  })
+
+  it('surfaces backend error message for failed provision requests', async function run() {
+    await expect(
+      provisionInterview(
+        { id: '11111111-1111-4111-8111-111111111111' },
+        async function mockFetch() {
+          return new Response(
+            JSON.stringify({ error: 'Insufficient credits' }),
+            {
+              status: 402,
+              headers: { 'content-type': 'application/json' },
+            },
+          )
+        },
+      ),
+    ).rejects.toThrow('Insufficient credits')
+  })
+
+  it('falls back to a stable error message when provision payload omits error field', async function run() {
+    await expect(
+      provisionInterview(
+        { id: '11111111-1111-4111-8111-111111111111' },
+        async function mockFetch() {
+          return new Response(
+            JSON.stringify({ message: 'Server error' }),
+            {
+              status: 500,
+              headers: { 'content-type': 'application/json' },
+            },
+          )
+        },
+      ),
+    ).rejects.toThrow('Unable to provision interview session.')
   })
 })

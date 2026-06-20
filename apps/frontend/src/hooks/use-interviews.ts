@@ -38,6 +38,7 @@ import {
 export type InterviewListFilters = Partial<InterviewListQuery>
 
 export const interviewsQueryRootKey = ['interviews'] as const
+export const interviewDetailStaleTimeMs = 5 * 60 * 1000
 
 export function buildInterviewsQueryKey(
   filters?: InterviewListFilters,
@@ -72,7 +73,7 @@ export function useInterviewDetail(
     queryFn: function getInterviewDetailQuery({ signal }) {
       return fetchInterviewDetail(fetch, id, signal)
     },
-    staleTime: 5 * 60 * 1000,
+    staleTime: interviewDetailStaleTimeMs,
   })
 }
 
@@ -81,9 +82,16 @@ export function useProvisionInterview(): UseMutationResult<
   Error,
   ProvisionInterviewParams
 > {
+  const queryClient = useQueryClient()
+
   return useMutation({
     mutationFn: function provisionInterviewMutation(params) {
       return provisionInterview(params)
+    },
+    onSuccess: async function onProvisionSuccess(_data, variables) {
+      await queryClient.invalidateQueries({
+        queryKey: interviewDetailQueryKey(variables.id),
+      })
     },
   })
 }
@@ -227,8 +235,10 @@ export async function fetchInterviewDetail(
   id: string,
   signal?: AbortSignal,
 ): Promise<InterviewDetail> {
+  const parsedId = cancelInterviewParamsSchema.parse({ id }).id
+
   const response = await fetchImpl(
-    createApiUrl(`/api/interviews/${id}`),
+    createApiUrl(`/api/interviews/${parsedId}`),
     createApiRequestInit({
       method: 'GET',
       headers: demoSessionHeaders,
@@ -248,6 +258,7 @@ export async function fetchInterviewDetail(
 export async function provisionInterview(
   params: ProvisionInterviewParams,
   fetchImpl: typeof fetch = fetch,
+  signal?: AbortSignal,
 ): Promise<ProvisionInterviewResponse> {
   const parsedParams = provisionInterviewParamsSchema.parse(params)
 
@@ -256,6 +267,7 @@ export async function provisionInterview(
     createApiRequestInit({
       method: 'POST',
       headers: demoSessionHeaders,
+      signal,
     }),
   )
 
