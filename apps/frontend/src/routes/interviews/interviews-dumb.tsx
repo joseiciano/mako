@@ -1,4 +1,9 @@
 import type { InterviewListItem } from '@mako/shared'
+import {
+  formatInterviewMode,
+  formatInterviewStatus,
+  formatInterviewType,
+} from '#/lib/format-interview'
 import { formatScheduledTime } from '#/lib/format-scheduled-time'
 
 export type InterviewsState = 'loading' | 'error' | 'empty' | 'populated'
@@ -258,43 +263,4 @@ function InterviewTable(props: InterviewTableProps) {
   )
 }
 
-export function formatInterviewType(value: InterviewListItem['type']): string {
-  if (value === 'system_design') {
-    return 'System Design'
-  }
-
-  if (value === 'coding') {
-    return 'Coding'
-  }
-
-  return 'Behavioral'
-}
-
-export function formatInterviewMode(value: InterviewListItem['mode']): string {
-  if (value === 'peer_to_peer') {
-    return 'Peer to Peer'
-  }
-
-  return 'AI-led'
-}
-
-export function formatInterviewStatus(
-  value: InterviewListItem['status'],
-): string {
-  if (value === 'scheduled') {
-    return 'Scheduled'
-  }
-
-  if (value === 'ongoing') {
-    return 'Ongoing'
-  }
-
-  if (value === 'completed') {
-    return 'Completed'
-  }
-
-  return 'Cancelled'
-}
-
 export { formatScheduledTime } from '#/lib/format-scheduled-time'
-
