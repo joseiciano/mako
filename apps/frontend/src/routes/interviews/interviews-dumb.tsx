@@ -17,6 +17,7 @@ export type InterviewsDumbProps = {
   cancellingInterviewId?: string | null
   onCancelInterview?: (id: string) => void
   onNavigateToNewInterview?: () => void
+  onNavigateToSession?: (id: string) => void
 }
 
 export function InterviewsDumb(props: InterviewsDumbProps) {
@@ -121,8 +122,10 @@ function renderContent(props: InterviewsDumbProps) {
             <InterviewTable
               interviews={upcoming}
               showCancel
+              showJoin
               cancellingInterviewId={props.cancellingInterviewId}
               onCancelInterview={props.onCancelInterview}
+              onNavigateToSession={props.onNavigateToSession}
             />
           </div>
         </section>
@@ -143,8 +146,10 @@ function renderContent(props: InterviewsDumbProps) {
 type InterviewTableProps = {
   interviews: InterviewListItem[]
   showCancel?: boolean
+  showJoin?: boolean
   cancellingInterviewId?: string | null
   onCancelInterview?: (id: string) => void
+  onNavigateToSession?: (id: string) => void
 }
 
 function InterviewTable(props: InterviewTableProps) {
@@ -168,6 +173,7 @@ function InterviewTable(props: InterviewTableProps) {
             Counterpart
           </th>
           {props.showCancel && <th className="px-3 py-1" scope="col" />}
+          {props.showJoin && <th className="px-3 py-1" scope="col" />}
         </tr>
       </thead>
 
@@ -178,6 +184,10 @@ function InterviewTable(props: InterviewTableProps) {
             props.showCancel &&
             interview.status === 'scheduled' &&
             !isCancelling
+          const canJoinSession =
+            props.showJoin &&
+            (interview.status === 'scheduled' || interview.status === 'ongoing')
+          const hasBothColumns = props.showJoin && props.showCancel
 
           return (
             <tr
@@ -199,8 +209,24 @@ function InterviewTable(props: InterviewTableProps) {
                 </time>
               </td>
               <td className="px-3 py-3">{interview.interviewer_alias}</td>
+              {props.showJoin && (
+                <td className={!hasBothColumns ? 'rounded-r-lg px-3 py-3' : 'px-3 py-3'}>
+                  {canJoinSession ? (
+                    <button
+                      aria-label={`Join session ${interview.id}`}
+                      className="inline-flex rounded-md border border-emerald-400 px-2.5 py-1.5 text-xs font-medium text-emerald-200 transition hover:bg-emerald-500/20"
+                      onClick={function handleJoin() {
+                        props.onNavigateToSession?.(interview.id)
+                      }}
+                      type="button"
+                    >
+                      Join
+                    </button>
+                  ) : null}
+                </td>
+              )}
               {props.showCancel && (
-                <td className="rounded-r-lg px-3 py-3">
+                <td className={hasBothColumns ? 'rounded-r-lg px-3 py-3' : 'px-3 py-3'}>
                   {canCancel ? (
                     <button
                       aria-label={`Cancel ${interview.id}`}

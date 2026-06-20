@@ -26,6 +26,13 @@ export function InterviewsSmart() {
     [navigate],
   )
 
+  const handleNavigateToSession = useCallback(
+    function handleNavigateToSession(id: string) {
+      navigate({ to: '/interviews/$id/session', params: { id } })
+    },
+    [navigate],
+  )
+
   const { upcoming, history } = useMemo(function splitInterviews() {
     const all = interviewsQuery.data ?? []
 
@@ -121,6 +128,7 @@ export function InterviewsSmart() {
       cancellingInterviewId={cancellingInterviewId}
       onCancelInterview={handleCancelInterview}
       onNavigateToNewInterview={handleNavigateToNewInterview}
+      onNavigateToSession={handleNavigateToSession}
     />
   )
 }
