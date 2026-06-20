@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 3: The Interview Experience (P2P Core)
 **Description**: Implement canonical backend/shared join-time provisioning flow for Cloudflare Realtime credentials and Excalidraw collaboration room data used by interview sessions.
-**Status**: Todo
+**Status**: Completed
 **Prerequisites**:
 - `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-1-whiteboard-scope-and-contract-boundaries.md`
 

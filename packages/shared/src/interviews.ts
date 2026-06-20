@@ -130,12 +130,12 @@ export const provisionInterviewParamsSchema = z.object({
 export const provisionInterviewResponseSchema = z.object({
   mode: interviewModeSchema,
   realtime: z.object({
-    realtime_session_id: z.string(),
-    token: z.string(),
+    realtime_session_id: z.string().min(1),
+    token: z.string().min(1),
   }),
   excalidraw: z.object({
-    excalidraw_room_id: z.string(),
-    excalidraw_key: z.string(),
+    excalidraw_room_id: z.string().min(1),
+    excalidraw_key: z.string().min(1),
   }),
 })
 

@@ -1074,6 +1074,167 @@ describe('InterviewService', function interviewServiceSuite() {
       error_message: 'dispatch failed',
     })
   })
+
+  it('requires authentication for interview provisioning', async function run() {
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [createInterviewRecord({ id: '33333333-3333-4333-8333-333333333333' })],
+    )
+
+    await expect(
+      service.provisionInterview(null, { id: '33333333-3333-4333-8333-333333333333' }),
+    ).rejects.toBeInstanceOf(InterviewUnauthorizedError)
+  })
+
+  it('rejects provisioning for authenticated non-participants', async function run() {
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: '99999999-9999-4999-8999-999999999999',
+        }),
+      ],
+    )
+
+    await expect(
+      service.provisionInterview(activeSession, {
+        id: '33333333-3333-4333-8333-333333333333',
+      }),
+    ).rejects.toBeInstanceOf(InterviewNotFoundError)
+  })
+
+  it('persists and returns provision credentials for participant join', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const { service, repository } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [createInterviewRecord({ id: interviewId, scheduler_id: activeSession.userId })],
+    )
+
+    const response = await service.provisionInterview(activeSession, { id: interviewId })
+
+    expect(response).toEqual({
+      mode: 'ai_led',
+      realtime: {
+        realtime_session_id: 'realtime_22222222-2222-4222-8222-222222222222',
+        token: 'realtime_token_22222222-2222-4222-8222-222222222222',
+      },
+      excalidraw: {
+        excalidraw_room_id: 'excalidraw_room_22222222-2222-4222-8222-222222222222',
+        excalidraw_key: 'excalidraw_key_22222222-2222-4222-8222-222222222222',
+      },
+    })
+
+    const persistedInterview = await repository.getInterviewById(interviewId)
+    expect(persistedInterview).toMatchObject({
+      realtime_session_id: response.realtime.realtime_session_id,
+      excalidraw_room_id: response.excalidraw.excalidraw_room_id,
+      excalidraw_key: response.excalidraw.excalidraw_key,
+      status: 'scheduled',
+    })
+  })
+
+  it('reuses persisted provision credentials on repeated participant joins', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          realtime_session_id: 'rt_existing',
+          excalidraw_room_id: 'room_existing',
+          excalidraw_key: 'key_existing',
+        }),
+      ],
+    )
+
+    const firstResponse = await service.provisionInterview(activeSession, { id: interviewId })
+    const secondResponse = await service.provisionInterview(activeSession, { id: interviewId })
+
+    expect(secondResponse.realtime.realtime_session_id).toBe(firstResponse.realtime.realtime_session_id)
+    expect(secondResponse.excalidraw).toEqual(firstResponse.excalidraw)
+  })
+
+  it('returns the same peer-to-peer room and key to both assigned participants', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const interviewerSession: InterviewSession = {
+      userId: '99999999-9999-4999-8999-999999999999',
+      email: 'interviewer@mako.dev',
+    }
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          interviewer_id: interviewerSession.userId,
+          mode: 'peer_to_peer',
+        }),
+      ],
+    )
+
+    const schedulerResponse = await service.provisionInterview(activeSession, { id: interviewId })
+    const interviewerResponse = await service.provisionInterview(interviewerSession, { id: interviewId })
+
+    expect(interviewerResponse.mode).toBe('peer_to_peer')
+    expect(interviewerResponse.realtime.realtime_session_id).toBe(
+      schedulerResponse.realtime.realtime_session_id,
+    )
+    expect(interviewerResponse.excalidraw).toEqual(schedulerResponse.excalidraw)
+  })
+
+  it('rejects provisioning for terminal interview states', async function run() {
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          status: 'completed',
+        }),
+      ],
+    )
+
+    await expect(
+      service.provisionInterview(activeSession, {
+        id: '33333333-3333-4333-8333-333333333333',
+      }),
+    ).rejects.toBeInstanceOf(InterviewConflictError)
+  })
+
+  it('does not log Realtime tokens or Excalidraw keys during provisioning', async function run() {
+    const loggedErrors: Array<{ event: string; context: Record<string, unknown> }> = []
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+      undefined,
+      {
+        error(event, context) {
+          loggedErrors.push({ event, context })
+        },
+      },
+    )
+
+    await service.provisionInterview(activeSession, {
+      id: '33333333-3333-4333-8333-333333333333',
+    })
+
+    expect(JSON.stringify(loggedErrors)).not.toContain('realtime_token')
+    expect(JSON.stringify(loggedErrors)).not.toContain('excalidraw_key')
+  })
 })
 
 function createInterviewService(

@@ -13,6 +13,47 @@ import {
 } from './interviews'
 
 describe('interview shared contracts', function interviewSharedContractsSuite() {
+  it('parses provision params and response payloads using documented snake_case fields', function run() {
+    expect(
+      provisionInterviewParamsSchema.parse({
+        id: '11111111-1111-4111-8111-111111111111',
+      }),
+    ).toEqual({ id: '11111111-1111-4111-8111-111111111111' })
+
+    const parsed = provisionInterviewResponseSchema.parse({
+      mode: 'peer_to_peer',
+      realtime: {
+        realtime_session_id: 'rt_session_11111111-1111-4111-8111-111111111111',
+        token: 'rt_token_abc123',
+      },
+      excalidraw: {
+        excalidraw_room_id: 'excalidraw_room_11111111-1111-4111-8111-111111111111',
+        excalidraw_key: 'excalidraw_key_secret',
+      },
+    })
+
+    expect(parsed.realtime.realtime_session_id).toBe(
+      'rt_session_11111111-1111-4111-8111-111111111111',
+    )
+    expect(parsed.excalidraw.excalidraw_key).toBe('excalidraw_key_secret')
+  })
+
+  it('rejects camelCase-only provision response payloads', function run() {
+    expect(function parseInvalidPayload() {
+      provisionInterviewResponseSchema.parse({
+        mode: 'ai_led',
+        realtime: {
+          realtimeSessionId: 'rt_session_11111111-1111-4111-8111-111111111111',
+          token: 'rt_token_abc123',
+        },
+        excalidraw: {
+          excalidrawRoomId: 'excalidraw_room_11111111-1111-4111-8111-111111111111',
+          excalidrawKey: 'excalidraw_key_secret',
+        },
+      })
+    }).toThrow()
+  })
+
   it('parses interview list payloads from documented API fields', function run() {
     const payload = {
       interviews: [

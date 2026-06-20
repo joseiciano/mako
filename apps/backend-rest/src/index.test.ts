@@ -216,6 +216,29 @@ describe('backend-rest smoke tests', function () {
     })
   })
 
+  it('provisions stable interview credentials in demo mode through registered route', async function () {
+    const app = createApp()
+    const createResponse = await createInterview(app)
+    expect(createResponse.status).toBe(201)
+    const createdInterview = (await createResponse.json()) as {
+      interview: { id: string }
+    }
+
+    const firstProvisionResponse = await provisionInterview(app, createdInterview.interview.id)
+    const secondProvisionResponse = await provisionInterview(app, createdInterview.interview.id)
+
+    expect(firstProvisionResponse.status).toBe(200)
+    expect(secondProvisionResponse.status).toBe(200)
+    const firstBody = (await firstProvisionResponse.json()) as {
+      realtime: { realtime_session_id: string; token: string }
+      excalidraw: { excalidraw_room_id: string; excalidraw_key: string }
+    }
+    const secondBody = (await secondProvisionResponse.json()) as typeof firstBody
+    expect(firstBody.realtime.realtime_session_id).toBe(secondBody.realtime.realtime_session_id)
+    expect(firstBody.excalidraw).toEqual(secondBody.excalidraw)
+    expect(firstBody.realtime.token).toMatch(/^realtime_token_/)
+  })
+
   it('sorts demo interview list by instant across offsets and strips private fields', async function () {
     const app = createApp()
 
@@ -864,6 +887,14 @@ function cancelInterview(
   return app.request(`/api/interviews/${interviewId}/cancel`, { method: 'POST' }, env)
 }
 
+function provisionInterview(
+  app: ReturnType<typeof createApp>,
+  interviewId: string,
+  env: Partial<WorkerBindings> = {},
+) {
+  return app.request(`/api/interviews/${interviewId}/provision`, { method: 'POST' }, env)
+}
+
 function createDatabaseBinding(accountState: {
   credits: number
   freeAiInterviews: number
@@ -1017,6 +1048,34 @@ function createDatabaseBinding(accountState: {
         return {
           rows: [interview],
         }
+      }
+
+      if (
+        statementText.includes('UPDATE interviews') &&
+        statementText.includes('realtime_session_id = COALESCE')
+      ) {
+        const interviewId = String(statementValues[0])
+        const participantUserId = String(statementValues[1])
+        const interview = interviewsById.get(interviewId)
+
+        if (
+          !interview ||
+          (interview.scheduler_id !== participantUserId &&
+            interview.interviewer_id !== participantUserId)
+        ) {
+          return { rows: [] }
+        }
+
+        const updatedInterview = {
+          ...interview,
+          realtime_session_id: interview.realtime_session_id ?? statementValues[2],
+          excalidraw_room_id: interview.excalidraw_room_id ?? statementValues[3],
+          excalidraw_key: interview.excalidraw_key ?? statementValues[4],
+          updated_at: statementValues[5],
+        }
+        interviewsById.set(interviewId, updatedInterview)
+
+        return { rows: [updatedInterview] }
       }
 
       if (statementText.includes("UPDATE interviews") && statementText.includes("status = 'cancelled'")) {
