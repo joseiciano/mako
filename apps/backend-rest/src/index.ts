@@ -40,6 +40,8 @@ import {
   type AvailabilityRepositoryDataSource,
   type CreateInterviewRecordInput,
   type InterviewRepositoryDataSource,
+  type ProvisionInterviewRecordInput,
+  type ProvisionInterviewRecordResult,
   type SqlQueryExecutor,
 } from '@mako/shared-backend'
 import type { SqlQuery } from '@mako/shared-backend'
@@ -375,6 +377,52 @@ function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
           .map(function cloneInterview(interview) {
             return parseInterviewListItem(structuredClone(interview))
           })
+      },
+      async provisionInterview(
+        input: ProvisionInterviewRecordInput,
+      ): Promise<ProvisionInterviewRecordResult> {
+        const interview = interviewsById.get(input.interview_id)
+
+        if (
+          !interview ||
+          (interview.scheduler_id !== input.participant_user_id &&
+            interview.interviewer_id !== input.participant_user_id)
+        ) {
+          return { outcome: 'not_found' }
+        }
+
+        if (interview.status !== 'scheduled' && interview.status !== 'ongoing') {
+          return {
+            outcome: 'invalid_status',
+            interview: structuredClone(interview),
+          }
+        }
+
+        if (
+          interview.realtime_session_id &&
+          interview.excalidraw_room_id &&
+          interview.excalidraw_key
+        ) {
+          return {
+            outcome: 'already_provisioned',
+            interview: structuredClone(interview),
+          }
+        }
+
+        const provisionedInterview = parseInterview({
+          ...interview,
+          realtime_session_id: interview.realtime_session_id ?? input.realtime_session_id,
+          excalidraw_room_id: interview.excalidraw_room_id ?? input.excalidraw_room_id,
+          excalidraw_key: interview.excalidraw_key ?? input.excalidraw_key,
+          updated_at: input.updated_at,
+        })
+
+        interviewsById.set(interview.id, structuredClone(provisionedInterview))
+
+        return {
+          outcome: 'provisioned',
+          interview: structuredClone(provisionedInterview),
+        }
       },
       async cancelInterview(
         input: CancelInterviewRecordInput,

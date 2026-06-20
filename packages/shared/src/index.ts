@@ -57,6 +57,8 @@ export {
   interviewTierSchema,
   interviewTypeSchema,
   maxInterviewListLimit,
+  provisionInterviewParamsSchema,
+  provisionInterviewResponseSchema,
 } from './interviews'
 export type {
   CancelInterviewParams,
@@ -72,6 +74,8 @@ export type {
   InterviewMode,
   InterviewTier,
   InterviewType,
+  ProvisionInterviewParams,
+  ProvisionInterviewResponse,
 } from './interviews'
 
 export {

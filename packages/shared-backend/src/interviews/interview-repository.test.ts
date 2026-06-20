@@ -293,6 +293,56 @@ describe('InterviewRepository', function interviewRepositorySuite() {
     expect(ids).toEqual([earlierUtc.id, laterWithOffset.id])
   })
 
+  it('in-memory provisionInterview persists missing credentials and reuses them on retry', async function run() {
+    const participantId = '11111111-1111-4111-8111-111111111111'
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const repository = new InterviewRepository(
+      createInMemoryInterviewDataSource(
+        [{ userId: participantId, credits: 0, freeAiInterviews: 0 }],
+        [
+          createInterviewRecord({
+            id: interviewId,
+            scheduler_id: participantId,
+          }),
+        ],
+      ),
+    )
+
+    const firstResult = await repository.provisionInterview({
+      interview_id: interviewId,
+      participant_user_id: participantId,
+      realtime_session_id: 'rt_first',
+      excalidraw_room_id: 'room_first',
+      excalidraw_key: 'key_first',
+      updated_at: '2026-05-22T09:00:00.000Z',
+    })
+    const secondResult = await repository.provisionInterview({
+      interview_id: interviewId,
+      participant_user_id: participantId,
+      realtime_session_id: 'rt_second',
+      excalidraw_room_id: 'room_second',
+      excalidraw_key: 'key_second',
+      updated_at: '2026-05-22T09:05:00.000Z',
+    })
+
+    expect(firstResult).toMatchObject({
+      outcome: 'provisioned',
+      interview: {
+        realtime_session_id: 'rt_first',
+        excalidraw_room_id: 'room_first',
+        excalidraw_key: 'key_first',
+      },
+    })
+    expect(secondResult).toMatchObject({
+      outcome: 'already_provisioned',
+      interview: {
+        realtime_session_id: 'rt_first',
+        excalidraw_room_id: 'room_first',
+        excalidraw_key: 'key_first',
+      },
+    })
+  })
+
   describe('SQL path', function sqlPathSuite() {
     const optionalColumns = [
       'realtime_session_id',
@@ -1340,5 +1390,114 @@ describe('InterviewRepository', function interviewRepositorySuite() {
       expect(result.outcome).toBe('not_found')
       expect(mockPersistOutboxEvent).not.toHaveBeenCalled()
     })
+
+    it('provisionInterview uses row locking, participant scoping, COALESCE persistence, and commits', async function run() {
+      const mockQueryExecutor = createMockQueryExecutor({
+        'FOR UPDATE': () => ({
+          rows: [
+            createInterviewRecord({
+              id: '11111111-1111-4111-8111-111111111111',
+              scheduler_id: '22222222-2222-4222-8222-222222222222',
+            }),
+          ],
+          rowCount: 1,
+        }),
+        'UPDATE interviews': (query) => ({
+          rows: [
+            createInterviewRecord({
+              id: '11111111-1111-4111-8111-111111111111',
+              scheduler_id: '22222222-2222-4222-8222-222222222222',
+              realtime_session_id: String(query.values[2]),
+              excalidraw_room_id: String(query.values[3]),
+              excalidraw_key: String(query.values[4]),
+              updated_at: String(query.values[5]),
+            }),
+          ],
+          rowCount: 1,
+        }),
+      })
+      const repository = new InterviewRepository({ queryExecutor: mockQueryExecutor })
+
+      const result = await repository.provisionInterview({
+        interview_id: '11111111-1111-4111-8111-111111111111',
+        participant_user_id: '22222222-2222-4222-8222-222222222222',
+        realtime_session_id: 'rt_first',
+        excalidraw_room_id: 'room_first',
+        excalidraw_key: 'key_first',
+        updated_at: '2026-05-22T09:00:00.000Z',
+      })
+
+      const rowLockQuery = mockQueryExecutor.queries.find((query) =>
+        query.text.includes('FOR UPDATE'),
+      )
+      const updateQuery = mockQueryExecutor.queries.find((query) =>
+        query.text.includes('UPDATE interviews'),
+      )
+      expect(result.outcome).toBe('provisioned')
+      expect(rowLockQuery?.text).toContain('scheduler_id = $2 OR interviewer_id = $2')
+      expect(updateQuery?.text).toContain('COALESCE(realtime_session_id')
+      expect(updateQuery?.text).toContain('COALESCE(excalidraw_room_id')
+      expect(updateQuery?.text).toContain('COALESCE(excalidraw_key')
+      expect(mockQueryExecutor.queries.map((query) => query.text.trim().toUpperCase())).toEqual(
+        expect.arrayContaining(['BEGIN;', 'COMMIT;']),
+      )
+    })
+
+    it('provisionInterview rolls back when SQL update fails', async function run() {
+      const mockQueryExecutor = createMockQueryExecutor({
+        'FOR UPDATE': () => ({
+          rows: [
+            createInterviewRecord({
+              id: '11111111-1111-4111-8111-111111111111',
+              scheduler_id: '22222222-2222-4222-8222-222222222222',
+            }),
+          ],
+          rowCount: 1,
+        }),
+        'UPDATE interviews': () => {
+          throw new Error('update failed')
+        },
+      })
+      const repository = new InterviewRepository({ queryExecutor: mockQueryExecutor })
+
+      await expect(
+        repository.provisionInterview({
+          interview_id: '11111111-1111-4111-8111-111111111111',
+          participant_user_id: '22222222-2222-4222-8222-222222222222',
+          realtime_session_id: 'rt_first',
+          excalidraw_room_id: 'room_first',
+          excalidraw_key: 'key_first',
+          updated_at: '2026-05-22T09:00:00.000Z',
+        }),
+      ).rejects.toThrow('update failed')
+
+      expect(mockQueryExecutor.queries.map((query) => query.text.trim().toUpperCase())).toContain(
+        'ROLLBACK;',
+      )
+    })
   })
 })
+
+function createInterviewRecord(overrides: Partial<Interview> = {}): Interview {
+  return {
+    id: '11111111-1111-4111-8111-111111111111',
+    scheduler_id: '22222222-2222-4222-8222-222222222222',
+    scheduler_alias: 'Scheduler',
+    interviewer_id: null,
+    interviewer_alias: 'Interviewer',
+    type: 'system_design',
+    mode: 'ai_led',
+    tier: 'standard',
+    status: 'scheduled',
+    scheduled_at: '2026-05-22T10:00:00.000Z',
+    realtime_session_id: null,
+    excalidraw_room_id: null,
+    excalidraw_key: null,
+    recording_url: null,
+    screenshot_urls: null,
+    feedback: null,
+    created_at: '2026-05-22T09:00:00.000Z',
+    updated_at: '2026-05-22T09:00:00.000Z',
+    ...overrides,
+  }
+}
