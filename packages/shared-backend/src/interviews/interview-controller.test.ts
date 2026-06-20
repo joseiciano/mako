@@ -789,6 +789,80 @@ describe('InterviewController', function interviewControllerSuite() {
     expect(response.status).toBe(409)
     expect(publishedEvents).toHaveLength(0)
   })
+
+  it('provisions interview credentials through the documented join-time route', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+    })
+
+    const response = await app.request(`/api/interviews/${interviewId}/provision`, {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      mode: 'ai_led',
+      realtime: {
+        realtime_session_id: 'realtime_22222222-2222-4222-8222-222222222222',
+        token: 'realtime_token_22222222-2222-4222-8222-222222222222',
+      },
+      excalidraw: {
+        excalidraw_room_id: 'excalidraw_room_22222222-2222-4222-8222-222222222222',
+        excalidraw_key: 'excalidraw_key_22222222-2222-4222-8222-222222222222',
+      },
+    })
+  })
+
+  it('returns 401 for provision requests without authentication', async function run() {
+    const app = createInterviewApp({
+      session: null,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/provision',
+      { method: 'POST' },
+    )
+
+    expect(response.status).toBe(401)
+  })
+
+  it('returns 404 for provision requests by non-participants', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: '99999999-9999-4999-8999-999999999999',
+        }),
+      ],
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/provision',
+      { method: 'POST' },
+    )
+
+    expect(response.status).toBe(404)
+  })
 })
 
 function createInterviewApp(options: {

@@ -6,6 +6,8 @@ import {
   interviewDetailResponseSchema,
   interviewListQuerySchema,
   interviewListResponseSchema,
+  provisionInterviewParamsSchema,
+  provisionInterviewResponseSchema,
 } from '@mako/shared'
 import type { Context, Hono } from 'hono'
 import { InterviewService } from './interview-service'
@@ -80,6 +82,25 @@ export function registerInterviewController<Bindings extends ControllerBindings>
       })
 
       return c.json(interviewDetailResponseSchema.parse(interview), 200)
+    } catch (error) {
+      return toErrorResponse(c, error)
+    }
+  })
+
+  app.post('/api/interviews/:id/provision', async function postProvisionInterviewHandler(c) {
+    const interviewService = options.createService({ bindings: c.env })
+    const session = await options.resolveSession(c)
+
+    try {
+      const parsedParams = provisionInterviewParamsSchema.parse({
+        id: c.req.param('id'),
+      })
+      const provisionResponse = await interviewService.provisionInterview(
+        session,
+        parsedParams,
+      )
+
+      return c.json(provisionInterviewResponseSchema.parse(provisionResponse), 200)
     } catch (error) {
       return toErrorResponse(c, error)
     }

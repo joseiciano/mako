@@ -11,6 +11,7 @@ import {
   interviewTierSchema,
   interviewTypeSchema,
   maxInterviewListLimit,
+  provisionInterviewResponseSchema,
   type CancelInterviewResponse,
   type CreateInterviewResponse,
   type Interview,
@@ -18,6 +19,7 @@ import {
   type InterviewDetailResponse,
   type InterviewListItem,
   type InterviewListResponse,
+  type ProvisionInterviewResponse,
 } from '@mako/shared'
 import { z } from 'zod'
 
@@ -164,6 +166,32 @@ export type CancelInterviewRecordResult =
       outcome: 'not_found'
     }
 
+export const provisionInterviewRecordInputSchema = z.object({
+  interview_id: z.string().uuid(),
+  participant_user_id: authenticatedInterviewUserIdSchema,
+  realtime_session_id: z.string().min(1),
+  excalidraw_room_id: z.string().min(1),
+  excalidraw_key: z.string().min(1),
+  updated_at: z.string().datetime({ offset: true }),
+})
+
+export type ProvisionInterviewRecordInput = z.infer<
+  typeof provisionInterviewRecordInputSchema
+>
+
+export type ProvisionInterviewRecordResult =
+  | {
+      outcome: 'provisioned' | 'already_provisioned'
+      interview: Interview
+    }
+  | {
+      outcome: 'invalid_status'
+      interview: Interview
+    }
+  | {
+      outcome: 'not_found'
+    }
+
 export const createInterviewRecordInputSchema = z.object({
   id: z.string().uuid(),
   scheduler_id: z.string().uuid(),
@@ -229,6 +257,33 @@ export function toInterviewDetailResponse(
 export function toCancelInterviewResponse(): CancelInterviewResponse {
   return cancelInterviewResponseSchema.parse({
     success: true,
+  })
+}
+
+export function toProvisionInterviewResponse(
+  interviewInput: unknown,
+  token: string,
+): ProvisionInterviewResponse {
+  const interview = parseInterview(interviewInput)
+
+  if (
+    !interview.realtime_session_id ||
+    !interview.excalidraw_room_id ||
+    !interview.excalidraw_key
+  ) {
+    throw new InterviewBusinessRuleError('Interview provisioning credentials are incomplete.')
+  }
+
+  return provisionInterviewResponseSchema.parse({
+    mode: interview.mode,
+    realtime: {
+      realtime_session_id: interview.realtime_session_id,
+      token,
+    },
+    excalidraw: {
+      excalidraw_room_id: interview.excalidraw_room_id,
+      excalidraw_key: interview.excalidraw_key,
+    },
   })
 }
 

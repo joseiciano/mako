@@ -12,6 +12,7 @@ import {
   parseInterview,
   parseInterviewDetail,
   parseInterviewListItem,
+  provisionInterviewRecordInputSchema,
   type CancelInterviewRecordInput,
   type CancelInterviewRecordResult,
   type CreateInterviewRecordInput,
@@ -19,6 +20,8 @@ import {
   type InterviewAccountPolicy,
   type ListParticipantInterviewsInput,
   type ParsedListParticipantInterviewsInput,
+  type ProvisionInterviewRecordInput,
+  type ProvisionInterviewRecordResult,
 } from './types'
 
 
@@ -35,6 +38,9 @@ export interface InterviewRepositoryDataSource {
   cancelInterview?(
     input: CancelInterviewRecordInput,
   ): Promise<CancelInterviewRecordResult>
+  provisionInterview?(
+    input: ProvisionInterviewRecordInput,
+  ): Promise<ProvisionInterviewRecordResult>
 }
 
 export type InMemoryInterviewAccountRecord = {
@@ -428,6 +434,138 @@ export class InterviewRepository {
     }
   }
 
+  async provisionInterview(
+    input: ProvisionInterviewRecordInput,
+  ): Promise<ProvisionInterviewRecordResult> {
+    const parsedInput = provisionInterviewRecordInputSchema.parse(input)
+    const dataSource = this.dependencies.dataSource
+
+    if (typeof dataSource?.provisionInterview === 'function') {
+      return dataSource.provisionInterview(parsedInput)
+    }
+
+    const queryExecutor = this.getQueryExecutor()
+    await queryExecutor.query(createSqlQuery('BEGIN;'))
+
+    try {
+      const lookupResult = await queryExecutor.query<Interview>(
+        createSqlQuery(
+          `
+            SELECT
+              id,
+              scheduler_id,
+              scheduler_alias,
+              interviewer_id,
+              interviewer_alias,
+              type,
+              mode,
+              tier,
+              status,
+              scheduled_at,
+              realtime_session_id,
+              excalidraw_room_id,
+              excalidraw_key,
+              recording_url,
+              screenshot_urls,
+              feedback,
+              created_at,
+              updated_at
+            FROM interviews
+            WHERE id = $1
+              AND (scheduler_id = $2 OR interviewer_id = $2)
+            LIMIT 1
+            FOR UPDATE;
+          `,
+          [parsedInput.interview_id, parsedInput.participant_user_id],
+        ),
+      )
+
+      const [existingInterview] = lookupResult.rows
+
+      if (!existingInterview) {
+        await queryExecutor.query(createSqlQuery('COMMIT;'))
+        return { outcome: 'not_found' }
+      }
+
+      const parsedInterview = parseInterview(existingInterview)
+
+      if (!isProvisionableInterviewStatus(parsedInterview.status)) {
+        await queryExecutor.query(createSqlQuery('COMMIT;'))
+        return {
+          outcome: 'invalid_status',
+          interview: parsedInterview,
+        }
+      }
+
+      const alreadyProvisioned = hasProvisioningCredentials(parsedInterview)
+
+      if (alreadyProvisioned) {
+        await queryExecutor.query(createSqlQuery('COMMIT;'))
+        return {
+          outcome: 'already_provisioned',
+          interview: parsedInterview,
+        }
+      }
+
+      const updateResult = await queryExecutor.query<Interview>(
+        createSqlQuery(
+          `
+            UPDATE interviews
+            SET realtime_session_id = COALESCE(realtime_session_id, $3),
+                excalidraw_room_id = COALESCE(excalidraw_room_id, $4),
+                excalidraw_key = COALESCE(excalidraw_key, $5),
+                updated_at = $6
+            WHERE id = $1
+              AND (scheduler_id = $2 OR interviewer_id = $2)
+            RETURNING
+              id,
+              scheduler_id,
+              scheduler_alias,
+              interviewer_id,
+              interviewer_alias,
+              type,
+              mode,
+              tier,
+              status,
+              scheduled_at,
+              realtime_session_id,
+              excalidraw_room_id,
+              excalidraw_key,
+              recording_url,
+              screenshot_urls,
+              feedback,
+              created_at,
+              updated_at;
+          `,
+          [
+            parsedInput.interview_id,
+            parsedInput.participant_user_id,
+            parsedInput.realtime_session_id,
+            parsedInput.excalidraw_room_id,
+            parsedInput.excalidraw_key,
+            parsedInput.updated_at,
+          ],
+        ),
+      )
+
+      const [provisionedInterview] = updateResult.rows
+
+      if (!provisionedInterview) {
+        throw new Error('Failed to provision interview record.')
+      }
+
+      await queryExecutor.query(createSqlQuery('COMMIT;'))
+
+      return {
+        outcome: 'provisioned',
+        interview: parseInterview(provisionedInterview),
+      }
+    } catch (error) {
+      await rollbackTransactionSafely(queryExecutor)
+      throw error
+    }
+  }
+
   private getQueryExecutor(): SqlQueryExecutor {
     const queryExecutor = this.dependencies.queryExecutor
 
@@ -562,6 +700,51 @@ export function createInMemoryInterviewDataSource(
 
       return structuredClone(detail)
     },
+    async provisionInterview(
+      input: ProvisionInterviewRecordInput,
+    ): Promise<ProvisionInterviewRecordResult> {
+      const parsedInput = provisionInterviewRecordInputSchema.parse(input)
+      const existingInterview = interviewsById.get(parsedInput.interview_id)
+
+      if (
+        !existingInterview ||
+        (existingInterview.scheduler_id !== parsedInput.participant_user_id &&
+          existingInterview.interviewer_id !== parsedInput.participant_user_id)
+      ) {
+        return { outcome: 'not_found' }
+      }
+
+      if (!isProvisionableInterviewStatus(existingInterview.status)) {
+        return {
+          outcome: 'invalid_status',
+          interview: structuredClone(existingInterview),
+        }
+      }
+
+      if (hasProvisioningCredentials(existingInterview)) {
+        return {
+          outcome: 'already_provisioned',
+          interview: structuredClone(existingInterview),
+        }
+      }
+
+      const provisionedInterview = parseInterview({
+        ...existingInterview,
+        realtime_session_id:
+          existingInterview.realtime_session_id ?? parsedInput.realtime_session_id,
+        excalidraw_room_id:
+          existingInterview.excalidraw_room_id ?? parsedInput.excalidraw_room_id,
+        excalidraw_key: existingInterview.excalidraw_key ?? parsedInput.excalidraw_key,
+        updated_at: parsedInput.updated_at,
+      })
+
+      interviewsById.set(provisionedInterview.id, structuredClone(provisionedInterview))
+
+      return {
+        outcome: 'provisioned',
+        interview: structuredClone(provisionedInterview),
+      }
+    },
     async cancelInterview(
       input: CancelInterviewRecordInput,
     ): Promise<CancelInterviewRecordResult> {
@@ -659,6 +842,16 @@ function compareInterviewListOrder(left: Interview, right: Interview): number {
   }
 
   return 0
+}
+
+function hasProvisioningCredentials(interview: Interview): boolean {
+  return Boolean(
+    interview.realtime_session_id && interview.excalidraw_room_id && interview.excalidraw_key,
+  )
+}
+
+function isProvisionableInterviewStatus(status: Interview['status']): boolean {
+  return status === 'scheduled' || status === 'ongoing'
 }
 
 function buildListParticipantInterviewsQuery(

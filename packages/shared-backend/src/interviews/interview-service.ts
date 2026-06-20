@@ -7,6 +7,8 @@ import type {
   InterviewDetailResponse,
   InterviewListQuery,
   InterviewListResponse,
+  ProvisionInterviewParams,
+  ProvisionInterviewResponse,
 } from '@mako/shared'
 import { buildInterviewAliases } from '../interview'
 import { InterviewRepository } from './interview-repository'
@@ -32,6 +34,7 @@ import {
   toCreateInterviewResponse,
   toInterviewDetailResponse,
   toInterviewListResponse,
+  toProvisionInterviewResponse,
   type InterviewPolicyConfig,
   type InterviewSession,
   type ResolvedInterviewCreatePolicy,
@@ -145,6 +148,43 @@ export class InterviewService {
     }
 
     return toInterviewDetailResponse(interview)
+  }
+
+  async provisionInterview(
+    session: InterviewSession | null,
+    input: ProvisionInterviewParams,
+  ): Promise<ProvisionInterviewResponse> {
+    const userSession = this.requireSession(session)
+    const participantUserId = authenticatedInterviewUserIdSchema.parse(userSession.userId)
+
+    const candidateId = this.createId()
+    const provisionResult = await this.interviewRepository.provisionInterview({
+      interview_id: input.id,
+      participant_user_id: participantUserId,
+      realtime_session_id: `realtime_${candidateId}`,
+      excalidraw_room_id: `excalidraw_room_${candidateId}`,
+      excalidraw_key: `excalidraw_key_${candidateId}`,
+      updated_at: this.now(),
+    })
+
+    switch (provisionResult.outcome) {
+      case 'provisioned':
+      case 'already_provisioned':
+        return toProvisionInterviewResponse(
+          provisionResult.interview,
+          `realtime_token_${this.createId()}`,
+        )
+      case 'invalid_status':
+        throw new InterviewConflictError(
+          'Only scheduled or ongoing interviews can be provisioned.',
+        )
+      case 'not_found':
+        throw new InterviewNotFoundError(
+          'Interview was not found for the active participant.',
+        )
+    }
+
+    throw new Error('Unexpected interview provisioning outcome.')
   }
 
   async cancelInterview(
