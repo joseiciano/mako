@@ -40,10 +40,14 @@ describe('sessionReducer', function () {
       ...initialSessionState,
       status: 'error' as const,
       errorMessage: 'previous error',
+      whiteboardStatus: 'failed' as const,
+      whiteboardErrorMessage: 'previous whiteboard error',
     }
     const next = sessionReducer(state, { type: 'JOIN' })
     expect(next.status).toBe('joining')
     expect(next.errorMessage).toBeNull()
+    expect(next.whiteboardStatus).toBe('idle')
+    expect(next.whiteboardErrorMessage).toBeNull()
   })
 
   it('JOIN is idempotent when already joining', function () {
@@ -64,6 +68,8 @@ describe('sessionReducer', function () {
     expect(next.status).toBe('provisioned')
     expect('provisionData' in next).toBe(false)
     expect(next.errorMessage).toBeNull()
+    expect(next.whiteboardStatus).toBe('idle')
+    expect(next.whiteboardErrorMessage).toBeNull()
   })
 
   it('PROVISION_ERROR stores error message and transitions to error', function () {
@@ -77,6 +83,36 @@ describe('sessionReducer', function () {
     })
     expect(next.status).toBe('error')
     expect(next.errorMessage).toBe('Something went wrong')
+    expect(next.whiteboardStatus).toBe('idle')
+    expect(next.whiteboardErrorMessage).toBeNull()
+  })
+
+  it('tracks whiteboard reconnect lifecycle only after provision', function () {
+    const provisioned = {
+      ...initialSessionState,
+      status: 'provisioned' as const,
+    }
+
+    const connecting = sessionReducer(provisioned, { type: 'WHITEBOARD_CONNECTING' })
+    expect(connecting.whiteboardStatus).toBe('connecting')
+
+    const connected = sessionReducer(connecting, { type: 'WHITEBOARD_CONNECTED' })
+    expect(connected.whiteboardStatus).toBe('connected')
+
+    const reconnecting = sessionReducer(connected, { type: 'WHITEBOARD_RECONNECTING' })
+    expect(reconnecting.whiteboardStatus).toBe('reconnecting')
+
+    const failed = sessionReducer(reconnecting, {
+      type: 'WHITEBOARD_FAILED',
+      payload: 'Whiteboard sync could not recover.',
+    })
+    expect(failed.whiteboardStatus).toBe('failed')
+    expect(failed.whiteboardErrorMessage).toBe('Whiteboard sync could not recover.')
+  })
+
+  it('ignores whiteboard lifecycle before provision', function () {
+    const next = sessionReducer(initialSessionState, { type: 'WHITEBOARD_CONNECTING' })
+    expect(next).toBe(initialSessionState)
   })
 
   it('RESET returns to initial state', function () {

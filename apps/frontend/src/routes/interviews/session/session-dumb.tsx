@@ -1,4 +1,9 @@
 import type { InterviewDetail } from '@mako/shared'
+import { WhiteboardSmart } from '#/components/interviews/whiteboard'
+import type {
+  ProvisionedWhiteboardConfig,
+  WhiteboardConnectionStatus,
+} from '#/components/interviews/whiteboard'
 import type { SessionStatus } from './session-flow'
 import {
   formatInterviewType,
@@ -11,7 +16,15 @@ export type SessionDumbProps = {
   isLoading: boolean
   status: SessionStatus
   errorMessage: string | null
+  whiteboardProvision: ProvisionedWhiteboardConfig | null
+  whiteboardStatus: WhiteboardConnectionStatus
+  whiteboardErrorMessage: string | null
   onJoin: () => void
+  onRetryWhiteboard: () => void
+  onWhiteboardConnecting: () => void
+  onWhiteboardConnected: () => void
+  onWhiteboardReconnecting: () => void
+  onWhiteboardFailed: (message: string) => void
   onBackToInterviews: () => void
 }
 
@@ -78,17 +91,16 @@ function renderContent(props: SessionDumbProps) {
           <InterviewMetadata interview={props.interview} />
         </section>
 
-        <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
-          <h2 className="text-lg font-semibold text-white">Whiteboard</h2>
-          <p className="mt-2 text-sm text-slate-300">
-            Excalidraw whiteboard will load here.
-          </p>
-          <div className="mt-4 rounded-lg border border-dashed border-slate-700 bg-slate-950/50 p-12 text-center">
-            <p className="text-sm text-slate-500">
-              Whiteboard integration (Story 3.4+)
-            </p>
-          </div>
-        </section>
+        <WhiteboardSmart
+          connectionStatus={props.whiteboardStatus}
+          errorMessage={props.whiteboardErrorMessage}
+          onConnected={props.onWhiteboardConnected}
+          onConnecting={props.onWhiteboardConnecting}
+          onFailed={props.onWhiteboardFailed}
+          onReconnecting={props.onWhiteboardReconnecting}
+          onRetryJoin={props.onRetryWhiteboard}
+          provisionedWhiteboard={props.whiteboardProvision}
+        />
       </div>
     )
   }

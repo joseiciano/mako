@@ -17,8 +17,25 @@ vi.mock('@tanstack/react-router', function () {
   }
 })
 
+vi.mock('#/components/interviews/whiteboard', function () {
+  return {
+    WhiteboardSmart: vi.fn(function WhiteboardSmart(props: any) {
+      return (
+        <section data-testid="whiteboard-smart">
+          <h2>Whiteboard</h2>
+          <p>Room: {props.provisionedWhiteboard?.excalidraw.excalidraw_room_id ?? 'none'}</p>
+          <button onClick={props.onRetryJoin} type="button">
+            Retry join
+          </button>
+        </section>
+      )
+    }),
+  }
+})
+
 import { useInterviewDetail, useProvisionInterview } from '#/hooks/use-interviews'
 import { useNavigate } from '@tanstack/react-router'
+import { WhiteboardSmart } from '#/components/interviews/whiteboard'
 
 function makeInterview(overrides?: Partial<InterviewDetail>): InterviewDetail {
   return {
@@ -189,5 +206,55 @@ describe('SessionSmart', function () {
     await waitFor(function () {
       expect(screen.getByText('Whiteboard')).toBeInTheDocument()
     })
+    expect(WhiteboardSmart).toHaveBeenCalled()
+    expect(vi.mocked(WhiteboardSmart).mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({
+        provisionedWhiteboard: {
+          mode: 'ai_led',
+          realtime: { realtime_session_id: 'rt-1', token: 'token-1' },
+          excalidraw: { excalidraw_room_id: 'room-1', excalidraw_key: 'key-1' },
+        },
+      }),
+    )
+    expect(screen.queryByText('key-1')).not.toBeInTheDocument()
+    expect(screen.queryByText('token-1')).not.toBeInTheDocument()
+  })
+
+  it('does not reprovision during transient whiteboard reconnecting state', async function () {
+    const user = userEvent.setup()
+    vi.mocked(useInterviewDetail).mockReturnValue({
+      data: makeInterview(),
+      isPending: false,
+      isError: false,
+      error: null,
+    } as any)
+
+    let successCallback: ((data: any) => void) | undefined
+    vi.mocked(useProvisionInterview).mockReturnValue({
+      mutate: vi.fn(function mockMutate(_params: any, options: any) {
+        successCallback = options.onSuccess
+      }),
+      isPending: false,
+    } as any)
+
+    render(<SessionSmart interviewId="int-1" />)
+    await user.click(screen.getByRole('button', { name: /join session/i }))
+    successCallback?.({
+      mode: 'ai_led',
+      realtime: { realtime_session_id: 'rt-1', token: 'token-1' },
+      excalidraw: { excalidraw_room_id: 'room-1', excalidraw_key: 'key-1' },
+    })
+
+    await waitFor(function () {
+      expect(screen.getByTestId('whiteboard-smart')).toBeInTheDocument()
+    })
+
+    const firstCallCount = vi.mocked(useProvisionInterview().mutate).mock.calls.length
+    const whiteboardProps = vi.mocked(WhiteboardSmart).mock.calls.at(-1)?.[0]
+    act(function reconnecting() {
+      whiteboardProps?.onReconnecting()
+    })
+
+    expect(vi.mocked(useProvisionInterview().mutate).mock.calls.length).toBe(firstCallCount)
   })
 })

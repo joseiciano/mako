@@ -4,6 +4,15 @@ import userEvent from '@testing-library/user-event'
 import { SessionDumb, type SessionDumbProps } from './session-dumb'
 import type { InterviewDetail } from '@mako/shared'
 
+vi.mock('#/components/interviews/whiteboard', function () {
+  return {
+    WhiteboardSmart: vi.fn(function MockWhiteboardSmart() {
+      return <div data-testid="whiteboard-smart-mock" />
+    }),
+    mapProvisionToWhiteboardConfig: vi.fn(),
+  }
+})
+
 function makeInterview(overrides?: Partial<InterviewDetail>): InterviewDetail {
   return {
     id: 'int-1',
@@ -31,7 +40,15 @@ function makeProps(overrides?: Partial<SessionDumbProps>): SessionDumbProps {
     isLoading: false,
     status: 'idle',
     errorMessage: null,
+    whiteboardProvision: null,
+    whiteboardStatus: 'idle',
+    whiteboardErrorMessage: null,
     onJoin: vi.fn(),
+    onRetryWhiteboard: vi.fn(),
+    onWhiteboardConnecting: vi.fn(),
+    onWhiteboardConnected: vi.fn(),
+    onWhiteboardReconnecting: vi.fn(),
+    onWhiteboardFailed: vi.fn(),
     onBackToInterviews: vi.fn(),
     ...overrides,
   }
@@ -117,7 +134,35 @@ describe('SessionDumb', function () {
     expect(screen.getByText('Interview Details')).toBeInTheDocument()
     expect(screen.getByText('Behavioral')).toBeInTheDocument()
     expect(screen.getByText('Alice')).toBeInTheDocument()
-    expect(screen.getByText(/whiteboard integration/i)).toBeInTheDocument()
+  })
+
+  it('renders whiteboard smart when provisioned', function () {
+    render(
+      <SessionDumb
+        {...makeProps({
+          interview: makeInterview(),
+          status: 'provisioned',
+          whiteboardProvision: {
+            mode: 'peer_to_peer',
+            realtime: { realtime_session_id: 'rt-1', token: 'token-1' },
+            excalidraw: { excalidraw_room_id: 'room-1', excalidraw_key: 'key-1' },
+          },
+        })}
+      />,
+    )
+    expect(screen.getByTestId('whiteboard-smart-mock')).toBeInTheDocument()
+  })
+
+  it('does not render whiteboard when not provisioned', function () {
+    render(
+      <SessionDumb
+        {...makeProps({
+          interview: makeInterview(),
+          status: 'idle',
+        })}
+      />,
+    )
+    expect(screen.queryByTestId('whiteboard-smart-mock')).not.toBeInTheDocument()
   })
 
   it('calls onJoin when join button clicked', async function () {

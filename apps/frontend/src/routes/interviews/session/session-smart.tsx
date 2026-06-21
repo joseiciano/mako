@@ -1,4 +1,4 @@
-import { useReducer, useRef } from 'react'
+import { useCallback, useReducer, useRef } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useInterviewDetail, useProvisionInterview } from '#/hooks/use-interviews'
 import type { ProvisionInterviewResponse } from '@mako/shared'
@@ -32,6 +32,25 @@ export function SessionSmart({ interviewId }: SessionSmartProps) {
   function handleJoin() {
     if (isDispatchingRef.current || !canJoin(state, interviewQuery.data ?? null)) return
 
+    requestProvision()
+  }
+
+  function handleWhiteboardRetry() {
+    if (
+      isDispatchingRef.current ||
+      state.status !== 'provisioned' ||
+      state.whiteboardStatus !== 'failed' ||
+      !interviewQuery.data
+    ) {
+      return
+    }
+
+    dispatch({ type: 'WHITEBOARD_RECONNECTING' })
+  }
+
+  function requestProvision() {
+    if (isDispatchingRef.current) return
+
     isDispatchingRef.current = true
     dispatch({ type: 'JOIN' })
 
@@ -47,12 +66,28 @@ export function SessionSmart({ interviewId }: SessionSmartProps) {
           isDispatchingRef.current = false
           dispatch({
             type: 'PROVISION_ERROR',
-            payload: error.message,
+            payload: error.message.slice(0, 200),
           })
         },
       },
     )
   }
+
+  const handleWhiteboardConnecting = useCallback(function handleWhiteboardConnecting() {
+    dispatch({ type: 'WHITEBOARD_CONNECTING' })
+  }, [])
+
+  const handleWhiteboardConnected = useCallback(function handleWhiteboardConnected() {
+    dispatch({ type: 'WHITEBOARD_CONNECTED' })
+  }, [])
+
+  const handleWhiteboardReconnecting = useCallback(function handleWhiteboardReconnecting() {
+    dispatch({ type: 'WHITEBOARD_RECONNECTING' })
+  }, [])
+
+  const handleWhiteboardFailed = useCallback(function handleWhiteboardFailed(message: string) {
+    dispatch({ type: 'WHITEBOARD_FAILED', payload: message })
+  }, [])
 
   function handleBackToInterviews() {
     navigate({ to: '/interviews' })
@@ -64,7 +99,17 @@ export function SessionSmart({ interviewId }: SessionSmartProps) {
       isLoading={interviewQuery.isPending}
       status={state.status}
       errorMessage={errorMessage}
+      whiteboardProvision={
+        state.status === 'provisioned' ? provisionDataRef.current : null
+      }
+      whiteboardStatus={state.whiteboardStatus}
+      whiteboardErrorMessage={state.whiteboardErrorMessage}
       onJoin={handleJoin}
+      onRetryWhiteboard={handleWhiteboardRetry}
+      onWhiteboardConnecting={handleWhiteboardConnecting}
+      onWhiteboardConnected={handleWhiteboardConnected}
+      onWhiteboardReconnecting={handleWhiteboardReconnecting}
+      onWhiteboardFailed={handleWhiteboardFailed}
       onBackToInterviews={handleBackToInterviews}
     />
   )

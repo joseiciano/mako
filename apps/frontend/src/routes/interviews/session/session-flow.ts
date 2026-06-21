@@ -1,22 +1,35 @@
 import type { InterviewDetail } from '@mako/shared'
 
 export type SessionStatus = 'idle' | 'joining' | 'provisioned' | 'error'
+export type WhiteboardConnectionStatus =
+  | 'idle'
+  | 'connecting'
+  | 'connected'
+  | 'reconnecting'
+  | 'failed'
 
 export type SessionState = {
   status: SessionStatus
   errorMessage: string | null
+  whiteboardStatus: WhiteboardConnectionStatus
+  whiteboardErrorMessage: string | null
 }
 
 export const initialSessionState: SessionState = {
   status: 'idle',
   errorMessage: null,
+  whiteboardStatus: 'idle',
+  whiteboardErrorMessage: null,
 }
 
 export type SessionAction =
   | { type: 'JOIN' }
   | { type: 'PROVISION_SUCCESS' }
   | { type: 'PROVISION_ERROR'; payload: string }
-  // TODO: Use for whiteboard/session teardown flow in Story 3.4.
+  | { type: 'WHITEBOARD_CONNECTING' }
+  | { type: 'WHITEBOARD_CONNECTED' }
+  | { type: 'WHITEBOARD_RECONNECTING' }
+  | { type: 'WHITEBOARD_FAILED'; payload: string }
   | { type: 'RESET' }
 
 export function sessionReducer(
@@ -26,7 +39,13 @@ export function sessionReducer(
   switch (action.type) {
     case 'JOIN': {
       if (state.status === 'joining') return state
-      return { ...state, status: 'joining', errorMessage: null }
+      return {
+        ...state,
+        status: 'joining',
+        errorMessage: null,
+        whiteboardStatus: 'idle',
+        whiteboardErrorMessage: null,
+      }
     }
 
     case 'PROVISION_SUCCESS': {
@@ -34,6 +53,8 @@ export function sessionReducer(
         ...state,
         status: 'provisioned',
         errorMessage: null,
+        whiteboardStatus: 'idle',
+        whiteboardErrorMessage: null,
       }
     }
 
@@ -42,6 +63,32 @@ export function sessionReducer(
         ...state,
         status: 'error',
         errorMessage: action.payload,
+        whiteboardStatus: 'idle',
+        whiteboardErrorMessage: null,
+      }
+    }
+
+    case 'WHITEBOARD_CONNECTING': {
+      if (state.status !== 'provisioned') return state
+      return { ...state, whiteboardStatus: 'connecting', whiteboardErrorMessage: null }
+    }
+
+    case 'WHITEBOARD_CONNECTED': {
+      if (state.status !== 'provisioned') return state
+      return { ...state, whiteboardStatus: 'connected', whiteboardErrorMessage: null }
+    }
+
+    case 'WHITEBOARD_RECONNECTING': {
+      if (state.status !== 'provisioned') return state
+      return { ...state, whiteboardStatus: 'reconnecting', whiteboardErrorMessage: null }
+    }
+
+    case 'WHITEBOARD_FAILED': {
+      if (state.status !== 'provisioned') return state
+      return {
+        ...state,
+        whiteboardStatus: 'failed',
+        whiteboardErrorMessage: action.payload,
       }
     }
 
