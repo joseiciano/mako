@@ -42,6 +42,7 @@ import {
 
 export type InterviewServiceLogger = {
   error(event: string, context: Record<string, unknown>): void | Promise<void>
+  info(event: string, context: Record<string, unknown>): void | Promise<void>
 }
 
 export class InterviewService {
@@ -88,7 +89,7 @@ export class InterviewService {
           this.notificationTransport,
         )
       } catch (error) {
-        await this.logSafely('interview.post_commit_dispatch_failure', {
+        await this.logSafely('error', 'interview.post_commit_dispatch_failure', {
           operation: 'create',
           interview_id: createdInterview.id,
           error_message: toErrorMessage(error),
@@ -98,7 +99,7 @@ export class InterviewService {
       try {
         await this.postCommitEventPublisher.publish(outboxEvent)
       } catch (error) {
-        await this.logSafely('interview.post_commit_publish_failure', {
+        await this.logSafely('error', 'interview.post_commit_publish_failure', {
           operation: 'create',
           interview_id: createdInterview.id,
           error_message: toErrorMessage(error),
@@ -157,6 +158,11 @@ export class InterviewService {
     const userSession = this.requireSession(session)
     const participantUserId = authenticatedInterviewUserIdSchema.parse(userSession.userId)
 
+    await this.logSafely('info', 'interview.provision_start', {
+      interview_id: input.id,
+      participant_user_id: participantUserId,
+    })
+
     const candidateId = this.createId()
     const provisionResult = await this.interviewRepository.provisionInterview({
       interview_id: input.id,
@@ -170,15 +176,27 @@ export class InterviewService {
     switch (provisionResult.outcome) {
       case 'provisioned':
       case 'already_provisioned':
+        await this.logSafely('info', 'interview.provision_success', {
+          interview_id: input.id,
+          outcome: provisionResult.outcome,
+        })
         return toProvisionInterviewResponse(
           provisionResult.interview,
           `realtime_token_${this.createId()}`,
         )
       case 'invalid_status':
+        await this.logSafely('info', 'interview.provision_failure', {
+          interview_id: input.id,
+          error_type: 'invalid_status',
+        })
         throw new InterviewConflictError(
           'Only scheduled or ongoing interviews can be provisioned.',
         )
       case 'not_found':
+        await this.logSafely('info', 'interview.provision_failure', {
+          interview_id: input.id,
+          error_type: 'not_found',
+        })
         throw new InterviewNotFoundError(
           'Interview was not found for the active participant.',
         )
@@ -226,7 +244,7 @@ export class InterviewService {
               this.notificationTransport,
             )
           } catch (error) {
-            await this.logSafely('interview.post_commit_dispatch_failure', {
+            await this.logSafely('error', 'interview.post_commit_dispatch_failure', {
               operation: 'cancel',
               interview_id: cancelResult.interview.id,
               error_message: toErrorMessage(error),
@@ -240,7 +258,7 @@ export class InterviewService {
               }),
             )
           } catch (error) {
-            await this.logSafely('interview.post_commit_publish_failure', {
+            await this.logSafely('error', 'interview.post_commit_publish_failure', {
               operation: 'cancel',
               interview_id: cancelResult.interview.id,
               error_message: toErrorMessage(error),
@@ -362,11 +380,12 @@ export class InterviewService {
   }
 
   private async logSafely(
+    level: 'error' | 'info',
     event: string,
     context: Record<string, unknown>,
   ): Promise<void> {
     try {
-      await this.logger.error(event, context)
+      await this.logger[level](event, context)
     } catch {
       // no-op: logging must never block interview operations
     }
@@ -409,6 +428,9 @@ function defaultNow(): string {
 
 const noOpInterviewServiceLogger: InterviewServiceLogger = {
   error: async function errorNoOp() {
+    return undefined
+  },
+  info: async function infoNoOp() {
     return undefined
   },
 }
