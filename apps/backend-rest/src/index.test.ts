@@ -239,6 +239,72 @@ describe('backend-rest smoke tests', function () {
     expect(firstBody.realtime.token).toMatch(/^realtime_token_/)
   })
 
+  it('provisions stable credentials through DB-backed route with idempotent retry', async function () {
+    const app = createApp()
+    const dbBinding = createDatabaseBinding({ credits: 1, freeAiInterviews: 0 })
+
+    const createResponse = await createInterview(app, {}, { DB: dbBinding })
+    expect(createResponse.status).toBe(201)
+    const createdInterview = (await createResponse.json()) as {
+      interview: { id: string }
+    }
+
+    const firstResponse = await provisionInterview(app, createdInterview.interview.id, { DB: dbBinding })
+    const secondResponse = await provisionInterview(app, createdInterview.interview.id, { DB: dbBinding })
+
+    expect(firstResponse.status).toBe(200)
+    expect(secondResponse.status).toBe(200)
+    const firstBody = (await firstResponse.json()) as {
+      realtime: { realtime_session_id: string }
+      excalidraw: { excalidraw_room_id: string; excalidraw_key: string }
+    }
+    const secondBody = (await secondResponse.json()) as typeof firstBody
+    expect(secondBody.realtime.realtime_session_id).toBe(firstBody.realtime.realtime_session_id)
+    expect(secondBody.excalidraw).toEqual(firstBody.excalidraw)
+  })
+
+  it('does not mutate interview status during DB-backed provisioning', async function () {
+    const app = createApp()
+    const dbBinding = createDatabaseBinding({ credits: 1, freeAiInterviews: 0 })
+
+    const createResponse = await createInterview(app, {}, { DB: dbBinding })
+    expect(createResponse.status).toBe(201)
+    const createdInterview = (await createResponse.json()) as {
+      interview: { id: string }
+    }
+
+    const provisionResponse = await provisionInterview(app, createdInterview.interview.id, { DB: dbBinding })
+    expect(provisionResponse.status).toBe(200)
+
+    const statusUpdateStatements = dbBinding.executedStatements.filter(function isStatusUpdate(stmt) {
+      return stmt.includes('UPDATE interviews') && stmt.includes('SET status')
+    })
+    expect(statusUpdateStatements).toHaveLength(0)
+  })
+
+  it('rejects provisioning for cancelled interviews with 409', async function () {
+    const app = createApp()
+
+    const createResponse = await createInterview(app)
+    expect(createResponse.status).toBe(201)
+    const createdInterview = (await createResponse.json()) as {
+      interview: { id: string }
+    }
+
+    const cancelResponse = await cancelInterview(app, createdInterview.interview.id)
+    expect(cancelResponse.status).toBe(200)
+
+    const provisionResponse = await provisionInterview(app, createdInterview.interview.id)
+    expect(provisionResponse.status).toBe(409)
+  })
+
+  it('returns 404 when provisioning a non-existent interview', async function () {
+    const app = createApp()
+
+    const response = await provisionInterview(app, '00000000-0000-4000-8000-000000000000')
+    expect(response.status).toBe(404)
+  })
+
   it('sorts demo interview list by instant across offsets and strips private fields', async function () {
     const app = createApp()
 
