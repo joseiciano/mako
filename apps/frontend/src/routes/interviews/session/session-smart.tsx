@@ -1,7 +1,11 @@
-import { useReducer, useRef } from 'react'
+import { useCallback, useEffect, useReducer, useRef } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useInterviewDetail, useProvisionInterview } from '#/hooks/use-interviews'
-import type { ProvisionInterviewResponse } from '@mako/shared'
+import type { WhiteboardProvisionHandle } from '#/components/interviews/whiteboard'
+import {
+  clearWhiteboardProvisionHandle,
+  createWhiteboardProvisionHandle,
+} from '#/components/interviews/whiteboard/whiteboard-provision-store'
 import { SessionDumb } from './session-dumb'
 import {
   initialSessionState,
@@ -13,24 +17,52 @@ type SessionSmartProps = {
   interviewId: string
 }
 
+const LOAD_INTERVIEW_ERROR_MESSAGE = 'Unable to load interview details. Please try again.'
+const JOIN_SESSION_ERROR_MESSAGE = 'Failed to join session. Please try again.'
+
 export function SessionSmart({ interviewId }: SessionSmartProps) {
   const navigate = useNavigate()
   const [state, dispatch] = useReducer(sessionReducer, initialSessionState)
   const isDispatchingRef = useRef(false)
-  const provisionDataRef = useRef<ProvisionInterviewResponse | null>(null)
+  const whiteboardProvisionHandleRef = useRef<WhiteboardProvisionHandle | null>(null)
+  const isMountedRef = useRef(true)
 
   const interviewQuery = useInterviewDetail(interviewId)
   const provisionMutation = useProvisionInterview()
 
-  // Sanitize query error: cap at 200 chars, only surface when join flow is idle
-  const rawQueryError =
-    interviewQuery.isError && state.status === 'idle'
-      ? interviewQuery.error.message.slice(0, 200)
-      : null
-  const errorMessage = state.errorMessage || rawQueryError
+  const queryErrorMessage =
+    interviewQuery.isError && state.status === 'idle' ? LOAD_INTERVIEW_ERROR_MESSAGE : null
+  const errorMessage = state.errorMessage || queryErrorMessage
+
+  useEffect(function clearWhiteboardProvisionOnUnmount() {
+    isMountedRef.current = true
+    return function cleanup() {
+      isMountedRef.current = false
+      clearWhiteboardProvisionHandle(whiteboardProvisionHandleRef.current)
+    }
+  }, [])
 
   function handleJoin() {
     if (isDispatchingRef.current || !canJoin(state, interviewQuery.data ?? null)) return
+
+    requestProvision()
+  }
+
+  const handleWhiteboardRetry = useCallback(function handleWhiteboardRetry() {
+    if (
+      isDispatchingRef.current ||
+      state.status !== 'provisioned' ||
+      state.whiteboardStatus !== 'failed' ||
+      !interviewQuery.data
+    ) {
+      return
+    }
+
+    dispatch({ type: 'WHITEBOARD_RECONNECTING' })
+  }, [state.status, state.whiteboardStatus, interviewQuery.data])
+
+  function requestProvision() {
+    if (isDispatchingRef.current) return
 
     isDispatchingRef.current = true
     dispatch({ type: 'JOIN' })
@@ -39,20 +71,38 @@ export function SessionSmart({ interviewId }: SessionSmartProps) {
       { id: interviewId },
       {
         onSuccess: function onProvisionSuccess(data) {
-          provisionDataRef.current = data
+          if (!isMountedRef.current) return
+          clearWhiteboardProvisionHandle(whiteboardProvisionHandleRef.current)
+          whiteboardProvisionHandleRef.current = createWhiteboardProvisionHandle(data)
           isDispatchingRef.current = false
           dispatch({ type: 'PROVISION_SUCCESS' })
         },
-        onError: function onProvisionError(error) {
+        onError: function onProvisionError() {
           isDispatchingRef.current = false
           dispatch({
             type: 'PROVISION_ERROR',
-            payload: error.message,
+            payload: JOIN_SESSION_ERROR_MESSAGE,
           })
         },
       },
     )
   }
+
+  const handleWhiteboardConnecting = useCallback(function handleWhiteboardConnecting() {
+    dispatch({ type: 'WHITEBOARD_CONNECTING' })
+  }, [])
+
+  const handleWhiteboardConnected = useCallback(function handleWhiteboardConnected() {
+    dispatch({ type: 'WHITEBOARD_CONNECTED' })
+  }, [])
+
+  const handleWhiteboardReconnecting = useCallback(function handleWhiteboardReconnecting() {
+    dispatch({ type: 'WHITEBOARD_RECONNECTING' })
+  }, [])
+
+  const handleWhiteboardFailed = useCallback(function handleWhiteboardFailed(message: string) {
+    dispatch({ type: 'WHITEBOARD_FAILED', payload: message })
+  }, [])
 
   function handleBackToInterviews() {
     navigate({ to: '/interviews' })
@@ -64,7 +114,17 @@ export function SessionSmart({ interviewId }: SessionSmartProps) {
       isLoading={interviewQuery.isPending}
       status={state.status}
       errorMessage={errorMessage}
+      whiteboardProvisionHandle={
+        state.status === 'provisioned' ? whiteboardProvisionHandleRef.current : null
+      }
+      whiteboardStatus={state.whiteboardStatus}
+      whiteboardErrorMessage={state.whiteboardErrorMessage}
       onJoin={handleJoin}
+      onRetryWhiteboard={handleWhiteboardRetry}
+      onWhiteboardConnecting={handleWhiteboardConnecting}
+      onWhiteboardConnected={handleWhiteboardConnected}
+      onWhiteboardReconnecting={handleWhiteboardReconnecting}
+      onWhiteboardFailed={handleWhiteboardFailed}
       onBackToInterviews={handleBackToInterviews}
     />
   )
