@@ -339,4 +339,86 @@ describe('SessionSmart', function () {
       }),
     )
   })
+
+  it('recovers from transient provision failure on retry', async function () {
+    const user = userEvent.setup()
+    vi.mocked(useInterviewDetail).mockReturnValue({
+      data: makeInterview(),
+      isPending: false,
+      isError: false,
+      error: null,
+    } as any)
+
+    let mutateCallCount = 0
+    let successCallback: ((data: any) => void) | undefined
+    let errorCallback: ((error: Error) => void) | undefined
+    vi.mocked(useProvisionInterview).mockReturnValue({
+      mutate: vi.fn(function mockMutate(_params: any, options: any) {
+        mutateCallCount += 1
+        if (mutateCallCount === 1) {
+          errorCallback = options.onError
+        } else {
+          successCallback = options.onSuccess
+        }
+      }),
+      isPending: false,
+    } as any)
+
+    render(<SessionSmart interviewId="int-1" />)
+
+    // First attempt fails
+    await user.click(screen.getByRole('button', { name: /join session/i }))
+    errorCallback?.(new Error('Network timeout'))
+
+    await waitFor(function () {
+      expect(screen.getByRole('alert')).toHaveTextContent('Failed to join session. Please try again.')
+    })
+
+    // Retry succeeds
+    await user.click(screen.getByRole('button', { name: /retry/i }))
+    successCallback?.({
+      mode: 'ai_led',
+      realtime: { realtime_session_id: 'rt-1', token: 'token-1' },
+      excalidraw: { excalidraw_room_id: 'room-1', excalidraw_key: 'key-1' },
+    })
+
+    await waitFor(function () {
+      expect(screen.getByTestId('whiteboard-smart')).toBeInTheDocument()
+    })
+  })
+
+  it('does not show join CTA after successful provisioning', async function () {
+    const user = userEvent.setup()
+    vi.mocked(useInterviewDetail).mockReturnValue({
+      data: makeInterview(),
+      isPending: false,
+      isError: false,
+      error: null,
+    } as any)
+
+    let successCallback: ((data: any) => void) | undefined
+    vi.mocked(useProvisionInterview).mockReturnValue({
+      mutate: vi.fn(function mockMutate(_params: any, options: any) {
+        successCallback = options.onSuccess
+      }),
+      isPending: false,
+    } as any)
+
+    render(<SessionSmart interviewId="int-1" />)
+
+    // Join and provision successfully
+    await user.click(screen.getByRole('button', { name: /join session/i }))
+    successCallback?.({
+      mode: 'ai_led',
+      realtime: { realtime_session_id: 'rt-1', token: 'token-1' },
+      excalidraw: { excalidraw_room_id: 'room-1', excalidraw_key: 'key-1' },
+    })
+
+    await waitFor(function () {
+      expect(screen.getByTestId('whiteboard-smart')).toBeInTheDocument()
+    })
+
+    // Join button should not be present after provisioning
+    expect(screen.queryByRole('button', { name: /join session/i })).not.toBeInTheDocument()
+  })
 })
