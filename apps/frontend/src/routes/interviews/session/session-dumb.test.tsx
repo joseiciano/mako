@@ -40,7 +40,7 @@ function makeProps(overrides?: Partial<SessionDumbProps>): SessionDumbProps {
     isLoading: false,
     status: 'idle',
     errorMessage: null,
-    whiteboardProvision: null,
+    whiteboardProvisionHandle: null,
     whiteboardStatus: 'idle',
     whiteboardErrorMessage: null,
     onJoin: vi.fn(),
@@ -142,11 +142,7 @@ describe('SessionDumb', function () {
         {...makeProps({
           interview: makeInterview(),
           status: 'provisioned',
-          whiteboardProvision: {
-            mode: 'peer_to_peer',
-            realtime: { realtime_session_id: 'rt-1', token: 'token-1' },
-            excalidraw: { excalidraw_room_id: 'room-1', excalidraw_key: 'key-1' },
-          },
+          whiteboardProvisionHandle: 'whiteboard-handle-1',
         })}
       />,
     )

@@ -1,12 +1,7 @@
 import type { InterviewDetail } from '@mako/shared'
+import type { WhiteboardConnectionStatus } from '#/components/interviews/whiteboard'
 
 export type SessionStatus = 'idle' | 'joining' | 'provisioned' | 'error'
-export type WhiteboardConnectionStatus =
-  | 'idle'
-  | 'connecting'
-  | 'connected'
-  | 'reconnecting'
-  | 'failed'
 
 export type SessionState = {
   status: SessionStatus

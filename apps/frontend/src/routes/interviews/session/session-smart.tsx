@@ -1,7 +1,11 @@
-import { useCallback, useReducer, useRef } from 'react'
+import { useCallback, useEffect, useReducer, useRef } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useInterviewDetail, useProvisionInterview } from '#/hooks/use-interviews'
-import type { ProvisionInterviewResponse } from '@mako/shared'
+import type { WhiteboardProvisionHandle } from '#/components/interviews/whiteboard'
+import {
+  clearWhiteboardProvisionHandle,
+  createWhiteboardProvisionHandle,
+} from '#/components/interviews/whiteboard/whiteboard-provision-store'
 import { SessionDumb } from './session-dumb'
 import {
   initialSessionState,
@@ -13,21 +17,30 @@ type SessionSmartProps = {
   interviewId: string
 }
 
+const LOAD_INTERVIEW_ERROR_MESSAGE = 'Unable to load interview details. Please try again.'
+const JOIN_SESSION_ERROR_MESSAGE = 'Failed to join session. Please try again.'
+
 export function SessionSmart({ interviewId }: SessionSmartProps) {
   const navigate = useNavigate()
   const [state, dispatch] = useReducer(sessionReducer, initialSessionState)
   const isDispatchingRef = useRef(false)
-  const provisionDataRef = useRef<ProvisionInterviewResponse | null>(null)
+  const whiteboardProvisionHandleRef = useRef<WhiteboardProvisionHandle | null>(null)
+  const isMountedRef = useRef(true)
 
   const interviewQuery = useInterviewDetail(interviewId)
   const provisionMutation = useProvisionInterview()
 
-  // Sanitize query error: cap at 200 chars, only surface when join flow is idle
-  const rawQueryError =
-    interviewQuery.isError && state.status === 'idle'
-      ? interviewQuery.error.message.slice(0, 200)
-      : null
-  const errorMessage = state.errorMessage || rawQueryError
+  const queryErrorMessage =
+    interviewQuery.isError && state.status === 'idle' ? LOAD_INTERVIEW_ERROR_MESSAGE : null
+  const errorMessage = state.errorMessage || queryErrorMessage
+
+  useEffect(function clearWhiteboardProvisionOnUnmount() {
+    isMountedRef.current = true
+    return function cleanup() {
+      isMountedRef.current = false
+      clearWhiteboardProvisionHandle(whiteboardProvisionHandleRef.current)
+    }
+  }, [])
 
   function handleJoin() {
     if (isDispatchingRef.current || !canJoin(state, interviewQuery.data ?? null)) return
@@ -35,7 +48,7 @@ export function SessionSmart({ interviewId }: SessionSmartProps) {
     requestProvision()
   }
 
-  function handleWhiteboardRetry() {
+  const handleWhiteboardRetry = useCallback(function handleWhiteboardRetry() {
     if (
       isDispatchingRef.current ||
       state.status !== 'provisioned' ||
@@ -46,7 +59,7 @@ export function SessionSmart({ interviewId }: SessionSmartProps) {
     }
 
     dispatch({ type: 'WHITEBOARD_RECONNECTING' })
-  }
+  }, [state.status, state.whiteboardStatus, interviewQuery.data])
 
   function requestProvision() {
     if (isDispatchingRef.current) return
@@ -58,15 +71,17 @@ export function SessionSmart({ interviewId }: SessionSmartProps) {
       { id: interviewId },
       {
         onSuccess: function onProvisionSuccess(data) {
-          provisionDataRef.current = data
+          if (!isMountedRef.current) return
+          clearWhiteboardProvisionHandle(whiteboardProvisionHandleRef.current)
+          whiteboardProvisionHandleRef.current = createWhiteboardProvisionHandle(data)
           isDispatchingRef.current = false
           dispatch({ type: 'PROVISION_SUCCESS' })
         },
-        onError: function onProvisionError(error) {
+        onError: function onProvisionError() {
           isDispatchingRef.current = false
           dispatch({
             type: 'PROVISION_ERROR',
-            payload: error.message.slice(0, 200),
+            payload: JOIN_SESSION_ERROR_MESSAGE,
           })
         },
       },
@@ -99,8 +114,8 @@ export function SessionSmart({ interviewId }: SessionSmartProps) {
       isLoading={interviewQuery.isPending}
       status={state.status}
       errorMessage={errorMessage}
-      whiteboardProvision={
-        state.status === 'provisioned' ? provisionDataRef.current : null
+      whiteboardProvisionHandle={
+        state.status === 'provisioned' ? whiteboardProvisionHandleRef.current : null
       }
       whiteboardStatus={state.whiteboardStatus}
       whiteboardErrorMessage={state.whiteboardErrorMessage}

@@ -1,7 +1,7 @@
 import type { InterviewDetail } from '@mako/shared'
 import { WhiteboardSmart } from '#/components/interviews/whiteboard'
 import type {
-  ProvisionedWhiteboardConfig,
+  WhiteboardProvisionHandle,
   WhiteboardConnectionStatus,
 } from '#/components/interviews/whiteboard'
 import type { SessionStatus } from './session-flow'
@@ -16,7 +16,7 @@ export type SessionDumbProps = {
   isLoading: boolean
   status: SessionStatus
   errorMessage: string | null
-  whiteboardProvision: ProvisionedWhiteboardConfig | null
+  whiteboardProvisionHandle: WhiteboardProvisionHandle | null
   whiteboardStatus: WhiteboardConnectionStatus
   whiteboardErrorMessage: string | null
   onJoin: () => void
@@ -99,7 +99,7 @@ function renderContent(props: SessionDumbProps) {
           onFailed={props.onWhiteboardFailed}
           onReconnecting={props.onWhiteboardReconnecting}
           onRetryJoin={props.onRetryWhiteboard}
-          provisionedWhiteboard={props.whiteboardProvision}
+          provisionedWhiteboardHandle={props.whiteboardProvisionHandle}
         />
       </div>
     )
