@@ -167,6 +167,7 @@
     - `ai_led`: return a single-user room/key pair scoped to the interview.
     - Credentials returned here are not exposed through `GET /api/interviews`; use this route at join-time.
   - **Query Params**: None
+  - **Telemetry**: Structured logs are emitted at provision lifecycle points: `interview.provision_start` (with `interview_id`, `participant_user_id`), `interview.provision_success` (with `interview_id`, `outcome`), and `interview.provision_failure` (with `interview_id`, `error_type`). Logs must not leak sensitive collaboration credentials (`excalidraw_key`, realtime tokens).
 
 - **`POST /api/interviews/:id/start`**
   - **Description**: Starts an interview session for a participant and transitions lifecycle state from `scheduled` to `ongoing` when valid.
