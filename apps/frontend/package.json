@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@cloudflare/vite-plugin": "^1.26.0",
-    "@excalidraw/excalidraw": "^0.18.0",
+    "@excalidraw/excalidraw": "0.18.0",
     "@mako/shared": "workspace:*",
     "@mako/shared-frontend": "workspace:*",
     "@tanstack/react-query": "^5.90.6",
