@@ -2,6 +2,7 @@ import type { ComponentType, ReactNode } from 'react'
 import type { ProvisionInterviewResponse } from '@mako/shared'
 
 export type ProvisionedWhiteboardConfig = ProvisionInterviewResponse
+export type WhiteboardProvisionHandle = string
 
 export type WhiteboardConnectionStatus =
   | 'idle'
@@ -20,7 +21,7 @@ export type WhiteboardCollaborationConfig = {
 }
 
 export type WhiteboardRuntimeProps = {
-  config: WhiteboardCollaborationConfig
+  collaborationEnabled: boolean
   onConnected: () => void
   onReconnecting: () => void
   onFailed: (message: string) => void
@@ -38,7 +39,7 @@ export type WhiteboardDumbProps = {
 export type WhiteboardSmartProps = {
   connectionStatus: WhiteboardConnectionStatus
   errorMessage: string | null
-  provisionedWhiteboard: ProvisionedWhiteboardConfig | null
+  provisionedWhiteboardHandle: WhiteboardProvisionHandle | null
   onConnecting: () => void
   onConnected: () => void
   onReconnecting: () => void

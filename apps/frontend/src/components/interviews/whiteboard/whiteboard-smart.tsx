@@ -1,42 +1,58 @@
-import { useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import { mapProvisionToWhiteboardConfig } from './whiteboard-config'
 import { WhiteboardDumb } from './whiteboard-dumb'
 import { WhiteboardRuntime } from './whiteboard-runtime'
+import { getWhiteboardProvisionConfig } from './whiteboard-provision-store'
 import type { WhiteboardSmartProps } from './whiteboard-types'
 
 export function WhiteboardSmart({
   RuntimeComponent = WhiteboardRuntime,
   connectionStatus,
   errorMessage,
-  provisionedWhiteboard,
+  provisionedWhiteboardHandle,
   onConnecting,
   onConnected,
   onReconnecting,
   onFailed,
   onRetryJoin,
 }: WhiteboardSmartProps) {
-  const collaborationConfig = useMemo(
-    function mapConfig() {
-      return mapProvisionToWhiteboardConfig(provisionedWhiteboard)
+  const hasCollaborationConfig = useMemo(
+    function validateConfig() {
+      const provisionedWhiteboard = getWhiteboardProvisionConfig(provisionedWhiteboardHandle)
+      return mapProvisionToWhiteboardConfig(provisionedWhiteboard) !== null
     },
-    [
-      provisionedWhiteboard?.excalidraw.excalidraw_key,
-      provisionedWhiteboard?.excalidraw.excalidraw_room_id,
-      provisionedWhiteboard?.mode,
-      provisionedWhiteboard?.realtime.realtime_session_id,
-      provisionedWhiteboard?.realtime.token,
-    ],
+    [provisionedWhiteboardHandle],
   )
 
   useEffect(
     function enterConnectingStateAfterProvision() {
-      if (!collaborationConfig || connectionStatus !== 'idle') return
+      if (!hasCollaborationConfig || connectionStatus !== 'idle') return
       onConnecting()
     },
-    [collaborationConfig, connectionStatus, onConnecting],
+    [hasCollaborationConfig, connectionStatus, onConnecting],
   )
 
-  if (!collaborationConfig) {
+  const handleFailed = useCallback(
+    function handleFailed() {
+      onFailed('Whiteboard sync could not recover. Retry the session connection.')
+    },
+    [onFailed],
+  )
+  const canvasSlot = useMemo(
+    function createCanvasSlot() {
+      return (
+        <RuntimeComponent
+          collaborationEnabled={true}
+          onConnected={onConnected}
+          onFailed={handleFailed}
+          onReconnecting={onReconnecting}
+        />
+      )
+    },
+    [RuntimeComponent, onConnected, onReconnecting, handleFailed],
+  )
+
+  if (!hasCollaborationConfig) {
     return (
       <WhiteboardDumb
         canvasSlot={<EmptyCanvas />}
@@ -49,17 +65,8 @@ export function WhiteboardSmart({
 
   return (
     <WhiteboardDumb
-      canvasSlot={
-        <RuntimeComponent
-          config={collaborationConfig}
-          onConnected={onConnected}
-          onFailed={function handleFailed() {
-            onFailed('Whiteboard sync could not recover. Retry the session connection.')
-          }}
-          onReconnecting={onReconnecting}
-        />
-      }
       errorMessage={errorMessage}
+      canvasSlot={canvasSlot}
       onRetryJoin={onRetryJoin}
       status={connectionStatus === 'idle' ? 'connecting' : connectionStatus}
     />

@@ -32,7 +32,8 @@ class ExcalidrawErrorBoundary extends Component<
 
   componentDidCatch(error: unknown) {
     const message = error instanceof Error ? error.message : 'Excalidraw failed to load'
-    this.props.onFailed(message)
+    // Sanitize long error messages that may contain library internals
+    this.props.onFailed(message.length < 100 ? message : 'Excalidraw failed to load')
   }
 
   render() {
@@ -55,8 +56,22 @@ function RuntimeFallback() {
   )
 }
 
+function ConnectedOnMount({
+  onConnected,
+  isCollaborating,
+}: {
+  onConnected: () => void
+  isCollaborating: boolean
+}) {
+  useEffect(function signalConnected() {
+    onConnected()
+  }, [onConnected])
+
+  return <LazyExcalidraw isCollaborating={isCollaborating} />
+}
+
 export function WhiteboardRuntime({
-  config,
+  collaborationEnabled,
   onConnected,
   onReconnecting,
   onFailed,
@@ -67,28 +82,23 @@ export function WhiteboardRuntime({
 
       let isActive = true
 
-      // Defer connected signal to next microtask so Suspense / lazy
-      // resolution can surface a loading failure first.
-      const connectedTimer = setTimeout(function emitConnected() {
-        if (isActive) onConnected()
-      }, 0)
-
-      function handleOffline() {
+      // NOTE: These handlers track browser-level network connectivity,
+      // not Excalidraw's WebSocket/realtime connection state.
+      function handleBrowserOffline() {
         if (isActive) onReconnecting()
       }
 
-      function handleOnline() {
+      function handleBrowserOnline() {
         if (isActive) onConnected()
       }
 
-      window.addEventListener('offline', handleOffline)
-      window.addEventListener('online', handleOnline)
+      window.addEventListener('offline', handleBrowserOffline)
+      window.addEventListener('online', handleBrowserOnline)
 
       return function cleanup() {
         isActive = false
-        clearTimeout(connectedTimer)
-        window.removeEventListener('offline', handleOffline)
-        window.removeEventListener('online', handleOnline)
+        window.removeEventListener('offline', handleBrowserOffline)
+        window.removeEventListener('online', handleBrowserOnline)
       }
     },
     [onConnected, onReconnecting],
@@ -98,7 +108,7 @@ export function WhiteboardRuntime({
     <div className="h-[28rem] min-h-[28rem] w-full" data-testid="whiteboard-runtime">
       <ExcalidrawErrorBoundary onFailed={onFailed}>
         <Suspense fallback={<RuntimeFallback />}>
-          <LazyExcalidraw isCollaborating={config.collaborationEnabled} />
+          <ConnectedOnMount onConnected={onConnected} isCollaborating={collaborationEnabled} />
         </Suspense>
       </ExcalidrawErrorBoundary>
     </div>

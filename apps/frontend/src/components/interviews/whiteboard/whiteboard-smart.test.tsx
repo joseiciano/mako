@@ -3,6 +3,10 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { WhiteboardSmart } from './whiteboard-smart'
 import type { WhiteboardSmartProps } from './whiteboard-types'
+import {
+  clearAllWhiteboardProvisionHandles,
+  createWhiteboardProvisionHandle,
+} from './whiteboard-provision-store'
 
 vi.mock('./whiteboard-runtime', function () {
   return {
@@ -20,11 +24,11 @@ function makeProps(
   return {
     connectionStatus: 'idle',
     errorMessage: null,
-    provisionedWhiteboard: {
+    provisionedWhiteboardHandle: createWhiteboardProvisionHandle({
       mode: 'ai_led',
       realtime: { realtime_session_id: 'rt-1', token: 'token-1' },
       excalidraw: { excalidraw_room_id: 'room-1', excalidraw_key: 'key-1' },
-    },
+    }),
     onConnecting: vi.fn(),
     onConnected: vi.fn(),
     onReconnecting: vi.fn(),
@@ -41,6 +45,7 @@ describe('WhiteboardSmart', function () {
 
   afterEach(function () {
     vi.restoreAllMocks()
+    clearAllWhiteboardProvisionHandles()
   })
 
   it('calls onConnecting when idle with valid config', async function () {
@@ -52,11 +57,11 @@ describe('WhiteboardSmart', function () {
     })
   })
 
-  it('does not call onConnecting when provisionedWhiteboard is null', function () {
+  it('does not call onConnecting when provisionedWhiteboardHandle is null', function () {
     const onConnecting = vi.fn()
     render(
       <WhiteboardSmart
-        {...makeProps({ provisionedWhiteboard: null, onConnecting })}
+        {...makeProps({ provisionedWhiteboardHandle: null, onConnecting })}
       />,
     )
     expect(onConnecting).not.toHaveBeenCalled()
@@ -100,19 +105,19 @@ describe('WhiteboardSmart', function () {
     expect(screen.getByTestId('whiteboard-runtime')).toBeInTheDocument()
   })
 
-  it('passes config to runtime', function () {
+  it('passes only collaboration flag to runtime props', function () {
     render(
       <WhiteboardSmart {...makeProps({ connectionStatus: 'connecting' })} />,
     )
     const runtimeProps = vi.mocked(WhiteboardRuntime).mock.calls[0][0]
-    expect(runtimeProps.config).toEqual({
-      mode: 'ai_led',
-      realtimeSessionId: 'rt-1',
-      realtimeToken: 'token-1',
-      roomId: 'room-1',
-      roomKey: 'key-1',
-      collaborationEnabled: true,
-    })
+    expect(runtimeProps).toEqual(
+      expect.objectContaining({
+        collaborationEnabled: true,
+      }),
+    )
+    expect('config' in runtimeProps).toBe(false)
+    expect(JSON.stringify(runtimeProps)).not.toContain('token-1')
+    expect(JSON.stringify(runtimeProps)).not.toContain('key-1')
   })
 
   it('wires runtime callbacks to parent callbacks', function () {
@@ -174,10 +179,10 @@ describe('WhiteboardSmart', function () {
     expect(container.textContent).not.toContain('key-1')
   })
 
-  it('shows failed fallback when provisionedWhiteboard is null', function () {
+  it('shows failed fallback when provisionedWhiteboardHandle is null', function () {
     render(
       <WhiteboardSmart
-        {...makeProps({ provisionedWhiteboard: null })}
+        {...makeProps({ provisionedWhiteboardHandle: null })}
       />,
     )
     expect(screen.getByRole('alert')).toBeInTheDocument()
