@@ -1281,6 +1281,7 @@ describe('InterviewService', function interviewServiceSuite() {
     expect(successLog).toBeDefined()
     expect(successLog!.context).toMatchObject({
       interview_id: interviewId,
+      participant_user_id: activeSession.userId,
       outcome: 'provisioned',
     })
   })
@@ -1317,7 +1318,44 @@ describe('InterviewService', function interviewServiceSuite() {
     expect(failureLog).toBeDefined()
     expect(failureLog!.context).toMatchObject({
       interview_id: '33333333-3333-4333-8333-333333333333',
+      participant_user_id: activeSession.userId,
       error_type: 'invalid_status',
+    })
+  })
+
+  it('logs provision failure event for non-participant access', async function run() {
+    const loggedEvents: Array<{ event: string; context: Record<string, unknown> }> = []
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: '99999999-9999-4999-8999-999999999999',
+        }),
+      ],
+      undefined,
+      {
+        info(event, context) {
+          loggedEvents.push({ event, context })
+        },
+      },
+    )
+
+    await expect(
+      service.provisionInterview(activeSession, {
+        id: '33333333-3333-4333-8333-333333333333',
+      }),
+    ).rejects.toBeInstanceOf(InterviewNotFoundError)
+
+    const failureLog = loggedEvents.find(function isFailureLog(e) {
+      return e.event === 'interview.provision_failure'
+    })
+    expect(failureLog).toBeDefined()
+    expect(failureLog!.context).toMatchObject({
+      interview_id: '33333333-3333-4333-8333-333333333333',
+      participant_user_id: activeSession.userId,
+      error_type: 'not_found',
     })
   })
 

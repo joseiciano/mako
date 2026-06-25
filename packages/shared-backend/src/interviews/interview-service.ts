@@ -89,7 +89,7 @@ export class InterviewService {
           this.notificationTransport,
         )
       } catch (error) {
-        await this.logSafely('error', 'interview.post_commit_dispatch_failure', {
+        this.logSafely('error', 'interview.post_commit_dispatch_failure', {
           operation: 'create',
           interview_id: createdInterview.id,
           error_message: toErrorMessage(error),
@@ -99,7 +99,7 @@ export class InterviewService {
       try {
         await this.postCommitEventPublisher.publish(outboxEvent)
       } catch (error) {
-        await this.logSafely('error', 'interview.post_commit_publish_failure', {
+        this.logSafely('error', 'interview.post_commit_publish_failure', {
           operation: 'create',
           interview_id: createdInterview.id,
           error_message: toErrorMessage(error),
@@ -158,26 +158,37 @@ export class InterviewService {
     const userSession = this.requireSession(session)
     const participantUserId = authenticatedInterviewUserIdSchema.parse(userSession.userId)
 
-    await this.logSafely('info', 'interview.provision_start', {
+    this.logSafely('info', 'interview.provision_start', {
       interview_id: input.id,
       participant_user_id: participantUserId,
     })
 
     const candidateId = this.createId()
-    const provisionResult = await this.interviewRepository.provisionInterview({
-      interview_id: input.id,
-      participant_user_id: participantUserId,
-      realtime_session_id: `realtime_${candidateId}`,
-      excalidraw_room_id: `excalidraw_room_${candidateId}`,
-      excalidraw_key: `excalidraw_key_${candidateId}`,
-      updated_at: this.now(),
-    })
+    let provisionResult
+    try {
+      provisionResult = await this.interviewRepository.provisionInterview({
+        interview_id: input.id,
+        participant_user_id: participantUserId,
+        realtime_session_id: `realtime_${candidateId}`,
+        excalidraw_room_id: `excalidraw_room_${candidateId}`,
+        excalidraw_key: `excalidraw_key_${candidateId}`,
+        updated_at: this.now(),
+      })
+    } catch (error) {
+      this.logSafely('error', 'interview.provision_failure', {
+        interview_id: input.id,
+        participant_user_id: participantUserId,
+        error_type: 'unexpected_error',
+      })
+      throw error
+    }
 
     switch (provisionResult.outcome) {
       case 'provisioned':
       case 'already_provisioned':
-        await this.logSafely('info', 'interview.provision_success', {
+        this.logSafely('info', 'interview.provision_success', {
           interview_id: input.id,
+          participant_user_id: participantUserId,
           outcome: provisionResult.outcome,
         })
         return toProvisionInterviewResponse(
@@ -185,16 +196,18 @@ export class InterviewService {
           `realtime_token_${this.createId()}`,
         )
       case 'invalid_status':
-        await this.logSafely('info', 'interview.provision_failure', {
+        this.logSafely('info', 'interview.provision_failure', {
           interview_id: input.id,
+          participant_user_id: participantUserId,
           error_type: 'invalid_status',
         })
         throw new InterviewConflictError(
           'Only scheduled or ongoing interviews can be provisioned.',
         )
       case 'not_found':
-        await this.logSafely('info', 'interview.provision_failure', {
+        this.logSafely('info', 'interview.provision_failure', {
           interview_id: input.id,
+          participant_user_id: participantUserId,
           error_type: 'not_found',
         })
         throw new InterviewNotFoundError(
@@ -244,7 +257,7 @@ export class InterviewService {
               this.notificationTransport,
             )
           } catch (error) {
-            await this.logSafely('error', 'interview.post_commit_dispatch_failure', {
+            this.logSafely('error', 'interview.post_commit_dispatch_failure', {
               operation: 'cancel',
               interview_id: cancelResult.interview.id,
               error_message: toErrorMessage(error),
@@ -258,7 +271,7 @@ export class InterviewService {
               }),
             )
           } catch (error) {
-            await this.logSafely('error', 'interview.post_commit_publish_failure', {
+            this.logSafely('error', 'interview.post_commit_publish_failure', {
               operation: 'cancel',
               interview_id: cancelResult.interview.id,
               error_message: toErrorMessage(error),
@@ -379,15 +392,17 @@ export class InterviewService {
     return session
   }
 
-  private async logSafely(
+  private logSafely(
     level: 'error' | 'info',
     event: string,
     context: Record<string, unknown>,
-  ): Promise<void> {
+  ): void {
     try {
-      await this.logger[level](event, context)
+      Promise.resolve(this.logger[level](event, context)).catch(() => {
+        // no-op: logging must never block interview operations
+      })
     } catch {
-      // no-op: logging must never block interview operations
+      // no-op: synchronous logger errors must never block interview operations
     }
   }
 }
