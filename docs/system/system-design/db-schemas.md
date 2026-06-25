@@ -271,3 +271,14 @@ Logs for financial history and credit fulfillment via Stripe.
 - **`credits_granted`**: `integer` - Number of credits added to the user's balance.
 - **`status`**: `text` - Transaction status (e.g., 'succeeded', 'pending').
 - **`created_at`**: `timestamptz`
+
+Constraints:
+
+- `stripe_payment_intent_id` is unique across all rows.
+- `user_id` references `"user".id`.
+- `user_id` references `"user".id`; deleting a user removes their ledger rows via `ON DELETE CASCADE` (default PostgreSQL behavior for FKs).
+
+Indexes:
+
+- `idx_credit_transactions_stripe_payment_intent_id` unique on (`stripe_payment_intent_id`)
+- `idx_credit_transactions_user_id_created_at` on (`user_id`, `created_at DESC`)
