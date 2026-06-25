@@ -99,6 +99,9 @@ const consoleInterviewServiceLogger: InterviewServiceLogger = {
   error(event, context) {
     console.error(`[InterviewService] ${event}`, context)
   },
+  info(event, context) {
+    console.info(`[InterviewService] ${event}`, context)
+  },
 }
 
 const consoleNotificationDispatchLogger: NotificationDispatchServiceLogger = {

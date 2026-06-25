@@ -58,49 +58,105 @@ function makeInterview(overrides?: Partial<InterviewDetail>): InterviewDetail {
   }
 }
 
+function mockUseInterviewDetail(
+  overrides: Partial<ReturnType<typeof useInterviewDetail>>,
+): ReturnType<typeof useInterviewDetail> {
+  return {
+    data: undefined,
+    dataUpdatedAt: 0,
+    error: null,
+    errorUpdatedAt: 0,
+    failureCount: 0,
+    failureReason: null,
+    errorUpdateCount: 0,
+    fetchStatus: 'idle',
+    isError: false,
+    isFetched: true,
+    isFetchedAfterMount: true,
+    isFetching: false,
+    isInitialLoading: false,
+    isLoading: false,
+    isLoadingError: false,
+    isPaused: false,
+    isPending: false,
+    isPlaceholderData: false,
+    isRefetchError: false,
+    isRefetching: false,
+    isStale: false,
+    isSuccess: false,
+    refetch: vi.fn(),
+    status: 'pending',
+    ...overrides,
+  } as unknown as ReturnType<typeof useInterviewDetail>
+}
+
+function mockUseProvisionInterview(
+  overrides: Partial<ReturnType<typeof useProvisionInterview>>,
+): ReturnType<typeof useProvisionInterview> {
+  return {
+    context: undefined,
+    data: undefined,
+    error: null,
+    failureCount: 0,
+    failureReason: null,
+    isError: false,
+    isIdle: true,
+    isPaused: false,
+    isPending: false,
+    isSuccess: false,
+    mutate: vi.fn(),
+    mutateAsync: vi.fn(),
+    reset: vi.fn(),
+    status: 'idle',
+    submittedAt: 0,
+    variables: undefined,
+    ...overrides,
+  } as unknown as ReturnType<typeof useProvisionInterview>
+}
+
 const mockNavigate = vi.fn()
 const mockMutate = vi.fn()
 
 beforeEach(function () {
   vi.clearAllMocks()
   vi.mocked(useNavigate).mockReturnValue(mockNavigate)
-  vi.mocked(useProvisionInterview).mockReturnValue({
+  vi.mocked(useProvisionInterview).mockReturnValue(mockUseProvisionInterview({
     mutate: mockMutate,
     isPending: false,
-  } as any)
+  }))
 })
 
 describe('SessionSmart', function () {
   it('shows loading when interview query is pending', function () {
-    vi.mocked(useInterviewDetail).mockReturnValue({
+    vi.mocked(useInterviewDetail).mockReturnValue(mockUseInterviewDetail({
       data: undefined,
       isPending: true,
       isError: false,
       error: null,
-    } as any)
+    }))
     render(<SessionSmart interviewId="int-1" />)
     expect(screen.getByRole('status')).toHaveTextContent(/loading/i)
   })
 
   it('shows error when interview query fails', function () {
-    vi.mocked(useInterviewDetail).mockReturnValue({
+    vi.mocked(useInterviewDetail).mockReturnValue(mockUseInterviewDetail({
       data: undefined,
       isPending: false,
       isError: true,
-      error: { message: 'postgres://secret@internal-db.local/query failed' },
-    } as any)
+      error: new Error('postgres://secret@internal-db.local/query failed'),
+    }))
     render(<SessionSmart interviewId="int-1" />)
     expect(screen.getByRole('alert')).toHaveTextContent('Unable to load interview details. Please try again.')
     expect(screen.getByRole('alert')).not.toHaveTextContent('postgres://secret')
   })
 
   it('shows join flow when interview loaded', function () {
-    vi.mocked(useInterviewDetail).mockReturnValue({
+    vi.mocked(useInterviewDetail).mockReturnValue(mockUseInterviewDetail({
       data: makeInterview(),
       isPending: false,
       isError: false,
       error: null,
-    } as any)
+    }))
     render(<SessionSmart interviewId="int-1" />)
     expect(screen.getByText('Ready to Join')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: /join session/i })).toBeInTheDocument()
@@ -108,12 +164,12 @@ describe('SessionSmart', function () {
 
   it('calls navigate to /interviews on back button click', async function () {
     const user = userEvent.setup()
-    vi.mocked(useInterviewDetail).mockReturnValue({
-      data: null,
+    vi.mocked(useInterviewDetail).mockReturnValue(mockUseInterviewDetail({
+      data: undefined,
       isPending: false,
       isError: false,
       error: null,
-    } as any)
+    }))
     render(<SessionSmart interviewId="int-1" />)
     await user.click(screen.getByRole('button', { name: /back to interviews/i }))
     expect(mockNavigate).toHaveBeenCalledWith({ to: '/interviews' })
@@ -121,12 +177,12 @@ describe('SessionSmart', function () {
 
   it('calls provision mutation on join click', async function () {
     const user = userEvent.setup()
-    vi.mocked(useInterviewDetail).mockReturnValue({
+    vi.mocked(useInterviewDetail).mockReturnValue(mockUseInterviewDetail({
       data: makeInterview(),
       isPending: false,
       isError: false,
       error: null,
-    } as any)
+    }))
     render(<SessionSmart interviewId="int-1" />)
     await user.click(screen.getByRole('button', { name: /join session/i }))
     expect(mockMutate).toHaveBeenCalledWith(
@@ -140,20 +196,20 @@ describe('SessionSmart', function () {
 
   it('shows safe copy when provision mutation fails', async function () {
     const user = userEvent.setup()
-    vi.mocked(useInterviewDetail).mockReturnValue({
+    vi.mocked(useInterviewDetail).mockReturnValue(mockUseInterviewDetail({
       data: makeInterview(),
       isPending: false,
       isError: false,
       error: null,
-    } as any)
+    }))
 
     let errorCallback: ((error: Error) => void) | undefined
-    vi.mocked(useProvisionInterview).mockReturnValue({
+    vi.mocked(useProvisionInterview).mockReturnValue(mockUseProvisionInterview({
       mutate: vi.fn(function mockMutate(_params: any, options: any) {
         errorCallback = options.onError
       }),
       isPending: false,
-    } as any)
+    }))
 
     render(<SessionSmart interviewId="int-1" />)
     await user.click(screen.getByRole('button', { name: /join session/i }))
@@ -167,12 +223,12 @@ describe('SessionSmart', function () {
   })
 
   it('ignores rapid duplicate join clicks while provision is in flight', function () {
-    vi.mocked(useInterviewDetail).mockReturnValue({
+    vi.mocked(useInterviewDetail).mockReturnValue(mockUseInterviewDetail({
       data: makeInterview(),
       isPending: false,
       isError: false,
       error: null,
-    } as any)
+    }))
 
     render(<SessionSmart interviewId="int-1" />)
 
@@ -187,16 +243,16 @@ describe('SessionSmart', function () {
 
   it('shows joining state after join dispatched', async function () {
     const user = userEvent.setup()
-    vi.mocked(useInterviewDetail).mockReturnValue({
+    vi.mocked(useInterviewDetail).mockReturnValue(mockUseInterviewDetail({
       data: makeInterview(),
       isPending: false,
       isError: false,
       error: null,
-    } as any)
-    vi.mocked(useProvisionInterview).mockReturnValue({
+    }))
+    vi.mocked(useProvisionInterview).mockReturnValue(mockUseProvisionInterview({
       mutate: vi.fn(),
       isPending: true,
-    } as any)
+    }))
     render(<SessionSmart interviewId="int-1" />)
     await user.click(screen.getByRole('button', { name: /join session/i }))
     expect(screen.getByText('Joining session...')).toBeInTheDocument()
@@ -204,20 +260,20 @@ describe('SessionSmart', function () {
 
   it('shows provisioned state after provision success', async function () {
     const user = userEvent.setup()
-    vi.mocked(useInterviewDetail).mockReturnValue({
+    vi.mocked(useInterviewDetail).mockReturnValue(mockUseInterviewDetail({
       data: makeInterview(),
       isPending: false,
       isError: false,
       error: null,
-    } as any)
+    }))
 
     let successCallback: ((data: any) => void) | undefined
-    vi.mocked(useProvisionInterview).mockReturnValue({
+    vi.mocked(useProvisionInterview).mockReturnValue(mockUseProvisionInterview({
       mutate: vi.fn(function mockMutate(_params: any, options: any) {
         successCallback = options.onSuccess
       }),
       isPending: false,
-    } as any)
+    }))
 
     render(<SessionSmart interviewId="int-1" />)
 
@@ -250,20 +306,20 @@ describe('SessionSmart', function () {
 
   it('does not reprovision during transient whiteboard reconnecting state', async function () {
     const user = userEvent.setup()
-    vi.mocked(useInterviewDetail).mockReturnValue({
+    vi.mocked(useInterviewDetail).mockReturnValue(mockUseInterviewDetail({
       data: makeInterview(),
       isPending: false,
       isError: false,
       error: null,
-    } as any)
+    }))
 
     let successCallback: ((data: any) => void) | undefined
-    vi.mocked(useProvisionInterview).mockReturnValue({
+    vi.mocked(useProvisionInterview).mockReturnValue(mockUseProvisionInterview({
       mutate: vi.fn(function mockMutate(_params: any, options: any) {
         successCallback = options.onSuccess
       }),
       isPending: false,
-    } as any)
+    }))
 
     render(<SessionSmart interviewId="int-1" />)
     await user.click(screen.getByRole('button', { name: /join session/i }))
@@ -288,20 +344,20 @@ describe('SessionSmart', function () {
 
   it('dispatches WHITEBOARD_RECONNECTING when retry button clicked in provisioned failed state', async function () {
     const user = userEvent.setup()
-    vi.mocked(useInterviewDetail).mockReturnValue({
+    vi.mocked(useInterviewDetail).mockReturnValue(mockUseInterviewDetail({
       data: makeInterview(),
       isPending: false,
       isError: false,
       error: null,
-    } as any)
+    }))
 
     let successCallback: ((data: any) => void) | undefined
-    vi.mocked(useProvisionInterview).mockReturnValue({
+    vi.mocked(useProvisionInterview).mockReturnValue(mockUseProvisionInterview({
       mutate: vi.fn(function mockMutate(_params: any, options: any) {
         successCallback = options.onSuccess
       }),
       isPending: false,
-    } as any)
+    }))
 
     render(<SessionSmart interviewId="int-1" />)
 
@@ -338,5 +394,89 @@ describe('SessionSmart', function () {
         connectionStatus: 'reconnecting',
       }),
     )
+  })
+
+  it('recovers from transient provision failure on retry', async function () {
+    const user = userEvent.setup()
+    vi.mocked(useInterviewDetail).mockReturnValue(mockUseInterviewDetail({
+      data: makeInterview(),
+      isPending: false,
+      isError: false,
+      error: null,
+    }))
+
+    let mutateCallCount = 0
+    let successCallback: ((data: any) => void) | undefined
+    let errorCallback: ((error: Error) => void) | undefined
+    vi.mocked(useProvisionInterview).mockReturnValue(mockUseProvisionInterview({
+      mutate: vi.fn(function mockMutate(_params: any, options: any) {
+        mutateCallCount += 1
+        if (mutateCallCount === 1) {
+          errorCallback = options.onError
+        } else {
+          successCallback = options.onSuccess
+        }
+      }),
+      isPending: false,
+    }))
+
+    render(<SessionSmart interviewId="int-1" />)
+
+    // First attempt fails
+    await user.click(screen.getByRole('button', { name: /join session/i }))
+    errorCallback?.(new Error('Network timeout'))
+
+    await waitFor(function () {
+      expect(screen.getByRole('alert')).toHaveTextContent('Failed to join session. Please try again.')
+    })
+
+    // Retry succeeds
+    await user.click(screen.getByRole('button', { name: /retry/i }))
+    successCallback?.({
+      mode: 'ai_led',
+      realtime: { realtime_session_id: 'rt-1', token: 'token-1' },
+      excalidraw: { excalidraw_room_id: 'room-1', excalidraw_key: 'key-1' },
+    })
+
+    await waitFor(function () {
+      expect(screen.getByTestId('whiteboard-smart')).toBeInTheDocument()
+    })
+
+    expect(mutateCallCount).toBe(2)
+  })
+
+  it('does not show join CTA after successful provisioning', async function () {
+    const user = userEvent.setup()
+    vi.mocked(useInterviewDetail).mockReturnValue(mockUseInterviewDetail({
+      data: makeInterview(),
+      isPending: false,
+      isError: false,
+      error: null,
+    }))
+
+    let successCallback: ((data: any) => void) | undefined
+    vi.mocked(useProvisionInterview).mockReturnValue(mockUseProvisionInterview({
+      mutate: vi.fn(function mockMutate(_params: any, options: any) {
+        successCallback = options.onSuccess
+      }),
+      isPending: false,
+    }))
+
+    render(<SessionSmart interviewId="int-1" />)
+
+    // Join and provision successfully
+    await user.click(screen.getByRole('button', { name: /join session/i }))
+    successCallback?.({
+      mode: 'ai_led',
+      realtime: { realtime_session_id: 'rt-1', token: 'token-1' },
+      excalidraw: { excalidraw_room_id: 'room-1', excalidraw_key: 'key-1' },
+    })
+
+    await waitFor(function () {
+      expect(screen.getByTestId('whiteboard-smart')).toBeInTheDocument()
+    })
+
+    // Join button should not be present after provisioning
+    expect(screen.queryByRole('button', { name: /join session/i })).not.toBeInTheDocument()
   })
 })

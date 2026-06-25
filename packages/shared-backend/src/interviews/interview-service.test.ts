@@ -12,7 +12,7 @@ import {
   parseInterview,
   type InterviewSession,
 } from './types'
-import { InterviewService } from './interview-service'
+import { InterviewService, type InterviewServiceLogger } from './interview-service'
 import type {
   InterviewPostCommitEvent,
   InterviewPostCommitEventPublisher,
@@ -21,6 +21,11 @@ import type {
 const activeSession: InterviewSession = {
   userId: '11111111-1111-4111-8111-111111111111',
   email: 'candidate@mako.dev',
+}
+
+const noOpTestLogger: InterviewServiceLogger = {
+  error: async () => undefined,
+  info: async () => undefined,
 }
 
 describe('InterviewService', function interviewServiceSuite() {
@@ -1210,7 +1215,7 @@ describe('InterviewService', function interviewServiceSuite() {
   })
 
   it('does not log Realtime tokens or Excalidraw keys during provisioning', async function run() {
-    const loggedErrors: Array<{ event: string; context: Record<string, unknown> }> = []
+    const loggedEvents: Array<{ event: string; context: Record<string, unknown> }> = []
     const { service } = createInterviewService(
       { freeAiInterviews: 0, credits: 0 },
       undefined,
@@ -1223,7 +1228,10 @@ describe('InterviewService', function interviewServiceSuite() {
       undefined,
       {
         error(event, context) {
-          loggedErrors.push({ event, context })
+          loggedEvents.push({ event, context })
+        },
+        info(event, context) {
+          loggedEvents.push({ event, context })
         },
       },
     )
@@ -1232,8 +1240,173 @@ describe('InterviewService', function interviewServiceSuite() {
       id: '33333333-3333-4333-8333-333333333333',
     })
 
-    expect(JSON.stringify(loggedErrors)).not.toContain('realtime_token')
-    expect(JSON.stringify(loggedErrors)).not.toContain('excalidraw_key')
+    expect(JSON.stringify(loggedEvents)).not.toContain('realtime_token')
+    expect(JSON.stringify(loggedEvents)).not.toContain('excalidraw_key')
+  })
+
+  it('logs structured provision start and success events', async function run() {
+    const loggedEvents: Array<{ event: string; context: Record<string, unknown> }> = []
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+      undefined,
+      {
+        info(event, context) {
+          loggedEvents.push({ event, context })
+        },
+      },
+    )
+
+    await service.provisionInterview(activeSession, { id: interviewId })
+
+    const startLog = loggedEvents.find(function isStartLog(e) {
+      return e.event === 'interview.provision_start'
+    })
+    expect(startLog).toBeDefined()
+    expect(startLog!.context).toMatchObject({
+      interview_id: interviewId,
+      participant_user_id: activeSession.userId,
+    })
+
+    const successLog = loggedEvents.find(function isSuccessLog(e) {
+      return e.event === 'interview.provision_success'
+    })
+    expect(successLog).toBeDefined()
+    expect(successLog!.context).toMatchObject({
+      interview_id: interviewId,
+      participant_user_id: activeSession.userId,
+      outcome: 'provisioned',
+    })
+  })
+
+  it('logs provision failure event for terminal interview states', async function run() {
+    const loggedEvents: Array<{ event: string; context: Record<string, unknown> }> = []
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          status: 'completed',
+        }),
+      ],
+      undefined,
+      {
+        info(event, context) {
+          loggedEvents.push({ event, context })
+        },
+      },
+    )
+
+    await expect(
+      service.provisionInterview(activeSession, {
+        id: '33333333-3333-4333-8333-333333333333',
+      }),
+    ).rejects.toBeInstanceOf(InterviewConflictError)
+
+    const failureLog = loggedEvents.find(function isFailureLog(e) {
+      return e.event === 'interview.provision_failure'
+    })
+    expect(failureLog).toBeDefined()
+    expect(failureLog!.context).toMatchObject({
+      interview_id: '33333333-3333-4333-8333-333333333333',
+      participant_user_id: activeSession.userId,
+      error_type: 'invalid_status',
+    })
+  })
+
+  it('logs provision failure event for non-participant access', async function run() {
+    const loggedEvents: Array<{ event: string; context: Record<string, unknown> }> = []
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: '99999999-9999-4999-8999-999999999999',
+        }),
+      ],
+      undefined,
+      {
+        info(event, context) {
+          loggedEvents.push({ event, context })
+        },
+      },
+    )
+
+    await expect(
+      service.provisionInterview(activeSession, {
+        id: '33333333-3333-4333-8333-333333333333',
+      }),
+    ).rejects.toBeInstanceOf(InterviewNotFoundError)
+
+    const failureLog = loggedEvents.find(function isFailureLog(e) {
+      return e.event === 'interview.provision_failure'
+    })
+    expect(failureLog).toBeDefined()
+    expect(failureLog!.context).toMatchObject({
+      interview_id: '33333333-3333-4333-8333-333333333333',
+      participant_user_id: activeSession.userId,
+      error_type: 'not_found',
+    })
+  })
+
+  it('does not mutate interview status during provisioning', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const { service, repository } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          status: 'scheduled',
+        }),
+      ],
+    )
+
+    await service.provisionInterview(activeSession, { id: interviewId })
+
+    const persistedInterview = await repository.getInterviewById(interviewId)
+    expect(persistedInterview).toMatchObject({
+      status: 'scheduled',
+    })
+  })
+
+  it('preserves all persisted provisioning fields across duplicate join attempts', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const { service, repository } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+    )
+
+    const firstResponse = await service.provisionInterview(activeSession, { id: interviewId })
+    const secondResponse = await service.provisionInterview(activeSession, { id: interviewId })
+
+    expect(secondResponse.realtime.realtime_session_id).toBe(firstResponse.realtime.realtime_session_id)
+    expect(secondResponse.excalidraw).toEqual(firstResponse.excalidraw)
+
+    const persistedInterview = await repository.getInterviewById(interviewId)
+    expect(persistedInterview).toMatchObject({
+      realtime_session_id: firstResponse.realtime.realtime_session_id,
+      excalidraw_room_id: firstResponse.excalidraw.excalidraw_room_id,
+      excalidraw_key: firstResponse.excalidraw.excalidraw_key,
+      status: 'scheduled',
+    })
   })
 })
 
@@ -1248,7 +1421,7 @@ function createInterviewService(
   },
   seedInterviews: readonly Interview[] = [],
   postCommitEventPublisher?: InterviewPostCommitEventPublisher,
-  logger?: { error(event: string, context: Record<string, unknown>): void | Promise<void> },
+  logger?: Partial<InterviewServiceLogger>,
   notificationService?: import('../notifications').NotificationService,
   notificationDispatchService?: import('../notifications').NotificationDispatchService,
   notificationTransport?: import('../notifications').NotificationTransport,
@@ -1274,7 +1447,7 @@ function createInterviewService(
       return '2026-04-13T10:00:00.000Z'
     },
     postCommitEventPublisher,
-    logger,
+    logger ? { ...noOpTestLogger, ...logger } : undefined,
     notificationService,
     notificationDispatchService,
     notificationTransport,
