@@ -57,7 +57,7 @@ This document outlines the high-level milestones for the Mako platform, breaking
 - **Credit System**: Backend logic for managing user balances and transaction history.
 - **Stripe Integration**: Implement the "Purchase Credits" flow with Stripe Checkout/Payment Intents.
 - **Free Tier Logic**: Enforcement of initial free standard and AI interview quotas.
-- **Billing Dashboard**: A dedicated page for users to view history and manage payments.
+- **Billing Dashboard Sequence**: Authenticated billing route shell, balance summary, credit package purchase, Stripe Elements checkout, and transaction history.
 
 ## Milestone 7: Interviewer Verification & Premium Matching
 **Objective**: Enable the "Premium" tier with verified professional interviewers.
