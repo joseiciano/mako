@@ -4,6 +4,11 @@ import type {
   WhiteboardProvisionHandle,
   WhiteboardConnectionStatus,
 } from '#/components/interviews/whiteboard'
+import { MediaSmart } from '#/components/interviews/media'
+import type {
+  MediaConnectionConfig,
+  MediaConnectionStatus,
+} from '#/components/interviews/media'
 import type { SessionStatus } from './session-flow'
 import {
   formatInterviewType,
@@ -19,12 +24,21 @@ export type SessionDumbProps = {
   whiteboardProvisionHandle: WhiteboardProvisionHandle | null
   whiteboardStatus: WhiteboardConnectionStatus
   whiteboardErrorMessage: string | null
+  mediaConfig: MediaConnectionConfig | null
+  mediaStatus: MediaConnectionStatus
+  mediaErrorMessage: string | null
   onJoin: () => void
   onRetryWhiteboard: () => void
   onWhiteboardConnecting: () => void
   onWhiteboardConnected: () => void
   onWhiteboardReconnecting: () => void
   onWhiteboardFailed: (message: string) => void
+  onMediaConnecting: () => void
+  onMediaConnected: () => void
+  onMediaWaitingForPeer: () => void
+  onMediaReconnecting: () => void
+  onMediaFailed: (message: string) => void
+  onMediaPermissionError: (error: 'denied' | 'system-denied' | 'device-unavailable') => void
   onBackToInterviews: () => void
 }
 
@@ -38,7 +52,7 @@ export function SessionDumb(props: SessionDumbProps) {
           </p>
           <h1 className="text-2xl font-semibold text-white">Session</h1>
           <p className="mt-2 text-sm text-slate-300">
-            Interview session with whiteboard collaboration.
+            Interview session with real-time audio/video and whiteboard collaboration.
           </p>
         </div>
         <button
@@ -91,6 +105,19 @@ function renderContent(props: SessionDumbProps) {
           <InterviewMetadata interview={props.interview} />
         </section>
 
+        <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
+          <h2 className="mb-4 text-lg font-semibold text-white">Media</h2>
+          <MediaSmart
+            config={props.mediaConfig}
+            onConnecting={props.onMediaConnecting}
+            onConnected={props.onMediaConnected}
+            onWaitingForPeer={props.onMediaWaitingForPeer}
+            onReconnecting={props.onMediaReconnecting}
+            onFailed={props.onMediaFailed}
+            onPermissionError={props.onMediaPermissionError}
+          />
+        </section>
+
         <WhiteboardSmart
           connectionStatus={props.whiteboardStatus}
           errorMessage={props.whiteboardErrorMessage}
@@ -135,8 +162,8 @@ function renderContent(props: SessionDumbProps) {
         <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
           <h2 className="text-lg font-semibold text-white">Ready to Join</h2>
           <p className="mt-2 text-sm text-slate-300">
-            Click the button below to provision your whiteboard session and
-            enter the interview environment.
+            Click the button below to provision your session and
+            enter the interview environment with audio, video, and whiteboard.
           </p>
           <button
             className="mt-4 inline-flex rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400"

@@ -13,6 +13,14 @@ vi.mock('#/components/interviews/whiteboard', function () {
   }
 })
 
+vi.mock('#/components/interviews/media', function () {
+  return {
+    MediaSmart: vi.fn(function MockMediaSmart() {
+      return <div data-testid="media-smart-mock" />
+    }),
+  }
+})
+
 function makeInterview(overrides?: Partial<InterviewDetail>): InterviewDetail {
   return {
     id: 'int-1',
@@ -43,12 +51,21 @@ function makeProps(overrides?: Partial<SessionDumbProps>): SessionDumbProps {
     whiteboardProvisionHandle: null,
     whiteboardStatus: 'idle',
     whiteboardErrorMessage: null,
+    mediaConfig: null,
+    mediaStatus: 'pre-join',
+    mediaErrorMessage: null,
     onJoin: vi.fn(),
     onRetryWhiteboard: vi.fn(),
     onWhiteboardConnecting: vi.fn(),
     onWhiteboardConnected: vi.fn(),
     onWhiteboardReconnecting: vi.fn(),
     onWhiteboardFailed: vi.fn(),
+    onMediaConnecting: vi.fn(),
+    onMediaConnected: vi.fn(),
+    onMediaWaitingForPeer: vi.fn(),
+    onMediaReconnecting: vi.fn(),
+    onMediaFailed: vi.fn(),
+    onMediaPermissionError: vi.fn(),
     onBackToInterviews: vi.fn(),
     ...overrides,
   }
@@ -149,6 +166,22 @@ describe('SessionDumb', function () {
     expect(screen.getByTestId('whiteboard-smart-mock')).toBeInTheDocument()
   })
 
+  it('renders media smart when provisioned', function () {
+    render(
+      <SessionDumb
+        {...makeProps({
+          interview: makeInterview(),
+          status: 'provisioned',
+          mediaConfig: {
+            realtimeSessionId: 'rt-1',
+            token: 'token-1',
+          },
+        })}
+      />,
+    )
+    expect(screen.getByTestId('media-smart-mock')).toBeInTheDocument()
+  })
+
   it('does not render whiteboard when not provisioned', function () {
     render(
       <SessionDumb
@@ -159,6 +192,18 @@ describe('SessionDumb', function () {
       />,
     )
     expect(screen.queryByTestId('whiteboard-smart-mock')).not.toBeInTheDocument()
+  })
+
+  it('does not render media when not provisioned', function () {
+    render(
+      <SessionDumb
+        {...makeProps({
+          interview: makeInterview(),
+          status: 'idle',
+        })}
+      />,
+    )
+    expect(screen.queryByTestId('media-smart-mock')).not.toBeInTheDocument()
   })
 
   it('calls onJoin when join button clicked', async function () {

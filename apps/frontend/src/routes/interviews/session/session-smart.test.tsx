@@ -33,9 +33,26 @@ vi.mock('#/components/interviews/whiteboard', function () {
   }
 })
 
+vi.mock('#/components/interviews/media', function () {
+  return {
+    MediaSmart: vi.fn(function MediaSmart(props: any) {
+      return (
+        <section data-testid="media-smart">
+          <h2>Media</h2>
+          <p>Media ready</p>
+          <button onClick={props.onReconnect} type="button">
+            Retry media
+          </button>
+        </section>
+      )
+    }),
+  }
+})
+
 import { useInterviewDetail, useProvisionInterview } from '#/hooks/use-interviews'
 import { useNavigate } from '@tanstack/react-router'
 import { WhiteboardSmart } from '#/components/interviews/whiteboard'
+import { MediaSmart } from '#/components/interviews/media'
 
 function makeInterview(overrides?: Partial<InterviewDetail>): InterviewDetail {
   return {
@@ -302,6 +319,18 @@ describe('SessionSmart', function () {
     expect(JSON.stringify(whiteboardProps)).not.toContain('key-1')
     expect(screen.queryByText('key-1')).not.toBeInTheDocument()
     expect(screen.queryByText('token-1')).not.toBeInTheDocument()
+
+    // MediaSmart should also be rendered
+    expect(MediaSmart).toHaveBeenCalled()
+    const mediaProps = vi.mocked(MediaSmart).mock.calls.at(-1)?.[0]
+    expect(mediaProps).toEqual(
+      expect.objectContaining({
+        config: expect.objectContaining({
+          realtimeSessionId: 'rt-1',
+          token: 'token-1',
+        }),
+      }),
+    )
   })
 
   it('does not reprovision during transient whiteboard reconnecting state', async function () {
@@ -478,5 +507,44 @@ describe('SessionSmart', function () {
 
     // Join button should not be present after provisioning
     expect(screen.queryByRole('button', { name: /join session/i })).not.toBeInTheDocument()
+  })
+
+  it('passes media config to MediaSmart without exposing sensitive values in UI', async function () {
+    const user = userEvent.setup()
+    vi.mocked(useInterviewDetail).mockReturnValue(mockUseInterviewDetail({
+      data: makeInterview(),
+      isPending: false,
+      isError: false,
+      error: null,
+    }))
+
+    let successCallback: ((data: any) => void) | undefined
+    vi.mocked(useProvisionInterview).mockReturnValue(mockUseProvisionInterview({
+      mutate: vi.fn(function mockMutate(_params: any, options: any) {
+        successCallback = options.onSuccess
+      }),
+      isPending: false,
+    }))
+
+    render(<SessionSmart interviewId="int-1" />)
+    await user.click(screen.getByRole('button', { name: /join session/i }))
+
+    successCallback?.({
+      mode: 'peer_to_peer',
+      realtime: { realtime_session_id: 'rt-session-123', token: 'rt-token-abc' },
+      excalidraw: { excalidraw_room_id: 'wb-room-123', excalidraw_key: 'wb-key-abc' },
+    })
+
+    await waitFor(function () {
+      expect(screen.getByTestId('media-smart')).toBeInTheDocument()
+    })
+
+    const mediaProps = vi.mocked(MediaSmart).mock.calls.at(-1)?.[0]
+    expect(mediaProps?.config?.realtimeSessionId).toBe('rt-session-123')
+    expect(mediaProps?.config?.token).toBe('rt-token-abc')
+
+    // Sensitive values should not appear in the rendered DOM
+    expect(screen.queryByText('rt-token-abc')).not.toBeInTheDocument()
+    expect(screen.queryByText('wb-key-abc')).not.toBeInTheDocument()
   })
 })

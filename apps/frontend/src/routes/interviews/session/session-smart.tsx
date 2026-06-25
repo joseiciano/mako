@@ -2,6 +2,8 @@ import { useCallback, useEffect, useReducer, useRef } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useInterviewDetail, useProvisionInterview } from '#/hooks/use-interviews'
 import type { WhiteboardProvisionHandle } from '#/components/interviews/whiteboard'
+import type { ProvisionInterviewResponse } from '@mako/shared'
+import type { MediaConnectionConfig } from '#/components/interviews/media'
 import {
   clearWhiteboardProvisionHandle,
   createWhiteboardProvisionHandle,
@@ -25,6 +27,7 @@ export function SessionSmart({ interviewId }: SessionSmartProps) {
   const [state, dispatch] = useReducer(sessionReducer, initialSessionState)
   const isDispatchingRef = useRef(false)
   const whiteboardProvisionHandleRef = useRef<WhiteboardProvisionHandle | null>(null)
+  const provisionDataRef = useRef<ProvisionInterviewResponse | null>(null)
   const isMountedRef = useRef(true)
 
   const interviewQuery = useInterviewDetail(interviewId)
@@ -34,7 +37,7 @@ export function SessionSmart({ interviewId }: SessionSmartProps) {
     interviewQuery.isError && state.status === 'idle' ? LOAD_INTERVIEW_ERROR_MESSAGE : null
   const errorMessage = state.errorMessage || queryErrorMessage
 
-  useEffect(function clearWhiteboardProvisionOnUnmount() {
+  useEffect(function clearProvisionOnUnmount() {
     isMountedRef.current = true
     return function cleanup() {
       isMountedRef.current = false
@@ -74,6 +77,7 @@ export function SessionSmart({ interviewId }: SessionSmartProps) {
           if (!isMountedRef.current) return
           clearWhiteboardProvisionHandle(whiteboardProvisionHandleRef.current)
           whiteboardProvisionHandleRef.current = createWhiteboardProvisionHandle(data)
+          provisionDataRef.current = data
           isDispatchingRef.current = false
           dispatch({ type: 'PROVISION_SUCCESS' })
         },
@@ -104,9 +108,47 @@ export function SessionSmart({ interviewId }: SessionSmartProps) {
     dispatch({ type: 'WHITEBOARD_FAILED', payload: message })
   }, [])
 
+  const handleMediaConnecting = useCallback(function handleMediaConnecting() {
+    dispatch({ type: 'MEDIA_CONNECTING' })
+  }, [])
+
+  const handleMediaConnected = useCallback(function handleMediaConnected() {
+    dispatch({ type: 'MEDIA_CONNECTED' })
+  }, [])
+
+  const handleMediaWaitingForPeer = useCallback(function handleMediaWaitingForPeer() {
+    dispatch({ type: 'MEDIA_WAITING_FOR_PEER' })
+  }, [])
+
+  const handleMediaReconnecting = useCallback(function handleMediaReconnecting() {
+    dispatch({ type: 'MEDIA_RECONNECTING' })
+  }, [])
+
+  const handleMediaFailed = useCallback(function handleMediaFailed(message: string) {
+    dispatch({ type: 'MEDIA_FAILED', payload: message })
+  }, [])
+
+  const handleMediaPermissionError = useCallback(function handleMediaPermissionError(
+    error: 'denied' | 'system-denied' | 'device-unavailable',
+  ) {
+    const messages = {
+      denied: 'Camera or microphone access was denied. Please check your browser permissions.',
+      'system-denied': 'Camera or microphone access was blocked by your system. Please check system preferences.',
+      'device-unavailable': 'Camera or microphone is not available. Please check your devices.',
+    }
+    dispatch({ type: 'MEDIA_FAILED', payload: messages[error] })
+  }, [])
+
   function handleBackToInterviews() {
     navigate({ to: '/interviews' })
   }
+
+  const mediaConfig: MediaConnectionConfig | null = provisionDataRef.current
+    ? {
+        realtimeSessionId: provisionDataRef.current.realtime.realtime_session_id,
+        token: provisionDataRef.current.realtime.token,
+      }
+    : null
 
   return (
     <SessionDumb
@@ -119,12 +161,21 @@ export function SessionSmart({ interviewId }: SessionSmartProps) {
       }
       whiteboardStatus={state.whiteboardStatus}
       whiteboardErrorMessage={state.whiteboardErrorMessage}
+      mediaConfig={mediaConfig}
+      mediaStatus={state.mediaStatus}
+      mediaErrorMessage={state.mediaErrorMessage}
       onJoin={handleJoin}
       onRetryWhiteboard={handleWhiteboardRetry}
       onWhiteboardConnecting={handleWhiteboardConnecting}
       onWhiteboardConnected={handleWhiteboardConnected}
       onWhiteboardReconnecting={handleWhiteboardReconnecting}
       onWhiteboardFailed={handleWhiteboardFailed}
+      onMediaConnecting={handleMediaConnecting}
+      onMediaConnected={handleMediaConnected}
+      onMediaWaitingForPeer={handleMediaWaitingForPeer}
+      onMediaReconnecting={handleMediaReconnecting}
+      onMediaFailed={handleMediaFailed}
+      onMediaPermissionError={handleMediaPermissionError}
       onBackToInterviews={handleBackToInterviews}
     />
   )
