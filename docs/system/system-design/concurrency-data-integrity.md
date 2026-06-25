@@ -1,6 +1,7 @@
 To ensure system reliability, especially regarding financial transactions and interview scheduling, the following strategies are implemented:
 
 - **Credit Updates**: All balance updates are performed using atomic SQL operations (e.g., `UPDATE "user" SET credits = credits + ?`) within a database transaction. This prevents race conditions where multiple concurrent updates could lead to incorrect balances.
+- **Tier Policy Resolution**: When the free-tier policy service must read account state (quotas + credits), decide which resource to consume, then write — a read-decide-write pattern not expressible as a single atomic UPDATE — it uses `SELECT ... FOR UPDATE` on the user row within the interview-creation transaction to prevent race conditions between concurrent interview creation attempts.
 - **Idempotency**: Stripe webhook handlers utilize the `stripe_payment_intent_id` as an idempotency key. Before granting credits, the system checks the `Credit_Transactions` table to ensure the specific payment hasn't already been fulfilled.
 - **Greedy Matcher (Concurrency)**: To prevent over-matching, the "Greedy Matcher" cron worker executes each match attempt inside a Postgres transaction and uses `SELECT ... FOR UPDATE` to lock candidate `Availability_Slots` and their parent `Availability_Requests`.
 - **Greedy Matcher Conflict Handling**: Retryable transaction conflicts (`40001`, `40P01`) are retried with bounded attempts; exhausted conflicts are skipped with deterministic diagnostics so the cycle can continue safely.
