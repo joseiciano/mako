@@ -5,9 +5,9 @@ CREATE TABLE IF NOT EXISTS credit_transactions (
   id UUID PRIMARY KEY,
   user_id UUID NOT NULL REFERENCES "user"(id),
   stripe_payment_intent_id TEXT NOT NULL,
-  amount INTEGER NOT NULL,
+  amount INTEGER NOT NULL CHECK (amount >= 0),
   credits_granted INTEGER NOT NULL CHECK (credits_granted >= 0),
-  status TEXT NOT NULL,
+  status TEXT NOT NULL CHECK (status IN ('succeeded', 'pending', 'failed')),
   created_at TIMESTAMPTZ NOT NULL
 );
 
@@ -18,3 +18,4 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_credit_transactions_stripe_payment_intent_
 -- Optimize user-scoped transaction history queries.
 CREATE INDEX IF NOT EXISTS idx_credit_transactions_user_id_created_at
   ON credit_transactions (user_id, created_at DESC);
+
