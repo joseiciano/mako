@@ -1,5 +1,6 @@
 import type { InterviewDetail } from '@mako/shared'
 import type { WhiteboardConnectionStatus } from '#/components/interviews/whiteboard'
+import type { MediaConnectionStatus } from '#/components/interviews/media'
 
 export type SessionStatus = 'idle' | 'joining' | 'provisioned' | 'error'
 
@@ -8,6 +9,8 @@ export type SessionState = {
   errorMessage: string | null
   whiteboardStatus: WhiteboardConnectionStatus
   whiteboardErrorMessage: string | null
+  mediaStatus: MediaConnectionStatus
+  mediaErrorMessage: string | null
 }
 
 export const initialSessionState: SessionState = {
@@ -15,6 +18,8 @@ export const initialSessionState: SessionState = {
   errorMessage: null,
   whiteboardStatus: 'idle',
   whiteboardErrorMessage: null,
+  mediaStatus: 'pre-join',
+  mediaErrorMessage: null,
 }
 
 export type SessionAction =
@@ -25,6 +30,11 @@ export type SessionAction =
   | { type: 'WHITEBOARD_CONNECTED' }
   | { type: 'WHITEBOARD_RECONNECTING' }
   | { type: 'WHITEBOARD_FAILED'; payload: string }
+  | { type: 'MEDIA_CONNECTING' }
+  | { type: 'MEDIA_CONNECTED' }
+  | { type: 'MEDIA_WAITING_FOR_PEER' }
+  | { type: 'MEDIA_RECONNECTING' }
+  | { type: 'MEDIA_FAILED'; payload: string }
   | { type: 'RESET' }
 
 export function sessionReducer(
@@ -40,6 +50,8 @@ export function sessionReducer(
         errorMessage: null,
         whiteboardStatus: 'idle',
         whiteboardErrorMessage: null,
+        mediaStatus: 'pre-join',
+        mediaErrorMessage: null,
       }
     }
 
@@ -50,6 +62,8 @@ export function sessionReducer(
         errorMessage: null,
         whiteboardStatus: 'idle',
         whiteboardErrorMessage: null,
+        mediaStatus: 'pre-join',
+        mediaErrorMessage: null,
       }
     }
 
@@ -60,6 +74,8 @@ export function sessionReducer(
         errorMessage: action.payload,
         whiteboardStatus: 'idle',
         whiteboardErrorMessage: null,
+        mediaStatus: 'pre-join',
+        mediaErrorMessage: null,
       }
     }
 
@@ -84,6 +100,35 @@ export function sessionReducer(
         ...state,
         whiteboardStatus: 'failed',
         whiteboardErrorMessage: action.payload,
+      }
+    }
+
+    case 'MEDIA_CONNECTING': {
+      if (state.status !== 'provisioned') return state
+      return { ...state, mediaStatus: 'connecting', mediaErrorMessage: null }
+    }
+
+    case 'MEDIA_CONNECTED': {
+      if (state.status !== 'provisioned') return state
+      return { ...state, mediaStatus: 'connected', mediaErrorMessage: null }
+    }
+
+    case 'MEDIA_WAITING_FOR_PEER': {
+      if (state.status !== 'provisioned') return state
+      return { ...state, mediaStatus: 'waiting-for-peer', mediaErrorMessage: null }
+    }
+
+    case 'MEDIA_RECONNECTING': {
+      if (state.status !== 'provisioned') return state
+      return { ...state, mediaStatus: 'reconnecting', mediaErrorMessage: null }
+    }
+
+    case 'MEDIA_FAILED': {
+      if (state.status !== 'provisioned') return state
+      return {
+        ...state,
+        mediaStatus: 'failed',
+        mediaErrorMessage: action.payload,
       }
     }
 
