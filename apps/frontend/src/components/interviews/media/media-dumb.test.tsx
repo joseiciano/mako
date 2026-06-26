@@ -10,6 +10,8 @@ function makeProps(overrides?: Partial<MediaDumbProps>): MediaDumbProps {
     isAudioEnabled: false,
     isVideoEnabled: false,
     remoteParticipantCount: 0,
+    localVideoTrack: null,
+    remoteVideoTrack: null,
     onToggleAudio: vi.fn(),
     onToggleVideo: vi.fn(),
     onReconnect: vi.fn(),
@@ -70,20 +72,6 @@ describe('MediaDumb', function () {
 
     expect(screen.getByRole('alert')).toHaveTextContent(/camera or microphone access was denied/i)
     expect(screen.getByText(/please allow camera and microphone access/i)).toBeInTheDocument()
-  })
-
-  it('shows system-denied error with guidance', function () {
-    render(
-      <MediaDumb
-        {...makeProps({
-          status: 'failed',
-          permissionError: 'system-denied',
-        })}
-      />,
-    )
-
-    expect(screen.getByRole('alert')).toHaveTextContent(/blocked by your system/i)
-    expect(screen.getByText(/check your system preferences/i)).toBeInTheDocument()
   })
 
   it('shows device-unavailable error with guidance', function () {

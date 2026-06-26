@@ -80,7 +80,12 @@ function createStatefulMockClient(initialMeeting: Record<string, unknown> | null
     return [meeting, initMeeting] as const
   }
 
-  return { mockImpl, initMeeting, setMeetingOverride: (o: Record<string, unknown> | null) => { currentMeetingOverride = o } }
+  return {
+    mockImpl,
+    initMeeting,
+    getCurrentMeeting: () => currentMeeting,
+    setMeetingOverride: (o: Record<string, unknown> | null) => { currentMeetingOverride = o },
+  }
 }
 
 describe('useMediaConnection', function () {
@@ -139,7 +144,7 @@ describe('useMediaConnection', function () {
     expect(mockClient.initMeeting).toHaveBeenCalledTimes(1)
   })
 
-  it('transitions to waiting-for-peer after successful join with no participants', async function () {
+  it('waits for roomJoined event before transitioning after successful join', async function () {
     const { result } = renderHook(() =>
       useMediaConnection({ realtimeSessionId: 'rt-1', token: 'token-1' }),
     )
@@ -152,14 +157,88 @@ describe('useMediaConnection', function () {
       await Promise.resolve()
     })
 
+    expect(result.current.status).toBe('connecting')
+
+    const meeting = mockClient.getCurrentMeeting()
+    expect(meeting).toBeTruthy()
+
+    act(() => {
+      const handlers = (meeting?._eventHandlers ?? {}) as Record<string, Function>
+      handlers['self:roomJoined']?.()
+    })
+
     await waitFor(() => {
       expect(result.current.status).toBe('waiting-for-peer')
     })
     expect(result.current.remoteParticipantCount).toBe(0)
   })
 
+  it('syncs audio and video state from the meeting when room joins', async function () {
+    const { result } = renderHook(() =>
+      useMediaConnection({ realtimeSessionId: 'rt-1', token: 'token-1' }),
+    )
+
+    act(() => {
+      result.current.connect()
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    const meeting = mockClient.getCurrentMeeting()
+    const self = meeting?.self as { audioEnabled: boolean; videoEnabled: boolean } | undefined
+    expect(self).toBeDefined()
+
+    self!.audioEnabled = true
+    self!.videoEnabled = true
+
+    act(() => {
+      const handlers = (meeting?._eventHandlers ?? {}) as Record<string, Function>
+      handlers['self:roomJoined']?.()
+    })
+
+    await waitFor(() => {
+      expect(result.current.isAudioEnabled).toBe(true)
+      expect(result.current.isVideoEnabled).toBe(true)
+    })
+  })
+
+  it('treats unexpected room leaves as failed connections', async function () {
+    const { result } = renderHook(() =>
+      useMediaConnection({ realtimeSessionId: 'rt-1', token: 'token-1' }),
+    )
+
+    act(() => {
+      result.current.connect()
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    const meeting = mockClient.getCurrentMeeting()
+    act(() => {
+      const handlers = (meeting?._eventHandlers ?? {}) as Record<string, Function>
+      handlers['self:roomJoined']?.()
+    })
+
+    await waitFor(() => {
+      expect(result.current.status).toBe('waiting-for-peer')
+    })
+
+    act(() => {
+      const handlers = (meeting?._eventHandlers ?? {}) as Record<string, Function>
+      handlers['self:roomLeft']?.()
+    })
+
+    expect(result.current.status).toBe('failed')
+    expect(result.current.remoteParticipantCount).toBe(0)
+  })
+
   it('transitions to failed on join error', async function () {
     // Set up mock to return a meeting that rejects join
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
     mockClient.setMeetingOverride({
       join: vi.fn().mockRejectedValue(new Error('Join failed')),
     })
@@ -179,16 +258,68 @@ describe('useMediaConnection', function () {
     await waitFor(() => {
       expect(result.current.status).toBe('failed')
     })
+    consoleError.mockRestore()
+  })
+
+  it('logs join errors when meeting join rejects', async function () {
+    const joinError = new Error('Join failed')
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockClient.setMeetingOverride({
+      join: vi.fn().mockRejectedValue(joinError),
+    })
+
+    const { result } = renderHook(() =>
+      useMediaConnection({ realtimeSessionId: 'rt-1', token: 'token-1' }),
+    )
+
+    act(() => {
+      result.current.connect()
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    await waitFor(() => {
+      expect(result.current.status).toBe('failed')
+    })
+    expect(consoleError).toHaveBeenCalledWith('Meeting join failed:', joinError)
+    consoleError.mockRestore()
+  })
+
+  it('keeps timeout protection after meeting is initialized', async function () {
+    mockClient.setMeetingOverride({
+      join: vi.fn(() => new Promise(() => {})),
+    })
+
+    const { result } = renderHook(() =>
+      useMediaConnection({ realtimeSessionId: 'rt-1', token: 'token-1' }),
+    )
+
+    act(() => {
+      result.current.connect()
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    act(() => {
+      vi.advanceTimersByTime(30000)
+    })
+
+    expect(result.current.status).toBe('failed')
   })
 
   it('toggles audio when connected', async function () {
+    const enableAudio = vi.fn().mockResolvedValue(undefined)
     mockClient.setMeetingOverride({
       self: {
         roomJoined: true,
         audioEnabled: false,
         on: vi.fn(),
         off: vi.fn(),
-        enableAudio: vi.fn().mockResolvedValue(undefined),
+        enableAudio,
         disableAudio: vi.fn().mockResolvedValue(undefined),
       },
     })
@@ -205,18 +336,444 @@ describe('useMediaConnection', function () {
       await Promise.resolve()
     })
 
-    await waitFor(() => {
-      expect(result.current.status).not.toBe('connecting')
+    act(() => {
+      result.current.toggleAudio()
+    })
+
+    expect(enableAudio).toHaveBeenCalledOnce()
+  })
+
+  it('uses generic failure for audio enable failures', async function () {
+    const enableError = new Error('Network failed')
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockClient.setMeetingOverride({
+      self: {
+        roomJoined: true,
+        audioEnabled: false,
+        videoEnabled: false,
+        on: vi.fn(),
+        off: vi.fn(),
+        enableAudio: vi.fn().mockRejectedValue(enableError),
+        disableAudio: vi.fn().mockResolvedValue(undefined),
+        enableVideo: vi.fn().mockResolvedValue(undefined),
+        disableVideo: vi.fn().mockResolvedValue(undefined),
+      },
+    })
+
+    const { result } = renderHook(() =>
+      useMediaConnection({ realtimeSessionId: 'rt-1', token: 'token-1' }),
+    )
+
+    act(() => {
+      result.current.connect()
+    })
+
+    await act(async () => {
+      await Promise.resolve()
     })
 
     act(() => {
       result.current.toggleAudio()
     })
 
-    // The enableAudio should have been called since audio was disabled
-    // We can't directly check the mock meeting since it's internal, but
-    // we can verify the toggle didn't throw
-    expect(result.current.isAudioEnabled).toBe(false)
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(result.current.status).toBe('failed')
+    expect(result.current.permissionError).toBeNull()
+    expect(consoleError).toHaveBeenCalledWith('Failed to enable audio:', enableError)
+    consoleError.mockRestore()
+  })
+
+  it('surfaces permission denied errors from audio enable failures', async function () {
+    const enableError = { code: '1602', message: 'Permission denied' }
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockClient.setMeetingOverride({
+      self: {
+        roomJoined: true,
+        audioEnabled: false,
+        videoEnabled: false,
+        on: vi.fn(),
+        off: vi.fn(),
+        enableAudio: vi.fn().mockRejectedValue(enableError),
+        disableAudio: vi.fn().mockResolvedValue(undefined),
+        enableVideo: vi.fn().mockResolvedValue(undefined),
+        disableVideo: vi.fn().mockResolvedValue(undefined),
+      },
+    })
+
+    const { result } = renderHook(() =>
+      useMediaConnection({ realtimeSessionId: 'rt-1', token: 'token-1' }),
+    )
+
+    act(() => {
+      result.current.connect()
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    act(() => {
+      result.current.toggleAudio()
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(result.current.status).toBe('failed')
+    expect(result.current.permissionError).toBe('denied')
+    consoleError.mockRestore()
+  })
+
+  it('uses generic failure for video enable failures', async function () {
+    const enableError = new Error('Network failed')
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockClient.setMeetingOverride({
+      self: {
+        roomJoined: true,
+        audioEnabled: false,
+        videoEnabled: false,
+        on: vi.fn(),
+        off: vi.fn(),
+        enableAudio: vi.fn().mockResolvedValue(undefined),
+        disableAudio: vi.fn().mockResolvedValue(undefined),
+        enableVideo: vi.fn().mockRejectedValue(enableError),
+        disableVideo: vi.fn().mockResolvedValue(undefined),
+      },
+    })
+
+    const { result } = renderHook(() =>
+      useMediaConnection({ realtimeSessionId: 'rt-1', token: 'token-1' }),
+    )
+
+    act(() => {
+      result.current.connect()
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    act(() => {
+      result.current.toggleVideo()
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(result.current.status).toBe('failed')
+    expect(result.current.permissionError).toBeNull()
+    expect(consoleError).toHaveBeenCalledWith('Failed to enable video:', enableError)
+    consoleError.mockRestore()
+  })
+
+  it('surfaces device unavailable errors from video enable failures', async function () {
+    const enableError = { code: '1603', message: 'No device found' }
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockClient.setMeetingOverride({
+      self: {
+        roomJoined: true,
+        audioEnabled: false,
+        videoEnabled: false,
+        on: vi.fn(),
+        off: vi.fn(),
+        enableAudio: vi.fn().mockResolvedValue(undefined),
+        disableAudio: vi.fn().mockResolvedValue(undefined),
+        enableVideo: vi.fn().mockRejectedValue(enableError),
+        disableVideo: vi.fn().mockResolvedValue(undefined),
+      },
+    })
+
+    const { result } = renderHook(() =>
+      useMediaConnection({ realtimeSessionId: 'rt-1', token: 'token-1' }),
+    )
+
+    act(() => {
+      result.current.connect()
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    act(() => {
+      result.current.toggleVideo()
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(result.current.status).toBe('failed')
+    expect(result.current.permissionError).toBe('device-unavailable')
+    consoleError.mockRestore()
+  })
+
+  it('logs disable audio failures', async function () {
+    const disableError = new Error('Disable audio failed')
+    const disableAudio = vi.fn().mockRejectedValue(disableError)
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockClient.setMeetingOverride({
+      self: {
+        roomJoined: true,
+        audioEnabled: true,
+        videoEnabled: false,
+        on: vi.fn(),
+        off: vi.fn(),
+        enableAudio: vi.fn().mockResolvedValue(undefined),
+        disableAudio,
+        enableVideo: vi.fn().mockResolvedValue(undefined),
+        disableVideo: vi.fn().mockResolvedValue(undefined),
+      },
+    })
+
+    const { result } = renderHook(() =>
+      useMediaConnection({ realtimeSessionId: 'rt-1', token: 'token-1' }),
+    )
+
+    act(() => {
+      result.current.connect()
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    act(() => {
+      result.current.toggleAudio()
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(disableAudio).toHaveBeenCalledOnce()
+    expect(consoleError).toHaveBeenCalledWith('Failed to disable audio:', disableError)
+    consoleError.mockRestore()
+  })
+
+  it('logs disable video failures', async function () {
+    const disableError = new Error('Disable video failed')
+    const disableVideo = vi.fn().mockRejectedValue(disableError)
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockClient.setMeetingOverride({
+      self: {
+        roomJoined: true,
+        audioEnabled: false,
+        videoEnabled: true,
+        on: vi.fn(),
+        off: vi.fn(),
+        enableAudio: vi.fn().mockResolvedValue(undefined),
+        disableAudio: vi.fn().mockResolvedValue(undefined),
+        enableVideo: vi.fn().mockResolvedValue(undefined),
+        disableVideo,
+      },
+    })
+
+    const { result } = renderHook(() =>
+      useMediaConnection({ realtimeSessionId: 'rt-1', token: 'token-1' }),
+    )
+
+    act(() => {
+      result.current.connect()
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    act(() => {
+      result.current.toggleVideo()
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(disableVideo).toHaveBeenCalledOnce()
+    expect(consoleError).toHaveBeenCalledWith('Failed to disable video:', disableError)
+    consoleError.mockRestore()
+  })
+
+  it('syncs audio and video state from SDK update events', async function () {
+    const { result } = renderHook(() =>
+      useMediaConnection({ realtimeSessionId: 'rt-1', token: 'token-1' }),
+    )
+
+    act(() => {
+      result.current.connect()
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    const meeting = mockClient.getCurrentMeeting()
+    act(() => {
+      const handlers = (meeting?._eventHandlers ?? {}) as Record<string, Function>
+      handlers['self:audioUpdate']?.({ audioEnabled: true })
+      handlers['self:videoUpdate']?.({ videoEnabled: true })
+    })
+
+    expect(result.current.isAudioEnabled).toBe(true)
+    expect(result.current.isVideoEnabled).toBe(true)
+  })
+
+  it('uses the SDK video update track for local video state', async function () {
+    const videoTrack = { id: 'local-video-track' } as MediaStreamTrack
+
+    const { result } = renderHook(() =>
+      useMediaConnection({ realtimeSessionId: 'rt-1', token: 'token-1' }),
+    )
+
+    act(() => {
+      result.current.connect()
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    const meeting = mockClient.getCurrentMeeting()
+    act(() => {
+      const handlers = (meeting?._eventHandlers ?? {}) as Record<string, Function>
+      handlers['self:videoUpdate']?.({ videoEnabled: true, videoTrack })
+    })
+
+    expect(result.current.isVideoEnabled).toBe(true)
+    expect(result.current.localVideoTrack).toBe(videoTrack)
+  })
+
+  it('refreshes remote video when a joined peer enables video later', async function () {
+    const videoTrack = { id: 'remote-video-track' } as MediaStreamTrack
+    const participant = { videoEnabled: false, videoTrack: null as MediaStreamTrack | null }
+
+    const { result } = renderHook(() =>
+      useMediaConnection({ realtimeSessionId: 'rt-1', token: 'token-1' }),
+    )
+
+    act(() => {
+      result.current.connect()
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    const meeting = mockClient.getCurrentMeeting()
+    const joined = (meeting?.participants as { joined: {
+      size: number
+      values: () => Iterable<typeof participant>
+    } }).joined
+    joined.size = 1
+    joined.values = () => [participant].values()
+
+    act(() => {
+      const handlers = (meeting?._eventHandlers ?? {}) as Record<string, Function>
+      handlers['self:roomJoined']?.()
+    })
+
+    await waitFor(() => {
+      expect(result.current.remoteParticipantCount).toBe(1)
+    })
+    expect(result.current.remoteVideoTrack).toBeNull()
+
+    act(() => {
+      participant.videoEnabled = true
+      participant.videoTrack = videoTrack
+      const handlers = (meeting?._eventHandlers ?? {}) as Record<string, Function>
+      handlers['participants:videoUpdate']?.(participant, {
+        videoEnabled: true,
+        videoTrack,
+      })
+    })
+
+    expect(result.current.remoteVideoTrack).toBe(videoTrack)
+  })
+
+  it('leaves the meeting before showing failed state when enabling audio fails', async function () {
+    const enableError = new Error('Enable audio failed')
+    const leave = vi.fn().mockResolvedValue(undefined)
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockClient.setMeetingOverride({
+      leave,
+      self: {
+        roomJoined: true,
+        audioEnabled: false,
+        videoEnabled: true,
+        on: vi.fn(),
+        off: vi.fn(),
+        enableAudio: vi.fn().mockRejectedValue(enableError),
+        disableAudio: vi.fn().mockResolvedValue(undefined),
+        enableVideo: vi.fn().mockResolvedValue(undefined),
+        disableVideo: vi.fn().mockResolvedValue(undefined),
+      },
+    })
+
+    const { result } = renderHook(() =>
+      useMediaConnection({ realtimeSessionId: 'rt-1', token: 'token-1' }),
+    )
+
+    act(() => {
+      result.current.connect()
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    act(() => {
+      result.current.toggleAudio()
+    })
+
+    await waitFor(() => {
+      expect(leave).toHaveBeenCalledOnce()
+      expect(result.current.status).toBe('failed')
+    })
+
+    consoleError.mockRestore()
+  })
+
+  it('waits for leave to finish before reconnecting', async function () {
+    let resolveLeave: () => void = () => {}
+    const leave = vi.fn(() =>
+      new Promise<void>((resolve) => {
+        resolveLeave = resolve
+      }),
+    )
+    mockClient.setMeetingOverride({ leave })
+
+    const { result } = renderHook(() =>
+      useMediaConnection({ realtimeSessionId: 'rt-1', token: 'token-1' }),
+    )
+
+    act(() => {
+      result.current.connect()
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(mockClient.initMeeting).toHaveBeenCalledTimes(1)
+
+    act(() => {
+      void result.current.reconnect()
+    })
+
+    expect(leave).toHaveBeenCalledOnce()
+    expect(mockClient.initMeeting).toHaveBeenCalledTimes(1)
+
+    await act(async () => {
+      resolveLeave()
+      await Promise.resolve()
+    })
+
+    expect(mockClient.initMeeting).toHaveBeenCalledTimes(2)
   })
 
   it('does not toggle audio when not connected', function () {
@@ -251,6 +808,54 @@ describe('useMediaConnection', function () {
 
     expect(result.current.status).toBe('pre-join')
     expect(result.current.remoteParticipantCount).toBe(0)
+  })
+
+  it('logs leave failures during disconnect', async function () {
+    const leaveError = new Error('Leave failed')
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+    mockClient.setMeetingOverride({
+      leave: vi.fn().mockRejectedValue(leaveError),
+    })
+
+    const { result, unmount } = renderHook(() =>
+      useMediaConnection({ realtimeSessionId: 'rt-1', token: 'token-1' }),
+    )
+
+    act(() => {
+      result.current.connect()
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    act(() => {
+      result.current.disconnect()
+    })
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+
+    expect(consoleError).toHaveBeenCalledWith('Failed to leave meeting:', leaveError)
+    unmount()
+
+    await act(async () => {
+      await Promise.resolve()
+    })
+    consoleError.mockRestore()
+  })
+
+  it('reconnects immediately without a delayed timer', function () {
+    const { result } = renderHook(() =>
+      useMediaConnection({ realtimeSessionId: 'rt-1', token: 'token-1' }),
+    )
+
+    act(() => {
+      result.current.reconnect()
+    })
+
+    expect(mockClient.initMeeting).toHaveBeenCalledTimes(1)
   })
 
   it('handles permission denied error', function () {
@@ -291,6 +896,26 @@ describe('useMediaConnection', function () {
 
     expect(result.current.status).toBe('failed')
     expect(result.current.permissionError).toBe('device-unavailable')
+  })
+
+  it('fails fast on unrecognized SDK errors', function () {
+    const { result } = renderHook(() =>
+      useMediaConnection({ realtimeSessionId: 'rt-1', token: 'token-1' }),
+    )
+
+    act(() => {
+      result.current.connect()
+    })
+
+    const initCall = mockClient.initMeeting.mock.calls[0]?.[0] as { onError: (error: { code: string; message: string }) => void } | undefined
+    expect(initCall).toBeDefined()
+
+    act(() => {
+      initCall!.onError({ code: '5000', message: 'Server error' })
+    })
+
+    expect(result.current.status).toBe('failed')
+    expect(result.current.permissionError).toBeNull()
   })
 
   it('does not connect when config is null', function () {

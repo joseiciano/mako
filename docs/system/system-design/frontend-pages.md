@@ -27,6 +27,7 @@
     - **Data**: `GET /api/interviews/:id`, `POST /api/interviews/:id/provision` (returns `mode`, Realtime `realtime_session_id` + token, and Excalidraw `excalidraw_room_id` + `excalidraw_key`), `POST /api/interviews/:id/start`, `POST /api/interviews/:id/end`, `POST /api/interviews/:id/ai-chat` (**AI-led only**)
     - **Notes**:
       - Whiteboard integration is complete with Excalidraw collaboration (Stories 3.3/3.4). The session page renders the full whiteboard UI after provision.
+      - Real-time media integration is complete with Cloudflare RealtimeKit (Story 3.6).
       - `peer_to_peer` sessions share one room/key pair across both participants.
       - `ai_led` sessions use a single-user room/key pair plus chat guidance.
       - AI chat guidance uses Excalidraw JSON snapshots as source-of-truth input; Mermaid is optional derived output for reporting/export.

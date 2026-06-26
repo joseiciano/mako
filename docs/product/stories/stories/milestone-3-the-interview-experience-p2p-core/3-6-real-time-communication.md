@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 3: The Interview Experience (P2P Core)
 **Description**: Implement reliable peer-to-peer audio/video communication in the interview session experience using Cloudflare RealtimeKit.
-**Status**: Todo
+**Status**: Completed
 **Prerequisites**:
 - `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-2-whiteboard-provision-contract-and-backend-wiring.md`
 - `docs/system/system-design/api-routes.md`
@@ -15,26 +15,26 @@
 ## What Needs to Be Done
 
 ### 1. Frontend session media integration
-- [ ] Implement session media UI/component wiring in frontend session route files under `apps/frontend/src/routes/` and `apps/frontend/src/components/` (using existing smart/dumb component patterns).
-- [ ] Connect clients to Cloudflare Realtime using **RealtimeKit** credentials returned from `POST /api/interviews/:id/provision`.
-- [ ] Start media connection only after explicit user join action and successful provisioning response.
-- [ ] Render explicit session media states: pre-join, connecting, connected, waiting-for-peer, reconnecting, and failed-to-connect.
+- [x] Implement session media UI/component wiring in frontend session route files under `apps/frontend/src/routes/` and `apps/frontend/src/components/` (using existing smart/dumb component patterns).
+- [x] Connect clients to Cloudflare Realtime using **RealtimeKit** credentials returned from `POST /api/interviews/:id/provision`.
+- [x] Start media connection only after explicit user join action and successful provisioning response.
+- [x] Render explicit session media states: pre-join, connecting, connected, waiting-for-peer, reconnecting, and failed.
 
 ### 2. Media controls and participant UX behavior
-- [ ] Add participant controls for microphone and camera enable/disable with clear local state feedback.
-- [ ] Handle browser/device permission-denied and device-unavailable scenarios with actionable retry guidance.
-- [ ] Show remote participant presence/availability state so users understand whether the other participant is connected.
-- [ ] Keep user-facing copy and interaction behavior aligned with `docs/system/system-design/frontend-pages.md` interview session expectations.
+- [x] Add participant controls for microphone and camera enable/disable with clear local state feedback.
+- [x] Handle browser/device permission-denied and device-unavailable scenarios with actionable retry guidance.
+- [x] Show remote participant presence/availability state so users understand whether the other participant is connected.
+- [x] Keep user-facing copy and interaction behavior aligned with `docs/system/system-design/frontend-pages.md` interview session expectations.
 
 ### 3. Resilience and safety guardrails
-- [ ] Prevent duplicate in-flight connect attempts from repeated join clicks/interactions.
-- [ ] Reconnect logic must reuse interview-scoped provisioned credentials for active sessions (idempotent retry behavior), not regenerate new session identity in the client.
-- [ ] Ensure sensitive values (Realtime tokens, `excalidraw_key`) are never logged or exposed in client telemetry.
-- [ ] Keep transport choice aligned with infrastructure docs: Cloudflare RealtimeKit only (`docs/infrastructure/backend.md`), never Cloudflare Calls.
+- [x] Prevent duplicate in-flight connect attempts from repeated join clicks/interactions.
+- [x] Reconnect logic must reuse interview-scoped provisioned credentials for active sessions (idempotent retry behavior), not regenerate new session identity in the client.
+- [x] Ensure sensitive values (Realtime tokens, `excalidraw_key`) are never logged or exposed in client telemetry.
+- [x] Keep transport choice aligned with infrastructure docs: Cloudflare RealtimeKit only (`docs/infrastructure/backend.md`), never Cloudflare Calls.
 
 ### 4. Testing coverage
-- [ ] Add/update frontend tests for join gating, connection state transitions, media control toggles, permission failures, and reconnect/failure states.
-- [ ] Add/update integration tests (where applicable) that prove client behavior remains compatible with the provision route contract from `docs/system/system-design/api-routes.md`.
+- [x] Add/update frontend tests for join gating, connection state transitions, media control toggles, permission failures, and reconnect/failure states.
+- [x] Add/update integration tests (where applicable) that prove client behavior remains compatible with the provision route contract from `docs/system/system-design/api-routes.md`.
 
 ## Implementation Notes
 - Scope is limited to **in-session peer-to-peer audio/video communication** for `/interviews/:id/session`.

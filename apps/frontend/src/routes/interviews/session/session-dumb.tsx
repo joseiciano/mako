@@ -7,7 +7,7 @@ import type {
 import { MediaSmart } from '#/components/interviews/media'
 import type {
   MediaConnectionConfig,
-  MediaConnectionStatus,
+  MediaPermissionError,
 } from '#/components/interviews/media'
 import type { SessionStatus } from './session-flow'
 import {
@@ -25,7 +25,6 @@ export type SessionDumbProps = {
   whiteboardStatus: WhiteboardConnectionStatus
   whiteboardErrorMessage: string | null
   mediaConfig: MediaConnectionConfig | null
-  mediaStatus: MediaConnectionStatus
   mediaErrorMessage: string | null
   onJoin: () => void
   onRetryWhiteboard: () => void
@@ -38,7 +37,7 @@ export type SessionDumbProps = {
   onMediaWaitingForPeer: () => void
   onMediaReconnecting: () => void
   onMediaFailed: (message: string) => void
-  onMediaPermissionError: (error: 'denied' | 'system-denied' | 'device-unavailable') => void
+  onMediaPermissionError: (error: MediaPermissionError) => void
   onBackToInterviews: () => void
 }
 
@@ -107,6 +106,15 @@ function renderContent(props: SessionDumbProps) {
 
         <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
           <h2 className="mb-4 text-lg font-semibold text-white">Media</h2>
+          {props.mediaErrorMessage ? (
+            <div
+              aria-label="Media error"
+              className="mb-4 rounded-lg border border-red-900 bg-red-950/40 p-3 text-sm text-red-200"
+              role="alert"
+            >
+              {props.mediaErrorMessage}
+            </div>
+          ) : null}
           <MediaSmart
             config={props.mediaConfig}
             onConnecting={props.onMediaConnecting}

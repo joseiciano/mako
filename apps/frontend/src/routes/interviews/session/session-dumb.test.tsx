@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { SessionDumb, type SessionDumbProps } from './session-dumb'
-import type { InterviewDetail } from '@mako/shared'
+import { makeInterview } from './test-helpers'
 
 vi.mock('#/components/interviews/whiteboard', function () {
   return {
@@ -21,27 +21,6 @@ vi.mock('#/components/interviews/media', function () {
   }
 })
 
-function makeInterview(overrides?: Partial<InterviewDetail>): InterviewDetail {
-  return {
-    id: 'int-1',
-    scheduler_id: 'sch-1',
-    scheduler_alias: 'Bob',
-    interviewer_id: 'intv-1',
-    interviewer_alias: 'Alice',
-    type: 'behavioral',
-    mode: 'ai_led',
-    tier: 'standard',
-    status: 'scheduled',
-    scheduled_at: '2026-06-20T10:00:00Z',
-    recording_url: null,
-    screenshot_urls: null,
-    feedback: null,
-    created_at: '2026-06-19T10:00:00Z',
-    updated_at: '2026-06-19T10:00:00Z',
-    ...overrides,
-  }
-}
-
 function makeProps(overrides?: Partial<SessionDumbProps>): SessionDumbProps {
   return {
     interview: null,
@@ -52,7 +31,6 @@ function makeProps(overrides?: Partial<SessionDumbProps>): SessionDumbProps {
     whiteboardStatus: 'idle',
     whiteboardErrorMessage: null,
     mediaConfig: null,
-    mediaStatus: 'pre-join',
     mediaErrorMessage: null,
     onJoin: vi.fn(),
     onRetryWhiteboard: vi.fn(),
@@ -180,6 +158,22 @@ describe('SessionDumb', function () {
       />,
     )
     expect(screen.getByTestId('media-smart-mock')).toBeInTheDocument()
+  })
+
+  it('shows media error message when provisioned media fails', function () {
+    render(
+      <SessionDumb
+        {...makeProps({
+          interview: makeInterview(),
+          status: 'provisioned',
+          mediaErrorMessage: 'Camera or microphone access was denied.',
+        })}
+      />,
+    )
+
+    expect(screen.getByRole('alert', { name: /media error/i })).toHaveTextContent(
+      'Camera or microphone access was denied.',
+    )
   })
 
   it('does not render whiteboard when not provisioned', function () {
