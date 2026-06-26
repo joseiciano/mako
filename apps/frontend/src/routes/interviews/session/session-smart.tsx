@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useReducer, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useInterviewDetail, useProvisionInterview } from '#/hooks/use-interviews'
 import type { WhiteboardProvisionHandle } from '#/components/interviews/whiteboard'
 import type { ProvisionInterviewResponse } from '@mako/shared'
-import type { MediaConnectionConfig } from '#/components/interviews/media'
+import type { MediaConnectionConfig, MediaPermissionError } from '#/components/interviews/media'
 import {
   clearWhiteboardProvisionHandle,
   createWhiteboardProvisionHandle,
@@ -82,6 +82,7 @@ export function SessionSmart({ interviewId }: SessionSmartProps) {
           dispatch({ type: 'PROVISION_SUCCESS' })
         },
         onError: function onProvisionError() {
+          if (!isMountedRef.current) return
           isDispatchingRef.current = false
           dispatch({
             type: 'PROVISION_ERROR',
@@ -129,11 +130,10 @@ export function SessionSmart({ interviewId }: SessionSmartProps) {
   }, [])
 
   const handleMediaPermissionError = useCallback(function handleMediaPermissionError(
-    error: 'denied' | 'system-denied' | 'device-unavailable',
+    error: MediaPermissionError,
   ) {
     const messages = {
       denied: 'Camera or microphone access was denied. Please check your browser permissions.',
-      'system-denied': 'Camera or microphone access was blocked by your system. Please check system preferences.',
       'device-unavailable': 'Camera or microphone is not available. Please check your devices.',
     }
     dispatch({ type: 'MEDIA_FAILED', payload: messages[error] })
@@ -143,12 +143,15 @@ export function SessionSmart({ interviewId }: SessionSmartProps) {
     navigate({ to: '/interviews' })
   }
 
-  const mediaConfig: MediaConnectionConfig | null = provisionDataRef.current
-    ? {
-        realtimeSessionId: provisionDataRef.current.realtime.realtime_session_id,
-        token: provisionDataRef.current.realtime.token,
-      }
-    : null
+  const provisionData = provisionDataRef.current
+  const mediaConfig = useMemo<MediaConnectionConfig | null>(() => {
+    if (!provisionData) return null
+
+    return {
+      realtimeSessionId: provisionData.realtime.realtime_session_id,
+      token: provisionData.realtime.token,
+    }
+  }, [provisionData])
 
   return (
     <SessionDumb
@@ -162,7 +165,6 @@ export function SessionSmart({ interviewId }: SessionSmartProps) {
       whiteboardStatus={state.whiteboardStatus}
       whiteboardErrorMessage={state.whiteboardErrorMessage}
       mediaConfig={mediaConfig}
-      mediaStatus={state.mediaStatus}
       mediaErrorMessage={state.mediaErrorMessage}
       onJoin={handleJoin}
       onRetryWhiteboard={handleWhiteboardRetry}

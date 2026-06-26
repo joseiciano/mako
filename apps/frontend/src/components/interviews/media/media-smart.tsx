@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useMediaConnection } from '#/hooks/use-media-connection'
 import { MediaDumb } from './media-dumb'
-import type { MediaConnectionConfig } from './media-types'
+import type { MediaConnectionConfig, MediaPermissionError } from './media-types'
 
 export type MediaSmartProps = {
   config: MediaConnectionConfig | null
@@ -10,7 +10,7 @@ export type MediaSmartProps = {
   onWaitingForPeer: () => void
   onReconnecting: () => void
   onFailed: (message: string) => void
-  onPermissionError: (error: 'denied' | 'system-denied' | 'device-unavailable') => void
+  onPermissionError: (error: MediaPermissionError) => void
 }
 
 export function MediaSmart({
@@ -40,11 +40,14 @@ export function MediaSmart({
         onReconnecting()
         break
       case 'failed':
-        onFailed('Media connection failed')
+        if (!media.permissionError) {
+          onFailed('Media connection failed')
+        }
         break
     }
   }, [
     media.status,
+    media.permissionError,
     onConnecting,
     onConnected,
     onWaitingForPeer,
@@ -73,6 +76,8 @@ export function MediaSmart({
       isAudioEnabled={media.isAudioEnabled}
       isVideoEnabled={media.isVideoEnabled}
       remoteParticipantCount={media.remoteParticipantCount}
+      localVideoTrack={media.localVideoTrack}
+      remoteVideoTrack={media.remoteVideoTrack}
       onToggleAudio={media.toggleAudio}
       onToggleVideo={media.toggleVideo}
       onReconnect={media.reconnect}

@@ -6,10 +6,7 @@ export type MediaConnectionStatus =
   | 'reconnecting'
   | 'failed'
 
-export type MediaPermissionError =
-  | 'denied'
-  | 'system-denied'
-  | 'device-unavailable'
+export type MediaPermissionError = 'denied' | 'device-unavailable'
 
 export type MediaConnectionState = {
   status: MediaConnectionStatus
@@ -17,6 +14,8 @@ export type MediaConnectionState = {
   isAudioEnabled: boolean
   isVideoEnabled: boolean
   remoteParticipantCount: number
+  localVideoTrack: MediaStreamTrack | null
+  remoteVideoTrack: MediaStreamTrack | null
 }
 
 export type MediaConnectionActions = {

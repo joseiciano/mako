@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useRealtimeKitClient } from '@cloudflare/realtimekit-react'
+import {
+  getMediaPermissionError,
+  logMeetingError,
+} from './media-connection-error-helpers'
+import { getFirstRemoteVideoTrack } from './media-track-helpers'
+import { useConnectionTimeout } from './use-connection-timeout'
 import type {
   MediaConnectionConfig,
   MediaConnectionStatus,
   MediaPermissionError,
   UseMediaConnectionReturn,
-} from '#/components/interviews/media/media-types'
-
-const CONNECTION_TIMEOUT_MS = 30000
+} from '#/components/interviews/media'
 
 export function useMediaConnection(
   config: MediaConnectionConfig | null,
@@ -16,36 +20,79 @@ export function useMediaConnection(
   const [status, setStatus] = useState<MediaConnectionStatus>('pre-join')
   const [permissionError, setPermissionError] =
     useState<MediaPermissionError | null>(null)
+  const [isAudioEnabled, setIsAudioEnabled] = useState(false)
+  const [isVideoEnabled, setIsVideoEnabled] = useState(false)
   const [remoteParticipantCount, setRemoteParticipantCount] = useState(0)
-  const connectionTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(
-    null,
-  )
+  const [localVideoTrack, setLocalVideoTrack] =
+    useState<MediaStreamTrack | null>(null)
+  const [remoteVideoTrack, setRemoteVideoTrack] =
+    useState<MediaStreamTrack | null>(null)
   const isConnectingRef = useRef(false)
+  const statusRef = useRef<MediaConnectionStatus>('pre-join')
   const configRef = useRef(config)
+  const leavePromisesRef = useRef<WeakMap<object, Promise<void>>>(new WeakMap())
+
+  const handleConnectionTimeout = useCallback(() => {
+    if (statusRef.current === 'connecting') {
+      setStatus('failed')
+      isConnectingRef.current = false
+    }
+  }, [])
+
+  const { startConnectionTimeout, clearConnectionTimeout } =
+    useConnectionTimeout({ onTimeout: handleConnectionTimeout })
+
+  const leaveMeeting = useCallback((meetingToLeave: unknown) => {
+    if (!meetingToLeave || typeof meetingToLeave !== 'object') {
+      return Promise.resolve()
+    }
+
+    const existingLeave = leavePromisesRef.current.get(meetingToLeave)
+    if (existingLeave) return existingLeave
+
+    const leave = (meetingToLeave as { leave?: () => Promise<void> }).leave
+    if (!leave) return Promise.resolve()
+
+    const leavePromise = leave.call(meetingToLeave).catch((error) => {
+      logMeetingError('Failed to leave meeting:', error)
+    })
+
+    leavePromisesRef.current.set(meetingToLeave, leavePromise)
+    return leavePromise
+  }, [])
+
+  const handleFailedToggle = useCallback(
+    async (activeMeeting: unknown, error: unknown) => {
+      setPermissionError(getMediaPermissionError(error))
+      clearConnectionTimeout()
+      isConnectingRef.current = false
+      await leaveMeeting(activeMeeting)
+      setRemoteParticipantCount(0)
+      setIsAudioEnabled(false)
+      setIsVideoEnabled(false)
+      setLocalVideoTrack(null)
+      setRemoteVideoTrack(null)
+      setStatus('failed')
+    },
+    [clearConnectionTimeout, leaveMeeting],
+  )
 
   // Keep config ref in sync for reconnects
   useEffect(() => {
     configRef.current = config
   }, [config])
 
-  // Cleanup on unmount: leave meeting and clear timeout
+  // Keep status ref in sync for timeout checks
+  useEffect(() => {
+    statusRef.current = status
+  }, [status])
+
+  // Cleanup meeting on unmount or meeting replacement.
   useEffect(() => {
     return () => {
-      if (connectionTimeoutRef.current) {
-        clearTimeout(connectionTimeoutRef.current)
-      }
-      if (meeting) {
-        meeting.leave()
-      }
+      void leaveMeeting(meeting)
     }
-  }, [meeting])
-
-  const clearConnectionTimeout = useCallback(() => {
-    if (connectionTimeoutRef.current) {
-      clearTimeout(connectionTimeoutRef.current)
-      connectionTimeoutRef.current = null
-    }
-  }, [])
+  }, [meeting, leaveMeeting])
 
   const connect = useCallback(() => {
     if (isConnectingRef.current || !configRef.current) return
@@ -54,13 +101,7 @@ export function useMediaConnection(
     setStatus('connecting')
     setPermissionError(null)
 
-    // Set connection timeout
-    connectionTimeoutRef.current = setTimeout(() => {
-      if (status === 'connecting') {
-        setStatus('failed')
-        isConnectingRef.current = false
-      }
-    }, CONNECTION_TIMEOUT_MS)
+    startConnectionTimeout()
 
     initMeeting({
       authToken: configRef.current.token,
@@ -70,40 +111,37 @@ export function useMediaConnection(
         audio: true,
         video: true,
       },
-      onError: (error: { code?: string; message?: string }) => {
+      onError: (error: { code?: string; message?: string; name?: string }) => {
         // Handle permission errors without logging sensitive tokens
-        if (error.code === '1602' || error.code === '2101') {
-          setPermissionError('denied')
-          setStatus('failed')
-        } else if (error.code === '1603') {
-          setPermissionError('device-unavailable')
-          setStatus('failed')
-        } else if (error.code === '0014') {
-          setStatus('failed')
-        }
+        setPermissionError(getMediaPermissionError(error))
+        setStatus('failed')
         isConnectingRef.current = false
         clearConnectionTimeout()
       },
     })
-  }, [initMeeting, status, clearConnectionTimeout])
+  }, [initMeeting, startConnectionTimeout, clearConnectionTimeout])
 
-  const disconnect = useCallback(() => {
-    if (meeting) {
-      meeting.leave()
-    }
+  const disconnect = useCallback(async () => {
+    const meetingToLeave = meeting
     isConnectingRef.current = false
     clearConnectionTimeout()
     setStatus('pre-join')
     setPermissionError(null)
     setRemoteParticipantCount(0)
-  }, [meeting, clearConnectionTimeout])
+    setIsAudioEnabled(false)
+    setIsVideoEnabled(false)
+    setLocalVideoTrack(null)
+    setRemoteVideoTrack(null)
+    await leaveMeeting(meetingToLeave)
+  }, [meeting, clearConnectionTimeout, leaveMeeting])
 
-  const reconnect = useCallback(() => {
-    disconnect()
-    // Small delay to ensure cleanup before reconnect
-    setTimeout(() => {
+  const reconnect = useCallback(async () => {
+    if (!meeting) {
       connect()
-    }, 100)
+      return
+    }
+    await disconnect()
+    connect()
   }, [disconnect, connect])
 
   // Join meeting after init
@@ -114,14 +152,9 @@ export function useMediaConnection(
 
     meeting
       .join()
-      .then(() => {
+      .catch((error) => {
         if (cancelled) return
-        clearConnectionTimeout()
-        setStatus('connected')
-        isConnectingRef.current = false
-      })
-      .catch(() => {
-        if (cancelled) return
+        logMeetingError('Meeting join failed:', error)
         clearConnectionTimeout()
         setStatus('failed')
         isConnectingRef.current = false
@@ -136,24 +169,37 @@ export function useMediaConnection(
   useEffect(() => {
     if (!meeting) return
 
+    const syncRemoteParticipantState = () => {
+      setRemoteParticipantCount(meeting.participants.joined.size)
+      setRemoteVideoTrack(getFirstRemoteVideoTrack(meeting.participants.joined))
+    }
+
     const handleRoomJoined = () => {
+      setIsAudioEnabled(meeting.self.audioEnabled)
+      setIsVideoEnabled(meeting.self.videoEnabled)
+      setLocalVideoTrack(
+        meeting.self.videoEnabled ? meeting.self.videoTrack ?? null : null,
+      )
+      syncRemoteParticipantState()
       setStatus('connected')
       isConnectingRef.current = false
       clearConnectionTimeout()
     }
 
     const handleRoomLeft = () => {
-      setStatus('pre-join')
       setRemoteParticipantCount(0)
+      setIsAudioEnabled(false)
+      setIsVideoEnabled(false)
+      setLocalVideoTrack(null)
+      setRemoteVideoTrack(null)
+      if (isConnectingRef.current) return
+
+      setStatus((currentStatus) =>
+        currentStatus === 'pre-join' ? 'pre-join' : 'failed',
+      )
     }
 
-    const handleParticipantJoined = () => {
-      setRemoteParticipantCount(meeting.participants.joined.size)
-    }
-
-    const handleParticipantLeft = () => {
-      setRemoteParticipantCount(meeting.participants.joined.size)
-    }
+    const handleParticipantChange = syncRemoteParticipantState
 
     const handleMediaConnectionUpdate = ({
       state,
@@ -170,24 +216,55 @@ export function useMediaConnection(
       }
     }
 
+    const handleAudioUpdate = ({
+      audioEnabled,
+    }: {
+      audioEnabled: boolean
+    }) => {
+      setIsAudioEnabled(audioEnabled)
+    }
+
+    const handleVideoUpdate = ({
+      videoEnabled,
+      videoTrack,
+    }: {
+      videoEnabled: boolean
+      videoTrack?: MediaStreamTrack | null
+    }) => {
+      setIsVideoEnabled(videoEnabled)
+      setLocalVideoTrack(
+        videoEnabled ? videoTrack ?? meeting.self.videoTrack ?? null : null,
+      )
+    }
+
+    const handleRemoteVideoUpdate = () => {
+      syncRemoteParticipantState()
+    }
+
     meeting.self.on('roomJoined', handleRoomJoined)
     meeting.self.on('roomLeft', handleRoomLeft)
-    meeting.participants.joined.on('participantJoined', handleParticipantJoined)
-    meeting.participants.joined.on('participantLeft', handleParticipantLeft)
+    meeting.participants.joined.on('participantJoined', handleParticipantChange)
+    meeting.participants.joined.on('participantLeft', handleParticipantChange)
     meeting.meta.on('mediaConnectionUpdate', handleMediaConnectionUpdate)
+    meeting.self.on('audioUpdate', handleAudioUpdate)
+    meeting.self.on('videoUpdate', handleVideoUpdate)
+    meeting.participants.joined.on('videoUpdate', handleRemoteVideoUpdate)
 
     return () => {
       meeting.self.off('roomJoined', handleRoomJoined)
       meeting.self.off('roomLeft', handleRoomLeft)
       meeting.participants.joined.off(
         'participantJoined',
-        handleParticipantJoined,
+        handleParticipantChange,
       )
       meeting.participants.joined.off(
         'participantLeft',
-        handleParticipantLeft,
+        handleParticipantChange,
       )
       meeting.meta.off('mediaConnectionUpdate', handleMediaConnectionUpdate)
+      meeting.self.off('audioUpdate', handleAudioUpdate)
+      meeting.self.off('videoUpdate', handleVideoUpdate)
+      meeting.participants.joined.off('videoUpdate', handleRemoteVideoUpdate)
     }
   }, [meeting, clearConnectionTimeout])
 
@@ -207,32 +284,40 @@ export function useMediaConnection(
     if (!meeting || !meeting.self.roomJoined) return
 
     if (meeting.self.audioEnabled) {
-      meeting.self.disableAudio()
+      meeting.self
+        .disableAudio()
+        .catch((error) => logMeetingError('Failed to disable audio:', error))
     } else {
-      meeting.self.enableAudio().catch(() => {
-        setPermissionError('denied')
+      meeting.self.enableAudio().catch((error) => {
+        logMeetingError('Failed to enable audio:', error)
+        void handleFailedToggle(meeting, error)
       })
     }
-  }, [meeting])
+  }, [meeting, handleFailedToggle])
 
   const toggleVideo = useCallback(() => {
     if (!meeting || !meeting.self.roomJoined) return
 
     if (meeting.self.videoEnabled) {
-      meeting.self.disableVideo()
+      meeting.self
+        .disableVideo()
+        .catch((error) => logMeetingError('Failed to disable video:', error))
     } else {
-      meeting.self.enableVideo().catch(() => {
-        setPermissionError('denied')
+      meeting.self.enableVideo().catch((error) => {
+        logMeetingError('Failed to enable video:', error)
+        void handleFailedToggle(meeting, error)
       })
     }
-  }, [meeting])
+  }, [meeting, handleFailedToggle])
 
   return {
     status,
     permissionError,
-    isAudioEnabled: meeting?.self.audioEnabled ?? false,
-    isVideoEnabled: meeting?.self.videoEnabled ?? false,
+    isAudioEnabled,
+    isVideoEnabled,
     remoteParticipantCount,
+    localVideoTrack,
+    remoteVideoTrack,
     connect,
     disconnect,
     reconnect,
