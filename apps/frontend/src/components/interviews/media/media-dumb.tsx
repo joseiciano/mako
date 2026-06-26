@@ -1,4 +1,3 @@
-import { useEffect, useRef } from 'react'
 import {
   Mic,
   MicOff,
@@ -8,6 +7,9 @@ import {
   AlertCircle,
   Users,
 } from 'lucide-react'
+import { getErrorGuidance, getErrorMessage } from './media-error-helpers'
+import { LocalVideoPreview } from './local-video-preview'
+import { RemoteParticipantIndicator } from './remote-participant-indicator'
 import type { MediaConnectionStatus, MediaPermissionError } from './media-types'
 
 export type MediaDumbProps = {
@@ -16,6 +18,8 @@ export type MediaDumbProps = {
   isAudioEnabled: boolean
   isVideoEnabled: boolean
   remoteParticipantCount: number
+  localVideoTrack: MediaStreamTrack | null
+  remoteVideoTrack: MediaStreamTrack | null
   onToggleAudio: () => void
   onToggleVideo: () => void
   onReconnect: () => void
@@ -102,32 +106,6 @@ function renderConnectionState(props: MediaDumbProps) {
   return null
 }
 
-function getErrorMessage(error: MediaPermissionError | null): string {
-  switch (error) {
-    case 'denied':
-      return 'Camera or microphone access was denied'
-    case 'system-denied':
-      return 'Camera or microphone access was blocked by your system'
-    case 'device-unavailable':
-      return 'Camera or microphone is not available'
-    default:
-      return 'Media connection failed'
-  }
-}
-
-function getErrorGuidance(error: MediaPermissionError | null): string {
-  switch (error) {
-    case 'denied':
-      return 'Please allow camera and microphone access in your browser settings, then try again.'
-    case 'system-denied':
-      return 'Check your system preferences to allow camera and microphone access for this browser.'
-    case 'device-unavailable':
-      return 'Make sure your camera and microphone are connected and not being used by another application.'
-    default:
-      return 'Please check your internet connection and try again.'
-  }
-}
-
 function renderVideoArea(props: MediaDumbProps) {
   const { status } = props
 
@@ -140,88 +118,13 @@ function renderVideoArea(props: MediaDumbProps) {
       <LocalVideoPreview
         isVideoEnabled={props.isVideoEnabled}
         isAudioEnabled={props.isAudioEnabled}
+        videoTrack={props.localVideoTrack}
       />
       <RemoteParticipantIndicator
         status={props.status}
         remoteParticipantCount={props.remoteParticipantCount}
+        videoTrack={props.remoteVideoTrack}
       />
-    </div>
-  )
-}
-
-function LocalVideoPreview({
-  isVideoEnabled,
-  isAudioEnabled,
-}: {
-  isVideoEnabled: boolean
-  isAudioEnabled: boolean
-}) {
-  const videoRef = useRef<HTMLVideoElement>(null)
-
-  useEffect(() => {
-    // In a real implementation, this would bind to the local video track
-    // from the RealtimeKit meeting.self.videoTrack
-    // For now, we render a placeholder that shows the media state
-  }, [])
-
-  return (
-    <div className="relative aspect-video overflow-hidden rounded-lg border border-slate-700 bg-slate-800">
-      {isVideoEnabled ? (
-        <video
-          ref={videoRef}
-          autoPlay
-          muted
-          playsInline
-          disablePictureInPicture
-          className="h-full w-full object-cover"
-        />
-      ) : (
-        <div className="flex h-full items-center justify-center">
-          <div className="flex flex-col items-center gap-2 text-slate-400">
-            <VideoOff className="h-8 w-8" />
-            <span className="text-xs">Camera off</span>
-          </div>
-        </div>
-      )}
-      <div className="absolute bottom-2 left-2 flex items-center gap-1 rounded bg-black/60 px-2 py-1 text-xs text-white">
-        {isAudioEnabled ? (
-          <Mic className="h-3 w-3" />
-        ) : (
-          <MicOff className="h-3 w-3 text-red-400" />
-        )}
-        <span>You</span>
-      </div>
-    </div>
-  )
-}
-
-function RemoteParticipantIndicator({
-  status,
-  remoteParticipantCount,
-}: {
-  status: MediaConnectionStatus
-  remoteParticipantCount: number
-}) {
-  return (
-    <div className="relative aspect-video overflow-hidden rounded-lg border border-slate-700 bg-slate-800">
-      {status === 'connected' && remoteParticipantCount > 0 ? (
-        <div className="flex h-full items-center justify-center">
-          <div className="flex flex-col items-center gap-2 text-slate-400">
-            <Users className="h-8 w-8" />
-            <span className="text-xs">Participant connected</span>
-          </div>
-        </div>
-      ) : (
-        <div className="flex h-full items-center justify-center">
-          <div className="flex flex-col items-center gap-2 text-slate-500">
-            <Users className="h-8 w-8" />
-            <span className="text-xs">Waiting for peer...</span>
-          </div>
-        </div>
-      )}
-      <div className="absolute bottom-2 left-2 rounded bg-black/60 px-2 py-1 text-xs text-white">
-        Peer
-      </div>
     </div>
   )
 }
