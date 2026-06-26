@@ -269,5 +269,17 @@ Logs for financial history and credit fulfillment via Stripe.
 - **`stripe_payment_intent_id`**: `text` (Unique) - Reference for the Stripe transaction.
 - **`amount`**: `integer` - Amount paid in cents.
 - **`credits_granted`**: `integer` - Number of credits added to the user's balance.
-- **`status`**: `text` - Transaction status (e.g., 'succeeded', 'pending').
+- **`status`**: `text` - Transaction status ('succeeded', 'pending', 'failed').
 - **`created_at`**: `timestamptz`
+
+Constraints:
+
+- `stripe_payment_intent_id` is unique across all rows.
+- `credits_granted >= 0`.
+- `amount >= 0`.
+- `status IN ('succeeded', 'pending', 'failed')`.
+
+Indexes:
+
+- `idx_credit_transactions_stripe_payment_intent_id` unique on (`stripe_payment_intent_id`)
+- `idx_credit_transactions_user_id_created_at` on (`user_id`, `created_at DESC`)
