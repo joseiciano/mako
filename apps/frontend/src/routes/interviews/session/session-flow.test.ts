@@ -5,29 +5,7 @@ import {
   canJoin,
   type SessionAction,
 } from './session-flow'
-import type { InterviewDetail } from '@mako/shared'
-
-function makeInterview(overrides?: Partial<InterviewDetail>): InterviewDetail {
-  return {
-    id: 'int-1',
-    scheduler_id: 'sch-1',
-    scheduler_alias: 'Bob',
-    interviewer_id: 'intv-1',
-    interviewer_alias: 'Alice',
-    type: 'behavioral',
-    mode: 'ai_led',
-    tier: 'standard',
-    status: 'scheduled',
-    scheduled_at: '2026-06-20T10:00:00Z',
-    recording_url: null,
-    screenshot_urls: null,
-    feedback: null,
-    created_at: '2026-06-19T10:00:00Z',
-    updated_at: '2026-06-19T10:00:00Z',
-    ...overrides,
-  }
-}
-
+import { makeInterview } from './test-helpers'
 
 describe('sessionReducer', function () {
   it('returns initial state on default action', function () {
@@ -42,12 +20,16 @@ describe('sessionReducer', function () {
       errorMessage: 'previous error',
       whiteboardStatus: 'failed' as const,
       whiteboardErrorMessage: 'previous whiteboard error',
+      mediaStatus: 'failed' as const,
+      mediaErrorMessage: 'previous media error',
     }
     const next = sessionReducer(state, { type: 'JOIN' })
     expect(next.status).toBe('joining')
     expect(next.errorMessage).toBeNull()
     expect(next.whiteboardStatus).toBe('idle')
     expect(next.whiteboardErrorMessage).toBeNull()
+    expect(next.mediaStatus).toBe('pre-join')
+    expect(next.mediaErrorMessage).toBeNull()
   })
 
   it('JOIN is idempotent when already joining', function () {
@@ -70,6 +52,8 @@ describe('sessionReducer', function () {
     expect(next.errorMessage).toBeNull()
     expect(next.whiteboardStatus).toBe('idle')
     expect(next.whiteboardErrorMessage).toBeNull()
+    expect(next.mediaStatus).toBe('pre-join')
+    expect(next.mediaErrorMessage).toBeNull()
   })
 
   it('PROVISION_ERROR stores error message and transitions to error', function () {
@@ -85,6 +69,8 @@ describe('sessionReducer', function () {
     expect(next.errorMessage).toBe('Something went wrong')
     expect(next.whiteboardStatus).toBe('idle')
     expect(next.whiteboardErrorMessage).toBeNull()
+    expect(next.mediaStatus).toBe('pre-join')
+    expect(next.mediaErrorMessage).toBeNull()
   })
 
   it('tracks whiteboard reconnect lifecycle only after provision', function () {
@@ -113,6 +99,51 @@ describe('sessionReducer', function () {
   it('ignores whiteboard lifecycle before provision', function () {
     const next = sessionReducer(initialSessionState, { type: 'WHITEBOARD_CONNECTING' })
     expect(next).toBe(initialSessionState)
+  })
+
+  it('tracks media connection lifecycle only after provision', function () {
+    const provisioned = {
+      ...initialSessionState,
+      status: 'provisioned' as const,
+    }
+
+    const connecting = sessionReducer(provisioned, { type: 'MEDIA_CONNECTING' })
+    expect(connecting.mediaStatus).toBe('connecting')
+    expect(connecting.mediaErrorMessage).toBeNull()
+
+    const connected = sessionReducer(connecting, { type: 'MEDIA_CONNECTED' })
+    expect(connected.mediaStatus).toBe('connected')
+    expect(connected.mediaErrorMessage).toBeNull()
+
+    const waitingForPeer = sessionReducer(connected, { type: 'MEDIA_WAITING_FOR_PEER' })
+    expect(waitingForPeer.mediaStatus).toBe('waiting-for-peer')
+    expect(waitingForPeer.mediaErrorMessage).toBeNull()
+
+    const reconnecting = sessionReducer(waitingForPeer, { type: 'MEDIA_RECONNECTING' })
+    expect(reconnecting.mediaStatus).toBe('reconnecting')
+    expect(reconnecting.mediaErrorMessage).toBeNull()
+
+    const failed = sessionReducer(reconnecting, {
+      type: 'MEDIA_FAILED',
+      payload: 'Media connection lost',
+    })
+    expect(failed.mediaStatus).toBe('failed')
+    expect(failed.mediaErrorMessage).toBe('Media connection lost')
+  })
+
+  it('ignores media lifecycle before provision', function () {
+    const next = sessionReducer(initialSessionState, { type: 'MEDIA_CONNECTING' })
+    expect(next).toBe(initialSessionState)
+  })
+
+  it('ignores media lifecycle when in error state', function () {
+    const errorState = {
+      ...initialSessionState,
+      status: 'error' as const,
+      errorMessage: 'Some error',
+    }
+    const next = sessionReducer(errorState, { type: 'MEDIA_CONNECTED' })
+    expect(next).toBe(errorState)
   })
 
   it('RESET returns to initial state', function () {

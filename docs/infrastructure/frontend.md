@@ -9,3 +9,4 @@
 - **Tailwind CSS**: Tailwind CSS handles any styling related.
 - **Lucide**: We use Lucide for iconography in the frontend UI.
 - **Excalidraw**: Used for the collaborative whiteboard in system design interviews.
+- **Cloudflare RealtimeKit React SDK**: Used for real-time interview audio/video communication.

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { SessionDumb, type SessionDumbProps } from './session-dumb'
-import type { InterviewDetail } from '@mako/shared'
+import { makeInterview } from './test-helpers'
 
 vi.mock('#/components/interviews/whiteboard', function () {
   return {
@@ -13,26 +13,13 @@ vi.mock('#/components/interviews/whiteboard', function () {
   }
 })
 
-function makeInterview(overrides?: Partial<InterviewDetail>): InterviewDetail {
+vi.mock('#/components/interviews/media', function () {
   return {
-    id: 'int-1',
-    scheduler_id: 'sch-1',
-    scheduler_alias: 'Bob',
-    interviewer_id: 'intv-1',
-    interviewer_alias: 'Alice',
-    type: 'behavioral',
-    mode: 'ai_led',
-    tier: 'standard',
-    status: 'scheduled',
-    scheduled_at: '2026-06-20T10:00:00Z',
-    recording_url: null,
-    screenshot_urls: null,
-    feedback: null,
-    created_at: '2026-06-19T10:00:00Z',
-    updated_at: '2026-06-19T10:00:00Z',
-    ...overrides,
+    MediaSmart: vi.fn(function MockMediaSmart() {
+      return <div data-testid="media-smart-mock" />
+    }),
   }
-}
+})
 
 function makeProps(overrides?: Partial<SessionDumbProps>): SessionDumbProps {
   return {
@@ -43,12 +30,20 @@ function makeProps(overrides?: Partial<SessionDumbProps>): SessionDumbProps {
     whiteboardProvisionHandle: null,
     whiteboardStatus: 'idle',
     whiteboardErrorMessage: null,
+    mediaConfig: null,
+    mediaErrorMessage: null,
     onJoin: vi.fn(),
     onRetryWhiteboard: vi.fn(),
     onWhiteboardConnecting: vi.fn(),
     onWhiteboardConnected: vi.fn(),
     onWhiteboardReconnecting: vi.fn(),
     onWhiteboardFailed: vi.fn(),
+    onMediaConnecting: vi.fn(),
+    onMediaConnected: vi.fn(),
+    onMediaWaitingForPeer: vi.fn(),
+    onMediaReconnecting: vi.fn(),
+    onMediaFailed: vi.fn(),
+    onMediaPermissionError: vi.fn(),
     onBackToInterviews: vi.fn(),
     ...overrides,
   }
@@ -149,6 +144,38 @@ describe('SessionDumb', function () {
     expect(screen.getByTestId('whiteboard-smart-mock')).toBeInTheDocument()
   })
 
+  it('renders media smart when provisioned', function () {
+    render(
+      <SessionDumb
+        {...makeProps({
+          interview: makeInterview(),
+          status: 'provisioned',
+          mediaConfig: {
+            realtimeSessionId: 'rt-1',
+            token: 'token-1',
+          },
+        })}
+      />,
+    )
+    expect(screen.getByTestId('media-smart-mock')).toBeInTheDocument()
+  })
+
+  it('shows media error message when provisioned media fails', function () {
+    render(
+      <SessionDumb
+        {...makeProps({
+          interview: makeInterview(),
+          status: 'provisioned',
+          mediaErrorMessage: 'Camera or microphone access was denied.',
+        })}
+      />,
+    )
+
+    expect(screen.getByRole('alert', { name: /media error/i })).toHaveTextContent(
+      'Camera or microphone access was denied.',
+    )
+  })
+
   it('does not render whiteboard when not provisioned', function () {
     render(
       <SessionDumb
@@ -159,6 +186,18 @@ describe('SessionDumb', function () {
       />,
     )
     expect(screen.queryByTestId('whiteboard-smart-mock')).not.toBeInTheDocument()
+  })
+
+  it('does not render media when not provisioned', function () {
+    render(
+      <SessionDumb
+        {...makeProps({
+          interview: makeInterview(),
+          status: 'idle',
+        })}
+      />,
+    )
+    expect(screen.queryByTestId('media-smart-mock')).not.toBeInTheDocument()
   })
 
   it('calls onJoin when join button clicked', async function () {
