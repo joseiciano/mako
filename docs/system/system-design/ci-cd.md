@@ -32,6 +32,7 @@ Core secrets:
 
 - `CLOUDFLARE_API_TOKEN`
 - `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_REALTIMEKIT_APP_ID`
 - `DATABASE_URL`
 - `HYPERDRIVE_ID`
 - `BETTER_AUTH_SECRET`
@@ -49,7 +50,7 @@ Optional secrets (add when feature is enabled):
 Secret sync behavior:
 
 - Terraform workflow consumes Cloudflare/Neon/Stripe secrets during infra apply.
-- Backend deploy injects `HYPERDRIVE_ID` into `apps/backend-rest/wrangler.jsonc` before deployment and syncs Worker runtime secrets (`BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `BETTER_AUTH_TRUSTED_ORIGINS`, `STRIPE_SECRET_KEY`). Postgres runtime access is provided through the Cloudflare Hyperdrive binding.
+- Backend deploy injects `HYPERDRIVE_ID` into `apps/backend-rest/wrangler.jsonc` before deployment and syncs Worker runtime secrets (`BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `BETTER_AUTH_TRUSTED_ORIGINS`, `STRIPE_SECRET_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_REALTIMEKIT_APP_ID`). Postgres runtime access is provided through the Cloudflare Hyperdrive binding.
 - Notification orchestrator deploy also injects `HYPERDRIVE_ID` into `apps/notification-orchestrator/wrangler.jsonc` before deployment so queue consumers can reach Postgres through Hyperdrive.
 - Frontend deploy requires Cloudflare deployment credentials and `VITE_AUTH_BASE_URL`, which is injected at build time so the auth client knows the backend origin.
 
@@ -79,6 +80,7 @@ Core secrets (required):
 
 - `CLOUDFLARE_API_TOKEN`
 - `CLOUDFLARE_ACCOUNT_ID`
+- `CLOUDFLARE_REALTIMEKIT_APP_ID`
 - `DATABASE_URL`
 - `HYPERDRIVE_ID`
 - `BETTER_AUTH_SECRET`
