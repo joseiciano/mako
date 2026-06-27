@@ -19,6 +19,10 @@ import {
   type InterviewPostCommitEventPublisher,
 } from './interview-post-commit-event'
 import {
+  createDemoRealtimeProvider,
+  type RealtimeProvider,
+} from './realtime-provider'
+import {
   NotificationService,
   NotificationDispatchService,
   type NotificationTransport,
@@ -59,6 +63,7 @@ export class InterviewService {
     private readonly notificationService?: NotificationService,
     private readonly notificationDispatchService?: NotificationDispatchService,
     private readonly notificationTransport?: NotificationTransport,
+    private readonly realtimeProvider: RealtimeProvider = createDemoRealtimeProvider(),
   ) {}
 
   async createInterview(
@@ -163,16 +168,22 @@ export class InterviewService {
       participant_user_id: participantUserId,
     })
 
-    const candidateId = this.createId()
     let provisionResult
     try {
-      provisionResult = await this.interviewRepository.provisionInterview({
+      provisionResult = await this.interviewRepository.provisionInterviewWithCredentialFactory({
         interview_id: input.id,
         participant_user_id: participantUserId,
-        realtime_session_id: `realtime_${candidateId}`,
-        excalidraw_room_id: `excalidraw_room_${candidateId}`,
-        excalidraw_key: `excalidraw_key_${candidateId}`,
         updated_at: this.now(),
+      }, async () => {
+        const realtimeCredentials = await this.realtimeProvider.createSession({
+          interviewId: input.id,
+        })
+
+        return {
+          realtime_session_id: realtimeCredentials.realtimeSessionId,
+          excalidraw_room_id: realtimeCredentials.excalidrawRoomId,
+          excalidraw_key: realtimeCredentials.excalidrawKey,
+        }
       })
     } catch (error) {
       this.logSafely('error', 'interview.provision_failure', {
@@ -185,16 +196,26 @@ export class InterviewService {
 
     switch (provisionResult.outcome) {
       case 'provisioned':
-      case 'already_provisioned':
+      case 'already_provisioned': {
+        const participantToken = await this.realtimeProvider.createParticipantToken({
+          realtimeSessionId: provisionResult.interview.realtime_session_id!,
+          participantUserId,
+          participantName: userSession.email || 'participant',
+          participantEmail: userSession.email,
+          interviewId: input.id,
+        })
+
         this.logSafely('info', 'interview.provision_success', {
           interview_id: input.id,
           participant_user_id: participantUserId,
           outcome: provisionResult.outcome,
         })
+
         return toProvisionInterviewResponse(
           provisionResult.interview,
-          `realtime_token_${this.createId()}`,
+          participantToken.token,
         )
+      }
       case 'invalid_status':
         this.logSafely('info', 'interview.provision_failure', {
           interview_id: input.id,

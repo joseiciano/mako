@@ -44,6 +44,11 @@ import {
   type ProvisionInterviewRecordResult,
   type SqlQueryExecutor,
 } from '@mako/shared-backend'
+import {
+  createDemoRealtimeProvider,
+  createRealtimeKitProvider,
+  type RealtimeProvider,
+} from '@mako/shared-backend'
 import type { SqlQuery } from '@mako/shared-backend'
 import type { Context, Next } from 'hono'
 import { Hono } from 'hono'
@@ -72,6 +77,9 @@ export type WorkerBindings = {
   BETTER_AUTH_URL?: string
   BETTER_AUTH_TRUSTED_ORIGINS?: string
   NOTIFICATION_QUEUE?: Queue
+  CLOUDFLARE_ACCOUNT_ID?: string
+  CLOUDFLARE_API_TOKEN?: string
+  CLOUDFLARE_REALTIMEKIT_APP_ID?: string
 }
 
 const demoSession = {
@@ -193,6 +201,8 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
           })
         : undefined
 
+      const realtimeProvider = createWorkerRealtimeProvider(context.bindings)
+
       return new InterviewService(
         repository,
         undefined,
@@ -203,6 +213,7 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
         notificationService,
         notificationDispatchService,
         notificationTransport,
+        realtimeProvider,
       )
     },
     resolveSession: function resolveSession(context) {
@@ -246,6 +257,21 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
 const app = createApp()
 
 export default app
+
+function createWorkerRealtimeProvider(bindings: WorkerBindings): RealtimeProvider {
+  if (!hasDatabaseAccess(bindings)) {
+    return createDemoRealtimeProvider()
+  }
+
+  return {
+    async createSession(input) {
+      return createRealtimeKitProvider(bindings).createSession(input)
+    },
+    async createParticipantToken(input) {
+      return createRealtimeKitProvider(bindings).createParticipantToken(input)
+    },
+  }
+}
 
 function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
   account: AccountRepositoryDataSource

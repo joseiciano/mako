@@ -242,38 +242,85 @@ describe('backend-rest smoke tests', function () {
   it('provisions stable credentials through DB-backed route with idempotent retry', async function () {
     const app = createApp()
     const dbBinding = createDatabaseBinding({ credits: 1, freeAiInterviews: 0 })
+    const realtimeEnv: WorkerBindings = {
+      DB: dbBinding,
+      CLOUDFLARE_ACCOUNT_ID: 'account-1',
+      CLOUDFLARE_API_TOKEN: 'api-token-1',
+      CLOUDFLARE_REALTIMEKIT_APP_ID: 'app-1',
+    }
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ success: true, data: { id: 'meeting-db-1' } }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ success: true, data: { token: 'participant-token-1' } }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ success: true, data: { token: 'participant-token-2' } }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
 
-    const createResponse = await createInterview(app, {}, { DB: dbBinding })
+    const createResponse = await createInterview(app, {}, realtimeEnv)
     expect(createResponse.status).toBe(201)
     const createdInterview = (await createResponse.json()) as {
       interview: { id: string }
     }
 
-    const firstResponse = await provisionInterview(app, createdInterview.interview.id, { DB: dbBinding })
-    const secondResponse = await provisionInterview(app, createdInterview.interview.id, { DB: dbBinding })
+    const firstResponse = await provisionInterview(app, createdInterview.interview.id, realtimeEnv)
+    const secondResponse = await provisionInterview(app, createdInterview.interview.id, realtimeEnv)
 
     expect(firstResponse.status).toBe(200)
     expect(secondResponse.status).toBe(200)
     const firstBody = (await firstResponse.json()) as {
-      realtime: { realtime_session_id: string }
+      realtime: { realtime_session_id: string; token: string }
       excalidraw: { excalidraw_room_id: string; excalidraw_key: string }
     }
     const secondBody = (await secondResponse.json()) as typeof firstBody
     expect(secondBody.realtime.realtime_session_id).toBe(firstBody.realtime.realtime_session_id)
     expect(secondBody.excalidraw).toEqual(firstBody.excalidraw)
+    expect(firstBody.realtime.token).toBe('participant-token-1')
+    expect(secondBody.realtime.token).toBe('participant-token-2')
   })
 
   it('does not mutate interview status during DB-backed provisioning', async function () {
     const app = createApp()
     const dbBinding = createDatabaseBinding({ credits: 1, freeAiInterviews: 0 })
+    const realtimeEnv: WorkerBindings = {
+      DB: dbBinding,
+      CLOUDFLARE_ACCOUNT_ID: 'account-1',
+      CLOUDFLARE_API_TOKEN: 'api-token-1',
+      CLOUDFLARE_REALTIMEKIT_APP_ID: 'app-1',
+    }
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ success: true, data: { id: 'meeting-db-1' } }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ success: true, data: { token: 'participant-token-1' } }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
 
-    const createResponse = await createInterview(app, {}, { DB: dbBinding })
+    const createResponse = await createInterview(app, {}, realtimeEnv)
     expect(createResponse.status).toBe(201)
     const createdInterview = (await createResponse.json()) as {
       interview: { id: string }
     }
 
-    const provisionResponse = await provisionInterview(app, createdInterview.interview.id, { DB: dbBinding })
+    const provisionResponse = await provisionInterview(app, createdInterview.interview.id, realtimeEnv)
     expect(provisionResponse.status).toBe(200)
 
     const statusUpdateStatements = dbBinding.executedStatements.filter(function isStatusUpdate(stmt) {
@@ -303,6 +350,74 @@ describe('backend-rest smoke tests', function () {
 
     const response = await provisionInterview(app, '00000000-0000-4000-8000-000000000000')
     expect(response.status).toBe(404)
+  })
+
+  it('provisions DB-backed interviews with RealtimeKit credentials', async function () {
+    const app = createApp()
+    const dbBinding = createDatabaseBinding({ credits: 1, freeAiInterviews: 0 })
+    const realtimeEnv: WorkerBindings = {
+      DB: dbBinding,
+      CLOUDFLARE_ACCOUNT_ID: 'account-1',
+      CLOUDFLARE_API_TOKEN: 'api-token-1',
+      CLOUDFLARE_REALTIMEKIT_APP_ID: 'app-1',
+    }
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ success: true, data: { id: 'meeting-db-1' } }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ success: true, data: { token: 'participant-token-1' } }), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }),
+      )
+
+    const createResponse = await createInterview(app, { type: 'coding' }, realtimeEnv)
+    expect(createResponse.status).toBe(201)
+    const createdPayload = (await createResponse.json()) as { interview: { id: string } }
+
+    const provisionResponse = await provisionInterview(
+      app,
+      createdPayload.interview.id,
+      realtimeEnv,
+    )
+
+    expect(provisionResponse.status).toBe(200)
+    await expect(provisionResponse.json()).resolves.toMatchObject({
+      realtime: {
+        realtime_session_id: 'meeting-db-1',
+        token: 'participant-token-1',
+      },
+    })
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'https://api.cloudflare.com/client/v4/accounts/account-1/realtime/kit/app-1/meetings',
+      expect.objectContaining({ method: 'POST' }),
+    )
+    expect(fetchSpy).toHaveBeenCalledWith(
+      'https://api.cloudflare.com/client/v4/accounts/account-1/realtime/kit/app-1/meetings/meeting-db-1/participants',
+      expect.objectContaining({ method: 'POST' }),
+    )
+  })
+
+  it('fails closed for DB-backed provision when RealtimeKit config is missing', async function () {
+    const app = createApp()
+    const dbBinding = createDatabaseBinding({ credits: 1, freeAiInterviews: 0 })
+    const dbEnv: WorkerBindings = { DB: dbBinding }
+
+    const createResponse = await createInterview(app, { type: 'coding' }, dbEnv)
+    expect(createResponse.status).toBe(201)
+    const createdPayload = (await createResponse.json()) as { interview: { id: string } }
+
+    const provisionResponse = await provisionInterview(app, createdPayload.interview.id, dbEnv)
+
+    expect(provisionResponse.status).toBe(500)
+    await expect(provisionResponse.json()).resolves.toEqual({
+      error: 'Unexpected interview error.',
+    })
   })
 
   it('sorts demo interview list by instant across offsets and strips private fields', async function () {

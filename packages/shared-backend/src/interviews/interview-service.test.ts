@@ -13,6 +13,7 @@ import {
   type InterviewSession,
 } from './types'
 import { InterviewService, type InterviewServiceLogger } from './interview-service'
+import { createDemoRealtimeProvider } from './realtime-provider'
 import type {
   InterviewPostCommitEvent,
   InterviewPostCommitEventPublisher,
@@ -491,6 +492,7 @@ describe('InterviewService', function interviewServiceSuite() {
       mockNotificationService,
       undefined,
       undefined,
+      createDemoRealtimeProvider(),
     )
 
     const response = await service.createInterview(activeSession, {
@@ -1124,12 +1126,12 @@ describe('InterviewService', function interviewServiceSuite() {
     expect(response).toEqual({
       mode: 'ai_led',
       realtime: {
-        realtime_session_id: 'realtime_22222222-2222-4222-8222-222222222222',
-        token: 'realtime_token_22222222-2222-4222-8222-222222222222',
+        realtime_session_id: 'realtime_33333333-3333-4333-8333-333333333333',
+        token: 'realtime_token_33333333-3333-4333-8333-333333333333',
       },
       excalidraw: {
-        excalidraw_room_id: 'excalidraw_room_22222222-2222-4222-8222-222222222222',
-        excalidraw_key: 'excalidraw_key_22222222-2222-4222-8222-222222222222',
+        excalidraw_room_id: 'excalidraw_room_33333333-3333-4333-8333-333333333333',
+        excalidraw_key: 'excalidraw_key_33333333-3333-4333-8333-333333333333',
       },
     })
 
@@ -1451,6 +1453,7 @@ function createInterviewService(
     notificationService,
     notificationDispatchService,
     notificationTransport,
+    createDemoRealtimeProvider(),
   )
 
   return {
