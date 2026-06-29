@@ -1,6 +1,8 @@
-import { createSqlQuery, type SqlQuery } from '../index'
+import { createSqlQuery, type SqlQuery, type SqlQueryExecutor } from '../index'
 import { buildInterviewAliases } from '../interview'
 import type { NotificationOutboxEventRow } from '../notifications/notification-types'
+import { CreditRepository } from '../credit/credit-repository'
+import { TierPolicyService, type PeerToPeerPaymentResolution } from '../tier-policy'
 import {
   parseMatcherCandidateRow,
   matcherCreatedInterviewSchema,
@@ -47,6 +49,7 @@ type MatcherRepositoryDependencies = {
   logger?: MatcherRepositoryLogger
   maxTransactionRetries?: number
   persistOutboxEvent?: (event: NotificationOutboxEventRow) => Promise<void>
+  tierPolicyService?: TierPolicyService
 }
 
 export class MatcherRepository {
@@ -60,6 +63,8 @@ export class MatcherRepository {
 
   private readonly dependencies: MatcherRepositoryDependencies
 
+  private readonly tierPolicyService: TierPolicyService
+
   constructor(
     private readonly queryExecutor: MatcherQueryExecutor,
     dependencies: MatcherRepositoryDependencies = {},
@@ -69,6 +74,7 @@ export class MatcherRepository {
     this.now = dependencies.now ?? createDefaultNow
     this.logger = dependencies.logger ?? noOpMatcherRepositoryLogger
     this.maxTransactionRetries = Math.max(0, dependencies.maxTransactionRetries ?? 2)
+    this.tierPolicyService = dependencies.tierPolicyService ?? new TierPolicyService()
   }
 
   async listCandidateRows(): Promise<MatcherCandidateRow[]> {
@@ -234,13 +240,52 @@ export class MatcherRepository {
       const roleAssignment = assignDeterministicRoles(lockedRequests)
       const aliases = buildInterviewAliases('peer_to_peer')
       const scheduledAt = selectScheduledAtFromLockedSlots(lockedSlots)
+
+      const matcherQueryExecutor = this.queryExecutor
+      const queryExecutor: SqlQueryExecutor = {
+        query: async function queryAdapter<Row>(sqlQuery: SqlQuery) {
+          return matcherQueryExecutor.query<Row>(sqlQuery)
+        },
+      }
+
+      const userPolicies = await this.lockUsersForPayment(
+        queryExecutor,
+        lockedRequests,
+      )
+
+      if (!userPolicies) {
+        await this.queryExecutor.query(createSqlQuery('COMMIT;'))
+        return { status: 'skipped', reason: 'insufficient_credits' }
+      }
+
+      let paymentResolution: PeerToPeerPaymentResolution
+      try {
+        paymentResolution = this.tierPolicyService.resolvePeerToPeerPayments(
+          userPolicies.userA,
+          userPolicies.userB,
+        )
+      } catch {
+        await this.queryExecutor.query(createSqlQuery('COMMIT;'))
+        return { status: 'skipped', reason: 'insufficient_credits' }
+      }
+
+      const resolvedTier = paymentResolution.tier
+
+      for (const payment of paymentResolution.userPayments) {
+        if (payment.source === 'free_standard') {
+          await this.decrementFreeStandardInterviews(queryExecutor, payment.userId)
+        } else if (payment.source === 'credit') {
+          await this.decrementUserCredits(queryExecutor, payment.userId)
+        }
+      }
+
       const createdInterview = matcherCreatedInterviewSchema.parse({
         id: interviewId,
         scheduler_id: roleAssignment.schedulerId,
         interviewer_id: roleAssignment.interviewerId,
         type: roleAssignment.interviewType,
         mode: 'peer_to_peer',
-        tier: 'standard',
+        tier: resolvedTier,
         status: 'scheduled',
         scheduled_at: scheduledAt,
       })
@@ -262,7 +307,7 @@ export class MatcherRepository {
               created_at,
               updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, 'peer_to_peer', 'standard', 'scheduled', $7, $8, $8);
+            VALUES ($1, $2, $3, $4, $5, $6, 'peer_to_peer', $7, 'scheduled', $8, $9, $9);
           `,
           [
             interviewId,
@@ -271,6 +316,7 @@ export class MatcherRepository {
             createdInterview.interviewer_id,
             aliases.interviewerAlias,
             createdInterview.type,
+            createdInterview.tier,
             createdInterview.scheduled_at,
             nowTimestamp,
           ],
@@ -351,6 +397,117 @@ export class MatcherRepository {
       await this.logger[level](event, context)
     } catch {
       // no-op: observability must not break matcher reliability
+    }
+  }
+
+  private async lockUsersForPayment(
+    queryExecutor: SqlQueryExecutor,
+    lockedRequests: readonly MatcherLockedRequestRow[],
+  ): Promise<{
+    userA: { userId: string; freeStandardInterviews: number; credits: number }
+    userB: { userId: string; freeStandardInterviews: number; credits: number }
+  } | null> {
+    const userIds = sortDistinctIds(
+      lockedRequests.map(function mapToUserId(request) {
+        return request.user_id
+      }),
+    )
+
+    const [firstUserId, secondUserId] = userIds
+
+    if (!firstUserId || !secondUserId) {
+      return null
+    }
+
+    const firstUser = await this.lockSingleUser(queryExecutor, firstUserId)
+
+    if (!firstUser) {
+      return null
+    }
+
+    const secondUser = await this.lockSingleUser(queryExecutor, secondUserId)
+
+    if (!secondUser) {
+      return null
+    }
+
+    return {
+      userA: firstUser,
+      userB: secondUser,
+    }
+  }
+
+  private async lockSingleUser(
+    queryExecutor: SqlQueryExecutor,
+    userId: string,
+  ): Promise<{ userId: string; freeStandardInterviews: number; credits: number } | null> {
+    const result = await this.queryExecutor.query<{
+      id: string
+      free_standard_interviews: number
+      credits: number
+    }>(
+      createSqlQuery(
+        `
+          SELECT
+            id,
+            free_standard_interviews,
+            credits
+          FROM "user"
+          WHERE id = $1
+            AND deleted_at IS NULL
+          LIMIT 1
+          FOR UPDATE;
+        `,
+        [userId],
+      ),
+    )
+
+    const [row] = result.rows
+
+    if (!row) {
+      return null
+    }
+
+    return {
+      userId: row.id,
+      freeStandardInterviews: row.free_standard_interviews,
+      credits: row.credits,
+    }
+  }
+
+  private async decrementFreeStandardInterviews(
+    queryExecutor: SqlQueryExecutor,
+    userId: string,
+  ): Promise<void> {
+    const result = await queryExecutor.query<{ id: string }>(
+      createSqlQuery(
+        `
+          UPDATE "user"
+          SET free_standard_interviews = free_standard_interviews - 1,
+              "updatedAt" = NOW()
+          WHERE id = $1
+            AND deleted_at IS NULL
+            AND free_standard_interviews > 0
+          RETURNING id;
+        `,
+        [userId],
+      ),
+    )
+
+    if (result.rows.length === 0) {
+      throw new Error(`Failed to decrement free_standard_interviews for user ${userId}`)
+    }
+  }
+
+  private async decrementUserCredits(
+    queryExecutor: SqlQueryExecutor,
+    userId: string,
+  ): Promise<void> {
+    const creditRepository = new CreditRepository(queryExecutor)
+    const result = await creditRepository.decrementCredits(queryExecutor, userId, 1)
+
+    if (result.rowCount === 0) {
+      throw new Error(`Failed to decrement credits for user ${userId}`)
     }
   }
 
