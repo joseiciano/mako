@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 6: Monetization & Credit System
 **Description**: Enforce initial free standard and AI interview quotas on new accounts, and implement the server-side tier-resolution policy that determines whether an interview consumes a free quota or a paid credit.
-**Status**: Todo
+**Status**: Done
 **Prerequisites**:
 - `docs/product/stories/stories/milestone-6-monetization-credit-system/6-2-credit-repository-service.md` (must be completed first; this story depends on `creditRepository.decrementCredits()`)
 - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/3-5-interview-create-route-post-api-interviews.md`
