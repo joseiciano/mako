@@ -33,6 +33,7 @@ export * from './interviews'
 export * from './availability'
 export * from './matcher'
 export * from './notifications'
+export * from './credit'
 export {
   interviewCreatedEventSchema,
   interviewCancelledEventSchema,
