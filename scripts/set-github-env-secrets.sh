@@ -32,7 +32,8 @@ while true; do
   echo "7) BETTER_AUTH_URL"
   echo "8) BETTER_AUTH_TRUSTED_ORIGINS"
   echo "9) VITE_AUTH_BASE_URL"
-  echo "10) Done"
+  echo "10) CLOUDFLARE_REALTIMEKIT_APP_ID"
+  echo "11) Done"
 
   read -r -p "Enter number: " choice
 
@@ -46,7 +47,8 @@ while true; do
     7) secret_name="BETTER_AUTH_URL" ;;
     8) secret_name="BETTER_AUTH_TRUSTED_ORIGINS" ;;
     9) secret_name="VITE_AUTH_BASE_URL" ;;
-    10) break ;;
+    10) secret_name="CLOUDFLARE_REALTIMEKIT_APP_ID" ;;
+    11) break ;;
     *)
       echo "Invalid option."
       continue

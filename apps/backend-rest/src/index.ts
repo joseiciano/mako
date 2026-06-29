@@ -19,6 +19,8 @@ import {
   createInMemoryAvailabilityDataSource,
   createAuthSessionMiddleware,
   createBetterAuth,
+  createDemoRealtimeProvider,
+  createRealtimeKitProvider,
   createHeaderSessionResolver,
   getAccountSessionFromAuthContext,
   isAuthConfigured,
@@ -42,9 +44,10 @@ import {
   type InterviewRepositoryDataSource,
   type ProvisionInterviewRecordInput,
   type ProvisionInterviewRecordResult,
+  type RealtimeProvider,
+  type SqlQuery,
   type SqlQueryExecutor,
 } from '@mako/shared-backend'
-import type { SqlQuery } from '@mako/shared-backend'
 import type { Context, Next } from 'hono'
 import { Hono } from 'hono'
 
@@ -72,6 +75,9 @@ export type WorkerBindings = {
   BETTER_AUTH_URL?: string
   BETTER_AUTH_TRUSTED_ORIGINS?: string
   NOTIFICATION_QUEUE?: Queue
+  CLOUDFLARE_ACCOUNT_ID?: string
+  CLOUDFLARE_API_TOKEN?: string
+  CLOUDFLARE_REALTIMEKIT_APP_ID?: string
 }
 
 const demoSession = {
@@ -193,6 +199,8 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
           })
         : undefined
 
+      const realtimeProvider = createWorkerRealtimeProvider(context.bindings)
+
       return new InterviewService(
         repository,
         undefined,
@@ -203,6 +211,7 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
         notificationService,
         notificationDispatchService,
         notificationTransport,
+        realtimeProvider,
       )
     },
     resolveSession: function resolveSession(context) {
@@ -246,6 +255,29 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
 const app = createApp()
 
 export default app
+
+function createWorkerRealtimeProvider(bindings: WorkerBindings): RealtimeProvider {
+  if (!hasDatabaseAccess(bindings)) {
+    return createDemoRealtimeProvider()
+  }
+
+  let realtimeProvider: RealtimeProvider | undefined
+
+  function getRealtimeProvider(): RealtimeProvider {
+    // Cache provider so Cloudflare bindings and base URL resolve once per Worker isolate.
+    realtimeProvider ??= createRealtimeKitProvider(bindings)
+    return realtimeProvider
+  }
+
+  return {
+    async createSession(input) {
+      return getRealtimeProvider().createSession(input)
+    },
+    async createParticipantToken(input) {
+      return getRealtimeProvider().createParticipantToken(input)
+    },
+  }
+}
 
 function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
   account: AccountRepositoryDataSource

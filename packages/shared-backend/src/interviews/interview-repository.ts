@@ -60,6 +60,23 @@ type InterviewRepositoryConstructorInput =
   | SqlQueryExecutor
   | InterviewRepositoryDependencies
 
+type ProvisionInterviewCredentialFactoryInput = {
+  interview: Interview
+}
+
+type ProvisionInterviewCredentialFactory = (
+  input: ProvisionInterviewCredentialFactoryInput,
+) => Promise<{
+  realtime_session_id: string
+  excalidraw_room_id: string
+  excalidraw_key: string
+}>
+
+type ProvisionInterviewWithCredentialFactoryInput = Pick<
+  ProvisionInterviewRecordInput,
+  'interview_id' | 'participant_user_id' | 'updated_at'
+>
+
 export class InterviewRepository {
   private readonly dependencies: InterviewRepositoryDependencies
 
@@ -438,10 +455,74 @@ export class InterviewRepository {
     input: ProvisionInterviewRecordInput,
   ): Promise<ProvisionInterviewRecordResult> {
     const parsedInput = provisionInterviewRecordInputSchema.parse(input)
+    return this.provisionInterviewWithParsedInput(parsedInput)
+  }
+
+  async provisionInterviewWithCredentialFactory(
+    input: ProvisionInterviewWithCredentialFactoryInput,
+    createCredentials: ProvisionInterviewCredentialFactory,
+  ): Promise<ProvisionInterviewRecordResult> {
+    const parsedInput = provisionInterviewRecordInputSchema.pick({
+      interview_id: true,
+      participant_user_id: true,
+      updated_at: true,
+    }).parse(input)
+
+    const dataSource = this.dependencies.dataSource
+    if (typeof dataSource?.provisionInterview === 'function') {
+      return this.provisionInterviewWithParsedInput(parsedInput, createCredentials)
+    }
+
+    if (createCredentials) {
+      const precheck = await this.checkProvisionPreconditions(parsedInput)
+      if (precheck.outcome === 'early') {
+        return precheck.result
+      }
+      const credentials = await createCredentials({ interview: precheck.interview })
+      return this.provisionInterviewWithParsedInput({
+        ...parsedInput,
+        ...credentials,
+      })
+    }
+
+    return this.provisionInterviewWithParsedInput(parsedInput)
+  }
+
+  private async provisionInterviewWithParsedInput(
+    parsedInput: ProvisionInterviewRecordInput | ProvisionInterviewWithCredentialFactoryInput,
+    createCredentials?: ProvisionInterviewCredentialFactory,
+  ): Promise<ProvisionInterviewRecordResult> {
     const dataSource = this.dependencies.dataSource
 
     if (typeof dataSource?.provisionInterview === 'function') {
-      return dataSource.provisionInterview(parsedInput)
+      if (createCredentials) {
+        const existingInterview = await this.getInterviewById(parsedInput.interview_id)
+        if (!existingInterview) {
+          return { outcome: 'not_found' }
+        }
+        if (!isProvisionableInterviewStatus(existingInterview.status)) {
+          return {
+            outcome: 'invalid_status',
+            interview: existingInterview,
+          }
+        }
+        if (hasProvisioningCredentials(existingInterview)) {
+          return {
+            outcome: 'already_provisioned',
+            interview: existingInterview,
+          }
+        }
+        const credentials = await createCredentials({ interview: existingInterview })
+        return dataSource.provisionInterview({
+          ...parsedInput,
+          ...credentials,
+        })
+      }
+      if (hasProvisionInterviewRecordCredentials(parsedInput)) {
+        return dataSource.provisionInterview(parsedInput)
+      }
+
+      throw new Error('Provision interview credentials are required.')
     }
 
     const queryExecutor = this.getQueryExecutor()
@@ -507,6 +588,10 @@ export class InterviewRepository {
         }
       }
 
+      const credentials = createCredentials
+        ? await createCredentials({ interview: parsedInterview })
+        : toProvisioningCredentials(provisionInterviewRecordInputSchema.parse(parsedInput))
+
       const updateResult = await queryExecutor.query<Interview>(
         createSqlQuery(
           `
@@ -540,9 +625,9 @@ export class InterviewRepository {
           [
             parsedInput.interview_id,
             parsedInput.participant_user_id,
-            parsedInput.realtime_session_id,
-            parsedInput.excalidraw_room_id,
-            parsedInput.excalidraw_key,
+            credentials.realtime_session_id,
+            credentials.excalidraw_room_id,
+            credentials.excalidraw_key,
             parsedInput.updated_at,
           ],
         ),
@@ -564,6 +649,75 @@ export class InterviewRepository {
       await rollbackTransactionSafely(queryExecutor)
       throw error
     }
+  }
+
+  private async checkProvisionPreconditions(
+    parsedInput: ProvisionInterviewWithCredentialFactoryInput,
+  ): Promise<
+    | { outcome: 'ok'; interview: Interview }
+    | { outcome: 'early'; result: ProvisionInterviewRecordResult }
+  > {
+    const queryExecutor = this.getQueryExecutor()
+    const lookupResult = await queryExecutor.query<Interview>(
+      createSqlQuery(
+        `
+          SELECT
+            id,
+            scheduler_id,
+            scheduler_alias,
+            interviewer_id,
+            interviewer_alias,
+            type,
+            mode,
+            tier,
+            status,
+            scheduled_at,
+            realtime_session_id,
+            excalidraw_room_id,
+            excalidraw_key,
+            recording_url,
+            screenshot_urls,
+            feedback,
+            created_at,
+            updated_at
+          FROM interviews
+          WHERE id = $1
+            AND (scheduler_id = $2 OR interviewer_id = $2)
+          LIMIT 1;
+        `,
+        [parsedInput.interview_id, parsedInput.participant_user_id],
+      ),
+    )
+
+    const [existingInterview] = lookupResult.rows
+
+    if (!existingInterview) {
+      return { outcome: 'early', result: { outcome: 'not_found' } }
+    }
+
+    const parsedInterview = parseInterview(existingInterview)
+
+    if (!isProvisionableInterviewStatus(parsedInterview.status)) {
+      return {
+        outcome: 'early',
+        result: {
+          outcome: 'invalid_status',
+          interview: parsedInterview,
+        },
+      }
+    }
+
+    if (hasProvisioningCredentials(parsedInterview)) {
+      return {
+        outcome: 'early',
+        result: {
+          outcome: 'already_provisioned',
+          interview: parsedInterview,
+        },
+      }
+    }
+
+    return { outcome: 'ok', interview: parsedInterview }
   }
 
   private getQueryExecutor(): SqlQueryExecutor {
@@ -848,6 +1002,28 @@ function hasProvisioningCredentials(interview: Interview): boolean {
   return Boolean(
     interview.realtime_session_id && interview.excalidraw_room_id && interview.excalidraw_key,
   )
+}
+
+function hasProvisionInterviewRecordCredentials(
+  input: ProvisionInterviewRecordInput | ProvisionInterviewWithCredentialFactoryInput,
+): input is ProvisionInterviewRecordInput {
+  return (
+    'realtime_session_id' in input &&
+    'excalidraw_room_id' in input &&
+    'excalidraw_key' in input
+  )
+}
+
+function toProvisioningCredentials(input: ProvisionInterviewRecordInput): {
+  realtime_session_id: string
+  excalidraw_room_id: string
+  excalidraw_key: string
+} {
+  return {
+    realtime_session_id: input.realtime_session_id,
+    excalidraw_room_id: input.excalidraw_room_id,
+    excalidraw_key: input.excalidraw_key,
+  }
 }
 
 function isProvisionableInterviewStatus(status: Interview['status']): boolean {
