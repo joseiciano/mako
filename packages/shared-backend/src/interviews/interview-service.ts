@@ -197,8 +197,13 @@ export class InterviewService {
     switch (provisionResult.outcome) {
       case 'provisioned':
       case 'already_provisioned': {
+        const realtimeSessionId = provisionResult.interview.realtime_session_id
+
+        if (!realtimeSessionId) {
+          throw new Error('Provisioned interview is missing realtime session ID.')
+        }
         const participantToken = await this.realtimeProvider.createParticipantToken({
-          realtimeSessionId: provisionResult.interview.realtime_session_id!,
+          realtimeSessionId,
           participantUserId,
           participantName: userSession.email || 'participant',
           participantEmail: userSession.email,

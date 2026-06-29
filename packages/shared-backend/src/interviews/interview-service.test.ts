@@ -13,7 +13,7 @@ import {
   type InterviewSession,
 } from './types'
 import { InterviewService, type InterviewServiceLogger } from './interview-service'
-import { createDemoRealtimeProvider } from './realtime-provider'
+import { createDemoRealtimeProvider, type RealtimeProvider } from './realtime-provider'
 import type {
   InterviewPostCommitEvent,
   InterviewPostCommitEventPublisher,
@@ -1167,6 +1167,53 @@ describe('InterviewService', function interviewServiceSuite() {
     expect(secondResponse.excalidraw).toEqual(firstResponse.excalidraw)
   })
 
+  it('throws when repository reports provisioned interview without realtime session id', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    let tokenCreationCalled = false
+    const realtimeProvider: RealtimeProvider = {
+      async createSession() {
+        return {
+          realtimeSessionId: 'rt_created',
+          excalidrawRoomId: 'room_created',
+          excalidrawKey: 'key_created',
+        }
+      },
+      async createParticipantToken() {
+        tokenCreationCalled = true
+        return { token: 'token_created' }
+      },
+    }
+    const { service, repository } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [createInterviewRecord({ id: interviewId, scheduler_id: activeSession.userId })],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      realtimeProvider,
+    )
+    repository.provisionInterviewWithCredentialFactory = async function provisionInterviewWithCredentialFactory() {
+      return {
+        outcome: 'already_provisioned',
+        interview: createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          realtime_session_id: null,
+          excalidraw_room_id: 'room_existing',
+          excalidraw_key: 'key_existing',
+        }),
+      }
+    }
+
+    await expect(service.provisionInterview(activeSession, { id: interviewId })).rejects.toThrow(
+      'Provisioned interview is missing realtime session ID.',
+    )
+    expect(tokenCreationCalled).toBe(false)
+  })
+
   it('returns the same peer-to-peer room and key to both assigned participants', async function run() {
     const interviewId = '33333333-3333-4333-8333-333333333333'
     const interviewerSession: InterviewSession = {
@@ -1428,6 +1475,7 @@ function createInterviewService(
   notificationDispatchService?: import('../notifications').NotificationDispatchService,
   notificationTransport?: import('../notifications').NotificationTransport,
   persistOutboxEvent?: (event: import('../notification-queue-event-contract').NotificationQueueEvent) => Promise<void>,
+  realtimeProvider: RealtimeProvider = createDemoRealtimeProvider(),
 ) {
   const repository = new InterviewRepository({
     dataSource: createInMemoryInterviewDataSource([
@@ -1453,7 +1501,7 @@ function createInterviewService(
     notificationService,
     notificationDispatchService,
     notificationTransport,
-    createDemoRealtimeProvider(),
+    realtimeProvider,
   )
 
   return {

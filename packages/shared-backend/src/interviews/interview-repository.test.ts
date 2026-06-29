@@ -343,6 +343,96 @@ describe('InterviewRepository', function interviewRepositorySuite() {
     })
   })
 
+  it('in-memory provisionInterviewWithCredentialFactory invokes factory and persists returned credentials', async function run() {
+    const participantId = '11111111-1111-4111-8111-111111111111'
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const factory = vi.fn(async () => ({
+      realtime_session_id: 'rt_factory',
+      excalidraw_room_id: 'room_factory',
+      excalidraw_key: 'key_factory',
+    }))
+
+    const repository = new InterviewRepository(
+      createInMemoryInterviewDataSource(
+        [{ userId: participantId, credits: 0, freeAiInterviews: 0 }],
+        [
+          createInterviewRecord({
+            id: interviewId,
+            scheduler_id: participantId,
+          }),
+        ],
+      ),
+    )
+
+    const result = await repository.provisionInterviewWithCredentialFactory(
+      {
+        interview_id: interviewId,
+        participant_user_id: participantId,
+        updated_at: '2026-05-22T09:00:00.000Z',
+      },
+      factory,
+    )
+
+    expect(factory).toHaveBeenCalledTimes(1)
+    expect(factory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        interview: expect.objectContaining({ id: interviewId }),
+      }),
+    )
+    expect(result).toMatchObject({
+      outcome: 'provisioned',
+      interview: {
+        realtime_session_id: 'rt_factory',
+        excalidraw_room_id: 'room_factory',
+        excalidraw_key: 'key_factory',
+      },
+    })
+  })
+
+  it('already_provisioned returns early without calling factory', async function run() {
+    const participantId = '11111111-1111-4111-8111-111111111111'
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const factory = vi.fn(async () => ({
+      realtime_session_id: 'rt_factory',
+      excalidraw_room_id: 'room_factory',
+      excalidraw_key: 'key_factory',
+    }))
+
+    const repository = new InterviewRepository(
+      createInMemoryInterviewDataSource(
+        [{ userId: participantId, credits: 0, freeAiInterviews: 0 }],
+        [
+          createInterviewRecord({
+            id: interviewId,
+            scheduler_id: participantId,
+            realtime_session_id: 'rt_existing',
+            excalidraw_room_id: 'room_existing',
+            excalidraw_key: 'key_existing',
+          }),
+        ],
+      ),
+    )
+
+    const result = await repository.provisionInterviewWithCredentialFactory(
+      {
+        interview_id: interviewId,
+        participant_user_id: participantId,
+        updated_at: '2026-05-22T09:00:00.000Z',
+      },
+      factory,
+    )
+
+    expect(factory).not.toHaveBeenCalled()
+    expect(result).toMatchObject({
+      outcome: 'already_provisioned',
+      interview: {
+        realtime_session_id: 'rt_existing',
+        excalidraw_room_id: 'room_existing',
+        excalidraw_key: 'key_existing',
+      },
+    })
+  })
+
   describe('SQL path', function sqlPathSuite() {
     const optionalColumns = [
       'realtime_session_id',
@@ -1474,6 +1564,76 @@ describe('InterviewRepository', function interviewRepositorySuite() {
       expect(mockQueryExecutor.queries.map((query) => query.text.trim().toUpperCase())).toContain(
         'ROLLBACK;',
       )
+    })
+
+    it('provisionInterviewWithCredentialFactory calls factory before BEGIN in SQL path', async function run() {
+      const queries: SqlQuery[] = []
+      let factoryCallIndex = -1
+
+      const factory = vi.fn(async () => {
+        factoryCallIndex = queries.length
+        queries.push({ text: 'FACTORY_CALL', values: [] })
+        return {
+          realtime_session_id: 'rt_factory',
+          excalidraw_room_id: 'room_factory',
+          excalidraw_key: 'key_factory',
+        }
+      })
+
+      const mockQueryExecutor = createMockQueryExecutor({
+        'FROM interviews': () => ({
+          rows: [
+            createInterviewRecord({
+              id: '11111111-1111-4111-8111-111111111111',
+              scheduler_id: '22222222-2222-4222-8222-222222222222',
+            }),
+          ],
+          rowCount: 1,
+        }),
+        'UPDATE interviews': (query) => ({
+          rows: [
+            createInterviewRecord({
+              id: '11111111-1111-4111-8111-111111111111',
+              scheduler_id: '22222222-2222-4222-8222-222222222222',
+              realtime_session_id: String(query.values[2]),
+              excalidraw_room_id: String(query.values[3]),
+              excalidraw_key: String(query.values[4]),
+              updated_at: String(query.values[5]),
+            }),
+          ],
+          rowCount: 1,
+        }),
+      })
+
+      const originalQuery = mockQueryExecutor.query
+      mockQueryExecutor.query = async function query<Row>(q: SqlQuery) {
+        queries.push(q)
+        return (await originalQuery.call(mockQueryExecutor, q)) as {
+          rows: Row[]
+          rowCount: number
+        }
+      }
+
+      const repository = new InterviewRepository({
+        queryExecutor: mockQueryExecutor,
+      })
+
+      const result = await repository.provisionInterviewWithCredentialFactory(
+        {
+          interview_id: '11111111-1111-4111-8111-111111111111',
+          participant_user_id: '22222222-2222-4222-8222-222222222222',
+          updated_at: '2026-05-22T09:00:00.000Z',
+        },
+        factory,
+      )
+
+      expect(result.outcome).toBe('provisioned')
+      expect(factory).toHaveBeenCalledTimes(1)
+
+      const beginIndex = queries.findIndex(
+        (q) => q.text.trim().toUpperCase() === 'BEGIN;',
+      )
+      expect(beginIndex).toBeGreaterThan(factoryCallIndex)
     })
   })
 })

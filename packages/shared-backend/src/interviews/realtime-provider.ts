@@ -33,6 +33,8 @@ export type RealtimeKitBindings = {
   CLOUDFLARE_REALTIMEKIT_APP_ID?: string
 }
 
+const REALTIMEKIT_FETCH_TIMEOUT_MS = 10_000
+
 export function createDemoRealtimeProvider(): RealtimeProvider {
   return {
     async createSession(input) {
@@ -71,6 +73,7 @@ export function createRealtimeKitProvider(bindings: RealtimeKitBindings): Realti
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ title: `Interview ${input.interviewId}` }),
+        signal: AbortSignal.timeout(REALTIMEKIT_FETCH_TIMEOUT_MS),
       })
 
       if (!response.ok) {
@@ -113,6 +116,7 @@ export function createRealtimeKitProvider(bindings: RealtimeKitBindings): Realti
             preset_name: 'default',
             custom_participant_id: input.participantUserId,
           }),
+          signal: AbortSignal.timeout(REALTIMEKIT_FETCH_TIMEOUT_MS),
         },
       )
 

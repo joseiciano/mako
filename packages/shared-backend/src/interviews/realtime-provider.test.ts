@@ -130,12 +130,10 @@ describe('RealtimeProvider', function realtimeProviderSuite() {
         CLOUDFLARE_REALTIMEKIT_APP_ID: 'app',
       })
 
-      await expect(
-        provider.createSession({ interviewId: 'int-1' }),
-      ).rejects.toThrow('RealtimeKit meeting creation failed (401)')
-      await expect(
-        provider.createSession({ interviewId: 'int-1' }),
-      ).rejects.not.toThrow(/secret-token/)
+      const error = await provider.createSession({ interviewId: 'int-1' }).catch((caught: unknown) => caught)
+      expect(error).toBeInstanceOf(Error)
+      expect((error as Error).message).toContain('RealtimeKit meeting creation failed (401)')
+      expect((error as Error).message).not.toContain('secret-token')
     })
 
     it('throws when meeting response has no id', async function run() {

@@ -19,6 +19,8 @@ import {
   createInMemoryAvailabilityDataSource,
   createAuthSessionMiddleware,
   createBetterAuth,
+  createDemoRealtimeProvider,
+  createRealtimeKitProvider,
   createHeaderSessionResolver,
   getAccountSessionFromAuthContext,
   isAuthConfigured,
@@ -42,14 +44,10 @@ import {
   type InterviewRepositoryDataSource,
   type ProvisionInterviewRecordInput,
   type ProvisionInterviewRecordResult,
+  type RealtimeProvider,
+  type SqlQuery,
   type SqlQueryExecutor,
 } from '@mako/shared-backend'
-import {
-  createDemoRealtimeProvider,
-  createRealtimeKitProvider,
-  type RealtimeProvider,
-} from '@mako/shared-backend'
-import type { SqlQuery } from '@mako/shared-backend'
 import type { Context, Next } from 'hono'
 import { Hono } from 'hono'
 
@@ -263,12 +261,20 @@ function createWorkerRealtimeProvider(bindings: WorkerBindings): RealtimeProvide
     return createDemoRealtimeProvider()
   }
 
+  let realtimeProvider: RealtimeProvider | undefined
+
+  function getRealtimeProvider(): RealtimeProvider {
+    // Cache provider so Cloudflare bindings and base URL resolve once per Worker isolate.
+    realtimeProvider ??= createRealtimeKitProvider(bindings)
+    return realtimeProvider
+  }
+
   return {
     async createSession(input) {
-      return createRealtimeKitProvider(bindings).createSession(input)
+      return getRealtimeProvider().createSession(input)
     },
     async createParticipantToken(input) {
-      return createRealtimeKitProvider(bindings).createParticipantToken(input)
+      return getRealtimeProvider().createParticipantToken(input)
     },
   }
 }

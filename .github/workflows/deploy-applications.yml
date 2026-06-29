@@ -116,6 +116,7 @@ jobs:
           packageManager: pnpm
           workingDirectory: apps/backend-rest
           command: deploy --config wrangler.jsonc
+          # Runtime Cloudflare token is used by backend-rest for RealtimeKit calls; keep scope limited to required RealtimeKit/meeting operations.
           secrets: |
             BETTER_AUTH_SECRET
             BETTER_AUTH_URL
