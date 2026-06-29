@@ -56,7 +56,7 @@ export const matchedQueueEventInterviewSchema = z.object({
   interviewer_id: z.string().uuid(),
   type: interviewTypeSchema,
   mode: z.literal('peer_to_peer'),
-  tier: z.literal('standard'),
+  tier: interviewTierSchema,
   status: z.literal('scheduled'),
   scheduled_at: z.string().datetime({ offset: true }),
 })

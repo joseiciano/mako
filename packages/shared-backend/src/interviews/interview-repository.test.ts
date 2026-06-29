@@ -27,6 +27,12 @@ describe('InterviewRepository', function interviewRepositorySuite() {
         if (normalized === 'BEGIN;') {
           return { rows: [], rowCount: 0 } as { rows: Row[]; rowCount: number }
         }
+        if (query.text.includes('FROM "user"') && query.text.includes('FOR UPDATE')) {
+          return {
+            rows: [{ credits: 1, free_standard_interviews: 1, free_ai_interviews: 1 }] as Row[],
+            rowCount: 1,
+          }
+        }
         if (query.text.includes('UPDATE "user"')) {
           return {
             rows: [{ id: '44444444-4444-4444-8444-444444444444' }] as Row[],
@@ -135,6 +141,12 @@ describe('InterviewRepository', function interviewRepositorySuite() {
 
         if (normalized === 'BEGIN;') {
           return { rows: [], rowCount: 0 } as { rows: Row[]; rowCount: number }
+        }
+        if (query.text.includes('FROM "user"') && query.text.includes('FOR UPDATE')) {
+          return {
+            rows: [{ credits: 1, free_standard_interviews: 1, free_ai_interviews: 1 }] as Row[],
+            rowCount: 1,
+          }
         }
         if (query.text.includes('UPDATE "user"')) {
           return {
@@ -276,6 +288,7 @@ describe('InterviewRepository', function interviewRepositorySuite() {
           {
             userId: participantId,
             credits: 0,
+            freeStandardInterviews: 0,
             freeAiInterviews: 0,
           },
         ],
@@ -298,7 +311,7 @@ describe('InterviewRepository', function interviewRepositorySuite() {
     const interviewId = '33333333-3333-4333-8333-333333333333'
     const repository = new InterviewRepository(
       createInMemoryInterviewDataSource(
-        [{ userId: participantId, credits: 0, freeAiInterviews: 0 }],
+        [{ userId: participantId, credits: 0, freeStandardInterviews: 0, freeAiInterviews: 0 }],
         [
           createInterviewRecord({
             id: interviewId,
@@ -354,7 +367,7 @@ describe('InterviewRepository', function interviewRepositorySuite() {
 
     const repository = new InterviewRepository(
       createInMemoryInterviewDataSource(
-        [{ userId: participantId, credits: 0, freeAiInterviews: 0 }],
+        [{ userId: participantId, credits: 0, freeStandardInterviews: 0, freeAiInterviews: 0 }],
         [
           createInterviewRecord({
             id: interviewId,
@@ -400,7 +413,7 @@ describe('InterviewRepository', function interviewRepositorySuite() {
 
     const repository = new InterviewRepository(
       createInMemoryInterviewDataSource(
-        [{ userId: participantId, credits: 0, freeAiInterviews: 0 }],
+        [{ userId: participantId, credits: 0, freeStandardInterviews: 0, freeAiInterviews: 0 }],
         [
           createInterviewRecord({
             id: interviewId,
@@ -927,6 +940,10 @@ describe('InterviewRepository', function interviewRepositorySuite() {
 
     it('createDirectInterview RETURNING clause includes all optional columns and preserves populated values', async function run() {
       const mockQueryExecutor = createMockQueryExecutor({
+        'FROM "user"': () => ({
+          rows: [{ credits: 1, free_standard_interviews: 1, free_ai_interviews: 1 }],
+          rowCount: 1,
+        }),
         'UPDATE "user"': () => ({
           rows: [{ id: '44444444-4444-4444-8444-444444444444' }],
           rowCount: 1,
@@ -997,6 +1014,10 @@ describe('InterviewRepository', function interviewRepositorySuite() {
 
     it('createDirectInterview parses timestamptz offsets in created_at and updated_at from SQL result', async function run() {
       const mockQueryExecutor = createMockQueryExecutor({
+        'FROM "user"': () => ({
+          rows: [{ credits: 1, free_standard_interviews: 1, free_ai_interviews: 1 }],
+          rowCount: 1,
+        }),
         'UPDATE "user"': () => ({
           rows: [{ id: '44444444-4444-4444-8444-444444444444' }],
           rowCount: 1,
@@ -1050,6 +1071,150 @@ describe('InterviewRepository', function interviewRepositorySuite() {
 
       expect(result.created_at).toBe('2026-05-22T09:00:00.000+00:00')
       expect(result.updated_at).toBe('2026-05-22T09:00:00.000-05:00')
+    })
+
+    it('createDirectInterview decrements credits when policy_consumption is credit', async function run() {
+      const mockQueryExecutor = createMockQueryExecutor({
+        'FROM "user"': () => ({
+          rows: [{ credits: 1, free_standard_interviews: 1, free_ai_interviews: 0 }],
+          rowCount: 1,
+        }),
+        'credits = credits -': () => ({
+          rows: [{ id: '44444444-4444-4444-8444-444444444444', credits: 0 }],
+          rowCount: 1,
+        }),
+        'INSERT INTO interviews': () => ({
+          rows: [
+            {
+              id: '11111111-1111-4111-8111-111111111111',
+              scheduler_id: '22222222-2222-4222-8222-222222222222',
+              scheduler_alias: 'Scheduler',
+              interviewer_id: null,
+              interviewer_alias: 'Interviewer',
+              type: 'system_design',
+              mode: 'ai_led',
+              tier: 'premium',
+              status: 'scheduled',
+              scheduled_at: '2026-05-22T10:00:00.000Z',
+              realtime_session_id: null,
+              excalidraw_room_id: null,
+              excalidraw_key: null,
+              recording_url: null,
+              screenshot_urls: null,
+              feedback: null,
+              created_at: '2026-05-22T09:00:00.000Z',
+              updated_at: '2026-05-22T09:00:00.000Z',
+            },
+          ],
+          rowCount: 1,
+        }),
+      })
+
+      const repository = new InterviewRepository({
+        queryExecutor: mockQueryExecutor,
+      })
+
+      const result = await repository.createDirectInterview({
+        id: '11111111-1111-4111-8111-111111111111',
+        scheduler_id: '22222222-2222-4222-8222-222222222222',
+        scheduler_alias: 'Scheduler',
+        interviewer_id: null,
+        interviewer_alias: 'Interviewer',
+        type: 'system_design',
+        mode: 'ai_led',
+        tier: 'premium',
+        status: 'scheduled',
+        scheduled_at: '2026-05-22T10:00:00.000Z',
+        created_at: '2026-05-22T09:00:00.000Z',
+        updated_at: '2026-05-22T09:00:00.000Z',
+        policy_consumption: 'credit',
+      })
+
+      const creditQuery = mockQueryExecutor.queries.find((q) =>
+        q.text.includes('credits = credits -'),
+      )
+      expect(creditQuery).toBeDefined()
+      expect(result.tier).toBe('premium')
+    })
+
+    it('createDirectInterview throws InterviewPolicyConflictError when free_ai_interview decrement fails', async function run() {
+      const mockQueryExecutor = createMockQueryExecutor({
+        'FROM "user"': () => ({
+          rows: [{ credits: 1, free_standard_interviews: 1, free_ai_interviews: 0 }],
+          rowCount: 1,
+        }),
+        'free_ai_interviews': () => ({
+          rows: [],
+          rowCount: 0,
+        }),
+      })
+
+      const repository = new InterviewRepository({
+        queryExecutor: mockQueryExecutor,
+      })
+
+      await expect(
+        repository.createDirectInterview({
+          id: '11111111-1111-4111-8111-111111111111',
+          scheduler_id: '22222222-2222-4222-8222-222222222222',
+          scheduler_alias: 'Scheduler',
+          interviewer_id: null,
+          interviewer_alias: 'Interviewer',
+          type: 'system_design',
+          mode: 'ai_led',
+          tier: 'standard',
+          status: 'scheduled',
+          scheduled_at: '2026-05-22T10:00:00.000Z',
+          created_at: '2026-05-22T09:00:00.000Z',
+          updated_at: '2026-05-22T09:00:00.000Z',
+          policy_consumption: 'free_ai_interview',
+        }),
+      ).rejects.toBeInstanceOf(InterviewPolicyConflictError)
+
+      const rollbackQuery = mockQueryExecutor.queries.find((q) =>
+        q.text.trim().toUpperCase() === 'ROLLBACK;',
+      )
+      expect(rollbackQuery).toBeDefined()
+    })
+
+    it('createDirectInterview throws InterviewPolicyConflictError when credit decrement fails', async function run() {
+      const mockQueryExecutor = createMockQueryExecutor({
+        'FROM "user"': () => ({
+          rows: [{ credits: 0, free_standard_interviews: 1, free_ai_interviews: 0 }],
+          rowCount: 1,
+        }),
+        'credits = credits -': () => ({
+          rows: [],
+          rowCount: 0,
+        }),
+      })
+
+      const repository = new InterviewRepository({
+        queryExecutor: mockQueryExecutor,
+      })
+
+      await expect(
+        repository.createDirectInterview({
+          id: '11111111-1111-4111-8111-111111111111',
+          scheduler_id: '22222222-2222-4222-8222-222222222222',
+          scheduler_alias: 'Scheduler',
+          interviewer_id: null,
+          interviewer_alias: 'Interviewer',
+          type: 'system_design',
+          mode: 'ai_led',
+          tier: 'premium',
+          status: 'scheduled',
+          scheduled_at: '2026-05-22T10:00:00.000Z',
+          created_at: '2026-05-22T09:00:00.000Z',
+          updated_at: '2026-05-22T09:00:00.000Z',
+          policy_consumption: 'credit',
+        }),
+      ).rejects.toBeInstanceOf(InterviewPolicyConflictError)
+
+      const rollbackQuery = mockQueryExecutor.queries.find((q) =>
+        q.text.trim().toUpperCase() === 'ROLLBACK;',
+      )
+      expect(rollbackQuery).toBeDefined()
     })
 
     it('cancelInterview returns not_found when interview does not exist or participant is unauthorized', async function run() {

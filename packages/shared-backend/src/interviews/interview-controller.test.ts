@@ -13,6 +13,7 @@ import type {
   InterviewPostCommitEvent,
   InterviewPostCommitEventPublisher,
 } from './interview-post-commit-event'
+import { TierPolicyService } from '../tier-policy'
 
 type TestBindings = Record<string, unknown>
 
@@ -869,6 +870,7 @@ describe('InterviewController', function interviewControllerSuite() {
 function createInterviewApp(options: {
   session: InterviewSession | null
   freeAiInterviews: number
+  freeStandardInterviews?: number
   credits: number
   seedInterviews?: readonly Interview[]
   postCommitEventPublisher?: InterviewPostCommitEventPublisher
@@ -880,11 +882,12 @@ function createInterviewApp(options: {
         {
           userId: activeSession.userId,
           credits: options.credits,
+          freeStandardInterviews: options.freeStandardInterviews ?? 1,
           freeAiInterviews: options.freeAiInterviews,
         },
       ], options.seedInterviews),
     ),
-    undefined,
+    new TierPolicyService(),
     function createId() {
       return '22222222-2222-4222-8222-222222222222'
     },
@@ -892,11 +895,6 @@ function createInterviewApp(options: {
       return '2026-04-13T10:00:00.000Z'
     },
     options.postCommitEventPublisher,
-    undefined,
-    undefined,
-    undefined,
-    undefined,
-    createDemoRealtimeProvider(),
   )
 
   registerInterviewController(app, {

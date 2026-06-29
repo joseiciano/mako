@@ -18,6 +18,7 @@ import type {
   InterviewPostCommitEvent,
   InterviewPostCommitEventPublisher,
 } from './interview-post-commit-event'
+import { TierPolicyService } from '../tier-policy'
 
 const activeSession: InterviewSession = {
   userId: '11111111-1111-4111-8111-111111111111',
@@ -67,6 +68,7 @@ describe('InterviewService', function interviewServiceSuite() {
 
     await expect(repository.getAccountPolicy(activeSession.userId)).resolves.toEqual({
       credits: 3,
+      free_standard_interviews: 1,
       free_ai_interviews: 0,
     })
   })
@@ -91,6 +93,7 @@ describe('InterviewService', function interviewServiceSuite() {
 
     await expect(repository.getAccountPolicy(activeSession.userId)).resolves.toEqual({
       credits: 1,
+      free_standard_interviews: 1,
       free_ai_interviews: 0,
     })
   })
@@ -454,7 +457,7 @@ describe('InterviewService', function interviewServiceSuite() {
 
     const repository = new InterviewRepository({
       dataSource: {
-        getAccountPolicy: async () => ({ credits: 2, free_ai_interviews: 0 }),
+        getAccountPolicy: async () => ({ credits: 2, free_standard_interviews: 1, free_ai_interviews: 0 }),
         createDirectInterview: async (input, outboxEvent) => {
           if (outboxEvent) {
             persistedOutboxEvents.push(outboxEvent)
@@ -1462,6 +1465,7 @@ describe('InterviewService', function interviewServiceSuite() {
 function createInterviewService(
   accountState: {
     freeAiInterviews: number
+    freeStandardInterviews?: number
     credits: number
   },
   policyConfig?: {
@@ -1482,6 +1486,7 @@ function createInterviewService(
       {
         userId: activeSession.userId,
         credits: accountState.credits,
+        freeStandardInterviews: accountState.freeStandardInterviews ?? 1,
         freeAiInterviews: accountState.freeAiInterviews,
       },
     ], seedInterviews),
@@ -1489,7 +1494,7 @@ function createInterviewService(
   })
   const service = new InterviewService(
     repository,
-    policyConfig,
+    policyConfig ? new TierPolicyService(policyConfig) : undefined,
     function createId() {
       return '22222222-2222-4222-8222-222222222222'
     },

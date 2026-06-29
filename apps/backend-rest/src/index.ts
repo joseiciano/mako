@@ -327,6 +327,7 @@ function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
 
         return {
           credits: account.credits,
+          free_standard_interviews: account.freeStandardInterviews,
           free_ai_interviews: account.freeAiInterviews,
         }
       },

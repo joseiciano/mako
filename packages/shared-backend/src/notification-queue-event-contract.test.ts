@@ -471,7 +471,7 @@ describe('notification queue event contract', function notificationQueueEventCon
       expect(result.success).toBe(false)
     })
 
-    it('rejects premium tier', function shouldRejectPremiumTier() {
+    it('accepts premium tier', function shouldAcceptPremiumTier() {
       const result = interviewMatchCreatedEventSchema.safeParse({
         event_type: 'interview.match.created',
         event_id: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
@@ -493,7 +493,7 @@ describe('notification queue event contract', function notificationQueueEventCon
         },
       })
 
-      expect(result.success).toBe(false)
+      expect(result.success).toBe(true)
     })
 
     it('rejects non-scheduled status', function shouldRejectNonScheduledStatus() {

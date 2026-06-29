@@ -1118,13 +1118,14 @@ function createDatabaseBinding(accountState: {
 
       if (
         statementText.includes('FROM "user"') &&
-        statementText.includes('SELECT credits, free_ai_interviews') &&
+        statementText.includes('SELECT credits, free_standard_interviews, free_ai_interviews') &&
         statementText.includes('LIMIT 1')
       ) {
         return {
           rows: [
             {
               credits: accountState.credits,
+              free_standard_interviews: 1,
               free_ai_interviews: accountState.freeAiInterviews,
             },
           ],
@@ -1150,14 +1151,14 @@ function createDatabaseBinding(accountState: {
         }
       }
 
-      if (statementText.includes('SET credits = credits - 1')) {
+      if (statementText.includes('SET credits = credits -')) {
         if (accountState.credits <= 0) {
           return { rows: [] }
         }
 
         accountState.credits -= 1
         return {
-          rows: [{ id: '11111111-1111-4111-8111-111111111111' }],
+          rows: [{ id: '11111111-1111-4111-8111-111111111111', credits: accountState.credits }],
         }
       }
 
