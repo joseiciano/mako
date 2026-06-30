@@ -39,7 +39,7 @@
       "createdAt": "2026-01-01T00:00:00.000Z"
     }
     ```
-  - **Field Mapping**: API response uses camelCase JSON fields mapped from DB columns `name`, `credits`, `free_standard_interviews`, `free_ai_interviews`, `"createdAt"`.
+  - **Field Mapping**: API response uses camelCase JSON fields mapped from DB columns `name`, `credits`, `free_standard_interviews`, `free_ai_interviews`, `created_at`.
   - **Query Params**: None
 
 - **`PATCH /api/account`**
