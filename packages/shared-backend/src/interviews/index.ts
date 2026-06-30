@@ -68,7 +68,6 @@ export {
   type InterviewCreateConsumption,
   type InterviewDetail,
   type InterviewLifecycleResponse,
-  type InterviewPolicyConfig,
   type InterviewSession,
   type InterviewTier,
   type LifecycleInterviewRecordInput,

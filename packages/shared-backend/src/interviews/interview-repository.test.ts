@@ -451,7 +451,7 @@ describe('InterviewRepository', function interviewRepositorySuite() {
     const interviewId = '33333333-3333-4333-8333-333333333333'
     const repository = new InterviewRepository(
       createInMemoryInterviewDataSource(
-        [{ userId: participantId, credits: 0, freeAiInterviews: 0 }],
+        [{ userId: participantId, credits: 0, freeStandardInterviews: 0, freeAiInterviews: 0 }],
         [
           createInterviewRecord({
             id: interviewId,
@@ -482,7 +482,7 @@ describe('InterviewRepository', function interviewRepositorySuite() {
     const interviewId = '33333333-3333-4333-8333-333333333333'
     const repository = new InterviewRepository(
       createInMemoryInterviewDataSource(
-        [{ userId: participantId, credits: 0, freeAiInterviews: 0 }],
+        [{ userId: participantId, credits: 0, freeStandardInterviews: 0, freeAiInterviews: 0 }],
         [
           createInterviewRecord({
             id: interviewId,
@@ -511,7 +511,7 @@ describe('InterviewRepository', function interviewRepositorySuite() {
     const interviewId = '33333333-3333-4333-8333-333333333333'
     const repository = new InterviewRepository(
       createInMemoryInterviewDataSource(
-        [{ userId: participantId, credits: 0, freeAiInterviews: 0 }],
+        [{ userId: participantId, credits: 0, freeStandardInterviews: 0, freeAiInterviews: 0 }],
         [
           createInterviewRecord({
             id: interviewId,
@@ -540,7 +540,7 @@ describe('InterviewRepository', function interviewRepositorySuite() {
     const interviewId = '33333333-3333-4333-8333-333333333333'
     const repository = new InterviewRepository(
       createInMemoryInterviewDataSource(
-        [{ userId: participantId, credits: 0, freeAiInterviews: 0 }],
+        [{ userId: participantId, credits: 0, freeStandardInterviews: 0, freeAiInterviews: 0 }],
         [
           createInterviewRecord({
             id: interviewId,
@@ -566,7 +566,7 @@ describe('InterviewRepository', function interviewRepositorySuite() {
     const interviewId = '33333333-3333-4333-8333-333333333333'
     const repository = new InterviewRepository(
       createInMemoryInterviewDataSource(
-        [{ userId: participantId, credits: 0, freeAiInterviews: 0 }],
+        [{ userId: participantId, credits: 0, freeStandardInterviews: 0, freeAiInterviews: 0 }],
         [
           createInterviewRecord({
             id: interviewId,
@@ -599,7 +599,7 @@ describe('InterviewRepository', function interviewRepositorySuite() {
     const interviewId = '33333333-3333-4333-8333-333333333333'
     const repository = new InterviewRepository(
       createInMemoryInterviewDataSource(
-        [{ userId: participantId, credits: 0, freeAiInterviews: 0 }],
+        [{ userId: participantId, credits: 0, freeStandardInterviews: 0, freeAiInterviews: 0 }],
         [
           createInterviewRecord({
             id: interviewId,
