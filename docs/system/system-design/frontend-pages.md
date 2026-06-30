@@ -19,7 +19,7 @@
     - **Create Matrix Note**: Direct create UI must not expose an `interviewer_id` picker for Milestone 2 and should treat direct `peer_to_peer` submissions as unsupported, routing Standard sessions through availability matching instead.
     - **Scope Note**: Current Story 5 UI implementation scope is `system_design` type selection. Additional API-documented interview types remain forward-compatible contract surface for later UI expansion.
 - **Interview Details (`/interviews/:id`)**: Comprehensive view of a specific interview's status and metadata.
-    - **Implementation Status**: Core API route `GET /api/interviews/:id` is live. Full Interview Details / Session / Feedback page rollout remains follow-up work tied to later lifecycle stories.
+    - **Implementation Status**: Core API route `GET /api/interviews/:id` is live and consumed by Interview Details, Interview Session, and Post-Interview Feedback pages. Start/end/timer lifecycle controls remain owned by dedicated lifecycle stories.
     - **Features**: Recording playback, whiteboard screenshots, feedback summary, and participant info.
     - **Data**: `GET /api/interviews/:id`
 - **Interview Session (`/interviews/:id/session`)**: The immersive interview environment.
@@ -33,13 +33,13 @@
       - AI chat guidance uses Excalidraw JSON snapshots as source-of-truth input; Mermaid is optional derived output for reporting/export.
       - Lifecycle/timer UI must consume backend-backed interview status and workflow-backed timer state rather than local-only inferred countdown state.
       - `Start Session` / `End Session` controls are participant-scoped lifecycle actions, not whiteboard provisioning actions.
-      - Session timer/start/end controls are owned by the dedicated lifecycle stories and routes, not by whiteboard provisioning.
+      - Session timer/start/end controls are owned by the dedicated lifecycle stories and routes, not by whiteboard provisioning or the details consumer rollout.
 - **Post-Interview Feedback (`/interviews/:id/feedback`)**: Detailed report and AI-driven insights.
     - **Features**: Performance scores, transcript, and whiteboard captures.
     - **Data**: `GET /api/interviews/:id`
 
 ### Route/Story Tracking Note
-- `GET /api/interviews/:id` is now implemented and available as lifecycle page dependency. Remaining ownership in `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-9-interview-details-route-get-api-interviews-id.md` covers downstream details/session/feedback page rollout and integration work, not initial route delivery.
+- `GET /api/interviews/:id` is now implemented and consumed by downstream details/session/feedback pages through `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-9-interview-details-route-get-api-interviews-id.md`.
 - `POST /api/interviews/:id/provision` is documented as a join-time lifecycle dependency but is explicitly out of Milestone 2 Story 3 CRUD scope; follow-up ownership is `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-2-whiteboard-provision-contract-and-backend-wiring.md`.
 - Lifecycle start/end route ownership is split across dedicated Milestone 3 stories:
   - `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-8-session-lifecycle.md`
@@ -47,4 +47,4 @@
   - `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-11-session-lifecycle-frontend-controls-and-timer.md`
   - `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-12-session-lifecycle-concurrency-and-observability.md`
 - `POST /api/interviews/:id/ai-chat` is an AI-led interview route and should be delivered in dedicated AI-interviewer stories (Milestone 4 scope), beginning with `docs/product/stories/stories/milestone-4-ai-interviewer-implementation/4-1-ai-chat-shared-contracts-and-module-wiring.md` and continuing through the Milestone 4 AI chat subtasks.
-- Keep downstream lifecycle pages and integrations tied to dedicated follow-up stories until full details/session/feedback rollout is complete.
+- Keep downstream lifecycle start/end/timer and AI integrations tied to dedicated follow-up stories; details/session/feedback read consumers are complete.
