@@ -9,10 +9,10 @@ Flow is as follows:
 2. **Queue Hand-off (Post-Commit):** After commit, lifecycle events are emitted to Cloudflare Queues for async notification/reminder orchestration.
 3. **Session Provisioning (Join-Time Route):** At the scheduled time, the user navigates to the interview page and clicks the "Join" button (`POST /api/interviews/:id/provision`). The Backend API Worker initializes and provisions Cloudflare Realtime resources in this route boundary.
 4. **Session Start (Lifecycle Route):** Participant explicitly starts live session via `POST /api/interviews/:id/start`, transitioning interview state from `scheduled` to `ongoing` when valid.
-5. **Lifecycle Orchestration:** Successful `start` triggers Cloudflare Workflow to manage interview timer (60 minutes).
+5. **Lifecycle Orchestration:** Follow-up workflow work observes successful `start` as the persisted boundary for managing the interview timer (60 minutes).
 6. **Client Connection:** The Frontend (TanStack Start) connects to the Realtime session via the RealtimeKit SDK for live audio/video/data streaming.
-7. **In-Session Events:** During interview, Cloudflare Workflow sends events (e.g., 5-minute warnings) via Realtime to clients.
-8. **Session Termination:** Upon timer expiration or manual completion via `POST /api/interviews/:id/end`, lifecycle converges on `completed`, Workflow locks Realtime session, and post-interview process begins.
+7. **In-Session Events:** Follow-up workflow/runtime work sends timer events (e.g., 5-minute warnings) via Realtime to clients.
+8. **Session Termination:** Manual completion via `POST /api/interviews/:id/end` persists `completed`; follow-up timer expiration and Realtime session locking must converge on the same terminal state.
 9. **Data Persistence & Feedback:**
    - Session recordings and screenshots are persisted to Cloudflare R2.
    - AI Feedback is generated using Cloudflare AI Gateway and LLM providers.
@@ -32,7 +32,7 @@ Cancellation transition behavior (must stay aligned with `state-management-lifec
 
 Provisioning note: join-time provisioning is a runtime route phase (`POST /api/interviews/:id/provision`), not a persisted interview `status` value.
 Provisioning should be idempotent for reconnect/retry behavior within the same active interview so room/key/session values are reused rather than regenerated.
-Lifecycle note: workflow timer ownership begins from successful `POST /api/interviews/:id/start`, and manual `POST /api/interviews/:id/end` must converge safely with workflow timeout completion.
+Lifecycle note: workflow timer ownership is follow-up work anchored to successful `POST /api/interviews/:id/start`; manual `POST /api/interviews/:id/end` must converge safely with future workflow timeout completion.
 
 ### Creating account/updating 
 
