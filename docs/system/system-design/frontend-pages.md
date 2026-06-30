@@ -7,8 +7,8 @@
     - **Data**: `GET /api/account`, `GET /api/interviews?status=scheduled`
 - **Interviews History (`/interviews`)**: A comprehensive list of all past and upcoming sessions.
     - **Data**: `GET /api/interviews`
-- **Billing & Credits (`/billing`)**: Page to purchase credit packages via Stripe.
-    - **Data**: `GET /api/account`, `POST /api/payments/create-intent`
+- **Billing & Credits (`/billing`)**: Balance summary from `GET /api/account`; credit purchase and payment intent integration planned for later stories.
+    - **Data**: `GET /api/account`
 - **Settings & Profile (`/settings`)**: Manage profile, employment history, and interviewer verification.
     - **Data**: `GET /api/account`, `PATCH /api/account`, `GET /api/interviewer/status`, `GET /api/companies`
 

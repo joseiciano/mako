@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 6: Monetization & Credit System
 **Description**: Replace the `/billing` placeholder with an authenticated billing page shell that shows current credits and free quota context.
-**Status**: Todo
+**Status**: Completed
 **Prerequisites**:
 - `docs/product/stories/stories/milestone-6-monetization-credit-system/6-4-account-credit-balance-contract.md`
 - `docs/product/stories/stories/milestone-6-monetization-credit-system/6-3-free-tier-logic.md`
