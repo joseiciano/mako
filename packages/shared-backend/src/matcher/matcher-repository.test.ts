@@ -114,6 +114,28 @@ describe('MatcherRepository', function matcherRepositorySuite() {
             }
           }
 
+          if (queryInput.text.includes('FROM "user"') && queryInput.text.includes('FOR UPDATE')) {
+            return {
+              rows: [
+                {
+                  id: queryInput.values[0] as string,
+                  free_standard_interviews: 1,
+                  credits: 1,
+                },
+              ] as Row[],
+            }
+          }
+
+          if (queryInput.text.includes('UPDATE "user"')) {
+            return {
+              rows: [
+                {
+                  id: queryInput.values[0] as string,
+                },
+              ] as Row[],
+            }
+          }
+
           return { rows: [] as Row[] }
         },
       },
@@ -192,6 +214,7 @@ describe('MatcherRepository', function matcherRepositorySuite() {
       'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       'Interviewer-Red',
       'system_design',
+      'standard',
       '2026-04-10T10:30:00.000Z',
       '2026-04-01T12:00:00.000Z',
     ])
@@ -347,6 +370,28 @@ describe('MatcherRepository', function matcherRepositorySuite() {
             throw new Error('insert failed')
           }
 
+          if (queryInput.text.includes('FROM "user"') && queryInput.text.includes('FOR UPDATE')) {
+            return {
+              rows: [
+                {
+                  id: queryInput.values[0] as string,
+                  free_standard_interviews: 1,
+                  credits: 1,
+                },
+              ] as Row[],
+            }
+          }
+
+          if (queryInput.text.includes('UPDATE "user"')) {
+            return {
+              rows: [
+                {
+                  id: queryInput.values[0] as string,
+                },
+              ] as Row[],
+            }
+          }
+
           return { rows: [] as Row[] }
         },
       },
@@ -454,6 +499,28 @@ describe('MatcherRepository', function matcherRepositorySuite() {
             const error = new Error('serialization failure')
             Object.assign(error, { code: '40001' })
             throw error
+          }
+
+          if (queryInput.text.includes('FROM "user"') && queryInput.text.includes('FOR UPDATE')) {
+            return {
+              rows: [
+                {
+                  id: queryInput.values[0] as string,
+                  free_standard_interviews: 1,
+                  credits: 1,
+                },
+              ] as Row[],
+            }
+          }
+
+          if (queryInput.text.includes('UPDATE "user"')) {
+            return {
+              rows: [
+                {
+                  id: queryInput.values[0] as string,
+                },
+              ] as Row[],
+            }
           }
 
           return {
@@ -565,6 +632,28 @@ describe('MatcherRepository', function matcherRepositorySuite() {
             throw error
           }
 
+          if (queryInput.text.includes('FROM "user"') && queryInput.text.includes('FOR UPDATE')) {
+            return {
+              rows: [
+                {
+                  id: queryInput.values[0] as string,
+                  free_standard_interviews: 1,
+                  credits: 1,
+                },
+              ] as Row[],
+            }
+          }
+
+          if (queryInput.text.includes('UPDATE "user"')) {
+            return {
+              rows: [
+                {
+                  id: queryInput.values[0] as string,
+                },
+              ] as Row[],
+            }
+          }
+
           return {
             rows: [] as Row[],
           }
@@ -655,6 +744,28 @@ describe('MatcherRepository', function matcherRepositorySuite() {
             const error = new Error('deadlock detected')
             Object.assign(error, { code: '40P01' })
             throw error
+          }
+
+          if (queryInput.text.includes('FROM "user"') && queryInput.text.includes('FOR UPDATE')) {
+            return {
+              rows: [
+                {
+                  id: queryInput.values[0] as string,
+                  free_standard_interviews: 1,
+                  credits: 1,
+                },
+              ] as Row[],
+            }
+          }
+
+          if (queryInput.text.includes('UPDATE "user"')) {
+            return {
+              rows: [
+                {
+                  id: queryInput.values[0] as string,
+                },
+              ] as Row[],
+            }
           }
 
           return {
@@ -824,6 +935,408 @@ describe('MatcherRepository', function matcherRepositorySuite() {
     expect(executedQueries.some(function hasInterviewInsert(sqlQuery) {
       return sqlQuery.text.includes('INSERT INTO interviews')
     })).toBe(false)
+  })
+
+  it('decrements free_standard_interviews for both users and creates standard tier interview', async function shouldDecrementFreeStandardForBoth() {
+    const executedQueries: SqlQuery[] = []
+    const pairAttempt = createPairAttempt()
+    const repository = new MatcherRepository(
+      {
+        query: async function query<Row>(queryInput: SqlQuery) {
+          executedQueries.push(queryInput)
+
+          if (
+            queryInput.text.includes('FROM availability_slots') &&
+            queryInput.text.includes('FOR UPDATE')
+          ) {
+            const slotId = queryInput.values[0] as string
+            const slotRow = {
+              id: slotId,
+              request_id:
+                slotId === pairAttempt.left.slot_id
+                  ? pairAttempt.left.request_id
+                  : pairAttempt.right.request_id,
+              start_time: '2026-04-10T10:00:00.000Z',
+              end_time: '2026-04-10T11:00:00.000Z',
+              status: 'available',
+            }
+
+            return { rows: [slotRow] as Row[] }
+          }
+
+          if (
+            queryInput.text.includes('FROM availability_requests') &&
+            queryInput.text.includes('FOR UPDATE')
+          ) {
+            const requestId = queryInput.values[0] as string
+            const isLeftRequest = requestId === pairAttempt.left.request_id
+
+            return {
+              rows: [
+                {
+                  id: requestId,
+                  user_id: isLeftRequest
+                    ? pairAttempt.left.request_user_id
+                    : pairAttempt.right.request_user_id,
+                  created_at: isLeftRequest
+                    ? '2026-04-02T10:00:00.000Z'
+                    : '2026-04-01T10:00:00.000Z',
+                  current_matches: 0,
+                  max_matches: 2,
+                  interview_type: 'system_design',
+                  status: 'active',
+                },
+              ] as Row[],
+            }
+          }
+
+          if (queryInput.text.includes('FROM "user"') && queryInput.text.includes('FOR UPDATE')) {
+            return {
+              rows: [
+                {
+                  id: queryInput.values[0] as string,
+                  free_standard_interviews: 2,
+                  credits: 0,
+                },
+              ] as Row[],
+            }
+          }
+
+          if (queryInput.text.includes('UPDATE "user"')) {
+            return {
+              rows: [
+                {
+                  id: queryInput.values[0] as string,
+                },
+              ] as Row[],
+            }
+          }
+
+          return { rows: [] as Row[] }
+        },
+      },
+      {
+        createId: function createFixedInterviewId() {
+          return '99999999-9999-4999-8999-999999999999'
+        },
+        now: function createFixedNowTimestamp() {
+          return '2026-04-01T12:00:00.000Z'
+        },
+      },
+    )
+
+    const result = await repository.executePairAttemptTransaction(pairAttempt)
+
+    expect(result).toMatchObject({
+      status: 'created',
+      interview: {
+        tier: 'standard',
+      },
+    })
+
+    const userUpdates = executedQueries.filter(function isUserUpdate(sqlQuery) {
+      return sqlQuery.text.includes('UPDATE "user"')
+    })
+
+    expect(userUpdates).toHaveLength(2)
+    expect(userUpdates[0]?.text).toContain('RETURNING id')
+    expect(userUpdates[1]?.text).toContain('RETURNING id')
+  })
+
+  it('decrements credits for one user and creates premium tier interview', async function shouldDecrementCreditsForOneUser() {
+    const executedQueries: SqlQuery[] = []
+    const pairAttempt = createPairAttempt()
+    const repository = new MatcherRepository(
+      {
+        query: async function query<Row>(queryInput: SqlQuery) {
+          executedQueries.push(queryInput)
+
+          if (
+            queryInput.text.includes('FROM availability_slots') &&
+            queryInput.text.includes('FOR UPDATE')
+          ) {
+            const slotId = queryInput.values[0] as string
+            const slotRow = {
+              id: slotId,
+              request_id:
+                slotId === pairAttempt.left.slot_id
+                  ? pairAttempt.left.request_id
+                  : pairAttempt.right.request_id,
+              start_time: '2026-04-10T10:00:00.000Z',
+              end_time: '2026-04-10T11:00:00.000Z',
+              status: 'available',
+            }
+
+            return { rows: [slotRow] as Row[] }
+          }
+
+          if (
+            queryInput.text.includes('FROM availability_requests') &&
+            queryInput.text.includes('FOR UPDATE')
+          ) {
+            const requestId = queryInput.values[0] as string
+            const isLeftRequest = requestId === pairAttempt.left.request_id
+
+            return {
+              rows: [
+                {
+                  id: requestId,
+                  user_id: isLeftRequest
+                    ? pairAttempt.left.request_user_id
+                    : pairAttempt.right.request_user_id,
+                  created_at: isLeftRequest
+                    ? '2026-04-02T10:00:00.000Z'
+                    : '2026-04-01T10:00:00.000Z',
+                  current_matches: 0,
+                  max_matches: 2,
+                  interview_type: 'system_design',
+                  status: 'active',
+                },
+              ] as Row[],
+            }
+          }
+
+          if (queryInput.text.includes('FROM "user"') && queryInput.text.includes('FOR UPDATE')) {
+            const userId = queryInput.values[0] as string
+            const isLeftUser = userId === pairAttempt.left.request_user_id
+
+            return {
+              rows: [
+                {
+                  id: userId,
+                  free_standard_interviews: isLeftUser ? 0 : 1,
+                  credits: isLeftUser ? 1 : 0,
+                },
+              ] as Row[],
+            }
+          }
+
+          if (queryInput.text.includes('UPDATE "user"')) {
+            return {
+              rows: [
+                {
+                  id: queryInput.values[0] as string,
+                },
+              ] as Row[],
+            }
+          }
+
+          return { rows: [] as Row[] }
+        },
+      },
+      {
+        createId: function createFixedInterviewId() {
+          return '99999999-9999-4999-8999-999999999999'
+        },
+        now: function createFixedNowTimestamp() {
+          return '2026-04-01T12:00:00.000Z'
+        },
+      },
+    )
+
+    const result = await repository.executePairAttemptTransaction(pairAttempt)
+
+    expect(result).toMatchObject({
+      status: 'created',
+      interview: {
+        tier: 'premium',
+      },
+    })
+
+    const creditDecrementQueries = executedQueries.filter(function isCreditDecrement(sqlQuery) {
+      return sqlQuery.text.includes('UPDATE "user"') && sqlQuery.text.includes('credits = credits')
+    })
+
+    expect(creditDecrementQueries).toHaveLength(1)
+    expect(creditDecrementQueries[0]?.text).toContain('RETURNING id, credits')
+  })
+
+  it('skips with insufficient_credits when either user lacks resources and commits without mutations', async function shouldSkipWhenInsufficientCredits() {
+    const executedQueries: SqlQuery[] = []
+    const pairAttempt = createPairAttempt()
+    const repository = new MatcherRepository({
+      query: async function query<Row>(queryInput: SqlQuery) {
+        executedQueries.push(queryInput)
+
+        if (
+          queryInput.text.includes('FROM availability_slots') &&
+          queryInput.text.includes('FOR UPDATE')
+        ) {
+          const slotId = queryInput.values[0] as string
+          const slotRow = {
+            id: slotId,
+            request_id:
+              slotId === pairAttempt.left.slot_id
+                ? pairAttempt.left.request_id
+                : pairAttempt.right.request_id,
+            start_time: '2026-04-10T10:00:00.000Z',
+            end_time: '2026-04-10T11:00:00.000Z',
+            status: 'available',
+          }
+
+          return { rows: [slotRow] as Row[] }
+        }
+
+        if (
+          queryInput.text.includes('FROM availability_requests') &&
+          queryInput.text.includes('FOR UPDATE')
+        ) {
+          const requestId = queryInput.values[0] as string
+          const isLeftRequest = requestId === pairAttempt.left.request_id
+
+          return {
+            rows: [
+              {
+                id: requestId,
+                user_id: isLeftRequest
+                  ? pairAttempt.left.request_user_id
+                  : pairAttempt.right.request_user_id,
+                created_at: isLeftRequest
+                  ? '2026-04-01T10:00:00.000Z'
+                  : '2026-04-01T10:05:00.000Z',
+                current_matches: 0,
+                max_matches: 2,
+                interview_type: 'system_design',
+                status: 'active',
+              },
+            ] as Row[],
+          }
+        }
+
+        if (queryInput.text.includes('FROM "user"') && queryInput.text.includes('FOR UPDATE')) {
+          const userId = queryInput.values[0] as string
+          const isLeftUser = userId === pairAttempt.left.request_user_id
+
+          return {
+            rows: [
+              {
+                id: userId,
+                free_standard_interviews: isLeftUser ? 0 : 1,
+                credits: isLeftUser ? 0 : 1,
+              },
+            ] as Row[],
+          }
+        }
+
+        return { rows: [] as Row[] }
+      },
+    })
+
+    const result = await repository.executePairAttemptTransaction(pairAttempt)
+
+    expect(result).toEqual({
+      status: 'skipped',
+      reason: 'insufficient_credits',
+      diagnostics: {
+        transactionConflicts: 0,
+        transactionRetries: 0,
+      },
+    })
+
+    expect(executedQueries.some(function hasInterviewInsert(sqlQuery) {
+      return sqlQuery.text.includes('INSERT INTO interviews')
+    })).toBe(false)
+    expect(executedQueries.some(function hasUserUpdate(sqlQuery) {
+      return sqlQuery.text.includes('UPDATE "user"')
+    })).toBe(false)
+    expect(executedQueries[executedQueries.length - 1]?.text).toContain('COMMIT')
+  })
+
+  it('throws and rolls back when a decrement mutation unexpectedly fails', async function shouldRollbackOnDecrementFailure() {
+    const executedQueries: SqlQuery[] = []
+    const pairAttempt = createPairAttempt()
+    let decrementCallCount = 0
+    const repository = new MatcherRepository(
+      {
+        query: async function query<Row>(queryInput: SqlQuery) {
+          executedQueries.push(queryInput)
+
+          if (
+            queryInput.text.includes('FROM availability_slots') &&
+            queryInput.text.includes('FOR UPDATE')
+          ) {
+            const slotId = queryInput.values[0] as string
+            const slotRow = {
+              id: slotId,
+              request_id:
+                slotId === pairAttempt.left.slot_id
+                  ? pairAttempt.left.request_id
+                  : pairAttempt.right.request_id,
+              start_time: '2026-04-10T10:00:00.000Z',
+              end_time: '2026-04-10T11:00:00.000Z',
+              status: 'available',
+            }
+
+            return { rows: [slotRow] as Row[] }
+          }
+
+          if (
+            queryInput.text.includes('FROM availability_requests') &&
+            queryInput.text.includes('FOR UPDATE')
+          ) {
+            const requestId = queryInput.values[0] as string
+            const isLeftRequest = requestId === pairAttempt.left.request_id
+
+            return {
+              rows: [
+                {
+                  id: requestId,
+                  user_id: isLeftRequest
+                    ? pairAttempt.left.request_user_id
+                    : pairAttempt.right.request_user_id,
+                  created_at: isLeftRequest
+                    ? '2026-04-02T10:00:00.000Z'
+                    : '2026-04-01T10:00:00.000Z',
+                  current_matches: 0,
+                  max_matches: 2,
+                  interview_type: 'system_design',
+                  status: 'active',
+                },
+              ] as Row[],
+            }
+          }
+
+          if (queryInput.text.includes('FROM "user"') && queryInput.text.includes('FOR UPDATE')) {
+            return {
+              rows: [
+                {
+                  id: queryInput.values[0] as string,
+                  free_standard_interviews: 1,
+                  credits: 1,
+                },
+              ] as Row[],
+            }
+          }
+
+          if (queryInput.text.includes('UPDATE "user"')) {
+            decrementCallCount += 1
+            if (decrementCallCount === 2) {
+              return { rows: [] as Row[] }
+            }
+            return {
+              rows: [
+                {
+                  id: queryInput.values[0] as string,
+                },
+              ] as Row[],
+            }
+          }
+
+          return { rows: [] as Row[] }
+        },
+      },
+      {
+        createId: function createFixedInterviewId() {
+          return '99999999-9999-4999-8999-999999999999'
+        },
+      },
+    )
+
+    await expect(repository.executePairAttemptTransaction(pairAttempt)).rejects.toThrow()
+
+    expect(executedQueries.some(function hasRollback(sqlQuery) {
+      return sqlQuery.text.includes('ROLLBACK')
+    })).toBe(true)
   })
 })
 
@@ -1081,22 +1594,44 @@ function createConcurrentMatcherSimulation(pairAttempt: MatcherPairAttempt): {
           }
         }
 
-        if (
-          queryInput.text.includes('FROM availability_requests') &&
-          queryInput.text.includes('FOR UPDATE')
-        ) {
-          const requestId = queryInput.values[0] as string
-          await acquireRequestLock(workerId, requestId)
-          workerState.lockedRequestIds.add(requestId)
+          if (
+            queryInput.text.includes('FROM availability_requests') &&
+            queryInput.text.includes('FOR UPDATE')
+          ) {
+            const requestId = queryInput.values[0] as string
+            await acquireRequestLock(workerId, requestId)
+            workerState.lockedRequestIds.add(requestId)
 
-          const requestRow = requestStateById.get(requestId)
+            const requestRow = requestStateById.get(requestId)
 
-          return {
-            rows: requestRow ? ([requestRow] as Row[]) : ([] as Row[]),
+            return {
+              rows: requestRow ? ([requestRow] as Row[]) : ([] as Row[]),
+            }
           }
-        }
 
-        if (queryInput.text.includes('INSERT INTO interviews')) {
+          if (queryInput.text.includes('FROM "user"') && queryInput.text.includes('FOR UPDATE')) {
+            return {
+              rows: [
+                {
+                  id: queryInput.values[0] as string,
+                  free_standard_interviews: 1,
+                  credits: 1,
+                },
+              ] as Row[],
+            }
+          }
+
+          if (queryInput.text.includes('UPDATE "user"')) {
+            return {
+              rows: [
+                {
+                  id: queryInput.values[0] as string,
+                },
+              ] as Row[],
+            }
+          }
+
+          if (queryInput.text.includes('INSERT INTO interviews')) {
           const interviewId = queryInput.values[0] as string
           createdInterviewIds.push(interviewId)
           return { rows: [] as Row[] }

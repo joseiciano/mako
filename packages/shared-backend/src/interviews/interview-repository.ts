@@ -1,6 +1,7 @@
 import type { Interview, InterviewDetail, InterviewListItem } from '@mako/shared'
 import { createSqlQuery, type SqlQuery, type SqlQueryExecutor, type QueryResult } from '../index'
 import type { NotificationQueueEvent } from '../notification-queue-event-contract'
+import { CreditRepository } from '../credit/credit-repository'
 import {
   cancelInterviewRecordInputSchema,
   getParticipantInterviewByIdInputSchema,
@@ -23,6 +24,7 @@ import {
   type ProvisionInterviewRecordInput,
   type ProvisionInterviewRecordResult,
 } from './types'
+import { TierPolicyService, InsufficientCreditsError } from '../tier-policy'
 
 
 export interface InterviewRepositoryDataSource {
@@ -46,6 +48,7 @@ export interface InterviewRepositoryDataSource {
 export type InMemoryInterviewAccountRecord = {
   userId: string
   credits: number
+  freeStandardInterviews: number
   freeAiInterviews: number
 }
 
@@ -105,7 +108,7 @@ export class InterviewRepository {
     const result = await this.getQueryExecutor().query<InterviewAccountPolicy>(
       createSqlQuery(
         `
-          SELECT credits, free_ai_interviews
+          SELECT credits, free_standard_interviews, free_ai_interviews
           FROM "user"
           WHERE id = $1
             AND deleted_at IS NULL
@@ -127,6 +130,7 @@ export class InterviewRepository {
   async createDirectInterview(
     input: CreateInterviewRecordInput,
     outboxEvent?: NotificationQueueEvent,
+    tierPolicyService?: TierPolicyService,
   ): Promise<Interview> {
     const parsedInput = createInterviewRecordInputSchema.parse(input)
     const dataSource = this.dependencies.dataSource
@@ -136,15 +140,75 @@ export class InterviewRepository {
     }
 
     const queryExecutor = this.getQueryExecutor()
+    const creditRepository = new CreditRepository(queryExecutor)
+
     await queryExecutor.query(createSqlQuery('BEGIN;'))
 
     try {
-      const reservationResult = await queryExecutor.query<{ id: string }>(
-        buildConsumptionReservationQuery(parsedInput),
+      const lockResult = await queryExecutor.query<InterviewAccountPolicy>(
+        createSqlQuery(
+          `
+            SELECT credits, free_standard_interviews, free_ai_interviews
+            FROM "user"
+            WHERE id = $1
+              AND deleted_at IS NULL
+            LIMIT 1
+            FOR UPDATE;
+          `,
+          [parsedInput.scheduler_id],
+        ),
       )
 
-      if (!hasRows(reservationResult)) {
-        throw new InterviewPolicyConflictError()
+      if (!hasRows(lockResult)) {
+        throw new InterviewPolicyConflictError('Account state is unavailable.')
+      }
+
+      // Re-resolve policy inside the locked transaction if tierPolicyService provided
+      if (tierPolicyService) {
+        const [lockedAccount] = lockResult.rows
+        const resolved = tierPolicyService.resolveAiInterviewCreatePolicy({
+          free_ai_interviews: lockedAccount.free_ai_interviews,
+          credits: lockedAccount.credits,
+        })
+        parsedInput.tier = resolved.tier
+        parsedInput.policy_consumption = resolved.consumption
+        // Sync outbox event tier to match resolution
+        if (outboxEvent && 'interview' in outboxEvent) {
+          ;(outboxEvent.interview as Record<string, unknown>).tier = resolved.tier
+        }
+      }
+
+      if (parsedInput.policy_consumption === 'free_ai_interview') {
+        const reservationResult = await queryExecutor.query<{ id: string }>(
+          createSqlQuery(
+            `
+              UPDATE "user"
+              SET free_ai_interviews = free_ai_interviews - 1,
+                  "updatedAt" = NOW()
+              WHERE id = $1
+                AND deleted_at IS NULL
+                AND free_ai_interviews > 0
+              RETURNING id;
+            `,
+            [parsedInput.scheduler_id],
+          ),
+        )
+
+        if (!hasRows(reservationResult)) {
+          throw new InterviewPolicyConflictError()
+        }
+      }
+
+      if (parsedInput.policy_consumption === 'credit') {
+        const decrementResult = await creditRepository.decrementCredits(
+          queryExecutor,
+          parsedInput.scheduler_id,
+          1,
+        )
+
+        if (decrementResult.rowCount === 0) {
+          throw new InterviewPolicyConflictError()
+        }
       }
 
       const insertResult = await queryExecutor.query<Interview>(
@@ -737,13 +801,14 @@ export function createInMemoryInterviewDataSource(
 ): InterviewRepositoryDataSource {
   const accountStateByUserId = new Map<
     string,
-    { credits: number; freeAiInterviews: number }
+    { credits: number; freeStandardInterviews: number; freeAiInterviews: number }
   >()
   const interviewsById = new Map<string, Interview>()
 
   for (const account of seedAccounts) {
     accountStateByUserId.set(account.userId, {
       credits: account.credits,
+      freeStandardInterviews: account.freeStandardInterviews,
       freeAiInterviews: account.freeAiInterviews,
     })
   }
@@ -762,6 +827,7 @@ export function createInMemoryInterviewDataSource(
 
       return {
         credits: accountState.credits,
+        free_standard_interviews: accountState.freeStandardInterviews,
         free_ai_interviews: accountState.freeAiInterviews,
       }
     },

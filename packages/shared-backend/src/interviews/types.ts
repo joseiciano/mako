@@ -77,6 +77,7 @@ export const authenticatedInterviewUserIdSchema = z.string().uuid()
 
 export const interviewAccountPolicySchema = z.object({
   credits: z.number().int().nonnegative(),
+  free_standard_interviews: z.number().int().nonnegative(),
   free_ai_interviews: z.number().int().nonnegative(),
 })
 
@@ -104,16 +105,6 @@ export const interviewStatusValueSchema = z.enum(
 )
 
 export type InterviewTier = z.infer<typeof interviewTierValueSchema>
-
-export type InterviewPolicyConfig = {
-  freeAiInterviewTier: InterviewTier
-  creditAiInterviewTier: InterviewTier
-}
-
-export type ResolvedInterviewCreatePolicy = {
-  tier: InterviewTier
-  consumption: InterviewCreateConsumption
-}
 
 export const listParticipantInterviewsInputSchema = z.object({
   participant_user_id: authenticatedInterviewUserIdSchema,

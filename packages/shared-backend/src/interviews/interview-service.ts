@@ -28,20 +28,23 @@ import {
   type NotificationTransport,
 } from '../notifications'
 import {
+  TierPolicyService,
+  InsufficientCreditsError,
+} from '../tier-policy'
+import {
   InterviewBusinessRuleError,
   InterviewConflictError,
   InterviewNotFoundError,
   InterviewPolicyConflictError,
   InterviewUnauthorizedError,
+  InterviewValidationError,
   authenticatedInterviewUserIdSchema,
   toCancelInterviewResponse,
   toCreateInterviewResponse,
   toInterviewDetailResponse,
   toInterviewListResponse,
   toProvisionInterviewResponse,
-  type InterviewPolicyConfig,
   type InterviewSession,
-  type ResolvedInterviewCreatePolicy,
 } from './types'
 
 export type InterviewServiceLogger = {
@@ -52,10 +55,7 @@ export type InterviewServiceLogger = {
 export class InterviewService {
   constructor(
     private readonly interviewRepository: InterviewRepository,
-    private readonly interviewPolicyConfig: InterviewPolicyConfig = {
-      freeAiInterviewTier: 'standard',
-      creditAiInterviewTier: 'premium',
-    },
+    private readonly tierPolicyService: TierPolicyService = new TierPolicyService(),
     private readonly createId: () => string = defaultCreateId,
     private readonly now: () => string = defaultNow,
     private readonly postCommitEventPublisher?: InterviewPostCommitEventPublisher,
@@ -339,10 +339,19 @@ export class InterviewService {
         throw new InterviewNotFoundError()
       }
 
-      const resolvedPolicy = resolveAiInterviewCreatePolicy(
-        accountPolicy,
-        this.interviewPolicyConfig,
-      )
+      let resolvedPolicy
+      try {
+        resolvedPolicy = this.tierPolicyService.resolveAiInterviewCreatePolicy(
+          accountPolicy,
+        )
+      } catch (error) {
+        if (error instanceof InsufficientCreditsError) {
+          throw new InterviewBusinessRuleError(
+            'AI-led interview creation requires remaining free AI interviews or credits.',
+          )
+        }
+        throw error
+      }
 
       const timestamp = input.timestamp ?? this.now()
       const aliases = input.aliases ?? buildInterviewAliases('ai_led')
@@ -381,10 +390,17 @@ export class InterviewService {
             policy_consumption: resolvedPolicy.consumption,
           },
           createdEvent,
+          this.tierPolicyService,
         )
 
         return { interview, outboxEvent: createdEvent }
       } catch (error) {
+        if (error instanceof InsufficientCreditsError) {
+          throw new InterviewBusinessRuleError(
+            'AI-led interview creation requires remaining free AI interviews or credits.',
+          )
+        }
+
         if (!(error instanceof InterviewPolicyConflictError)) {
           throw error
         }
@@ -402,7 +418,16 @@ export class InterviewService {
         throw new InterviewNotFoundError()
       }
 
-      resolveAiInterviewCreatePolicy(refreshedPolicy, this.interviewPolicyConfig)
+      try {
+        this.tierPolicyService.resolveAiInterviewCreatePolicy(refreshedPolicy)
+      } catch (error) {
+        if (error instanceof InsufficientCreditsError) {
+          throw new InterviewBusinessRuleError(
+            'AI-led interview creation requires remaining free AI interviews or credits.',
+          )
+        }
+        throw error
+      }
     }
 
     throw new InterviewBusinessRuleError(
@@ -431,32 +456,6 @@ export class InterviewService {
       // no-op: synchronous logger errors must never block interview operations
     }
   }
-}
-
-export function resolveAiInterviewCreatePolicy(
-  accountPolicy: {
-    credits: number
-    free_ai_interviews: number
-  },
-  policyConfig: InterviewPolicyConfig,
-): ResolvedInterviewCreatePolicy {
-  if (accountPolicy.free_ai_interviews > 0) {
-    return {
-      tier: policyConfig.freeAiInterviewTier,
-      consumption: 'free_ai_interview',
-    }
-  }
-
-  if (accountPolicy.credits > 0) {
-    return {
-      tier: policyConfig.creditAiInterviewTier,
-      consumption: 'credit',
-    }
-  }
-
-  throw new InterviewBusinessRuleError(
-    'AI-led interview creation requires remaining free AI interviews or credits.',
-  )
 }
 
 function defaultCreateId(): string {

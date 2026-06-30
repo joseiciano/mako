@@ -452,7 +452,7 @@ function toOutboxRow(event: NotificationQueueEvent): NotificationOutboxEventRow 
   }
 }
 function createIntegrationHarness(
-  accountState: { freeAiInterviews: number; credits: number },
+  accountState: { freeAiInterviews: number; credits: number; freeStandardInterviews?: number },
   seedInterviews: readonly Interview[] = [],
   dataSourceOverrides: Partial<InterviewRepositoryDataSource> = {},
 ) {
@@ -616,6 +616,7 @@ function createIntegrationHarness(
         {
           userId: activeSession.userId,
           credits: accountState.credits,
+          freeStandardInterviews: accountState.freeStandardInterviews ?? 1,
           freeAiInterviews: accountState.freeAiInterviews,
         },
       ],
