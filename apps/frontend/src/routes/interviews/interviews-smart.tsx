@@ -33,6 +33,20 @@ export function InterviewsSmart() {
     [navigate],
   )
 
+  const handleNavigateToDetails = useCallback(
+    function handleNavigateToDetails(id: string) {
+      navigate({ to: '/interviews/$id', params: { id } })
+    },
+    [navigate],
+  )
+
+  const handleNavigateToFeedback = useCallback(
+    function handleNavigateToFeedback(id: string) {
+      navigate({ to: '/interviews/$id/feedback', params: { id } })
+    },
+    [navigate],
+  )
+
   const { upcoming, history } = useMemo(function splitInterviews() {
     const all = interviewsQuery.data ?? []
 
@@ -128,7 +142,9 @@ export function InterviewsSmart() {
       cancellingInterviewId={cancellingInterviewId}
       onCancelInterview={handleCancelInterview}
       onNavigateToNewInterview={handleNavigateToNewInterview}
+      onNavigateToDetails={handleNavigateToDetails}
       onNavigateToSession={handleNavigateToSession}
+      onNavigateToFeedback={handleNavigateToFeedback}
     />
   )
 }

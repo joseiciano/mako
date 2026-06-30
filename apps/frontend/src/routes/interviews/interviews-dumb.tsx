@@ -22,6 +22,8 @@ export type InterviewsDumbProps = {
   cancellingInterviewId?: string | null
   onCancelInterview?: (id: string) => void
   onNavigateToNewInterview?: () => void
+  onNavigateToDetails?: (id: string) => void
+  onNavigateToFeedback?: (id: string) => void
   onNavigateToSession?: (id: string) => void
 }
 
@@ -130,6 +132,8 @@ function renderContent(props: InterviewsDumbProps) {
               showJoin
               cancellingInterviewId={props.cancellingInterviewId}
               onCancelInterview={props.onCancelInterview}
+              onNavigateToDetails={props.onNavigateToDetails}
+              onNavigateToFeedback={props.onNavigateToFeedback}
               onNavigateToSession={props.onNavigateToSession}
             />
           </div>
@@ -140,7 +144,11 @@ function renderContent(props: InterviewsDumbProps) {
         <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
           <h2 className="text-lg font-semibold text-white">History</h2>
           <div className="mt-4 overflow-x-auto">
-            <InterviewTable interviews={history} />
+            <InterviewTable
+              interviews={history}
+              onNavigateToDetails={props.onNavigateToDetails}
+              onNavigateToFeedback={props.onNavigateToFeedback}
+            />
           </div>
         </section>
       )}
@@ -154,6 +162,8 @@ type InterviewTableProps = {
   showJoin?: boolean
   cancellingInterviewId?: string | null
   onCancelInterview?: (id: string) => void
+  onNavigateToDetails?: (id: string) => void
+  onNavigateToFeedback?: (id: string) => void
   onNavigateToSession?: (id: string) => void
 }
 
@@ -177,6 +187,12 @@ function InterviewTable(props: InterviewTableProps) {
           <th className="px-3 py-1" scope="col">
             Counterpart
           </th>
+          <th className="px-3 py-1" scope="col">
+            Details
+          </th>
+          <th className="px-3 py-1" scope="col">
+            Feedback
+          </th>
           {props.showCancel && <th className="px-3 py-1" scope="col" />}
           {props.showJoin && <th className="px-3 py-1" scope="col" />}
         </tr>
@@ -192,6 +208,7 @@ function InterviewTable(props: InterviewTableProps) {
           const canJoinSession =
             props.showJoin &&
             (interview.status === 'scheduled' || interview.status === 'ongoing')
+          const canViewFeedback = interview.status === 'completed'
           const hasBothColumns = props.showJoin && props.showCancel
 
           return (
@@ -214,6 +231,32 @@ function InterviewTable(props: InterviewTableProps) {
                 </time>
               </td>
               <td className="px-3 py-3">{interview.interviewer_alias}</td>
+              <td className="px-3 py-3">
+                <button
+                  aria-label={`View details ${interview.id}`}
+                  className="inline-flex rounded-md border border-slate-500 px-2.5 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-slate-700/50"
+                  onClick={function handleDetails() {
+                    props.onNavigateToDetails?.(interview.id)
+                  }}
+                  type="button"
+                >
+                  Details
+                </button>
+              </td>
+              <td className="px-3 py-3">
+                {canViewFeedback ? (
+                  <button
+                    aria-label={`View feedback ${interview.id}`}
+                    className="inline-flex rounded-md border border-emerald-400 px-2.5 py-1.5 text-xs font-medium text-emerald-200 transition hover:bg-emerald-500/20"
+                    onClick={function handleFeedback() {
+                      props.onNavigateToFeedback?.(interview.id)
+                    }}
+                    type="button"
+                  >
+                    Feedback
+                  </button>
+                ) : null}
+              </td>
               {props.showJoin && (
                 <td className={!hasBothColumns ? 'rounded-r-lg px-3 py-3' : 'px-3 py-3'}>
                   {canJoinSession ? (

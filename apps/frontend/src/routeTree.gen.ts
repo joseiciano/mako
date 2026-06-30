@@ -19,6 +19,8 @@ import { Route as AuthenticatedDashboardRouteImport } from './routes/_authentica
 import { Route as AuthenticatedBillingRouteImport } from './routes/_authenticated.billing'
 import { Route as AuthenticatedSettingsProfileRouteImport } from './routes/_authenticated.settings.profile'
 import { Route as AuthenticatedInterviewsNewRouteImport } from './routes/_authenticated.interviews.new'
+import { Route as AuthenticatedInterviewsIdRouteImport } from './routes/_authenticated.interviews.$id'
+import { Route as AuthenticatedInterviewsFeedbackIdRouteImport } from './routes/_authenticated.interviews.$id.feedback'
 import { Route as AuthenticatedInterviewsSessionIdRouteImport } from './routes/_authenticated.interviews.$id.session'
 
 const RegisterRoute = RegisterRouteImport.update({
@@ -55,6 +57,17 @@ const AuthenticatedInterviewsNewRoute = AuthenticatedInterviewsNewRouteImport.up
   path: '/new',
   getParentRoute: () => AuthenticatedInterviewsRoute,
 } as any)
+const AuthenticatedInterviewsIdRoute = AuthenticatedInterviewsIdRouteImport.update({
+  id: '/$id',
+  path: '/$id',
+  getParentRoute: () => AuthenticatedInterviewsRoute,
+} as any)
+const AuthenticatedInterviewsFeedbackIdRoute =
+  AuthenticatedInterviewsFeedbackIdRouteImport.update({
+    id: '/$id/feedback',
+    path: '/$id/feedback',
+    getParentRoute: () => AuthenticatedInterviewsRoute,
+  } as any)
 const AuthenticatedInterviewsSessionIdRoute =
   AuthenticatedInterviewsSessionIdRouteImport.update({
     id: '/$id/session',
@@ -86,6 +99,8 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/interviews': typeof AuthenticatedInterviewsRouteWithChildren
   '/interviews/new': typeof AuthenticatedInterviewsNewRoute
+  '/interviews/$id': typeof AuthenticatedInterviewsIdRoute
+  '/interviews/$id/feedback': typeof AuthenticatedInterviewsFeedbackIdRoute
   '/interviews/$id/session': typeof AuthenticatedInterviewsSessionIdRoute
   '/settings': typeof AuthenticatedSettingsRouteWithChildren
   '/settings/profile': typeof AuthenticatedSettingsProfileRoute
@@ -98,6 +113,8 @@ export interface FileRoutesByTo {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/interviews': typeof AuthenticatedInterviewsRoute
   '/interviews/new': typeof AuthenticatedInterviewsNewRoute
+  '/interviews/$id': typeof AuthenticatedInterviewsIdRoute
+  '/interviews/$id/feedback': typeof AuthenticatedInterviewsFeedbackIdRoute
   '/interviews/$id/session': typeof AuthenticatedInterviewsSessionIdRoute
   '/settings': typeof AuthenticatedSettingsRouteWithChildren
   '/settings/profile': typeof AuthenticatedSettingsProfileRoute
@@ -112,6 +129,8 @@ export interface FileRoutesById {
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/interviews': typeof AuthenticatedInterviewsRouteWithChildren
   '/_authenticated/interviews/new': typeof AuthenticatedInterviewsNewRoute
+  '/_authenticated/interviews/$id': typeof AuthenticatedInterviewsIdRoute
+  '/_authenticated/interviews/$id/feedback': typeof AuthenticatedInterviewsFeedbackIdRoute
   '/_authenticated/interviews/$id/session': typeof AuthenticatedInterviewsSessionIdRoute
   '/_authenticated/settings': typeof AuthenticatedSettingsRouteWithChildren
   '/_authenticated/settings/profile': typeof AuthenticatedSettingsProfileRoute
@@ -126,6 +145,8 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/interviews'
     | '/interviews/new'
+    | '/interviews/$id'
+    | '/interviews/$id/feedback'
     | '/interviews/$id/session'
     | '/settings'
     | '/settings/profile'
@@ -138,6 +159,8 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/interviews'
     | '/interviews/new'
+    | '/interviews/$id'
+    | '/interviews/$id/feedback'
     | '/interviews/$id/session'
     | '/settings'
     | '/settings/profile'
@@ -151,6 +174,8 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard'
     | '/_authenticated/interviews'
     | '/_authenticated/interviews/new'
+    | '/_authenticated/interviews/$id'
+    | '/_authenticated/interviews/$id/feedback'
     | '/_authenticated/interviews/$id/session'
     | '/_authenticated/settings'
     | '/_authenticated/settings/profile'
@@ -214,6 +239,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedInterviewsNewRouteImport
       parentRoute: typeof AuthenticatedInterviewsRoute
     }
+    '/_authenticated/interviews/$id': {
+      id: '/_authenticated/interviews/$id'
+      path: '/$id'
+      fullPath: '/interviews/$id'
+      preLoaderRoute: typeof AuthenticatedInterviewsIdRouteImport
+      parentRoute: typeof AuthenticatedInterviewsRoute
+    }
+    '/_authenticated/interviews/$id/feedback': {
+      id: '/_authenticated/interviews/$id/feedback'
+      path: '/$id/feedback'
+      fullPath: '/interviews/$id/feedback'
+      preLoaderRoute: typeof AuthenticatedInterviewsFeedbackIdRouteImport
+      parentRoute: typeof AuthenticatedInterviewsRoute
+    }
     '/_authenticated/interviews/$id/session': {
       id: '/_authenticated/interviews/$id/session'
       path: '/$id/session'
@@ -247,11 +286,15 @@ declare module '@tanstack/react-router' {
 
 interface AuthenticatedInterviewsRouteChildren {
   AuthenticatedInterviewsNewRoute: typeof AuthenticatedInterviewsNewRoute
+  AuthenticatedInterviewsIdRoute: typeof AuthenticatedInterviewsIdRoute
+  AuthenticatedInterviewsFeedbackIdRoute: typeof AuthenticatedInterviewsFeedbackIdRoute
   AuthenticatedInterviewsSessionIdRoute: typeof AuthenticatedInterviewsSessionIdRoute
 }
 
 const AuthenticatedInterviewsRouteChildren: AuthenticatedInterviewsRouteChildren = {
   AuthenticatedInterviewsNewRoute: AuthenticatedInterviewsNewRoute,
+  AuthenticatedInterviewsIdRoute: AuthenticatedInterviewsIdRoute,
+  AuthenticatedInterviewsFeedbackIdRoute: AuthenticatedInterviewsFeedbackIdRoute,
   AuthenticatedInterviewsSessionIdRoute: AuthenticatedInterviewsSessionIdRoute,
 }
 

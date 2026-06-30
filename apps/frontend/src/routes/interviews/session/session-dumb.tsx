@@ -16,6 +16,8 @@ import {
   formatInterviewStatus,
 } from '#/lib/format-interview'
 
+const JOINABLE_STATUSES = new Set(['scheduled', 'ongoing'])
+
 export type SessionDumbProps = {
   interview: InterviewDetail | null
   isLoading: boolean
@@ -161,26 +163,37 @@ function renderContent(props: SessionDumbProps) {
   }
 
   if (props.interview) {
+    const canJoinInterview = JOINABLE_STATUSES.has(props.interview.status)
+
     return (
       <div className="flex flex-col gap-6">
         <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
           <InterviewMetadata interview={props.interview} />
         </section>
 
-        <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
-          <h2 className="text-lg font-semibold text-white">Ready to Join</h2>
-          <p className="mt-2 text-sm text-slate-300">
-            Click the button below to provision your session and
-            enter the interview environment with audio, video, and whiteboard.
-          </p>
-          <button
-            className="mt-4 inline-flex rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400"
-            onClick={props.onJoin}
-            type="button"
-          >
-            Join Session
-          </button>
-        </section>
+        {canJoinInterview ? (
+          <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
+            <h2 className="text-lg font-semibold text-white">Ready to Join</h2>
+            <p className="mt-2 text-sm text-slate-300">
+              Click the button below to provision your session and
+              enter the interview environment with audio, video, and whiteboard.
+            </p>
+            <button
+              className="mt-4 inline-flex rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400"
+              onClick={props.onJoin}
+              type="button"
+            >
+              Join Session
+            </button>
+          </section>
+        ) : (
+          <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
+            <h2 className="text-lg font-semibold text-white">Session unavailable</h2>
+            <p className="mt-2 text-sm text-slate-300">
+              This interview cannot be joined because its status is {formatInterviewStatus(props.interview.status)}.
+            </p>
+          </section>
+        )}
       </div>
     )
   }
