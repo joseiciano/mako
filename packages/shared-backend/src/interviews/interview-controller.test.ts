@@ -865,6 +865,328 @@ describe('InterviewController', function interviewControllerSuite() {
 
     expect(response.status).toBe(404)
   })
+
+  it('starts scheduled interview via POST start route', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+    })
+
+    const response = await app.request(`/api/interviews/${interviewId}/start`, {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      success: true,
+      interview: expect.objectContaining({
+        id: interviewId,
+        status: 'ongoing',
+      }),
+    })
+  })
+
+  it('start route is idempotent on already ongoing interview', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          status: 'ongoing',
+        }),
+      ],
+    })
+
+    const response = await app.request(`/api/interviews/${interviewId}/start`, {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      success: true,
+      interview: expect.objectContaining({
+        id: interviewId,
+        status: 'ongoing',
+      }),
+    })
+  })
+
+  it('returns 409 when starting a completed interview', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          status: 'completed',
+        }),
+      ],
+    })
+
+    const response = await app.request(`/api/interviews/${interviewId}/start`, {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Only scheduled interviews can be started.',
+    })
+  })
+
+  it('returns 409 when starting a cancelled interview', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          status: 'cancelled',
+        }),
+      ],
+    })
+
+    const response = await app.request(`/api/interviews/${interviewId}/start`, {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(409)
+  })
+
+  it('returns 404 when non-participant starts an interview', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: '99999999-9999-4999-8999-999999999999',
+        }),
+      ],
+    })
+
+    const response = await app.request(`/api/interviews/${interviewId}/start`, {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(404)
+  })
+
+  it('returns 401 for start requests without authentication', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const app = createInterviewApp({
+      session: null,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+    })
+
+    const response = await app.request(`/api/interviews/${interviewId}/start`, {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(401)
+  })
+
+  it('returns 400 for invalid start route params', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+    })
+
+    const response = await app.request('/api/interviews/not-a-uuid/start', {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(400)
+  })
+
+  it('ends ongoing interview via POST end route', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          status: 'ongoing',
+        }),
+      ],
+    })
+
+    const response = await app.request(`/api/interviews/${interviewId}/end`, {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      success: true,
+      interview: expect.objectContaining({
+        id: interviewId,
+        status: 'completed',
+      }),
+    })
+  })
+
+  it('end route is idempotent on already completed interview', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          status: 'completed',
+        }),
+      ],
+    })
+
+    const response = await app.request(`/api/interviews/${interviewId}/end`, {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      success: true,
+      interview: expect.objectContaining({
+        id: interviewId,
+        status: 'completed',
+      }),
+    })
+  })
+
+  it('returns 409 when ending a scheduled interview', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+    })
+
+    const response = await app.request(`/api/interviews/${interviewId}/end`, {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(409)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Only ongoing interviews can be ended.',
+    })
+  })
+
+  it('returns 409 when ending a cancelled interview', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          status: 'cancelled',
+        }),
+      ],
+    })
+
+    const response = await app.request(`/api/interviews/${interviewId}/end`, {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(409)
+  })
+
+  it('returns 404 when non-participant ends an interview', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: '99999999-9999-4999-8999-999999999999',
+          status: 'ongoing',
+        }),
+      ],
+    })
+
+    const response = await app.request(`/api/interviews/${interviewId}/end`, {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(404)
+  })
+
+  it('returns 401 for end requests without authentication', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const app = createInterviewApp({
+      session: null,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          status: 'ongoing',
+        }),
+      ],
+    })
+
+    const response = await app.request(`/api/interviews/${interviewId}/end`, {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(401)
+  })
+
+  it('returns 400 for invalid end route params', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+    })
+
+    const response = await app.request('/api/interviews/not-a-uuid/end', {
+      method: 'POST',
+    })
+
+    expect(response.status).toBe(400)
+  })
 })
 
 function createInterviewApp(options: {

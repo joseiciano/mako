@@ -3,11 +3,14 @@ import {
   cancelInterviewResponseSchema,
   createInterviewRequestSchema,
   createInterviewResponseSchema,
+  endInterviewParamsSchema,
   interviewDetailResponseSchema,
+  interviewLifecycleResponseSchema,
   interviewListQuerySchema,
   interviewListResponseSchema,
   provisionInterviewParamsSchema,
   provisionInterviewResponseSchema,
+  startInterviewParamsSchema,
 } from '@mako/shared'
 import type { Context, Hono } from 'hono'
 import { InterviewService } from './interview-service'
@@ -120,6 +123,44 @@ export function registerInterviewController<Bindings extends ControllerBindings>
       )
 
       return c.json(cancelInterviewResponseSchema.parse(cancelResponse), 200)
+    } catch (error) {
+      return toErrorResponse(c, error)
+}
+  })
+
+  app.post('/api/interviews/:id/start', async function postStartInterviewHandler(c) {
+    const interviewService = options.createService({ bindings: c.env })
+    const session = await options.resolveSession(c)
+
+    try {
+      const parsedParams = startInterviewParamsSchema.parse({
+        id: c.req.param('id'),
+      })
+      const startResponse = await interviewService.startInterview(
+        session,
+        parsedParams,
+      )
+
+      return c.json(interviewLifecycleResponseSchema.parse(startResponse), 200)
+    } catch (error) {
+      return toErrorResponse(c, error)
+    }
+  })
+
+  app.post('/api/interviews/:id/end', async function postEndInterviewHandler(c) {
+    const interviewService = options.createService({ bindings: c.env })
+    const session = await options.resolveSession(c)
+
+    try {
+      const parsedParams = endInterviewParamsSchema.parse({
+        id: c.req.param('id'),
+      })
+      const endResponse = await interviewService.endInterview(
+        session,
+        parsedParams,
+      )
+
+      return c.json(interviewLifecycleResponseSchema.parse(endResponse), 200)
     } catch (error) {
       return toErrorResponse(c, error)
     }

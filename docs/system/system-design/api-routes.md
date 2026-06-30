@@ -172,25 +172,71 @@
 - **`POST /api/interviews/:id/start`**
   - **Description**: Starts an interview session for a participant and transitions lifecycle state from `scheduled` to `ongoing` when valid.
   - **Request Body**: None
-  - **Response Body**: `{ success: boolean, interview: Interview }`
+  - **Response Body**:
+    ```json
+    {
+      "success": true,
+      "interview": {
+        "id": "uuid",
+        "scheduler_id": "uuid",
+        "scheduler_alias": "Candidate-Blue",
+        "interviewer_id": "uuid",
+        "interviewer_alias": "Interviewer-Red",
+        "type": "system_design",
+        "mode": "peer_to_peer",
+        "tier": "standard",
+        "status": "ongoing",
+        "scheduled_at": "2026-04-10T10:30:00.000Z",
+        "recording_url": null,
+        "screenshot_urls": null,
+        "feedback": null,
+        "created_at": "2026-04-01T10:00:00.000Z",
+        "updated_at": "2026-04-10T10:30:00.000Z"
+      }
+    }
+    ```
   - **Behavior Rules**:
-    - Route is participant-only.
+    - Route is participant-only; unauthenticated requests receive 401; missing or non-participant requests receive 404.
     - Valid transition: `scheduled -> ongoing`.
-    - Idempotent retry: repeated `start` on already `ongoing` interview returns success semantics without conflicting state mutation.
-    - Invalid transitions are rejected without state mutation (`cancelled -> start`, `completed -> start`).
-    - Successful `start` is route boundary that triggers Cloudflare Workflow timer orchestration; timer ownership must not begin in join provisioning or client-only code.
+    - Idempotent retry: repeated `start` on already `ongoing` interview returns `{ success: true, interview }` without conflicting state mutation.
+    - Invalid transitions (`cancelled -> start`, `completed -> start`) are rejected with 409 without state mutation.
+    - Successful `start` is the persisted lifecycle boundary that later timer orchestration hooks into; Story 3.8 does not implement Workflow timer orchestration.
+    - Response uses credential-safe `InterviewDetail` schema (excludes `realtime_session_id`, `excalidraw_room_id`, `excalidraw_key`).
   - **Query Params**: None
 
 - **`POST /api/interviews/:id/end`**
   - **Description**: Ends an active interview session for a participant and transitions lifecycle state from `ongoing` to `completed` when valid.
   - **Request Body**: None
-  - **Response Body**: `{ success: boolean, interview: Interview }`
+  - **Response Body**:
+    ```json
+    {
+      "success": true,
+      "interview": {
+        "id": "uuid",
+        "scheduler_id": "uuid",
+        "scheduler_alias": "Candidate-Blue",
+        "interviewer_id": "uuid",
+        "interviewer_alias": "Interviewer-Red",
+        "type": "system_design",
+        "mode": "peer_to_peer",
+        "tier": "standard",
+        "status": "completed",
+        "scheduled_at": "2026-04-10T10:30:00.000Z",
+        "recording_url": null,
+        "screenshot_urls": null,
+        "feedback": null,
+        "created_at": "2026-04-01T10:00:00.000Z",
+        "updated_at": "2026-04-10T11:30:00.000Z"
+      }
+    }
+    ```
   - **Behavior Rules**:
-    - Route is participant-only.
+    - Route is participant-only; unauthenticated requests receive 401; missing or non-participant requests receive 404.
     - Valid transition: `ongoing -> completed`.
-    - Idempotent retry: repeated `end` on already `completed` interview returns success semantics without conflicting state mutation.
-    - Invalid transitions are rejected without state mutation (`scheduled -> end`, `cancelled -> end`).
-    - Manual `end` must safely converge with workflow-driven timeout completion so terminal writes do not conflict.
+    - Idempotent retry: repeated `end` on already `completed` interview returns `{ success: true, interview }` without conflicting state mutation.
+    - Invalid transitions (`scheduled -> end`, `cancelled -> end`) are rejected with 409 without state mutation.
+    - Manual `end` persists the terminal lifecycle state; Workflow timeout convergence is owned by follow-up lifecycle orchestration work.
+    - Response uses credential-safe `InterviewDetail` schema (excludes `realtime_session_id`, `excalidraw_room_id`, `excalidraw_key`).
   - **Query Params**: None
 
 - **`POST /api/interviews/:id/ai-chat`**

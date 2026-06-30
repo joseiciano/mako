@@ -216,6 +216,77 @@ describe('backend-rest smoke tests', function () {
     })
   })
 
+  it('starts and ends interviews in demo mode through registered lifecycle routes', async function () {
+    const app = createApp()
+
+    const createResponse = await createInterview(app)
+    expect(createResponse.status).toBe(201)
+
+    const createdInterview = (await createResponse.json()) as {
+      interview: { id: string }
+    }
+
+    const startResponse = await startInterview(app, createdInterview.interview.id)
+
+    expect(startResponse.status).toBe(200)
+    await expect(startResponse.json()).resolves.toMatchObject({
+      success: true,
+      interview: {
+        id: createdInterview.interview.id,
+        status: 'ongoing',
+      },
+    })
+
+    const endResponse = await endInterview(app, createdInterview.interview.id)
+
+    expect(endResponse.status).toBe(200)
+    await expect(endResponse.json()).resolves.toMatchObject({
+      success: true,
+      interview: {
+        id: createdInterview.interview.id,
+        status: 'completed',
+      },
+    })
+  })
+
+  it('persists DB-backed lifecycle transitions through registered routes', async function () {
+    const app = createApp()
+    const dbBinding = createDatabaseBinding({ credits: 1, freeAiInterviews: 0 })
+    const env: WorkerBindings = { DB: dbBinding }
+
+    const createResponse = await createInterview(app, { type: 'coding' }, env)
+    expect(createResponse.status).toBe(201)
+
+    const createdInterview = (await createResponse.json()) as {
+      interview: { id: string }
+    }
+
+    const startResponse = await startInterview(app, createdInterview.interview.id, env)
+    expect(startResponse.status).toBe(200)
+    await expect(startResponse.json()).resolves.toMatchObject({
+      success: true,
+      interview: {
+        id: createdInterview.interview.id,
+        status: 'ongoing',
+      },
+    })
+
+    const endResponse = await endInterview(app, createdInterview.interview.id, env)
+    expect(endResponse.status).toBe(200)
+    await expect(endResponse.json()).resolves.toMatchObject({
+      success: true,
+      interview: {
+        id: createdInterview.interview.id,
+        status: 'completed',
+      },
+    })
+
+    const statusUpdates = dbBinding.executedStatements.filter(function isStatusUpdate(statement) {
+      return statement.includes('UPDATE interviews') && statement.includes('SET status')
+    })
+    expect(statusUpdates).toHaveLength(2)
+  })
+
   it('provisions stable interview credentials in demo mode through registered route', async function () {
     const app = createApp()
     const createResponse = await createInterview(app)
@@ -1103,6 +1174,22 @@ function cancelInterview(
   return app.request(`/api/interviews/${interviewId}/cancel`, { method: 'POST' }, env)
 }
 
+function startInterview(
+  app: ReturnType<typeof createApp>,
+  interviewId: string,
+  env: Partial<WorkerBindings> = {},
+) {
+  return app.request(`/api/interviews/${interviewId}/start`, { method: 'POST' }, env)
+}
+
+function endInterview(
+  app: ReturnType<typeof createApp>,
+  interviewId: string,
+  env: Partial<WorkerBindings> = {},
+) {
+  return app.request(`/api/interviews/${interviewId}/end`, { method: 'POST' }, env)
+}
+
 function provisionInterview(
   app: ReturnType<typeof createApp>,
   interviewId: string,
@@ -1306,6 +1393,48 @@ function createDatabaseBinding(accountState: {
         const updatedInterview = {
           ...interview,
           status: 'cancelled',
+          updated_at: statementValues[1],
+        }
+
+        interviewsById.set(interviewId, updatedInterview)
+
+        return {
+          rows: [updatedInterview],
+        }
+      }
+
+      if (statementText.includes("UPDATE interviews") && statementText.includes("status = 'ongoing'")) {
+        const interviewId = String(statementValues[0])
+        const interview = interviewsById.get(interviewId)
+
+        if (!interview) {
+          return { rows: [] }
+        }
+
+        const updatedInterview = {
+          ...interview,
+          status: 'ongoing',
+          updated_at: statementValues[1],
+        }
+
+        interviewsById.set(interviewId, updatedInterview)
+
+        return {
+          rows: [updatedInterview],
+        }
+      }
+
+      if (statementText.includes("UPDATE interviews") && statementText.includes("status = 'completed'")) {
+        const interviewId = String(statementValues[0])
+        const interview = interviewsById.get(interviewId)
+
+        if (!interview) {
+          return { rows: [] }
+        }
+
+        const updatedInterview = {
+          ...interview,
+          status: 'completed',
           updated_at: statementValues[1],
         }
 

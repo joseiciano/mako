@@ -3,12 +3,15 @@ import type {
   CancelInterviewResponse,
   CreateInterviewRequest,
   CreateInterviewResponse,
+  EndInterviewParams,
   Interview,
   InterviewDetailResponse,
+  InterviewLifecycleResponse,
   InterviewListQuery,
   InterviewListResponse,
   ProvisionInterviewParams,
   ProvisionInterviewResponse,
+  StartInterviewParams,
 } from '@mako/shared'
 import { buildInterviewAliases } from '../interview'
 import { InterviewRepository } from './interview-repository'
@@ -42,6 +45,7 @@ import {
   toCancelInterviewResponse,
   toCreateInterviewResponse,
   toInterviewDetailResponse,
+  toInterviewLifecycleActionResponse,
   toInterviewListResponse,
   toProvisionInterviewResponse,
   type InterviewSession,
@@ -318,6 +322,74 @@ export class InterviewService {
     }
 
     throw new Error('Unexpected interview cancellation outcome.')
+  }
+
+  async startInterview(
+    session: InterviewSession | null,
+    input: StartInterviewParams,
+  ): Promise<InterviewLifecycleResponse> {
+    const userSession = this.requireSession(session)
+    const participantUserId = authenticatedInterviewUserIdSchema.parse(
+      userSession.userId,
+    )
+
+    const transitionResult = await this.interviewRepository.transitionInterviewLifecycle({
+      interview_id: input.id,
+      participant_user_id: participantUserId,
+      action: 'start',
+      updated_at: this.now(),
+    })
+
+    switch (transitionResult.outcome) {
+      case 'started':
+        return toInterviewLifecycleActionResponse(transitionResult.interview)
+      case 'already_ongoing':
+        return toInterviewLifecycleActionResponse(transitionResult.interview)
+      case 'invalid_status':
+        throw new InterviewConflictError(
+          'Only scheduled interviews can be started.',
+        )
+      case 'not_found':
+        throw new InterviewNotFoundError(
+          'Interview was not found for the active participant.',
+        )
+    }
+
+    throw new Error('Unexpected interview start outcome.')
+  }
+
+  async endInterview(
+    session: InterviewSession | null,
+    input: EndInterviewParams,
+  ): Promise<InterviewLifecycleResponse> {
+    const userSession = this.requireSession(session)
+    const participantUserId = authenticatedInterviewUserIdSchema.parse(
+      userSession.userId,
+    )
+
+    const transitionResult = await this.interviewRepository.transitionInterviewLifecycle({
+      interview_id: input.id,
+      participant_user_id: participantUserId,
+      action: 'end',
+      updated_at: this.now(),
+    })
+
+    switch (transitionResult.outcome) {
+      case 'completed':
+        return toInterviewLifecycleActionResponse(transitionResult.interview)
+      case 'already_completed':
+        return toInterviewLifecycleActionResponse(transitionResult.interview)
+      case 'invalid_status':
+        throw new InterviewConflictError(
+          'Only ongoing interviews can be ended.',
+        )
+      case 'not_found':
+        throw new InterviewNotFoundError(
+          'Interview was not found for the active participant.',
+        )
+    }
+
+    throw new Error('Unexpected interview end outcome.')
   }
 
   private async createAiLedInterview(input: {

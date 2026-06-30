@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 3: The Interview Experience (P2P Core)
 **Description**: Implement deterministic backend lifecycle contracts and persisted start/end transitions for P2P interview sessions.
-**Status**: Todo
+**Status**: Completed
 **Prerequisites**:
 - `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-2-whiteboard-provision-contract-and-backend-wiring.md`
 - `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-6-real-time-communication.md`
@@ -14,35 +14,35 @@
 ## What Needs to Be Done
 
 ### 1. Lock lifecycle route contracts in source-of-truth docs
-- [ ] Reconcile lifecycle controls in `docs/system/system-design/api-routes.md` before implementation by documenting explicit session action routes:
+- [x] Reconcile lifecycle controls in `docs/system/system-design/api-routes.md` before implementation by documenting explicit session action routes:
   - `POST /api/interviews/:id/start`
   - `POST /api/interviews/:id/end`
-- [ ] Keep join-time provisioning ownership unchanged at `POST /api/interviews/:id/provision`; do not add separate persisted provisioning status.
-- [ ] Keep Milestone 3 scope focused on P2P session lifecycle controls; AI chat route ownership remains in Milestone 4 (`POST /api/interviews/:id/ai-chat`).
+- [x] Keep join-time provisioning ownership unchanged at `POST /api/interviews/:id/provision`; do not add separate persisted provisioning status.
+- [x] Keep Milestone 3 scope focused on P2P session lifecycle controls; AI chat route ownership remains in Milestone 4 (`POST /api/interviews/:id/ai-chat`).
 
 ### 2. Implement shared contracts and backend route wiring
-- [ ] Add/update shared request/response contracts for lifecycle action routes in `packages/shared/src/interviews.ts` and export through `packages/shared/src/index.ts`.
-- [ ] Implement lifecycle action handling in interview backend modules under `packages/shared-backend/src/interviews/`:
+- [x] Add/update shared request/response contracts for lifecycle action routes in `packages/shared/src/interviews.ts` and export through `packages/shared/src/index.ts`.
+- [x] Implement lifecycle action handling in interview backend modules under `packages/shared-backend/src/interviews/`:
   - `interview-repository.ts`
   - `interview-service.ts`
   - `interview-controller.ts`
   - `types.ts`
   - `index.ts`
-- [ ] Register lifecycle route wiring in `apps/backend-rest/src/index.ts`.
-- [ ] Enforce participant-only authorization for start/end actions and reject non-participants with explicit errors.
+- [x] Register lifecycle route wiring in `apps/backend-rest/src/index.ts`.
+- [x] Enforce participant-only authorization for start/end actions and reject non-participants with explicit errors.
 
 ### 3. Enforce deterministic persisted transition matrix
-- [ ] Enforce transition matrix with explicit behavior:
+- [x] Enforce transition matrix with explicit behavior:
   - `scheduled -> ongoing` on valid `start`
   - `ongoing -> ongoing` idempotent retry semantics for repeated `start`
   - `ongoing -> completed` on valid `end`
   - `completed -> completed` idempotent retry semantics for repeated `end`
   - reject invalid transitions without state mutation (`cancelled -> start|end`, `completed -> start`, `scheduled -> end`)
-- [ ] Keep persisted interview status domain unchanged (`scheduled`, `ongoing`, `completed`, `cancelled`) and aligned with `docs/system/system-design/db-schemas.md`.
-- [ ] Keep matcher/tier ownership unchanged from `docs/system/system-design/matching-tiers.md`.
+- [x] Keep persisted interview status domain unchanged (`scheduled`, `ongoing`, `completed`, `cancelled`) and aligned with `docs/system/system-design/db-schemas.md`.
+- [x] Keep matcher/tier ownership unchanged from `docs/system/system-design/matching-tiers.md`.
 
 ### 4. Add baseline backend coverage for lifecycle actions
-- [ ] Add/update backend tests for:
+- [x] Add/update backend tests for:
   - participant authorization
   - valid vs invalid transition matrix
   - idempotent repeated `start`/`end` calls

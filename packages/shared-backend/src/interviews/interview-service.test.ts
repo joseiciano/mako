@@ -1460,6 +1460,249 @@ describe('InterviewService', function interviewServiceSuite() {
       status: 'scheduled',
     })
   })
+
+  it('starts scheduled interview, transitions to ongoing, returns lifecycle response', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+    )
+
+    const response = await service.startInterview(activeSession, { id: interviewId })
+
+    expect(response.success).toBe(true)
+    expect(response.interview).toMatchObject({
+      id: interviewId,
+      status: 'ongoing',
+    })
+  })
+
+  it('start is idempotent - repeated start on ongoing interview returns success without mutation', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const { service, repository } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+    )
+
+    const firstResponse = await service.startInterview(activeSession, { id: interviewId })
+    expect(firstResponse.interview.status).toBe('ongoing')
+
+    const secondResponse = await service.startInterview(activeSession, { id: interviewId })
+    expect(secondResponse.success).toBe(true)
+    expect(secondResponse.interview.status).toBe('ongoing')
+
+    const persisted = await repository.getInterviewById(interviewId)
+    expect(persisted!.status).toBe('ongoing')
+  })
+
+  it('rejects start on completed interview', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          status: 'completed',
+        }),
+      ],
+    )
+
+    await expect(
+      service.startInterview(activeSession, { id: interviewId }),
+    ).rejects.toBeInstanceOf(InterviewConflictError)
+  })
+
+  it('rejects start on cancelled interview', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          status: 'cancelled',
+        }),
+      ],
+    )
+
+    await expect(
+      service.startInterview(activeSession, { id: interviewId }),
+    ).rejects.toBeInstanceOf(InterviewConflictError)
+  })
+
+  it('rejects start when user is not authenticated', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+    )
+
+    await expect(
+      service.startInterview(null, { id: interviewId }),
+    ).rejects.toBeInstanceOf(InterviewUnauthorizedError)
+  })
+
+  it('rejects start when user is not a participant', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: '99999999-9999-4999-8999-999999999999',
+        }),
+      ],
+    )
+
+    await expect(
+      service.startInterview(activeSession, { id: interviewId }),
+    ).rejects.toBeInstanceOf(InterviewNotFoundError)
+  })
+
+  it('ends ongoing interview, transitions to completed, returns lifecycle response', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          status: 'ongoing',
+        }),
+      ],
+    )
+
+    const response = await service.endInterview(activeSession, { id: interviewId })
+
+    expect(response.success).toBe(true)
+    expect(response.interview).toMatchObject({
+      id: interviewId,
+      status: 'completed',
+    })
+  })
+
+  it('end is idempotent - repeated end on completed interview returns success without mutation', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const { service, repository } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          status: 'ongoing',
+        }),
+      ],
+    )
+
+    const firstResponse = await service.endInterview(activeSession, { id: interviewId })
+    expect(firstResponse.interview.status).toBe('completed')
+
+    const secondResponse = await service.endInterview(activeSession, { id: interviewId })
+    expect(secondResponse.success).toBe(true)
+    expect(secondResponse.interview.status).toBe('completed')
+
+    const persisted = await repository.getInterviewById(interviewId)
+    expect(persisted!.status).toBe('completed')
+  })
+
+  it('rejects end on scheduled interview', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+    )
+
+    await expect(
+      service.endInterview(activeSession, { id: interviewId }),
+    ).rejects.toBeInstanceOf(InterviewConflictError)
+  })
+
+  it('rejects end on cancelled interview', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          status: 'cancelled',
+        }),
+      ],
+    )
+
+    await expect(
+      service.endInterview(activeSession, { id: interviewId }),
+    ).rejects.toBeInstanceOf(InterviewConflictError)
+  })
+
+  it('rejects end when user is not authenticated', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          status: 'ongoing',
+        }),
+      ],
+    )
+
+    await expect(
+      service.endInterview(null, { id: interviewId }),
+    ).rejects.toBeInstanceOf(InterviewUnauthorizedError)
+  })
+
+  it('rejects end when user is not a participant', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: '99999999-9999-4999-8999-999999999999',
+          status: 'ongoing',
+        }),
+      ],
+    )
+
+    await expect(
+      service.endInterview(activeSession, { id: interviewId }),
+    ).rejects.toBeInstanceOf(InterviewNotFoundError)
+  })
 })
 
 function createInterviewService(
