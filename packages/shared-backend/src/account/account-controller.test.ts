@@ -24,8 +24,15 @@ describe('AccountController', function accountControllerSuite() {
     const payload = await response.json()
 
     expect(response.status).toBe(200)
-    expect(payload.id).toBe('demo-user')
-    expect(payload.displayName).toBe('Demo Candidate')
+    expect(payload).toEqual({
+      id: 'demo-user',
+      email: 'demo@mako.dev',
+      displayName: 'Demo Candidate',
+      credits: 8,
+      freeStandardInterviews: 1,
+      freeAiInterviews: 1,
+      createdAt: '2026-01-01T00:00:00.000Z',
+    })
   })
 
   it('PATCH /api/account updates display name', async function run() {

@@ -73,7 +73,7 @@
 - Do not add subscription-based tier logic, premium interviewer assignment, or tier-specific feature gating in this story.
 - Quota check and consumption must be part of the same database transaction as the interview write. Use `SELECT ... FOR UPDATE` on the user row to prevent race conditions between concurrent interview creation attempts.
 - For matcher-created peer-to-peer interviews, lock both user rows in deterministic `user_id` order inside the match transaction before resolving each user's payment source. This avoids deadlocks and prevents partial resource consumption.
-- The `GET /api/account` route already returns `free_standard_interviews` and `free_ai_interviews` — this story ensures those values are correctly decremented by the policy service.
+- The `GET /api/account` route already returns `freeStandardInterviews` and `freeAiInterviews` — this story ensures those values are correctly decremented by the policy service.
 
 ## End Goal
 New users start with 1 free Standard interview and 1 free AI interview. When a user creates an AI-led interview, the server-side policy consumes free AI quota first, then falls back to paid credits. When the matcher creates a peer-to-peer interview, both users must pay: each consumes free Standard quota first, then falls back to paid credits. Clients cannot override tier selection. All quota mutations are atomic with the interview write, preventing double-consumption or orphaned quota deductions. Users with no free quota and no credits receive clear rejection errors or are excluded from matching.

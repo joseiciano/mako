@@ -32,19 +32,19 @@
     {
       "id": "uuid",
       "email": "user@example.com",
-      "display_name": "Jane Candidate",
+      "displayName": "Jane Candidate",
       "credits": 8,
-      "free_standard_interviews": 1,
-      "free_ai_interviews": 1,
-      "created_at": "2026-01-01T00:00:00.000Z"
+      "freeStandardInterviews": 1,
+      "freeAiInterviews": 1,
+      "createdAt": "2026-01-01T00:00:00.000Z"
     }
     ```
-  - **Field Mapping**: API response uses snake_case and maps directly to DB columns.
+  - **Field Mapping**: API response uses camelCase JSON fields mapped from DB columns `name`, `credits`, `free_standard_interviews`, `free_ai_interviews`, `created_at`.
   - **Query Params**: None
 
 - **`PATCH /api/account`**
   - **Description**: Updates user profile information (display name).
-  - **Request Body**: `{ display_name: string }`
+  - **Request Body**: `{ displayName: string }`
   - **Response Body**: Same shape as `GET /api/account`.
   - **Query Params**: None
 

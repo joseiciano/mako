@@ -17,7 +17,7 @@
 - [ ] Remove copy that implies subscription or plan management; Milestone 6 billing is pay-per-credit only.
 
 ### 2. Render current credit and free quota balances
-- [ ] Use the existing account contract from `GET /api/account` to render `credits`, `free_standard_interviews`, and `free_ai_interviews`.
+- [ ] Use the existing account contract from `GET /api/account` to render `credits`, `freeStandardInterviews`, and `freeAiInterviews`.
 - [ ] Reuse the existing account query hook where possible instead of creating duplicate account-fetching logic.
 - [ ] Make it clear that free AI quota is consumed before paid credits and that credit-backed AI usage is resolved server-side according to account policy.
 - [ ] Do not add client-side scheduling tier selection or any client-side policy override; scheduling policy remains backend-owned.
