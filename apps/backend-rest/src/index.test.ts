@@ -473,6 +473,7 @@ describe('backend-rest smoke tests', function () {
     await expect(accountResponse.json()).resolves.toMatchObject({
       id: '11111111-1111-4111-8111-111111111111',
       credits: 7,
+      freeStandardInterviews: 1,
       freeAiInterviews: 0,
     })
   })
@@ -492,6 +493,7 @@ describe('backend-rest smoke tests', function () {
     await expect(accountResponse.json()).resolves.toMatchObject({
       email: 'db-candidate@mako.dev',
       credits: 1,
+      freeStandardInterviews: 1,
       freeAiInterviews: 0,
     })
 
@@ -550,6 +552,38 @@ describe('backend-rest smoke tests', function () {
         expect.stringContaining('FOR UPDATE'),
       ]),
     )
+  })
+
+  it('reflects current database balance after credit mutation through DB-backed store', async function () {
+    const app = createApp()
+    const dbBinding = createDatabaseBinding({
+      credits: 2,
+      freeAiInterviews: 0,
+    })
+    const dbEnv: WorkerBindings = { DB: dbBinding }
+
+    const firstAccountResponse = await getAccount(app, dbEnv)
+    expect(firstAccountResponse.status).toBe(200)
+    await expect(firstAccountResponse.json()).resolves.toMatchObject({
+      credits: 2,
+      freeStandardInterviews: 1,
+      freeAiInterviews: 0,
+    })
+
+    const interviewResponse = await createInterview(
+      app,
+      { type: 'coding' },
+      dbEnv,
+    )
+    expect(interviewResponse.status).toBe(201)
+
+    const secondAccountResponse = await getAccount(app, dbEnv)
+    expect(secondAccountResponse.status).toBe(200)
+    await expect(secondAccountResponse.json()).resolves.toMatchObject({
+      credits: 1,
+      freeStandardInterviews: 1,
+      freeAiInterviews: 0,
+    })
   })
 
   it('emits one queue message after outbox insert on successful DB-backed create', async function () {
@@ -721,6 +755,7 @@ describe('backend-rest smoke tests', function () {
     await expect(accountResponse.json()).resolves.toMatchObject({
       email: 'db-candidate@mako.dev',
       credits: 1,
+      freeStandardInterviews: 1,
       freeAiInterviews: 0,
     })
 

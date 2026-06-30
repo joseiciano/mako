@@ -41,6 +41,9 @@ describe('AccountRepository', function accountRepositorySuite() {
         values: [userId],
       }),
     )
+    expect(executedQueries[0]?.text).toContain('credits')
+    expect(executedQueries[0]?.text).toContain('free_standard_interviews')
+    expect(executedQueries[0]?.text).toContain('free_ai_interviews')
     expect(profile).toEqual({
       id: userId,
       email: 'candidate@mako.dev',
