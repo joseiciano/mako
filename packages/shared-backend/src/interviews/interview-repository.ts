@@ -6,6 +6,7 @@ import {
   cancelInterviewRecordInputSchema,
   getParticipantInterviewByIdInputSchema,
   InterviewPolicyConflictError,
+  lifecycleInterviewRecordInputSchema,
   listParticipantInterviewsInputSchema,
   authenticatedInterviewUserIdSchema,
   createInterviewRecordInputSchema,
@@ -19,6 +20,8 @@ import {
   type CreateInterviewRecordInput,
   type GetParticipantInterviewByIdInput,
   type InterviewAccountPolicy,
+  type LifecycleInterviewRecordInput,
+  type LifecycleInterviewRecordResult,
   type ListParticipantInterviewsInput,
   type ParsedListParticipantInterviewsInput,
   type ProvisionInterviewRecordInput,
@@ -43,6 +46,9 @@ export interface InterviewRepositoryDataSource {
   provisionInterview?(
     input: ProvisionInterviewRecordInput,
   ): Promise<ProvisionInterviewRecordResult>
+  transitionInterviewLifecycle?(
+    input: LifecycleInterviewRecordInput,
+  ): Promise<LifecycleInterviewRecordResult>
 }
 
 export type InMemoryInterviewAccountRecord = {
@@ -508,6 +514,190 @@ export class InterviewRepository {
       return {
         outcome: 'cancelled',
         interview: parseInterview(cancelledInterview),
+      }
+    } catch (error) {
+      await rollbackTransactionSafely(queryExecutor)
+      throw error
+    }
+  }
+
+  async transitionInterviewLifecycle(
+    input: LifecycleInterviewRecordInput,
+  ): Promise<LifecycleInterviewRecordResult> {
+    const parsedInput = lifecycleInterviewRecordInputSchema.parse(input)
+    const dataSource = this.dependencies.dataSource
+
+    if (typeof dataSource?.transitionInterviewLifecycle === 'function') {
+      return dataSource.transitionInterviewLifecycle(parsedInput)
+    }
+
+    const queryExecutor = this.getQueryExecutor()
+    await queryExecutor.query(createSqlQuery('BEGIN;'))
+
+    try {
+      const lookupResult = await queryExecutor.query<Interview>(
+        createSqlQuery(
+          `
+            SELECT
+              id,
+              scheduler_id,
+              scheduler_alias,
+              interviewer_id,
+              interviewer_alias,
+              type,
+              mode,
+              tier,
+              status,
+              scheduled_at,
+              realtime_session_id,
+              excalidraw_room_id,
+              excalidraw_key,
+              recording_url,
+              screenshot_urls,
+              feedback,
+              created_at,
+              updated_at
+            FROM interviews
+            WHERE id = $1
+              AND (scheduler_id = $2 OR interviewer_id = $2)
+            LIMIT 1
+            FOR UPDATE;
+          `,
+          [parsedInput.interview_id, parsedInput.participant_user_id],
+        ),
+      )
+
+      const [existingInterview] = lookupResult.rows
+
+      if (!existingInterview) {
+        await queryExecutor.query(createSqlQuery('COMMIT;'))
+        return { outcome: 'not_found' }
+      }
+
+      const parsedInterview = parseInterview(existingInterview)
+      const currentStatus = parsedInterview.status
+
+      if (parsedInput.action === 'start') {
+        if (currentStatus === 'ongoing') {
+          await queryExecutor.query(createSqlQuery('COMMIT;'))
+          return {
+            outcome: 'already_ongoing',
+            interview: parsedInterview,
+          }
+        }
+
+        if (currentStatus !== 'scheduled') {
+          await queryExecutor.query(createSqlQuery('COMMIT;'))
+          return {
+            outcome: 'invalid_status',
+            interview: parsedInterview,
+          }
+        }
+
+        const updateResult = await queryExecutor.query<Interview>(
+          createSqlQuery(
+            `
+              UPDATE interviews
+              SET status = 'ongoing',
+                  updated_at = $2
+              WHERE id = $1
+              RETURNING
+                id,
+                scheduler_id,
+                scheduler_alias,
+                interviewer_id,
+                interviewer_alias,
+                type,
+                mode,
+                tier,
+                status,
+                scheduled_at,
+                realtime_session_id,
+                excalidraw_room_id,
+                excalidraw_key,
+                recording_url,
+                screenshot_urls,
+                feedback,
+                created_at,
+                updated_at;
+            `,
+            [parsedInput.interview_id, parsedInput.updated_at],
+          ),
+        )
+
+        const [updatedInterview] = updateResult.rows
+
+        if (!updatedInterview) {
+          throw new Error('Failed to start interview record.')
+        }
+
+        await queryExecutor.query(createSqlQuery('COMMIT;'))
+
+        return {
+          outcome: 'started',
+          interview: parseInterview(updatedInterview),
+        }
+      }
+
+      // action === 'end'
+      if (currentStatus === 'completed') {
+        await queryExecutor.query(createSqlQuery('COMMIT;'))
+        return {
+          outcome: 'already_completed',
+          interview: parsedInterview,
+        }
+      }
+
+      if (currentStatus !== 'ongoing') {
+        await queryExecutor.query(createSqlQuery('COMMIT;'))
+        return {
+          outcome: 'invalid_status',
+          interview: parsedInterview,
+        }
+      }
+
+      const updateResult = await queryExecutor.query<Interview>(
+        createSqlQuery(
+          `
+            UPDATE interviews
+            SET status = 'completed',
+                updated_at = $2
+            WHERE id = $1
+            RETURNING
+              id,
+              scheduler_id,
+              scheduler_alias,
+              interviewer_id,
+              interviewer_alias,
+              type,
+              mode,
+              tier,
+              status,
+              scheduled_at,
+              realtime_session_id,
+              excalidraw_room_id,
+              excalidraw_key,
+              recording_url,
+              screenshot_urls,
+              feedback,
+              created_at,
+              updated_at;
+          `,
+          [parsedInput.interview_id, parsedInput.updated_at],
+        ),
+      )
+
+      const [updatedInterview] = updateResult.rows
+
+      if (!updatedInterview) {
+        throw new Error('Failed to end interview record.')
+      }
+
+      await queryExecutor.query(createSqlQuery('COMMIT;'))
+
+      return {
+        outcome: 'completed',
+        interview: parseInterview(updatedInterview),
       }
     } catch (error) {
       await rollbackTransactionSafely(queryExecutor)
@@ -1004,6 +1194,77 @@ export function createInMemoryInterviewDataSource(
       return {
         outcome: 'cancelled',
         interview: structuredClone(cancelledInterview),
+      }
+    },
+    async transitionInterviewLifecycle(
+      input: LifecycleInterviewRecordInput,
+    ): Promise<LifecycleInterviewRecordResult> {
+      const parsedInput = lifecycleInterviewRecordInputSchema.parse(input)
+      const existingInterview = interviewsById.get(parsedInput.interview_id)
+
+      if (
+        !existingInterview ||
+        (existingInterview.scheduler_id !== parsedInput.participant_user_id &&
+          existingInterview.interviewer_id !== parsedInput.participant_user_id)
+      ) {
+        return { outcome: 'not_found' }
+      }
+
+      if (parsedInput.action === 'start') {
+        if (existingInterview.status === 'ongoing') {
+          return {
+            outcome: 'already_ongoing',
+            interview: structuredClone(existingInterview),
+          }
+        }
+
+        if (existingInterview.status !== 'scheduled') {
+          return {
+            outcome: 'invalid_status',
+            interview: structuredClone(existingInterview),
+          }
+        }
+
+        const startedInterview = parseInterview({
+          ...existingInterview,
+          status: 'ongoing',
+          updated_at: parsedInput.updated_at,
+        })
+
+        interviewsById.set(startedInterview.id, structuredClone(startedInterview))
+
+        return {
+          outcome: 'started',
+          interview: structuredClone(startedInterview),
+        }
+      }
+
+      // action === 'end'
+      if (existingInterview.status === 'completed') {
+        return {
+          outcome: 'already_completed',
+          interview: structuredClone(existingInterview),
+        }
+      }
+
+      if (existingInterview.status !== 'ongoing') {
+        return {
+          outcome: 'invalid_status',
+          interview: structuredClone(existingInterview),
+        }
+      }
+
+      const completedInterview = parseInterview({
+        ...existingInterview,
+        status: 'completed',
+        updated_at: parsedInput.updated_at,
+      })
+
+      interviewsById.set(completedInterview.id, structuredClone(completedInterview))
+
+      return {
+        outcome: 'completed',
+        interview: structuredClone(completedInterview),
       }
     },
   }

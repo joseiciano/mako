@@ -123,6 +123,19 @@ export const cancelInterviewResponseSchema = z.object({
   success: z.boolean(),
 })
 
+export const startInterviewParamsSchema = z.object({
+  id: z.string().uuid(),
+})
+
+export const endInterviewParamsSchema = z.object({
+  id: z.string().uuid(),
+})
+
+export const interviewLifecycleResponseSchema = z.object({
+  success: z.literal(true),
+  interview: interviewDetailSchema,
+})
+
 export const provisionInterviewParamsSchema = z.object({
   id: z.string().uuid(),
 })
@@ -152,6 +165,9 @@ export type CreateInterviewRequest = z.infer<typeof createInterviewRequestSchema
 export type CreateInterviewResponse = z.infer<typeof createInterviewResponseSchema>
 export type CancelInterviewParams = z.infer<typeof cancelInterviewParamsSchema>
 export type CancelInterviewResponse = z.infer<typeof cancelInterviewResponseSchema>
+export type StartInterviewParams = z.infer<typeof startInterviewParamsSchema>
+export type EndInterviewParams = z.infer<typeof endInterviewParamsSchema>
+export type InterviewLifecycleResponse = z.infer<typeof interviewLifecycleResponseSchema>
 export type ProvisionInterviewParams = z.infer<typeof provisionInterviewParamsSchema>
 export type ProvisionInterviewResponse = z.infer<typeof provisionInterviewResponseSchema>
 

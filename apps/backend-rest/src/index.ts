@@ -42,6 +42,8 @@ import {
   type AvailabilityRepositoryDataSource,
   type CreateInterviewRecordInput,
   type InterviewRepositoryDataSource,
+  type LifecycleInterviewRecordInput,
+  type LifecycleInterviewRecordResult,
   type ProvisionInterviewRecordInput,
   type ProvisionInterviewRecordResult,
   type RealtimeProvider,
@@ -498,6 +500,75 @@ function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
         return {
           outcome: 'cancelled',
           interview: structuredClone(cancelledInterview),
+        }
+      },
+      async transitionInterviewLifecycle(
+        input: LifecycleInterviewRecordInput,
+      ): Promise<LifecycleInterviewRecordResult> {
+        const interview = interviewsById.get(input.interview_id)
+
+        if (
+          !interview ||
+          (interview.scheduler_id !== input.participant_user_id &&
+            interview.interviewer_id !== input.participant_user_id)
+        ) {
+          return { outcome: 'not_found' }
+        }
+
+        if (input.action === 'start') {
+          if (interview.status === 'ongoing') {
+            return {
+              outcome: 'already_ongoing',
+              interview: structuredClone(interview),
+            }
+          }
+
+          if (interview.status !== 'scheduled') {
+            return {
+              outcome: 'invalid_status',
+              interview: structuredClone(interview),
+            }
+          }
+
+          const startedInterview = parseInterview({
+            ...interview,
+            status: 'ongoing',
+            updated_at: input.updated_at,
+          })
+
+          interviewsById.set(startedInterview.id, structuredClone(startedInterview))
+
+          return {
+            outcome: 'started',
+            interview: structuredClone(startedInterview),
+          }
+        }
+
+        if (interview.status === 'completed') {
+          return {
+            outcome: 'already_completed',
+            interview: structuredClone(interview),
+          }
+        }
+
+        if (interview.status !== 'ongoing') {
+          return {
+            outcome: 'invalid_status',
+            interview: structuredClone(interview),
+          }
+        }
+
+        const completedInterview = parseInterview({
+          ...interview,
+          status: 'completed',
+          updated_at: input.updated_at,
+        })
+
+        interviewsById.set(completedInterview.id, structuredClone(completedInterview))
+
+        return {
+          outcome: 'completed',
+          interview: structuredClone(completedInterview),
         }
       },
     },

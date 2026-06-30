@@ -4,6 +4,7 @@ import {
   defaultInterviewListLimit,
   interviewDetailResponseSchema,
   interviewDetailSchema,
+  interviewLifecycleResponseSchema,
   interviewListItemSchema,
   interviewSchema,
   interviewListResponseSchema,
@@ -17,6 +18,7 @@ import {
   type Interview,
   type InterviewDetail,
   type InterviewDetailResponse,
+  type InterviewLifecycleResponse,
   type InterviewListItem,
   type InterviewListResponse,
   type ProvisionInterviewResponse,
@@ -24,7 +26,7 @@ import {
 import { z } from 'zod'
 
 export { defaultInterviewListLimit, maxInterviewListLimit }
-export type { InterviewDetail }
+export type { InterviewDetail, InterviewLifecycleResponse }
 
 export type InterviewSession = {
   userId: string
@@ -183,6 +185,42 @@ export type ProvisionInterviewRecordResult =
       outcome: 'not_found'
     }
 
+export const lifecycleInterviewRecordInputSchema = z.object({
+  interview_id: z.string().uuid(),
+  participant_user_id: authenticatedInterviewUserIdSchema,
+  action: z.enum(['start', 'end']),
+  updated_at: z.string().datetime({ offset: true }),
+})
+
+export type LifecycleInterviewRecordInput = z.infer<
+  typeof lifecycleInterviewRecordInputSchema
+>
+
+export type LifecycleInterviewRecordResult =
+  | {
+      outcome: 'started'
+      interview: Interview
+    }
+  | {
+      outcome: 'already_ongoing'
+      interview: Interview
+    }
+  | {
+      outcome: 'completed'
+      interview: Interview
+    }
+  | {
+      outcome: 'already_completed'
+      interview: Interview
+    }
+  | {
+      outcome: 'invalid_status'
+      interview: Interview
+    }
+  | {
+      outcome: 'not_found'
+    }
+
 export const createInterviewRecordInputSchema = z.object({
   id: z.string().uuid(),
   scheduler_id: z.string().uuid(),
@@ -248,6 +286,15 @@ export function toInterviewDetailResponse(
 export function toCancelInterviewResponse(): CancelInterviewResponse {
   return cancelInterviewResponseSchema.parse({
     success: true,
+  })
+}
+
+export function toInterviewLifecycleActionResponse(
+  interviewInput: unknown,
+): InterviewLifecycleResponse {
+  return interviewLifecycleResponseSchema.parse({
+    success: true,
+    interview: parseInterviewDetail(interviewInput),
   })
 }
 

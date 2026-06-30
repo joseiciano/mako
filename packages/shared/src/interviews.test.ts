@@ -5,11 +5,14 @@ import {
   createInterviewRequestSchema,
   createInterviewResponseSchema,
   defaultInterviewListLimit,
+  endInterviewParamsSchema,
   interviewDetailResponseSchema,
+  interviewLifecycleResponseSchema,
   interviewListQuerySchema,
   interviewListResponseSchema,
   provisionInterviewParamsSchema,
   provisionInterviewResponseSchema,
+  startInterviewParamsSchema,
 } from './interviews'
 
 describe('interview shared contracts', function interviewSharedContractsSuite() {
@@ -559,6 +562,108 @@ describe('interview shared contracts', function interviewSharedContractsSuite() 
         excalidraw: {
           excalidraw_room_id: 'room_def456',
           excalidraw_key: 'key_ghi789',
+        },
+      })
+    }).toThrow()
+  })
+
+  it('parses valid start interview params', function run() {
+    const parsed = startInterviewParamsSchema.parse({
+      id: '11111111-1111-4111-8111-111111111111',
+    })
+    expect(parsed.id).toBe('11111111-1111-4111-8111-111111111111')
+  })
+
+  it('parses valid end interview params', function run() {
+    const parsed = endInterviewParamsSchema.parse({
+      id: '11111111-1111-4111-8111-111111111111',
+    })
+    expect(parsed.id).toBe('11111111-1111-4111-8111-111111111111')
+  })
+
+  it('rejects start params with invalid id', function run() {
+    expect(function parseInvalid() {
+      startInterviewParamsSchema.parse({ id: 'not-a-uuid' })
+    }).toThrow()
+  })
+
+  it('rejects end params with invalid id', function run() {
+    expect(function parseInvalid() {
+      endInterviewParamsSchema.parse({ id: 'not-a-uuid' })
+    }).toThrow()
+  })
+
+  it('parses lifecycle response with success true and interview detail', function run() {
+    const parsed = interviewLifecycleResponseSchema.parse({
+      success: true,
+      interview: {
+        id: '11111111-1111-4111-8111-111111111111',
+        scheduler_id: '22222222-2222-4222-8222-222222222222',
+        scheduler_alias: 'Candidate-Blue',
+        interviewer_id: null,
+        interviewer_alias: 'Interviewer-Red',
+        type: 'system_design',
+        mode: 'ai_led',
+        tier: 'standard',
+        status: 'ongoing',
+        scheduled_at: '2026-04-10T10:30:00.000Z',
+        recording_url: null,
+        screenshot_urls: null,
+        feedback: null,
+        created_at: '2026-04-01T10:00:00.000Z',
+        updated_at: '2026-04-10T10:30:00.000Z',
+      },
+    })
+    expect(parsed.success).toBe(true)
+    expect(parsed.interview.status).toBe('ongoing')
+  })
+
+  it('does not expose credential fields in lifecycle response', function run() {
+    const parsed = interviewLifecycleResponseSchema.parse({
+      success: true,
+      interview: {
+        id: '11111111-1111-4111-8111-111111111111',
+        scheduler_id: '22222222-2222-4222-8222-222222222222',
+        scheduler_alias: 'Candidate-Blue',
+        interviewer_id: null,
+        interviewer_alias: 'Interviewer-Red',
+        type: 'system_design',
+        mode: 'ai_led',
+        tier: 'standard',
+        status: 'ongoing',
+        scheduled_at: '2026-04-10T10:30:00.000Z',
+        recording_url: null,
+        screenshot_urls: null,
+        feedback: null,
+        created_at: '2026-04-01T10:00:00.000Z',
+        updated_at: '2026-04-10T10:30:00.000Z',
+      },
+    })
+    expect(parsed.interview).not.toHaveProperty('realtime_session_id')
+    expect(parsed.interview).not.toHaveProperty('excalidraw_room_id')
+    expect(parsed.interview).not.toHaveProperty('excalidraw_key')
+  })
+
+  it('rejects lifecycle response with success false', function run() {
+    expect(function parseInvalid() {
+      interviewLifecycleResponseSchema.parse({
+        success: false,
+        interview: {
+          id: '11111111-1111-4111-8111-111111111111',
+          scheduler_id: '22222222-2222-4222-8222-222222222222',
+          scheduler_alias: 'Candidate-Blue',
+          interviewer_id: null,
+          interviewer_alias: 'Interviewer-Red',
+          type: 'system_design',
+          mode: 'ai_led',
+          tier: 'standard',
+          status: 'ongoing',
+          scheduled_at: '2026-04-10T10:30:00.000Z',
+          recording_url: null,
+          screenshot_urls: null,
+          feedback: null,
+          created_at: '2026-04-01T10:00:00.000Z',
+          updated_at: '2026-04-10T10:30:00.000Z',
         },
       })
     }).toThrow()

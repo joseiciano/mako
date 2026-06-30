@@ -44,9 +44,11 @@ export {
   createInterviewRequestSchema,
   createInterviewResponseSchema,
   defaultInterviewListLimit,
+  endInterviewParamsSchema,
   interviewCreateScheduledAtSchema,
   interviewDetailResponseSchema,
   interviewDetailSchema,
+  interviewLifecycleResponseSchema,
   interviewListQuerySchema,
   interviewSchema,
   interviewListItemSchema,
@@ -59,15 +61,18 @@ export {
   maxInterviewListLimit,
   provisionInterviewParamsSchema,
   provisionInterviewResponseSchema,
+  startInterviewParamsSchema,
 } from './interviews'
 export type {
   CancelInterviewParams,
   CancelInterviewResponse,
   CreateInterviewRequest,
   CreateInterviewResponse,
+  EndInterviewParams,
   Interview,
   InterviewDetail,
   InterviewDetailResponse,
+  InterviewLifecycleResponse,
   InterviewListItem,
   InterviewListQuery,
   InterviewListResponse,
@@ -76,6 +81,7 @@ export type {
   InterviewType,
   ProvisionInterviewParams,
   ProvisionInterviewResponse,
+  StartInterviewParams,
 } from './interviews'
 
 export {

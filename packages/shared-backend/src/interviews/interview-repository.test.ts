@@ -446,6 +446,179 @@ describe('InterviewRepository', function interviewRepositorySuite() {
     })
   })
 
+  it('transitionInterviewLifecycle start transitions scheduled to ongoing', async function run() {
+    const participantId = '11111111-1111-4111-8111-111111111111'
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const repository = new InterviewRepository(
+      createInMemoryInterviewDataSource(
+        [{ userId: participantId, credits: 0, freeAiInterviews: 0 }],
+        [
+          createInterviewRecord({
+            id: interviewId,
+            scheduler_id: participantId,
+          }),
+        ],
+      ),
+    )
+
+    const result = await repository.transitionInterviewLifecycle({
+      interview_id: interviewId,
+      participant_user_id: participantId,
+      action: 'start',
+      updated_at: '2026-05-22T09:00:00.000Z',
+    })
+
+    expect(result.outcome).toBe('started')
+    expect(result).toMatchObject({
+      interview: {
+        status: 'ongoing',
+        updated_at: '2026-05-22T09:00:00.000Z',
+      },
+    })
+  })
+
+  it('transitionInterviewLifecycle start is idempotent on already ongoing', async function run() {
+    const participantId = '11111111-1111-4111-8111-111111111111'
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const repository = new InterviewRepository(
+      createInMemoryInterviewDataSource(
+        [{ userId: participantId, credits: 0, freeAiInterviews: 0 }],
+        [
+          createInterviewRecord({
+            id: interviewId,
+            scheduler_id: participantId,
+            status: 'ongoing',
+          }),
+        ],
+      ),
+    )
+
+    const result = await repository.transitionInterviewLifecycle({
+      interview_id: interviewId,
+      participant_user_id: participantId,
+      action: 'start',
+      updated_at: '2026-05-22T09:00:00.000Z',
+    })
+
+    expect(result.outcome).toBe('already_ongoing')
+    expect(result).toMatchObject({
+      interview: { status: 'ongoing' },
+    })
+  })
+
+  it('transitionInterviewLifecycle end transitions ongoing to completed', async function run() {
+    const participantId = '11111111-1111-4111-8111-111111111111'
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const repository = new InterviewRepository(
+      createInMemoryInterviewDataSource(
+        [{ userId: participantId, credits: 0, freeAiInterviews: 0 }],
+        [
+          createInterviewRecord({
+            id: interviewId,
+            scheduler_id: participantId,
+            status: 'ongoing',
+          }),
+        ],
+      ),
+    )
+
+    const result = await repository.transitionInterviewLifecycle({
+      interview_id: interviewId,
+      participant_user_id: participantId,
+      action: 'end',
+      updated_at: '2026-05-22T09:00:00.000Z',
+    })
+
+    expect(result.outcome).toBe('completed')
+    expect(result).toMatchObject({
+      interview: { status: 'completed' },
+    })
+  })
+
+  it('transitionInterviewLifecycle end is idempotent on already completed', async function run() {
+    const participantId = '11111111-1111-4111-8111-111111111111'
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const repository = new InterviewRepository(
+      createInMemoryInterviewDataSource(
+        [{ userId: participantId, credits: 0, freeAiInterviews: 0 }],
+        [
+          createInterviewRecord({
+            id: interviewId,
+            scheduler_id: participantId,
+            status: 'completed',
+          }),
+        ],
+      ),
+    )
+
+    const result = await repository.transitionInterviewLifecycle({
+      interview_id: interviewId,
+      participant_user_id: participantId,
+      action: 'end',
+      updated_at: '2026-05-22T09:00:00.000Z',
+    })
+
+    expect(result.outcome).toBe('already_completed')
+  })
+
+  it('transitionInterviewLifecycle returns invalid_status for invalid transitions', async function run() {
+    const participantId = '11111111-1111-4111-8111-111111111111'
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const repository = new InterviewRepository(
+      createInMemoryInterviewDataSource(
+        [{ userId: participantId, credits: 0, freeAiInterviews: 0 }],
+        [
+          createInterviewRecord({
+            id: interviewId,
+            scheduler_id: participantId,
+            status: 'cancelled',
+          }),
+        ],
+      ),
+    )
+
+    const startResult = await repository.transitionInterviewLifecycle({
+      interview_id: interviewId,
+      participant_user_id: participantId,
+      action: 'start',
+      updated_at: '2026-05-22T09:00:00.000Z',
+    })
+    expect(startResult.outcome).toBe('invalid_status')
+
+    const endResult = await repository.transitionInterviewLifecycle({
+      interview_id: interviewId,
+      participant_user_id: participantId,
+      action: 'end',
+      updated_at: '2026-05-22T09:00:00.000Z',
+    })
+    expect(endResult.outcome).toBe('invalid_status')
+  })
+
+  it('transitionInterviewLifecycle returns not_found for non-participant', async function run() {
+    const participantId = '11111111-1111-4111-8111-111111111111'
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const repository = new InterviewRepository(
+      createInMemoryInterviewDataSource(
+        [{ userId: participantId, credits: 0, freeAiInterviews: 0 }],
+        [
+          createInterviewRecord({
+            id: interviewId,
+            scheduler_id: '99999999-9999-4999-8999-999999999999',
+          }),
+        ],
+      ),
+    )
+
+    const result = await repository.transitionInterviewLifecycle({
+      interview_id: interviewId,
+      participant_user_id: participantId,
+      action: 'start',
+      updated_at: '2026-05-22T09:00:00.000Z',
+    })
+
+    expect(result.outcome).toBe('not_found')
+  })
+
   describe('SQL path', function sqlPathSuite() {
     const optionalColumns = [
       'realtime_session_id',
@@ -1799,6 +1972,254 @@ describe('InterviewRepository', function interviewRepositorySuite() {
         (q) => q.text.trim().toUpperCase() === 'BEGIN;',
       )
       expect(beginIndex).toBeGreaterThan(factoryCallIndex)
+    })
+
+    it('transitionInterviewLifecycle start uses row locking, participant scoping, and commits', async function run() {
+      const mockQueryExecutor = createMockQueryExecutor({
+        'FOR UPDATE': () => ({
+          rows: [
+            createInterviewRecord({
+              id: '11111111-1111-4111-8111-111111111111',
+              scheduler_id: '22222222-2222-4222-8222-222222222222',
+            }),
+          ],
+          rowCount: 1,
+        }),
+        "SET status = 'ongoing'": () => ({
+          rows: [
+            createInterviewRecord({
+              id: '11111111-1111-4111-8111-111111111111',
+              scheduler_id: '22222222-2222-4222-8222-222222222222',
+              status: 'ongoing',
+            }),
+          ],
+          rowCount: 1,
+        }),
+      })
+      const repository = new InterviewRepository({ queryExecutor: mockQueryExecutor })
+
+      const result = await repository.transitionInterviewLifecycle({
+        interview_id: '11111111-1111-4111-8111-111111111111',
+        participant_user_id: '22222222-2222-4222-8222-222222222222',
+        action: 'start',
+        updated_at: '2026-05-22T09:00:00.000Z',
+      })
+
+      const rowLockQuery = mockQueryExecutor.queries.find((query) =>
+        query.text.includes('FOR UPDATE'),
+      )
+      const updateQuery = mockQueryExecutor.queries.find((query) =>
+        query.text.includes("SET status = 'ongoing'"),
+      )
+      expect(result.outcome).toBe('started')
+      expect(rowLockQuery?.text).toContain('scheduler_id = $2 OR interviewer_id = $2')
+      expect(updateQuery?.text).toContain("status = 'ongoing'")
+      expect(mockQueryExecutor.queries.map((query) => query.text.trim().toUpperCase())).toEqual(
+        expect.arrayContaining(['BEGIN;', 'COMMIT;']),
+      )
+    })
+
+    it('transitionInterviewLifecycle end uses row locking, participant scoping, and commits', async function run() {
+      const mockQueryExecutor = createMockQueryExecutor({
+        'FOR UPDATE': () => ({
+          rows: [
+            createInterviewRecord({
+              id: '11111111-1111-4111-8111-111111111111',
+              scheduler_id: '22222222-2222-4222-8222-222222222222',
+              status: 'ongoing',
+            }),
+          ],
+          rowCount: 1,
+        }),
+        "SET status = 'completed'": () => ({
+          rows: [
+            createInterviewRecord({
+              id: '11111111-1111-4111-8111-111111111111',
+              scheduler_id: '22222222-2222-4222-8222-222222222222',
+              status: 'completed',
+            }),
+          ],
+          rowCount: 1,
+        }),
+      })
+      const repository = new InterviewRepository({ queryExecutor: mockQueryExecutor })
+
+      const result = await repository.transitionInterviewLifecycle({
+        interview_id: '11111111-1111-4111-8111-111111111111',
+        participant_user_id: '22222222-2222-4222-8222-222222222222',
+        action: 'end',
+        updated_at: '2026-05-22T09:00:00.000Z',
+      })
+
+      const rowLockQuery = mockQueryExecutor.queries.find((query) =>
+        query.text.includes('FOR UPDATE'),
+      )
+      const updateQuery = mockQueryExecutor.queries.find((query) =>
+        query.text.includes("SET status = 'completed'"),
+      )
+      expect(result.outcome).toBe('completed')
+      expect(rowLockQuery?.text).toContain('scheduler_id = $2 OR interviewer_id = $2')
+      expect(updateQuery?.text).toContain("status = 'completed'")
+      expect(mockQueryExecutor.queries.map((query) => query.text.trim().toUpperCase())).toEqual(
+        expect.arrayContaining(['BEGIN;', 'COMMIT;']),
+      )
+    })
+
+    it('transitionInterviewLifecycle start returns already_ongoing without update', async function run() {
+      const mockQueryExecutor = createMockQueryExecutor({
+        'FOR UPDATE': () => ({
+          rows: [
+            createInterviewRecord({
+              id: '11111111-1111-4111-8111-111111111111',
+              scheduler_id: '22222222-2222-4222-8222-222222222222',
+              status: 'ongoing',
+            }),
+          ],
+          rowCount: 1,
+        }),
+      })
+      const repository = new InterviewRepository({ queryExecutor: mockQueryExecutor })
+
+      const result = await repository.transitionInterviewLifecycle({
+        interview_id: '11111111-1111-4111-8111-111111111111',
+        participant_user_id: '22222222-2222-4222-8222-222222222222',
+        action: 'start',
+        updated_at: '2026-05-22T09:00:00.000Z',
+      })
+
+      expect(result.outcome).toBe('already_ongoing')
+      const updateQuery = mockQueryExecutor.queries.find((query) =>
+        query.text.includes('UPDATE interviews'),
+      )
+      expect(updateQuery).toBeUndefined()
+    })
+
+    it('transitionInterviewLifecycle end returns already_completed without update', async function run() {
+      const mockQueryExecutor = createMockQueryExecutor({
+        'FOR UPDATE': () => ({
+          rows: [
+            createInterviewRecord({
+              id: '11111111-1111-4111-8111-111111111111',
+              scheduler_id: '22222222-2222-4222-8222-222222222222',
+              status: 'completed',
+            }),
+          ],
+          rowCount: 1,
+        }),
+      })
+      const repository = new InterviewRepository({ queryExecutor: mockQueryExecutor })
+
+      const result = await repository.transitionInterviewLifecycle({
+        interview_id: '11111111-1111-4111-8111-111111111111',
+        participant_user_id: '22222222-2222-4222-8222-222222222222',
+        action: 'end',
+        updated_at: '2026-05-22T09:00:00.000Z',
+      })
+
+      expect(result.outcome).toBe('already_completed')
+      const updateQuery = mockQueryExecutor.queries.find((query) =>
+        query.text.includes('UPDATE interviews'),
+      )
+      expect(updateQuery).toBeUndefined()
+    })
+
+    it('transitionInterviewLifecycle start returns invalid_status for cancelled', async function run() {
+      const mockQueryExecutor = createMockQueryExecutor({
+        'FOR UPDATE': () => ({
+          rows: [
+            createInterviewRecord({
+              id: '11111111-1111-4111-8111-111111111111',
+              scheduler_id: '22222222-2222-4222-8222-222222222222',
+              status: 'cancelled',
+            }),
+          ],
+          rowCount: 1,
+        }),
+      })
+      const repository = new InterviewRepository({ queryExecutor: mockQueryExecutor })
+
+      const result = await repository.transitionInterviewLifecycle({
+        interview_id: '11111111-1111-4111-8111-111111111111',
+        participant_user_id: '22222222-2222-4222-8222-222222222222',
+        action: 'start',
+        updated_at: '2026-05-22T09:00:00.000Z',
+      })
+
+      expect(result.outcome).toBe('invalid_status')
+    })
+
+    it('transitionInterviewLifecycle end returns invalid_status for scheduled', async function run() {
+      const mockQueryExecutor = createMockQueryExecutor({
+        'FOR UPDATE': () => ({
+          rows: [
+            createInterviewRecord({
+              id: '11111111-1111-4111-8111-111111111111',
+              scheduler_id: '22222222-2222-4222-8222-222222222222',
+            }),
+          ],
+          rowCount: 1,
+        }),
+      })
+      const repository = new InterviewRepository({ queryExecutor: mockQueryExecutor })
+
+      const result = await repository.transitionInterviewLifecycle({
+        interview_id: '11111111-1111-4111-8111-111111111111',
+        participant_user_id: '22222222-2222-4222-8222-222222222222',
+        action: 'end',
+        updated_at: '2026-05-22T09:00:00.000Z',
+      })
+
+      expect(result.outcome).toBe('invalid_status')
+    })
+
+    it('transitionInterviewLifecycle returns not_found when interview does not exist', async function run() {
+      const mockQueryExecutor = createMockQueryExecutor({
+        'FOR UPDATE': () => ({
+          rows: [],
+          rowCount: 0,
+        }),
+      })
+      const repository = new InterviewRepository({ queryExecutor: mockQueryExecutor })
+
+      const result = await repository.transitionInterviewLifecycle({
+        interview_id: '11111111-1111-4111-8111-111111111111',
+        participant_user_id: '22222222-2222-4222-8222-222222222222',
+        action: 'start',
+        updated_at: '2026-05-22T09:00:00.000Z',
+      })
+
+      expect(result.outcome).toBe('not_found')
+    })
+
+    it('transitionInterviewLifecycle rolls back when SQL update fails', async function run() {
+      const mockQueryExecutor = createMockQueryExecutor({
+        'FOR UPDATE': () => ({
+          rows: [
+            createInterviewRecord({
+              id: '11111111-1111-4111-8111-111111111111',
+              scheduler_id: '22222222-2222-4222-8222-222222222222',
+            }),
+          ],
+          rowCount: 1,
+        }),
+        "SET status = 'ongoing'": () => {
+          throw new Error('update failed')
+        },
+      })
+      const repository = new InterviewRepository({ queryExecutor: mockQueryExecutor })
+
+      await expect(
+        repository.transitionInterviewLifecycle({
+          interview_id: '11111111-1111-4111-8111-111111111111',
+          participant_user_id: '22222222-2222-4222-8222-222222222222',
+          action: 'start',
+          updated_at: '2026-05-22T09:00:00.000Z',
+        }),
+      ).rejects.toThrow('update failed')
+
+      expect(mockQueryExecutor.queries.map((query) => query.text.trim().toUpperCase())).toContain(
+        'ROLLBACK;',
+      )
     })
   })
 })
