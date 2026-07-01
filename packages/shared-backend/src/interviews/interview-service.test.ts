@@ -14,6 +14,7 @@ import {
 } from './types'
 import { InterviewService, type InterviewServiceLogger } from './interview-service'
 import { createDemoRealtimeProvider, type RealtimeProvider } from './realtime-provider'
+import { createInMemoryTimerOrchestration, type TimerOrchestrationPort } from './timer-orchestration'
 import type {
   InterviewPostCommitEvent,
   InterviewPostCommitEventPublisher,
@@ -470,6 +471,9 @@ describe('InterviewService', function interviewServiceSuite() {
             recording_url: null,
             screenshot_urls: null,
             feedback: null,
+            started_at: null,
+            expires_at: null,
+            warning_at: null,
           })
         },
       },
@@ -1703,6 +1707,148 @@ describe('InterviewService', function interviewServiceSuite() {
       service.endInterview(activeSession, { id: interviewId }),
     ).rejects.toBeInstanceOf(InterviewNotFoundError)
   })
+
+  it('triggers timer orchestration on successful start', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const timerOrchestration = createInMemoryTimerOrchestration()
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      createDemoRealtimeProvider(),
+      timerOrchestration,
+    )
+
+    await service.startInterview(activeSession, { id: interviewId })
+
+    expect(timerOrchestration.calls).toHaveLength(1)
+    expect(timerOrchestration.calls[0]).toMatchObject({
+      interview_id: interviewId,
+      started_at: '2026-04-13T10:00:00.000Z',
+      expires_at: '2026-04-13T11:00:00.000Z',
+      warning_at: '2026-04-13T10:55:00.000Z',
+    })
+  })
+
+  it('does not trigger timer orchestration on already-ongoing start', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const timerOrchestration = createInMemoryTimerOrchestration()
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          status: 'ongoing',
+        }),
+      ],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      createDemoRealtimeProvider(),
+      timerOrchestration,
+    )
+
+    await service.startInterview(activeSession, { id: interviewId })
+
+    expect(timerOrchestration.calls).toHaveLength(0)
+  })
+
+  it('persists timer fields on started interview', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const { service, repository } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+    )
+
+    await service.startInterview(activeSession, { id: interviewId })
+
+    const persisted = await repository.getInterviewById(interviewId)
+    expect(persisted).toMatchObject({
+      status: 'ongoing',
+      started_at: '2026-04-13T10:00:00.000Z',
+      expires_at: '2026-04-13T11:00:00.000Z',
+      warning_at: '2026-04-13T10:55:00.000Z',
+    })
+  })
+
+  it('timer orchestration is idempotent - repeated start does not create duplicate timer', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const timerOrchestration = createInMemoryTimerOrchestration()
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      createDemoRealtimeProvider(),
+      timerOrchestration,
+    )
+
+    await service.startInterview(activeSession, { id: interviewId })
+    await service.startInterview(activeSession, { id: interviewId })
+
+    expect(timerOrchestration.calls).toHaveLength(1)
+  })
+
+  it('manual end and timer completion converge on completed state', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const { service, repository } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          status: 'ongoing',
+        }),
+      ],
+    )
+
+    await service.endInterview(activeSession, { id: interviewId })
+
+    const afterManualEnd = await repository.getInterviewById(interviewId)
+    expect(afterManualEnd!.status).toBe('completed')
+
+    const timerCompletionResult = await repository.transitionInterviewLifecycle({
+      interview_id: interviewId,
+      participant_user_id: activeSession.userId,
+      action: 'end',
+      updated_at: '2026-04-13T11:00:00.000Z',
+    })
+
+    expect(timerCompletionResult.outcome).toBe('already_completed')
+  })
 })
 
 function createInterviewService(
@@ -1723,6 +1869,7 @@ function createInterviewService(
   notificationTransport?: import('../notifications').NotificationTransport,
   persistOutboxEvent?: (event: import('../notification-queue-event-contract').NotificationQueueEvent) => Promise<void>,
   realtimeProvider: RealtimeProvider = createDemoRealtimeProvider(),
+  timerOrchestration?: TimerOrchestrationPort,
 ) {
   const repository = new InterviewRepository({
     dataSource: createInMemoryInterviewDataSource([
@@ -1750,6 +1897,7 @@ function createInterviewService(
     notificationDispatchService,
     notificationTransport,
     realtimeProvider,
+    timerOrchestration,
   )
 
   return {
@@ -1776,6 +1924,9 @@ function createInterviewRecord(overrides: Partial<Interview> = {}): Interview {
     recording_url: null,
     screenshot_urls: null,
     feedback: null,
+    started_at: null,
+    expires_at: null,
+    warning_at: null,
     created_at: '2026-04-13T09:55:00.000Z',
     updated_at: '2026-04-13T09:55:00.000Z',
     ...overrides,

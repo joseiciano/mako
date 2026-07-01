@@ -1302,6 +1302,9 @@ function createDatabaseBinding(accountState: {
           recording_url: null,
           screenshot_urls: null,
           feedback: null,
+          started_at: null,
+          expires_at: null,
+          warning_at: null,
           created_at: statementValues[10],
           updated_at: statementValues[11],
         }
@@ -1414,6 +1417,9 @@ function createDatabaseBinding(accountState: {
         const updatedInterview = {
           ...interview,
           status: 'ongoing',
+          started_at: statementValues[2] ?? interview.started_at,
+          expires_at: statementValues[3] ?? interview.expires_at,
+          warning_at: statementValues[4] ?? interview.warning_at,
           updated_at: statementValues[1],
         }
 

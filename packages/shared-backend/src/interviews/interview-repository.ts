@@ -252,6 +252,9 @@ export class InterviewRepository {
               recording_url,
               screenshot_urls,
               feedback,
+              started_at,
+              expires_at,
+              warning_at,
               created_at,
               updated_at;
           `,
@@ -336,6 +339,9 @@ export class InterviewRepository {
             recording_url,
             screenshot_urls,
             feedback,
+            started_at,
+            expires_at,
+            warning_at,
             created_at,
             updated_at
           FROM interviews
@@ -377,6 +383,9 @@ export class InterviewRepository {
             recording_url,
             screenshot_urls,
             feedback,
+            started_at,
+            expires_at,
+            warning_at,
             created_at,
             updated_at
           FROM interviews
@@ -431,6 +440,9 @@ export class InterviewRepository {
               recording_url,
               screenshot_urls,
               feedback,
+              started_at,
+              expires_at,
+              warning_at,
               created_at,
               updated_at
             FROM interviews
@@ -492,6 +504,9 @@ export class InterviewRepository {
               recording_url,
               screenshot_urls,
               feedback,
+              started_at,
+              expires_at,
+              warning_at,
               created_at,
               updated_at;
           `,
@@ -555,6 +570,9 @@ export class InterviewRepository {
               recording_url,
               screenshot_urls,
               feedback,
+              started_at,
+              expires_at,
+              warning_at,
               created_at,
               updated_at
             FROM interviews
@@ -599,6 +617,9 @@ export class InterviewRepository {
             `
               UPDATE interviews
               SET status = 'ongoing',
+                  started_at = COALESCE($3, started_at),
+                  expires_at = COALESCE($4, expires_at),
+                  warning_at = COALESCE($5, warning_at),
                   updated_at = $2
               WHERE id = $1
               RETURNING
@@ -618,10 +639,19 @@ export class InterviewRepository {
                 recording_url,
                 screenshot_urls,
                 feedback,
+                started_at,
+                expires_at,
+                warning_at,
                 created_at,
                 updated_at;
             `,
-            [parsedInput.interview_id, parsedInput.updated_at],
+            [
+              parsedInput.interview_id,
+              parsedInput.updated_at,
+              parsedInput.started_at ?? null,
+              parsedInput.expires_at ?? null,
+              parsedInput.warning_at ?? null,
+            ],
           ),
         )
 
@@ -680,6 +710,9 @@ export class InterviewRepository {
               recording_url,
               screenshot_urls,
               feedback,
+              started_at,
+              expires_at,
+              warning_at,
               created_at,
               updated_at;
           `,
@@ -803,6 +836,9 @@ export class InterviewRepository {
               recording_url,
               screenshot_urls,
               feedback,
+              started_at,
+              expires_at,
+              warning_at,
               created_at,
               updated_at
             FROM interviews
@@ -873,6 +909,9 @@ export class InterviewRepository {
               recording_url,
               screenshot_urls,
               feedback,
+              started_at,
+              expires_at,
+              warning_at,
               created_at,
               updated_at;
           `,
@@ -932,6 +971,9 @@ export class InterviewRepository {
             recording_url,
             screenshot_urls,
             feedback,
+            started_at,
+            expires_at,
+            warning_at,
             created_at,
             updated_at
           FROM interviews
@@ -1056,6 +1098,9 @@ export function createInMemoryInterviewDataSource(
         recording_url: null,
         screenshot_urls: null,
         feedback: null,
+        started_at: null,
+        expires_at: null,
+        warning_at: null,
       })
       interviewsById.set(interview.id, structuredClone(interview))
       return structuredClone(interview)
@@ -1228,6 +1273,9 @@ export function createInMemoryInterviewDataSource(
         const startedInterview = parseInterview({
           ...existingInterview,
           status: 'ongoing',
+          started_at: parsedInput.started_at ?? existingInterview.started_at,
+          expires_at: parsedInput.expires_at ?? existingInterview.expires_at,
+          warning_at: parsedInput.warning_at ?? existingInterview.warning_at,
           updated_at: parsedInput.updated_at,
         })
 

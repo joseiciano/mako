@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 3: The Interview Experience (P2P Core)
 **Description**: Implement workflow-backed timer orchestration for active interview sessions with deterministic timeout and warning behavior.
-**Status**: Todo
+**Status**: Completed
 **Prerequisites**:
 - `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-8-session-lifecycle.md`
 - `docs/system/system-design/diagrams.md`
