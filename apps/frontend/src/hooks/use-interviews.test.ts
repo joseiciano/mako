@@ -4,6 +4,7 @@ import {
   buildInterviewsQueryKey,
   cancelInterview,
   createInterview,
+  endInterview,
   fetchInterviews,
   invalidateInterviewSurfaces,
   interviewsQueryRootKey,
@@ -11,6 +12,7 @@ import {
   interviewDetailQueryKey,
   fetchInterviewDetail,
   provisionInterview,
+  startInterview,
   interviewDetailQueryOptions,
 } from './use-interviews'
 import { readHeader } from './test-utils/read-header'
@@ -653,5 +655,137 @@ describe('use-interviews data layer', function useInterviewsSuite() {
         },
       ),
     ).rejects.toThrow('Unable to provision interview session.')
+  })
+
+  it('starts an interview via POST', async function run() {
+    vi.stubEnv(
+      'VITE_AUTH_BASE_URL',
+      'https://api.test.local/api/auth',
+    )
+
+    const result = await startInterview(
+      { id: '11111111-1111-4111-8111-111111111111' },
+      async function mockFetch(input, init) {
+        expect(input).toBe(
+          'https://api.test.local/api/interviews/11111111-1111-4111-8111-111111111111/start',
+        )
+        expect(init?.method).toBe('POST')
+        expect(init?.credentials).toBe('include')
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            interview: interviewFixture,
+          }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        )
+      },
+    )
+
+    expect(result.success).toBe(true)
+    expect(result.interview.status).toBe('scheduled')
+  })
+
+  it('surfaces backend error message for failed start requests', async function run() {
+    await expect(
+      startInterview(
+        { id: '11111111-1111-4111-8111-111111111111' },
+        async function mockFetch() {
+          return new Response(
+            JSON.stringify({ error: 'Interview not found' }),
+            {
+              status: 404,
+              headers: { 'content-type': 'application/json' },
+            },
+          )
+        },
+      ),
+    ).rejects.toThrow('Interview not found')
+  })
+
+  it('falls back to a stable error message when start payload omits error field', async function run() {
+    await expect(
+      startInterview(
+        { id: '11111111-1111-4111-8111-111111111111' },
+        async function mockFetch() {
+          return new Response(
+            JSON.stringify({ message: 'Server error' }),
+            {
+              status: 500,
+              headers: { 'content-type': 'application/json' },
+            },
+          )
+        },
+      ),
+    ).rejects.toThrow('Unable to start interview session.')
+  })
+
+  it('ends an interview via POST', async function run() {
+    vi.stubEnv(
+      'VITE_AUTH_BASE_URL',
+      'https://api.test.local/api/auth',
+    )
+
+    const result = await endInterview(
+      { id: '11111111-1111-4111-8111-111111111111' },
+      async function mockFetch(input, init) {
+        expect(input).toBe(
+          'https://api.test.local/api/interviews/11111111-1111-4111-8111-111111111111/end',
+        )
+        expect(init?.method).toBe('POST')
+        expect(init?.credentials).toBe('include')
+
+        return new Response(
+          JSON.stringify({
+            success: true,
+            interview: { ...interviewFixture, status: 'completed' },
+          }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        )
+      },
+    )
+
+    expect(result.success).toBe(true)
+    expect(result.interview.status).toBe('completed')
+  })
+
+  it('surfaces backend error message for failed end requests', async function run() {
+    await expect(
+      endInterview(
+        { id: '11111111-1111-4111-8111-111111111111' },
+        async function mockFetch() {
+          return new Response(
+            JSON.stringify({ error: 'Interview not found' }),
+            {
+              status: 404,
+              headers: { 'content-type': 'application/json' },
+            },
+          )
+        },
+      ),
+    ).rejects.toThrow('Interview not found')
+  })
+
+  it('falls back to a stable error message when end payload omits error field', async function run() {
+    await expect(
+      endInterview(
+        { id: '11111111-1111-4111-8111-111111111111' },
+        async function mockFetch() {
+          return new Response(
+            JSON.stringify({ message: 'Server error' }),
+            {
+              status: 500,
+              headers: { 'content-type': 'application/json' },
+            },
+          )
+        },
+      ),
+    ).rejects.toThrow('Unable to end interview session.')
   })
 })

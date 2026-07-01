@@ -1,6 +1,12 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
-import { useInterviewDetail, useProvisionInterview } from '#/hooks/use-interviews'
+import { Store, useStore } from '@tanstack/react-store'
+import {
+  useInterviewDetail,
+  useProvisionInterview,
+  useStartInterview,
+  useEndInterview,
+} from '#/hooks/use-interviews'
 import type { WhiteboardProvisionHandle } from '#/components/interviews/whiteboard'
 import type { ProvisionInterviewResponse } from '@mako/shared'
 import type { MediaConnectionConfig, MediaPermissionError } from '#/components/interviews/media'
@@ -14,6 +20,10 @@ import {
   sessionReducer,
   canJoin,
 } from './session-flow'
+import {
+  deriveLifecycleControls,
+  deriveSessionTimer,
+} from './session-lifecycle'
 
 type SessionSmartProps = {
   interviewId: string
@@ -21,6 +31,32 @@ type SessionSmartProps = {
 
 const LOAD_INTERVIEW_ERROR_MESSAGE = 'Unable to load interview details. Please try again.'
 const JOIN_SESSION_ERROR_MESSAGE = 'Failed to join session. Please try again.'
+const START_SESSION_ERROR_MESSAGE = 'Unable to start session. Please try again.'
+const END_SESSION_ERROR_MESSAGE = 'Unable to end session. Please try again.'
+
+type SessionLifecycleUiState = {
+  lifecycleErrorsByInterviewId: Record<string, string | undefined>
+}
+
+const sessionLifecycleUiStore = new Store<SessionLifecycleUiState>({
+  lifecycleErrorsByInterviewId: {},
+})
+
+function setSessionLifecycleError(interviewId: string, message: string | null) {
+  sessionLifecycleUiStore.setState(function updateLifecycleError(state) {
+    const lifecycleErrorsByInterviewId = { ...state.lifecycleErrorsByInterviewId }
+    if (message === null) {
+      delete lifecycleErrorsByInterviewId[interviewId]
+    } else {
+      lifecycleErrorsByInterviewId[interviewId] = message
+    }
+
+    return {
+      ...state,
+      lifecycleErrorsByInterviewId,
+    }
+  })
+}
 
 export function SessionSmart({ interviewId }: SessionSmartProps) {
   const navigate = useNavigate()
@@ -29,9 +65,55 @@ export function SessionSmart({ interviewId }: SessionSmartProps) {
   const whiteboardProvisionHandleRef = useRef<WhiteboardProvisionHandle | null>(null)
   const provisionDataRef = useRef<ProvisionInterviewResponse | null>(null)
   const isMountedRef = useRef(true)
+  const isStartingRef = useRef(false)
+  const isEndingRef = useRef(false)
 
   const interviewQuery = useInterviewDetail(interviewId)
   const provisionMutation = useProvisionInterview()
+  const startMutation = useStartInterview()
+  const endMutation = useEndInterview()
+
+  const [nowMs, setNowMs] = useState(Date.now())
+  const lifecycleErrorMessage = useStore(
+    sessionLifecycleUiStore,
+    function selectLifecycleError(uiState) {
+      return uiState.lifecycleErrorsByInterviewId[interviewId] ?? null
+    },
+  )
+
+  useEffect(function tickTimer() {
+    if (interviewQuery.data?.status !== 'ongoing') return
+    const expiresAtMs = interviewQuery.data.expires_at
+      ? Date.parse(interviewQuery.data.expires_at)
+      : Number.NaN
+
+    if (Number.isNaN(expiresAtMs)) return
+
+    if (Date.now() >= expiresAtMs) {
+      setNowMs(expiresAtMs)
+      return
+    }
+
+    const id = setInterval(function updateTimerNow() {
+      const nextNowMs = Date.now()
+      setNowMs(Math.min(nextNowMs, expiresAtMs))
+
+      if (nextNowMs >= expiresAtMs) {
+        clearInterval(id)
+      }
+    }, 1000)
+
+    return function cleanup() {
+      clearInterval(id)
+    }
+  }, [interviewQuery.data?.expires_at, interviewQuery.data?.status])
+
+  const participantJoined = state.status === 'provisioned'
+  const lifecycleControls = deriveLifecycleControls(
+    interviewQuery.data ?? null,
+    participantJoined,
+  )
+  const timer = deriveSessionTimer(interviewQuery.data ?? null, nowMs)
 
   const queryErrorMessage =
     interviewQuery.isError && state.status === 'idle' ? LOAD_INTERVIEW_ERROR_MESSAGE : null
@@ -42,8 +124,9 @@ export function SessionSmart({ interviewId }: SessionSmartProps) {
     return function cleanup() {
       isMountedRef.current = false
       clearWhiteboardProvisionHandle(whiteboardProvisionHandleRef.current)
+      setSessionLifecycleError(interviewId, null)
     }
-  }, [])
+  }, [interviewId])
 
   function handleJoin() {
     if (isDispatchingRef.current || !canJoin(state, interviewQuery.data ?? null)) return
@@ -139,6 +222,62 @@ export function SessionSmart({ interviewId }: SessionSmartProps) {
     dispatch({ type: 'MEDIA_FAILED', payload: messages[error] })
   }, [])
 
+  function handleStartSession() {
+    if (!lifecycleControls.canStart || isStartingRef.current || startMutation.isPending) return
+
+    isStartingRef.current = true
+    setSessionLifecycleError(interviewId, null)
+
+    startMutation.mutate(
+      { id: interviewId },
+      {
+        onSuccess: function onStartSuccess() {
+          if (!isMountedRef.current) return
+          isStartingRef.current = false
+          setSessionLifecycleError(interviewId, null)
+        },
+        onError: function onStartError() {
+          if (!isMountedRef.current) return
+          isStartingRef.current = false
+          setSessionLifecycleError(interviewId, START_SESSION_ERROR_MESSAGE)
+        },
+        onSettled: function onStartSettled() {
+          if (isMountedRef.current) {
+            isStartingRef.current = false
+          }
+        },
+      },
+    )
+  }
+
+  function handleEndSession() {
+    if (!lifecycleControls.canEnd || isEndingRef.current || endMutation.isPending) return
+
+    isEndingRef.current = true
+    setSessionLifecycleError(interviewId, null)
+
+    endMutation.mutate(
+      { id: interviewId },
+      {
+        onSuccess: function onEndSuccess() {
+          if (!isMountedRef.current) return
+          isEndingRef.current = false
+          setSessionLifecycleError(interviewId, null)
+        },
+        onError: function onEndError() {
+          if (!isMountedRef.current) return
+          isEndingRef.current = false
+          setSessionLifecycleError(interviewId, END_SESSION_ERROR_MESSAGE)
+        },
+        onSettled: function onEndSettled() {
+          if (isMountedRef.current) {
+            isEndingRef.current = false
+          }
+        },
+      },
+    )
+  }
+
   function handleBackToInterviews() {
     navigate({ to: '/interviews' })
   }
@@ -166,6 +305,11 @@ export function SessionSmart({ interviewId }: SessionSmartProps) {
       whiteboardErrorMessage={state.whiteboardErrorMessage}
       mediaConfig={mediaConfig}
       mediaErrorMessage={state.mediaErrorMessage}
+      lifecycleControls={lifecycleControls}
+      timer={timer}
+      lifecycleErrorMessage={lifecycleErrorMessage}
+      isStartingSession={startMutation.isPending}
+      isEndingSession={endMutation.isPending}
       onJoin={handleJoin}
       onRetryWhiteboard={handleWhiteboardRetry}
       onWhiteboardConnecting={handleWhiteboardConnecting}
@@ -178,6 +322,8 @@ export function SessionSmart({ interviewId }: SessionSmartProps) {
       onMediaReconnecting={handleMediaReconnecting}
       onMediaFailed={handleMediaFailed}
       onMediaPermissionError={handleMediaPermissionError}
+      onStartSession={handleStartSession}
+      onEndSession={handleEndSession}
       onBackToInterviews={handleBackToInterviews}
     />
   )
