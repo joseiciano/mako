@@ -18,6 +18,13 @@
       }
     ]
   },
+  "workflows": [
+    {
+      "binding": "SESSION_TIMER_WORKFLOW",
+      "name": "session-timer-workflow",
+      "class_name": "SessionTimerWorkflow"
+    }
+  ],
   "observability": {
     "enabled": true,
     "logs": {

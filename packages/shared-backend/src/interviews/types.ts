@@ -190,6 +190,9 @@ export const lifecycleInterviewRecordInputSchema = z.object({
   participant_user_id: authenticatedInterviewUserIdSchema,
   action: z.enum(['start', 'end']),
   updated_at: z.string().datetime({ offset: true }),
+  started_at: z.string().datetime({ offset: true }).optional(),
+  expires_at: z.string().datetime({ offset: true }).optional(),
+  warning_at: z.string().datetime({ offset: true }).optional(),
 })
 
 export type LifecycleInterviewRecordInput = z.infer<

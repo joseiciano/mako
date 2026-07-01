@@ -25,6 +25,7 @@ import {
   createDemoRealtimeProvider,
   type RealtimeProvider,
 } from './realtime-provider'
+import type { TimerOrchestrationPort, TimerStartParams } from './timer-orchestration'
 import {
   NotificationService,
   NotificationDispatchService,
@@ -68,6 +69,7 @@ export class InterviewService {
     private readonly notificationDispatchService?: NotificationDispatchService,
     private readonly notificationTransport?: NotificationTransport,
     private readonly realtimeProvider: RealtimeProvider = createDemoRealtimeProvider(),
+    private readonly timerOrchestration?: TimerOrchestrationPort,
   ) {}
 
   async createInterview(
@@ -333,15 +335,28 @@ export class InterviewService {
       userSession.userId,
     )
 
+    const startedAt = this.now()
+    const expiresAt = computeTimerExpiration(startedAt, SESSION_DURATION_MS)
+    const warningAt = computeTimerExpiration(startedAt, WARNING_OFFSET_MS)
+
     const transitionResult = await this.interviewRepository.transitionInterviewLifecycle({
       interview_id: input.id,
       participant_user_id: participantUserId,
       action: 'start',
-      updated_at: this.now(),
+      updated_at: startedAt,
+      started_at: startedAt,
+      expires_at: expiresAt,
+      warning_at: warningAt,
     })
 
     switch (transitionResult.outcome) {
       case 'started':
+        await this.triggerTimerOrchestration({
+          interview_id: input.id,
+          started_at: startedAt,
+          expires_at: expiresAt,
+          warning_at: warningAt,
+        })
         return toInterviewLifecycleActionResponse(transitionResult.interview)
       case 'already_ongoing':
         return toInterviewLifecycleActionResponse(transitionResult.interview)
@@ -528,6 +543,22 @@ export class InterviewService {
       // no-op: synchronous logger errors must never block interview operations
     }
   }
+
+  private async triggerTimerOrchestration(params: TimerStartParams): Promise<void> {
+    if (!this.timerOrchestration) {
+      return
+    }
+
+    try {
+      await this.timerOrchestration.startTimer(params)
+    } catch (error) {
+      this.logSafely('error', 'interview.timer_orchestration_failure', {
+        operation: 'start',
+        interview_id: params.interview_id,
+        error_message: toErrorMessage(error),
+      })
+    }
+  }
 }
 
 function defaultCreateId(): string {
@@ -553,4 +584,11 @@ function toErrorMessage(error: unknown): string {
   }
 
   return String(error)
+}
+
+const SESSION_DURATION_MS = 60 * 60 * 1000
+const WARNING_OFFSET_MS = 55 * 60 * 1000
+
+function computeTimerExpiration(startedAt: string, durationMs: number): string {
+  return new Date(new Date(startedAt).getTime() + durationMs).toISOString()
 }

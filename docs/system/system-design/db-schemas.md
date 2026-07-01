@@ -145,6 +145,9 @@ Core entity for tracking mock sessions and AI-led interviews.
 - **`recording_url`**: `text` (Optional) - URL for the session recording in R2.
 - **`screenshot_urls`**: `jsonb` (Optional) - Array of URLs for whiteboard captures or session screenshots stored in R2; post-interview artifact analysis/reporting is Milestone 5 scope.
 - **`feedback`**: `jsonb` (Optional) - Stores AI-generated feedback, scores, and improvement areas.
+- **`started_at`**: `timestamptz` (Optional) - When the interview transitioned to ongoing; persisted boundary for the 60-minute session timer.
+- **`expires_at`**: `timestamptz` (Optional) - 60-minute session expiration timestamp; sourced from `started_at + 60 minutes`.
+- **`warning_at`**: `timestamptz` (Optional) - 5-minute warning timestamp; sourced from `started_at + 55 minutes`.
 - **`created_at`**: `timestamptz`
 - **`updated_at`**: `timestamptz`
 

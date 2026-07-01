@@ -15,7 +15,6 @@ import {
   InterviewService,
   type InterviewServiceLogger,
   backendRuntime,
-  createPostgresConnectionPool,
   createInMemoryAvailabilityDataSource,
   createAuthSessionMiddleware,
   createBetterAuth,
@@ -33,6 +32,7 @@ import {
   registerAvailabilityController,
   registerInterviewController,
   createInterviewQueuePostCommitEventPublisher,
+  createWorkflowTimerOrchestration,
   NotificationRepository,
   NotificationService,
   NotificationDispatchService,
@@ -47,28 +47,17 @@ import {
   type ProvisionInterviewRecordInput,
   type ProvisionInterviewRecordResult,
   type RealtimeProvider,
-  type SqlQuery,
-  type SqlQueryExecutor,
 } from '@mako/shared-backend'
 import type { Context, Next } from 'hono'
 import { Hono } from 'hono'
+import {
+  createDatabaseQueryExecutor,
+  type DatabaseBinding,
+  type HyperdriveBinding,
+} from './database'
+import { SessionTimerWorkflow } from './workflows/session-timer-workflow'
 
-export type DatabaseBinding = {
-  query: (
-    statementText: string,
-    ...statementValues: readonly unknown[]
-  ) => Promise<{ rows: unknown[] }>
-}
-
-export type HyperdriveBinding = {
-  connectionString: string
-}
-
-type PostgresClient = Awaited<
-  ReturnType<ReturnType<typeof createPostgresConnectionPool>['connect']>
->
-
-type PostgresPool = ReturnType<typeof createPostgresConnectionPool>
+export { SessionTimerWorkflow }
 
 export type WorkerBindings = {
   DB?: DatabaseBinding
@@ -80,6 +69,7 @@ export type WorkerBindings = {
   CLOUDFLARE_ACCOUNT_ID?: string
   CLOUDFLARE_API_TOKEN?: string
   CLOUDFLARE_REALTIMEKIT_APP_ID?: string
+  SESSION_TIMER_WORKFLOW?: Workflow
 }
 
 const demoSession = {
@@ -203,6 +193,10 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
 
       const realtimeProvider = createWorkerRealtimeProvider(context.bindings)
 
+      const timerOrchestration = context.bindings.SESSION_TIMER_WORKFLOW
+        ? createWorkflowTimerOrchestration(context.bindings.SESSION_TIMER_WORKFLOW)
+        : undefined
+
       return new InterviewService(
         repository,
         undefined,
@@ -214,6 +208,7 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
         notificationDispatchService,
         notificationTransport,
         realtimeProvider,
+        timerOrchestration,
       )
     },
     resolveSession: function resolveSession(context) {
@@ -391,6 +386,9 @@ function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
           recording_url: null,
           screenshot_urls: null,
           feedback: null,
+          started_at: null,
+          expires_at: null,
+          warning_at: null,
         })
         interviewsById.set(interview.id, structuredClone(interview))
         return structuredClone(interview)
@@ -599,75 +597,6 @@ function compareInterviewListOrder(left: Interview, right: Interview): number {
   return 0
 }
 
-function createDatabaseQueryExecutor(bindings: WorkerBindings): SqlQueryExecutor {
-  let transactionClient: PostgresClient | null = null
-
-  return {
-    async query<Row>(queryInput: SqlQuery) {
-      const database = bindings.DB
-
-      if (database) {
-        const result = await database.query(queryInput.text, ...queryInput.values)
-
-        return {
-          rows: result.rows as Row[],
-        }
-      }
-
-      const connectionString = bindings.HYPERDRIVE?.connectionString
-
-      if (!connectionString) {
-        throw new Error('Database binding `HYPERDRIVE` is not configured')
-      }
-
-      const pool = createPostgresConnectionPool(connectionString) as PostgresPool
-      const statementValues = [...queryInput.values]
-      const normalizedStatementText = normalizeSqlStatement(queryInput.text)
-      const isBegin = normalizedStatementText === 'BEGIN;'
-      const isCommit = normalizedStatementText === 'COMMIT;'
-      const isRollback = normalizedStatementText === 'ROLLBACK;'
-
-      if (isBegin) {
-        if (transactionClient) {
-          throw new Error('Transaction is already active for this query executor')
-        }
-
-        const client = await pool.connect()
-        transactionClient = client
-
-        try {
-          const result = await client.query(queryInput.text, statementValues)
-
-          return {
-            rows: result.rows as Row[],
-            rowCount: result.rowCount ?? undefined,
-          }
-        } catch (error) {
-          await client.release()
-          transactionClient = null
-          throw error
-        }
-      }
-
-      const activeQueryTarget = transactionClient ?? pool
-
-      try {
-        const result = await activeQueryTarget.query(queryInput.text, statementValues)
-
-        return {
-          rows: result.rows as Row[],
-          rowCount: result.rowCount ?? undefined,
-        }
-      } finally {
-        if ((isCommit || isRollback) && transactionClient) {
-          await transactionClient.release()
-          transactionClient = null
-        }
-      }
-    },
-  }
-}
-
 async function applyCorsHeaders(
   context: Context<{ Bindings: WorkerBindings }>,
   next: Next,
@@ -742,10 +671,6 @@ function hasDatabaseAccess(bindings: WorkerBindings): boolean {
 
 function hasRuntimeDatabaseAccess(bindings: WorkerBindings): boolean {
   return typeof bindings.HYPERDRIVE?.connectionString === 'string'
-}
-
-function normalizeSqlStatement(statementText: string): string {
-  return statementText.trim().replace(/\s+/g, ' ').toUpperCase()
 }
 
 function createWorkerAuth(

@@ -8,5 +8,10 @@ export default mergeConfig(
       name: '@mako/backend-rest',
       include: ['src/**/*.test.ts'],
     },
+    resolve: {
+      alias: {
+        'cloudflare:workers': new URL('./src/mocks/cloudflare-workers.ts', import.meta.url).pathname,
+      },
+    },
   }),
 )

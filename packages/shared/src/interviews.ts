@@ -64,6 +64,9 @@ export const interviewSchema = z.object({
   recording_url: z.string().nullable(),
   screenshot_urls: z.array(z.string()).nullable(),
   feedback: z.record(z.string(), jsonValueSchema).nullable(),
+  started_at: z.string().datetime({ offset: true }).nullable(),
+  expires_at: z.string().datetime({ offset: true }).nullable(),
+  warning_at: z.string().datetime({ offset: true }).nullable(),
   created_at: z.string().datetime({ offset: true }),
   updated_at: z.string().datetime({ offset: true }),
 })
@@ -75,6 +78,9 @@ export const interviewListItemSchema = interviewSchema.omit({
   recording_url: true,
   screenshot_urls: true,
   feedback: true,
+  started_at: true,
+  expires_at: true,
+  warning_at: true,
 })
 
 export const interviewDetailSchema = interviewSchema.omit({
