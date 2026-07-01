@@ -1,53 +1,53 @@
 ## AI Code Review
 
-**Final Decision**: LGTM
-**Reason**: Reviewers found no remaining blockers or warnings after docs scope fixes. Lifecycle code, security, performance/concurrency, documentation, and AGENTS.md checks are clean.
+**Final Decision**: LGTM with Comments
+**Reason**: Review found no blocking issues. Minor comments were limited to duplicate retry copy and frontend AGENTS technology documentation; both were addressed after review.
 
 **Risk Tier**: full
-**Changed Files**: 18
-**Changed Lines**: +1806 -21 before final docs/story status refinements.
+**Changed Files**: 13
+**Changed Lines**: +1155 -109 before final minor fixes, excluding new untracked helper files from initial git stat and excluding lockfile from review substance.
 
 ---
 
 ### Code Quality
 **Status**: LGTM with Comments
-**Recommendation**: Optional Nits
-**Summary**: One optional maintainability suggestion about duplicated lifecycle state-machine logic.
+**Recommendation**: Minor Comments
+**Summary**: Smart/dumb split, helper extraction, and tests are sound. One minor duplicate retry-copy UX issue was found and fixed.
 
-[SUGGESTION] `apps/backend-rest/src/index.ts`, `packages/shared-backend/src/interviews/interview-repository.ts`: Lifecycle state-machine logic is duplicated across SQL, in-memory, and demo data sources. Future refactor could extract shared transition helper to reduce drift.
+[WARNING] `apps/frontend/src/routes/interviews/session/session-dumb.tsx`: lifecycle error alert duplicated "Please try again." because smart-layer constants already included that copy. Fixed by removing hardcoded duplicate retry guidance from dumb component.
 
 ---
 
 ### Security
 **Status**: LGTM
 **Recommendation**: LGTM
-**Summary**: No authorization, SQL injection, data leakage, or error-handling issues found.
+**Summary**: No security issues found.
 
-No findings.
+Lifecycle mutation errors are sanitized before reaching UI, Store contains only local safe error strings keyed by interview id, and new start/end API calls use existing credentialed transport.
 
 ---
 
 ### Performance
-**Status**: LGTM
-**Recommendation**: LGTM
-**Summary**: Lifecycle transition uses transaction + `SELECT ... FOR UPDATE` and correct idempotency semantics.
+**Status**: LGTM with Comments
+**Recommendation**: Optional Nits
+**Summary**: Timer interval and invalidation are appropriately scoped after fixes.
 
-No findings.
+Earlier review flagged timer interval continuing after expiry, redundant query invalidation, and Store key retention. Fixed by self-clearing interval at expiry, using root invalidation only, and deleting Store keys on clear.
 
 ---
 
 ### Documentation
 **Status**: LGTM
 **Recommendation**: LGTM
-**Summary**: Initial workflow-scope drift and invalid JSON examples were fixed; re-review found no remaining docs issues.
+**Summary**: Docs and story status match implementation.
 
-No findings.
+`docs/system/system-design/frontend-pages.md` now documents lifecycle/timer dependencies and state ownership. Story checklist marked completed.
 
 ---
 
 ### AGENTS.md
-**Status**: LGTM
-**Recommendation**: LGTM
-**Summary**: No AGENTS.md updates required and no agent-instruction violations found.
+**Status**: LGTM with Comments
+**Recommendation**: Minor Comments
+**Summary**: Frontend AGENTS needed update for newly introduced TanStack Store dependency.
 
-No findings.
+[WARNING] `apps/frontend/AGENTS.md`: frontend technology section did not document TanStack Query/Store state ownership. Fixed by adding Query for server state and Store for local shared UI state guidance.

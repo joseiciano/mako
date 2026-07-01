@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 3: The Interview Experience (P2P Core)
 **Description**: Add session lifecycle controls and workflow-backed timer UX to `/interviews/:id/session` without collapsing frontend state boundaries.
-**Status**: Todo
+**Status**: Completed
 **Prerequisites**:
 - `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-3-whiteboard-session-route-and-ui-shell.md`
 - `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-8-session-lifecycle.md`
@@ -14,27 +14,27 @@
 ## What Needs to Be Done
 
 ### 1. Extend session route dependencies and smart/dumb boundaries
-- [ ] Update `docs/system/system-design/frontend-pages.md` so `/interviews/:id/session` explicitly lists lifecycle control and timer dependencies in addition to join provisioning dependencies.
-- [ ] Extend route implementation in `apps/frontend/src/routes/` with lifecycle control data/mutations and timer state consumption.
-- [ ] Keep component structure aligned with frontend smart/dumb patterns:
+- [x] Update `docs/system/system-design/frontend-pages.md` so `/interviews/:id/session` explicitly lists lifecycle control and timer dependencies in addition to join provisioning dependencies.
+- [x] Extend route implementation in `apps/frontend/src/routes/` with lifecycle control data/mutations and timer state consumption.
+- [x] Keep component structure aligned with frontend smart/dumb patterns:
   - smart layer owns query/mutation orchestration
   - dumb layer renders lifecycle and timer states
 
 ### 2. Implement deterministic lifecycle control UX
-- [ ] Add `Start Session` and `End Session` controls to `/interviews/:id/session`.
-- [ ] Use TanStack Query for server-backed lifecycle/timer state and TanStack Store for local UI state only.
-- [ ] Implement deterministic UI gating:
+- [x] Add `Start Session` and `End Session` controls to `/interviews/:id/session`.
+- [x] Use TanStack Query for server-backed lifecycle/timer state and TanStack Store for local UI state only.
+- [x] Implement deterministic UI gating:
   - show `Start Session` only when participant is joined and interview is `scheduled`
   - show timer and `End Session` only when interview is `ongoing`
   - show terminal completed/cancelled UX states with no further lifecycle actions
 
 ### 3. Implement timer rendering and retry behavior
-- [ ] Render workflow-backed timer state with refresh/reconnect continuity.
-- [ ] Show warning and terminal session states with explicit user-facing copy.
-- [ ] Handle lifecycle failures/retries with explicit feedback, including duplicate-click and in-flight protection.
+- [x] Render workflow-backed timer state with refresh/reconnect continuity.
+- [x] Show warning and terminal session states with explicit user-facing copy.
+- [x] Handle lifecycle failures/retries with explicit feedback, including duplicate-click and in-flight protection.
 
 ### 4. Add frontend coverage
-- [ ] Add/update route/component tests for:
+- [x] Add/update route/component tests for:
   - lifecycle control visibility by status
   - timer rendering and continuity on refresh/reconnect
   - warning and terminal state UX
