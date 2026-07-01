@@ -8,8 +8,10 @@ import {
   invalidateInterviewSurfaces,
   interviewsQueryRootKey,
   interviewDetailStaleTimeMs,
+  interviewDetailQueryKey,
   fetchInterviewDetail,
   provisionInterview,
+  interviewDetailQueryOptions,
 } from './use-interviews'
 import { readHeader } from './test-utils/read-header'
 
@@ -45,6 +47,25 @@ describe('use-interviews data layer', function useInterviewsSuite() {
 
   it('keeps interview detail data fresh for five minutes', function run() {
     expect(interviewDetailStaleTimeMs).toBe(5 * 60 * 1000)
+  })
+
+  it('builds interview detail query key with id', function run() {
+    expect(interviewDetailQueryKey('11111111-1111-4111-8111-111111111111')).toEqual([
+      'interviews',
+      'detail',
+      '11111111-1111-4111-8111-111111111111',
+    ])
+  })
+
+  it('returns query options with correct key, staleTime, and queryFn', function run() {
+    const options = interviewDetailQueryOptions('11111111-1111-4111-8111-111111111111')
+    expect(options.queryKey).toEqual([
+      'interviews',
+      'detail',
+      '11111111-1111-4111-8111-111111111111',
+    ])
+    expect(options.staleTime).toBe(interviewDetailStaleTimeMs)
+    expect(typeof options.queryFn).toBe('function')
   })
 
   it('builds query key without filters', function run() {

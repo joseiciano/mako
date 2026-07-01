@@ -134,6 +134,52 @@ describe('InterviewsSmart', function interviewsSmartSuite() {
     expect(mockNavigate).toHaveBeenCalledWith({ to: '/interviews/new' })
   })
 
+  it('navigates to interview details when details button is clicked', function run() {
+    mockInterviewsQuery({
+      data: [
+        createInterviewFixture({
+          id: 'scheduled-1',
+          status: 'scheduled',
+        }),
+      ],
+    })
+    mockCancelInterviewMutation()
+
+    renderWithQueryClient(<InterviewsSmart />)
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /view details scheduled-1/i }),
+    )
+
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: '/interviews/$id',
+      params: { id: 'scheduled-1' },
+    })
+  })
+
+  it('navigates to interview feedback when feedback button is clicked', function run() {
+    mockInterviewsQuery({
+      data: [
+        createInterviewFixture({
+          id: 'completed-1',
+          status: 'completed',
+        }),
+      ],
+    })
+    mockCancelInterviewMutation()
+
+    renderWithQueryClient(<InterviewsSmart />)
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /view feedback completed-1/i }),
+    )
+
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: '/interviews/$id/feedback',
+      params: { id: 'completed-1' },
+    })
+  })
+
   it('renders populated state with upcoming and history sections', function run() {
     mockInterviewsQuery({
       data: [

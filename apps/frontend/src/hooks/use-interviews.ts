@@ -24,6 +24,7 @@ import {
   useQuery,
   useQueryClient,
   type QueryClient,
+  type QueryObserverOptions,
   type UseMutationResult,
   type UseQueryResult,
 } from '@tanstack/react-query'
@@ -65,16 +66,22 @@ export function interviewDetailQueryKey(id: string): readonly unknown[] {
   return [...interviewsQueryRootKey, 'detail', id]
 }
 
-export function useInterviewDetail(
+export function interviewDetailQueryOptions(
   id: string,
-): UseQueryResult<InterviewDetail, Error> {
-  return useQuery({
+): QueryObserverOptions<InterviewDetail, Error, InterviewDetail, InterviewDetail, readonly unknown[]> {
+  return {
     queryKey: interviewDetailQueryKey(id),
     queryFn: function getInterviewDetailQuery({ signal }) {
       return fetchInterviewDetail(fetch, id, signal)
     },
     staleTime: interviewDetailStaleTimeMs,
-  })
+  }
+}
+
+export function useInterviewDetail(
+  id: string,
+): UseQueryResult<InterviewDetail, Error> {
+  return useQuery(interviewDetailQueryOptions(id))
 }
 
 export function useProvisionInterview(): UseMutationResult<

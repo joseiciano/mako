@@ -114,7 +114,7 @@ describe('dashboard-smart query state orchestration', function dashboardSmartSui
     expect(html).toContain('Scheduler-Orange')
   })
 
-  it('renders disabled details fallback when interview details route is unavailable', function run() {
+  it('renders details links when interview details route is available', function run() {
     mockAccountQuery({
       data: createAccountFixture(),
     })
@@ -124,9 +124,9 @@ describe('dashboard-smart query state orchestration', function dashboardSmartSui
 
     const html = renderToString(<DashboardSmart />)
 
-    expect(html).toContain('Details coming soon')
-    expect(html).not.toContain('View details')
-    expect(html).not.toContain('/interviews/11111111-1111-4111-8111-111111111111')
+    expect(html).toContain('View details')
+    expect(html).toContain('/interviews/11111111-1111-4111-8111-111111111111')
+    expect(html).not.toContain('Details coming soon')
   })
 
   it('renders error state when account query fails', function run() {

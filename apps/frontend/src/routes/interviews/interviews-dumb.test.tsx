@@ -322,6 +322,90 @@ describe('InterviewsDumb', function interviewsDumbSuite() {
     expect(onNavigate).toHaveBeenCalledWith('scheduled-1')
   })
 
+  it('shows details button for upcoming and history interviews', function run() {
+    const upcoming = [createInterviewFixture({ id: 'scheduled-1' })]
+    const history = [
+      createInterviewFixture({ id: 'completed-1', status: 'completed' }),
+    ]
+
+    render(
+      <InterviewsDumb
+        state="populated"
+        upcomingInterviews={upcoming}
+        historyInterviews={history}
+      />,
+    )
+
+    expect(
+      screen.getByRole('button', { name: /view details scheduled-1/i }),
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /view details completed-1/i }),
+    ).toBeInTheDocument()
+  })
+
+  it('calls onNavigateToDetails when details button is clicked', function run() {
+    const onNavigate = vi.fn()
+    const upcoming = [createInterviewFixture({ id: 'scheduled-1' })]
+
+    render(
+      <InterviewsDumb
+        state="populated"
+        upcomingInterviews={upcoming}
+        historyInterviews={[]}
+        onNavigateToDetails={onNavigate}
+      />,
+    )
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /view details scheduled-1/i }),
+    )
+    expect(onNavigate).toHaveBeenCalledWith('scheduled-1')
+  })
+
+  it('shows feedback button only for completed interviews', function run() {
+    const history = [
+      createInterviewFixture({ id: 'completed-1', status: 'completed' }),
+      createInterviewFixture({ id: 'cancelled-1', status: 'cancelled' }),
+    ]
+
+    render(
+      <InterviewsDumb
+        state="populated"
+        upcomingInterviews={[]}
+        historyInterviews={history}
+      />,
+    )
+
+    expect(
+      screen.getByRole('button', { name: /view feedback completed-1/i }),
+    ).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /view feedback cancelled-1/i }),
+    ).not.toBeInTheDocument()
+  })
+
+  it('calls onNavigateToFeedback when feedback button is clicked', function run() {
+    const onNavigate = vi.fn()
+    const history = [
+      createInterviewFixture({ id: 'completed-1', status: 'completed' }),
+    ]
+
+    render(
+      <InterviewsDumb
+        state="populated"
+        upcomingInterviews={[]}
+        historyInterviews={history}
+        onNavigateToFeedback={onNavigate}
+      />,
+    )
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /view feedback completed-1/i }),
+    )
+    expect(onNavigate).toHaveBeenCalledWith('completed-1')
+  })
+
   it('join button renders with correct column class when only join is shown', function run() {
     // When showCancel is not active (history table uses InterviewTable without showCancel),
     // the join button should use the rounded-r-lg class.
