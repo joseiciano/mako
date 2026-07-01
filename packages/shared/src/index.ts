@@ -98,3 +98,16 @@ export type {
   CreateAvailabilityRequest,
   CreateAvailabilityResponse,
 } from './availability'
+
+export {
+  creditPackageSchema,
+  creditPackageListResponseSchema,
+  createPaymentIntentRequestSchema,
+  createPaymentIntentResponseSchema,
+} from './credit-packages'
+export type {
+  CreditPackage,
+  CreditPackageListResponse,
+  CreatePaymentIntentRequest,
+  CreatePaymentIntentResponse,
+} from './credit-packages'
