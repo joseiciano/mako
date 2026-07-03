@@ -15,6 +15,7 @@ import {
   formatInterviewMode,
   formatInterviewStatus,
 } from '#/lib/format-interview'
+import type { LifecycleControls, SessionTimerState } from './session-lifecycle'
 
 const JOINABLE_STATUSES = new Set(['scheduled', 'ongoing'])
 
@@ -28,6 +29,11 @@ export type SessionDumbProps = {
   whiteboardErrorMessage: string | null
   mediaConfig: MediaConnectionConfig | null
   mediaErrorMessage: string | null
+  lifecycleControls: LifecycleControls
+  timer: SessionTimerState
+  lifecycleErrorMessage: string | null
+  isStartingSession: boolean
+  isEndingSession: boolean
   onJoin: () => void
   onRetryWhiteboard: () => void
   onWhiteboardConnecting: () => void
@@ -40,6 +46,8 @@ export type SessionDumbProps = {
   onMediaReconnecting: () => void
   onMediaFailed: (message: string) => void
   onMediaPermissionError: (error: MediaPermissionError) => void
+  onStartSession: () => void
+  onEndSession: () => void
   onBackToInterviews: () => void
 }
 
@@ -104,6 +112,7 @@ function renderContent(props: SessionDumbProps) {
       <div className="flex flex-col gap-6">
         <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
           <InterviewMetadata interview={props.interview} />
+          <LifecyclePanel {...props} />
         </section>
 
         <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
@@ -169,6 +178,7 @@ function renderContent(props: SessionDumbProps) {
       <div className="flex flex-col gap-6">
         <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
           <InterviewMetadata interview={props.interview} />
+          <LifecyclePanel {...props} />
         </section>
 
         {canJoinInterview ? (
@@ -199,6 +209,87 @@ function renderContent(props: SessionDumbProps) {
   }
 
   return null
+}
+
+function LifecyclePanel(props: SessionDumbProps) {
+  const {
+    lifecycleControls,
+    timer,
+    lifecycleErrorMessage,
+    isStartingSession,
+    isEndingSession,
+    onStartSession,
+    onEndSession,
+  } = props
+
+  return (
+    <div className="mt-4">
+      {timer.kind === 'running' && timer.remainingLabel && (
+        <div
+          className={`text-sm font-medium ${timer.isWarning ? 'text-amber-400' : 'text-slate-300'}`}
+        >
+          {timer.remainingLabel}
+        </div>
+      )}
+
+      {timer.kind === 'expired' && (
+        <div className="text-sm font-medium text-red-400" role="alert">
+          {timer.label}
+        </div>
+      )}
+
+      {lifecycleControls.isTerminal && lifecycleControls.terminalMessage && (
+        <div className="text-sm font-medium text-slate-400">
+          {lifecycleControls.terminalMessage}
+        </div>
+      )}
+
+      {timer.kind === 'unavailable' && (
+        <div className="text-sm font-medium text-slate-400">{timer.label}</div>
+      )}
+
+      {timer.kind === 'running' && timer.isWarning && (
+        <div className="mt-1 text-sm text-amber-300" role="alert">
+          Session ending soon. Wrap up your discussion.
+        </div>
+      )}
+
+      {lifecycleControls.helperMessage && (
+        <div className="mt-2 text-sm text-slate-400">{lifecycleControls.helperMessage}</div>
+      )}
+
+      {lifecycleControls.canStart && (
+        <button
+          className="mt-3 inline-flex rounded-lg bg-emerald-500 px-5 py-2.5 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:opacity-50"
+          disabled={isStartingSession}
+          onClick={onStartSession}
+          type="button"
+        >
+          {isStartingSession ? 'Starting session...' : 'Start Session'}
+        </button>
+      )}
+
+      {lifecycleControls.canEnd && (
+        <button
+          className="mt-3 inline-flex rounded-lg bg-red-500 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-red-400 disabled:opacity-50"
+          disabled={isEndingSession}
+          onClick={onEndSession}
+          type="button"
+        >
+          {isEndingSession ? 'Ending session...' : 'End Session'}
+        </button>
+      )}
+
+      {lifecycleErrorMessage && (
+        <div
+          className="mt-3 rounded-lg border border-red-900 bg-red-950/40 p-3 text-sm text-red-200"
+          role="alert"
+        >
+          <p>{lifecycleErrorMessage}</p>
+        </div>
+      )}
+    </div>
+  )
 }
 
 function InterviewMetadata(props: { interview: InterviewDetail | null }) {

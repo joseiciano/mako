@@ -8,6 +8,8 @@ vi.mock('#/hooks/use-interviews', function () {
   return {
     useInterviewDetail: vi.fn(),
     useProvisionInterview: vi.fn(),
+    useStartInterview: vi.fn(),
+    useEndInterview: vi.fn(),
   }
 })
 
@@ -49,7 +51,12 @@ vi.mock('#/components/interviews/media', function () {
   }
 })
 
-import { useInterviewDetail, useProvisionInterview } from '#/hooks/use-interviews'
+import {
+  useInterviewDetail,
+  useProvisionInterview,
+  useStartInterview,
+  useEndInterview,
+} from '#/hooks/use-interviews'
 import { useNavigate } from '@tanstack/react-router'
 import { WhiteboardSmart } from '#/components/interviews/whiteboard'
 import { MediaSmart } from '#/components/interviews/media'
@@ -112,12 +119,70 @@ function mockUseProvisionInterview(
 
 const mockNavigate = vi.fn()
 const mockMutate = vi.fn()
+const mockStartMutate = vi.fn()
+const mockEndMutate = vi.fn()
+
+function mockUseStartInterview(
+  overrides: Partial<ReturnType<typeof useStartInterview>>,
+): ReturnType<typeof useStartInterview> {
+  return {
+    context: undefined,
+    data: undefined,
+    error: null,
+    failureCount: 0,
+    failureReason: null,
+    isError: false,
+    isIdle: true,
+    isPaused: false,
+    isPending: false,
+    isSuccess: false,
+    mutate: vi.fn(),
+    mutateAsync: vi.fn(),
+    reset: vi.fn(),
+    status: 'idle',
+    submittedAt: 0,
+    variables: undefined,
+    ...overrides,
+  } as unknown as ReturnType<typeof useStartInterview>
+}
+
+function mockUseEndInterview(
+  overrides: Partial<ReturnType<typeof useEndInterview>>,
+): ReturnType<typeof useEndInterview> {
+  return {
+    context: undefined,
+    data: undefined,
+    error: null,
+    failureCount: 0,
+    failureReason: null,
+    isError: false,
+    isIdle: true,
+    isPaused: false,
+    isPending: false,
+    isSuccess: false,
+    mutate: vi.fn(),
+    mutateAsync: vi.fn(),
+    reset: vi.fn(),
+    status: 'idle',
+    submittedAt: 0,
+    variables: undefined,
+    ...overrides,
+  } as unknown as ReturnType<typeof useEndInterview>
+}
 
 beforeEach(function () {
   vi.clearAllMocks()
   vi.mocked(useNavigate).mockReturnValue(mockNavigate)
   vi.mocked(useProvisionInterview).mockReturnValue(mockUseProvisionInterview({
     mutate: mockMutate,
+    isPending: false,
+  }))
+  vi.mocked(useStartInterview).mockReturnValue(mockUseStartInterview({
+    mutate: mockStartMutate,
+    isPending: false,
+  }))
+  vi.mocked(useEndInterview).mockReturnValue(mockUseEndInterview({
+    mutate: mockEndMutate,
     isPending: false,
   }))
 })
@@ -591,5 +656,267 @@ describe('SessionSmart', function () {
     // Sensitive values should not appear in the rendered DOM
     expect(screen.queryByText('rt-token-abc')).not.toBeInTheDocument()
     expect(screen.queryByText('wb-key-abc')).not.toBeInTheDocument()
+  })
+
+  describe('lifecycle controls', function () {
+    function renderAndProvision(
+      interview: ReturnType<typeof makeInterview>,
+    ): { provisionSuccessCallback: (data: any) => void } {
+      let provisionSuccessCallback: ((data: any) => void) | undefined
+
+      vi.mocked(useInterviewDetail).mockReturnValue(mockUseInterviewDetail({
+        data: interview,
+        isPending: false,
+        isError: false,
+        error: null,
+      }))
+      vi.mocked(useProvisionInterview).mockReturnValue(mockUseProvisionInterview({
+        mutate: vi.fn(function mockProvisionMutate(_params: any, options: any) {
+          provisionSuccessCallback = options.onSuccess
+        }),
+        isPending: false,
+      }))
+
+      render(<SessionSmart interviewId="int-1" />)
+
+      // Click join to trigger provision
+      const joinButton = screen.getByRole('button', { name: /join session/i })
+      act(function provision() {
+        joinButton.click()
+      })
+
+      return {
+        provisionSuccessCallback: provisionSuccessCallback!,
+      }
+    }
+
+    it('shows start button when provisioned and scheduled', function () {
+      const { provisionSuccessCallback } = renderAndProvision(
+        makeInterview({ status: 'scheduled' }),
+      )
+
+      act(function triggerSuccess() {
+        provisionSuccessCallback({
+          mode: 'ai_led',
+          realtime: { realtime_session_id: 'rt-1', token: 'token-1' },
+          excalidraw: { excalidraw_room_id: 'room-1', excalidraw_key: 'key-1' },
+        })
+      })
+
+      expect(screen.getByRole('button', { name: /start session/i })).toBeInTheDocument()
+      expect(screen.queryByText(/join the interview environment before starting/i)).not.toBeInTheDocument()
+    })
+
+    it('shows helper message when scheduled but not provisioned', function () {
+      vi.mocked(useInterviewDetail).mockReturnValue(mockUseInterviewDetail({
+        data: makeInterview({ status: 'scheduled' }),
+        isPending: false,
+        isError: false,
+        error: null,
+      }))
+
+      render(<SessionSmart interviewId="int-1" />)
+
+      expect(screen.getByText(/join the interview environment before starting/i)).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: /start session/i })).not.toBeInTheDocument()
+    })
+
+    it('calls start mutation on start click', async function () {
+      const user = userEvent.setup()
+      const { provisionSuccessCallback } = renderAndProvision(
+        makeInterview({ status: 'scheduled' }),
+      )
+
+      act(function triggerSuccess() {
+        provisionSuccessCallback({
+          mode: 'ai_led',
+          realtime: { realtime_session_id: 'rt-1', token: 'token-1' },
+          excalidraw: { excalidraw_room_id: 'room-1', excalidraw_key: 'key-1' },
+        })
+      })
+
+      await user.click(screen.getByRole('button', { name: /start session/i }))
+
+      expect(mockStartMutate).toHaveBeenCalledWith(
+        { id: 'int-1' },
+        expect.objectContaining({
+          onSuccess: expect.any(Function),
+          onError: expect.any(Function),
+          onSettled: expect.any(Function),
+        }),
+      )
+    })
+
+    it('ignores duplicate start clicks while mutation is in flight', function () {
+      const { provisionSuccessCallback } = renderAndProvision(
+        makeInterview({ status: 'scheduled' }),
+      )
+
+      act(function triggerSuccess() {
+        provisionSuccessCallback({
+          mode: 'ai_led',
+          realtime: { realtime_session_id: 'rt-1', token: 'token-1' },
+          excalidraw: { excalidraw_room_id: 'room-1', excalidraw_key: 'key-1' },
+        })
+      })
+
+      const startButton = screen.getByRole('button', { name: /start session/i })
+      act(function clickTwice() {
+        startButton.click()
+        startButton.click()
+      })
+
+      expect(mockStartMutate).toHaveBeenCalledTimes(1)
+    })
+
+    it('shows safe lifecycle error when start mutation fails', async function () {
+      const user = userEvent.setup()
+
+      let startErrorCallback: ((error: Error) => void) | undefined
+      vi.mocked(useStartInterview).mockReturnValue(mockUseStartInterview({
+        mutate: vi.fn(function mockStartMutate(_params: any, options: any) {
+          startErrorCallback = options.onError
+        }),
+        isPending: false,
+      }))
+
+      const { provisionSuccessCallback } = renderAndProvision(
+        makeInterview({ status: 'scheduled' }),
+      )
+
+      act(function triggerSuccess() {
+        provisionSuccessCallback({
+          mode: 'ai_led',
+          realtime: { realtime_session_id: 'rt-1', token: 'token-1' },
+          excalidraw: { excalidraw_room_id: 'room-1', excalidraw_key: 'key-1' },
+        })
+      })
+
+      await user.click(screen.getByRole('button', { name: /start session/i }))
+
+      startErrorCallback?.(new Error('postgres://secret@internal-db.local could not start'))
+
+      await waitFor(function () {
+        expect(screen.getByRole('alert')).toHaveTextContent('Unable to start session. Please try again.')
+      })
+      expect(screen.getByRole('alert')).not.toHaveTextContent('postgres://secret')
+    })
+
+    it('shows end button and timer when ongoing and provisioned', function () {
+      const { provisionSuccessCallback } = renderAndProvision(
+        makeInterview({
+          status: 'ongoing',
+          started_at: '2026-06-20T09:00:00Z',
+          expires_at: '2026-06-20T10:00:00Z',
+          warning_at: '2026-06-20T09:45:00Z',
+        }),
+      )
+
+      act(function triggerSuccess() {
+        provisionSuccessCallback({
+          mode: 'ai_led',
+          realtime: { realtime_session_id: 'rt-1', token: 'token-1' },
+          excalidraw: { excalidraw_room_id: 'room-1', excalidraw_key: 'key-1' },
+        })
+      })
+
+      expect(screen.getByRole('button', { name: /end session/i })).toBeInTheDocument()
+    })
+
+    it('calls end mutation on end click', async function () {
+      const user = userEvent.setup()
+      const { provisionSuccessCallback } = renderAndProvision(
+        makeInterview({
+          status: 'ongoing',
+          started_at: '2026-06-20T09:00:00Z',
+          expires_at: '2026-06-20T10:00:00Z',
+          warning_at: '2026-06-20T09:45:00Z',
+        }),
+      )
+
+      act(function triggerSuccess() {
+        provisionSuccessCallback({
+          mode: 'ai_led',
+          realtime: { realtime_session_id: 'rt-1', token: 'token-1' },
+          excalidraw: { excalidraw_room_id: 'room-1', excalidraw_key: 'key-1' },
+        })
+      })
+
+      await user.click(screen.getByRole('button', { name: /end session/i }))
+
+      expect(mockEndMutate).toHaveBeenCalledWith(
+        { id: 'int-1' },
+        expect.objectContaining({
+          onSuccess: expect.any(Function),
+          onError: expect.any(Function),
+          onSettled: expect.any(Function),
+        }),
+      )
+    })
+
+    it('ignores duplicate end clicks while mutation is in flight', function () {
+      const { provisionSuccessCallback } = renderAndProvision(
+        makeInterview({
+          status: 'ongoing',
+          started_at: '2026-06-20T09:00:00Z',
+          expires_at: '2026-06-20T10:00:00Z',
+          warning_at: '2026-06-20T09:45:00Z',
+        }),
+      )
+
+      act(function triggerSuccess() {
+        provisionSuccessCallback({
+          mode: 'ai_led',
+          realtime: { realtime_session_id: 'rt-1', token: 'token-1' },
+          excalidraw: { excalidraw_room_id: 'room-1', excalidraw_key: 'key-1' },
+        })
+      })
+
+      const endButton = screen.getByRole('button', { name: /end session/i })
+      act(function clickTwice() {
+        endButton.click()
+        endButton.click()
+      })
+
+      expect(mockEndMutate).toHaveBeenCalledTimes(1)
+    })
+
+    it('shows safe lifecycle error when end mutation fails', async function () {
+      const user = userEvent.setup()
+
+      let endErrorCallback: ((error: Error) => void) | undefined
+      vi.mocked(useEndInterview).mockReturnValue(mockUseEndInterview({
+        mutate: vi.fn(function mockEndMutate(_params: any, options: any) {
+          endErrorCallback = options.onError
+        }),
+        isPending: false,
+      }))
+
+      const { provisionSuccessCallback } = renderAndProvision(
+        makeInterview({
+          status: 'ongoing',
+          started_at: '2026-06-20T09:00:00Z',
+          expires_at: '2026-06-20T10:00:00Z',
+          warning_at: '2026-06-20T09:45:00Z',
+        }),
+      )
+
+      act(function triggerSuccess() {
+        provisionSuccessCallback({
+          mode: 'ai_led',
+          realtime: { realtime_session_id: 'rt-1', token: 'token-1' },
+          excalidraw: { excalidraw_room_id: 'room-1', excalidraw_key: 'key-1' },
+        })
+      })
+
+      await user.click(screen.getByRole('button', { name: /end session/i }))
+
+      endErrorCallback?.(new Error('postgres://secret@internal-db.local could not end'))
+
+      await waitFor(function () {
+        expect(screen.getByText('Unable to end session. Please try again.')).toBeInTheDocument()
+      })
+      expect(screen.queryByText(/postgres:\/\/secret/)).not.toBeInTheDocument()
+    })
   })
 })

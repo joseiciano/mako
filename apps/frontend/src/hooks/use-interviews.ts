@@ -3,21 +3,27 @@ import type {
   CancelInterviewResponse,
   CreateInterviewRequest,
   CreateInterviewResponse,
+  EndInterviewParams,
   InterviewDetail,
+  InterviewLifecycleResponse,
   InterviewListItem,
   InterviewListQuery,
   ProvisionInterviewParams,
   ProvisionInterviewResponse,
+  StartInterviewParams,
 } from '@mako/shared'
 import {
   cancelInterviewParamsSchema,
   cancelInterviewResponseSchema,
   createInterviewRequestSchema,
   createInterviewResponseSchema,
+  endInterviewParamsSchema,
   interviewDetailResponseSchema,
+  interviewLifecycleResponseSchema,
   interviewListResponseSchema,
   provisionInterviewParamsSchema,
   provisionInterviewResponseSchema,
+  startInterviewParamsSchema,
 } from '@mako/shared'
 import {
   useMutation,
@@ -143,6 +149,40 @@ export function useCancelInterview(): UseMutationResult<
       await queryClient.invalidateQueries({
         queryKey: interviewsQueryRootKey,
       })
+    },
+  })
+}
+
+export function useStartInterview(): UseMutationResult<
+  InterviewLifecycleResponse,
+  Error,
+  StartInterviewParams
+> {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: function startInterviewMutation(params) {
+      return startInterview(params)
+    },
+    onSuccess: async function onStartSuccess() {
+      await invalidateInterviewSurfaces(queryClient)
+    },
+  })
+}
+
+export function useEndInterview(): UseMutationResult<
+  InterviewLifecycleResponse,
+  Error,
+  EndInterviewParams
+> {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: function endInterviewMutation(params) {
+      return endInterview(params)
+    },
+    onSuccess: async function onEndSuccess() {
+      await invalidateInterviewSurfaces(queryClient)
     },
   })
 }
@@ -285,4 +325,50 @@ export async function provisionInterview(
   }
 
   return provisionInterviewResponseSchema.parse(payload)
+}
+
+export async function startInterview(
+  params: StartInterviewParams,
+  fetchImpl: typeof fetch = fetch,
+): Promise<InterviewLifecycleResponse> {
+  const parsedParams = startInterviewParamsSchema.parse(params)
+
+  const response = await fetchImpl(
+    createApiUrl(`/api/interviews/${parsedParams.id}/start`),
+    createApiRequestInit({
+      method: 'POST',
+      headers: demoSessionHeaders,
+    }),
+  )
+
+  const payload = await parseResponse(response)
+
+  if (!response.ok) {
+    throw new Error(readErrorMessage(payload, 'Unable to start interview session.'))
+  }
+
+  return interviewLifecycleResponseSchema.parse(payload)
+}
+
+export async function endInterview(
+  params: EndInterviewParams,
+  fetchImpl: typeof fetch = fetch,
+): Promise<InterviewLifecycleResponse> {
+  const parsedParams = endInterviewParamsSchema.parse(params)
+
+  const response = await fetchImpl(
+    createApiUrl(`/api/interviews/${parsedParams.id}/end`),
+    createApiRequestInit({
+      method: 'POST',
+      headers: demoSessionHeaders,
+    }),
+  )
+
+  const payload = await parseResponse(response)
+
+  if (!response.ok) {
+    throw new Error(readErrorMessage(payload, 'Unable to end interview session.'))
+  }
+
+  return interviewLifecycleResponseSchema.parse(payload)
 }
