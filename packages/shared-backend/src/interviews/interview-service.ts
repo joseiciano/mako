@@ -339,6 +339,15 @@ export class InterviewService {
     const expiresAt = computeTimerExpiration(startedAt, SESSION_DURATION_MS)
     const warningAt = computeTimerExpiration(startedAt, WARNING_OFFSET_MS)
 
+    this.logSafely('info', 'start_requested', {
+      interview_id: input.id,
+      participant_user_id: participantUserId,
+      action: 'start',
+      started_at: startedAt,
+      expires_at: expiresAt,
+      warning_at: warningAt,
+    })
+
     const transitionResult = await this.interviewRepository.transitionInterviewLifecycle({
       interview_id: input.id,
       participant_user_id: participantUserId,
@@ -351,6 +360,16 @@ export class InterviewService {
 
     switch (transitionResult.outcome) {
       case 'started':
+        this.logSafely('info', 'start_succeeded', {
+          interview_id: input.id,
+          participant_user_id: participantUserId,
+          action: 'start',
+          outcome: 'started',
+          started_at: startedAt,
+          expires_at: expiresAt,
+          warning_at: warningAt,
+          status: transitionResult.interview.status,
+        })
         await this.triggerTimerOrchestration({
           interview_id: input.id,
           started_at: startedAt,
@@ -358,8 +377,28 @@ export class InterviewService {
           warning_at: warningAt,
         })
         return toInterviewLifecycleActionResponse(transitionResult.interview)
-      case 'already_ongoing':
-        return toInterviewLifecycleActionResponse(transitionResult.interview)
+      case 'already_ongoing': {
+        this.logSafely('info', 'start_succeeded', {
+          interview_id: input.id,
+          participant_user_id: participantUserId,
+          action: 'start',
+          outcome: 'already_ongoing',
+          started_at: transitionResult.interview.started_at,
+          expires_at: transitionResult.interview.expires_at,
+          warning_at: transitionResult.interview.warning_at,
+          status: transitionResult.interview.status,
+        })
+        const persistedInterview = transitionResult.interview
+        if (persistedInterview.started_at && persistedInterview.expires_at && persistedInterview.warning_at) {
+          await this.triggerTimerOrchestration({
+            interview_id: input.id,
+            started_at: persistedInterview.started_at,
+            expires_at: persistedInterview.expires_at,
+            warning_at: persistedInterview.warning_at,
+          })
+        }
+        return toInterviewLifecycleActionResponse(persistedInterview)
+      }
       case 'invalid_status':
         throw new InterviewConflictError(
           'Only scheduled interviews can be started.',
@@ -382,6 +421,12 @@ export class InterviewService {
       userSession.userId,
     )
 
+    this.logSafely('info', 'end_requested', {
+      interview_id: input.id,
+      participant_user_id: participantUserId,
+      action: 'end',
+    })
+
     const transitionResult = await this.interviewRepository.transitionInterviewLifecycle({
       interview_id: input.id,
       participant_user_id: participantUserId,
@@ -391,8 +436,22 @@ export class InterviewService {
 
     switch (transitionResult.outcome) {
       case 'completed':
+        this.logSafely('info', 'end_succeeded', {
+          interview_id: input.id,
+          participant_user_id: participantUserId,
+          action: 'end',
+          outcome: 'completed',
+          status: transitionResult.interview.status,
+        })
         return toInterviewLifecycleActionResponse(transitionResult.interview)
       case 'already_completed':
+        this.logSafely('info', 'end_succeeded', {
+          interview_id: input.id,
+          participant_user_id: participantUserId,
+          action: 'end',
+          outcome: 'already_completed',
+          status: transitionResult.interview.status,
+        })
         return toInterviewLifecycleActionResponse(transitionResult.interview)
       case 'invalid_status':
         throw new InterviewConflictError(

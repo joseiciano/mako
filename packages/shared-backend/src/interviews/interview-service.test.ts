@@ -1849,6 +1849,212 @@ describe('InterviewService', function interviewServiceSuite() {
 
     expect(timerCompletionResult.outcome).toBe('already_completed')
   })
+
+  it('concurrent start: two service starts converge to ongoing and timer is only created once', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const timerOrchestration = createInMemoryTimerOrchestration()
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      createDemoRealtimeProvider(),
+      timerOrchestration,
+    )
+
+    const [firstResult, secondResult] = await Promise.all([
+      service.startInterview(activeSession, { id: interviewId }),
+      service.startInterview(activeSession, { id: interviewId }),
+    ])
+
+    expect(firstResult.success).toBe(true)
+    expect(firstResult.interview.status).toBe('ongoing')
+    expect(secondResult.success).toBe(true)
+    expect(secondResult.interview.status).toBe('ongoing')
+    expect(timerOrchestration.calls).toHaveLength(1)
+  })
+
+  it('concurrent end: two service ends converge to completed', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          status: 'ongoing',
+        }),
+      ],
+    )
+
+    const [firstResult, secondResult] = await Promise.all([
+      service.endInterview(activeSession, { id: interviewId }),
+      service.endInterview(activeSession, { id: interviewId }),
+    ])
+
+    expect(firstResult.success).toBe(true)
+    expect(firstResult.interview.status).toBe('completed')
+    expect(secondResult.success).toBe(true)
+    expect(secondResult.interview.status).toBe('completed')
+  })
+
+  it('start vs end race: start wins from scheduled, end completes from ongoing', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const { service, repository } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+    )
+
+    const startResult = await service.startInterview(activeSession, { id: interviewId })
+    expect(startResult.interview.status).toBe('ongoing')
+
+    const endResult = await service.endInterview(activeSession, { id: interviewId })
+    expect(endResult.interview.status).toBe('completed')
+
+    const persisted = await repository.getInterviewById(interviewId)
+    expect(persisted!.status).toBe('completed')
+  })
+
+  it('already_ongoing triggers timer orchestration when persisted timer fields exist', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const timerOrchestration = createInMemoryTimerOrchestration()
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          status: 'ongoing',
+          started_at: '2026-04-13T10:00:00.000Z',
+          expires_at: '2026-04-13T11:00:00.000Z',
+          warning_at: '2026-04-13T10:55:00.000Z',
+        }),
+      ],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      createDemoRealtimeProvider(),
+      timerOrchestration,
+    )
+
+    await service.startInterview(activeSession, { id: interviewId })
+
+    expect(timerOrchestration.calls).toHaveLength(1)
+    expect(timerOrchestration.calls[0]).toMatchObject({
+      interview_id: interviewId,
+      started_at: '2026-04-13T10:00:00.000Z',
+      expires_at: '2026-04-13T11:00:00.000Z',
+      warning_at: '2026-04-13T10:55:00.000Z',
+    })
+  })
+
+  it('lifecycle logs contain requested/succeeded events with safe contexts and no sensitive data', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const loggedEvents: Array<{ event: string; context: Record<string, unknown> }> = []
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+      undefined,
+      {
+        info(event, context) {
+          loggedEvents.push({ event, context })
+        },
+      },
+    )
+
+    await service.startInterview(activeSession, { id: interviewId })
+
+    const serializedLog = JSON.stringify(loggedEvents)
+    expect(serializedLog).not.toContain('realtime_session_id')
+    expect(serializedLog).not.toContain('excalidraw_key')
+    expect(serializedLog).not.toContain('excalidraw_room_id')
+    expect(serializedLog).not.toContain('token')
+
+    const startRequestedLog = loggedEvents.find((e) => e.event === 'start_requested')
+    expect(startRequestedLog).toBeDefined()
+    expect(startRequestedLog!.context).toMatchObject({
+      interview_id: interviewId,
+      participant_user_id: activeSession.userId,
+      action: 'start',
+    })
+
+    const startSucceededLog = loggedEvents.find((e) => e.event === 'start_succeeded')
+    expect(startSucceededLog).toBeDefined()
+    expect(startSucceededLog!.context).toMatchObject({
+      interview_id: interviewId,
+      participant_user_id: activeSession.userId,
+      action: 'start',
+      outcome: 'started',
+    })
+  })
+
+  it('lifecycle end logs contain requested/succeeded events with safe contexts', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const loggedEvents: Array<{ event: string; context: Record<string, unknown> }> = []
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          status: 'ongoing',
+        }),
+      ],
+      undefined,
+      {
+        info(event, context) {
+          loggedEvents.push({ event, context })
+        },
+      },
+    )
+
+    await service.endInterview(activeSession, { id: interviewId })
+
+    const endRequestedLog = loggedEvents.find((e) => e.event === 'end_requested')
+    expect(endRequestedLog).toBeDefined()
+    expect(endRequestedLog!.context).toMatchObject({
+      interview_id: interviewId,
+      participant_user_id: activeSession.userId,
+      action: 'end',
+    })
+
+    const endSucceededLog = loggedEvents.find((e) => e.event === 'end_succeeded')
+    expect(endSucceededLog).toBeDefined()
+    expect(endSucceededLog!.context).toMatchObject({
+      interview_id: interviewId,
+      participant_user_id: activeSession.userId,
+      action: 'end',
+      outcome: 'completed',
+    })
+  })
 })
 
 function createInterviewService(

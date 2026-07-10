@@ -193,6 +193,7 @@ export const lifecycleInterviewRecordInputSchema = z.object({
   started_at: z.string().datetime({ offset: true }).optional(),
   expires_at: z.string().datetime({ offset: true }).optional(),
   warning_at: z.string().datetime({ offset: true }).optional(),
+  started_at_precondition: z.string().datetime({ offset: true }).optional(),
 })
 
 export type LifecycleInterviewRecordInput = z.infer<
