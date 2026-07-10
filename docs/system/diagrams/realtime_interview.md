@@ -56,8 +56,8 @@ graph TD
     BE_Worker -- "Trigger Interview" --> Workflows
     BE_Worker -- "Checkout / Webhooks" <--> Stripe
     Stripe -- "Fulfill Credits" --> BE_Worker
-    Workflows -- "Warnings / Lock" --> Realtime
-    Workflows -- "Gen Feedback" --> AIGateway
+    Workflows -- "Structured Logs (timer_warning/timer_completed)" --> Hyperdrive
+    Workflows -- "Lifecycle Transition" --> Hyperdrive
     Workflows -- "Save Result" --> Hyperdrive
     
     %% Auth & Data Connections

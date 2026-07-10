@@ -35,6 +35,7 @@
       - `Start Session` / `End Session` controls are participant-scoped lifecycle actions, not whiteboard provisioning actions.
       - Session timer/start/end controls are owned by the dedicated lifecycle stories and routes, not by whiteboard provisioning or the details consumer rollout.
       - **Lifecycle control dependencies**: `POST /api/interviews/:id/start`, `POST /api/interviews/:id/end`. Timer fields `started_at`, `expires_at`, `warning_at` on `InterviewDetail`.
+      - **Retry safety**: Frontend retries of start/end are safe — backend guards transitions atomically and emits `start_requested`/`start_succeeded`/`end_requested`/`end_succeeded` lifecycle events with no sensitive data.
       - **State ownership**: Lifecycle controls and timer state derive from `useInterviewDetail` (TanStack Query); TanStack Store is reserved for local UI-only feedback such as lifecycle mutation errors. The countdown is derived from server-backed `expires_at`/`warning_at`, not stored as server state locally.
 - **Post-Interview Feedback (`/interviews/:id/feedback`)**: Detailed report and AI-driven insights.
     - **Features**: Performance scores, transcript, and whiteboard captures.
