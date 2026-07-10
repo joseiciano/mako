@@ -739,9 +739,10 @@ describe('backend-rest smoke tests', function () {
     expect(response.status).toBe(201)
     expect(consoleErrorSpy).toHaveBeenCalled()
 
-    const dispatchFailureCall = consoleErrorSpy.mock.calls.find((call) =>
-      String(call[0]).includes('notification.dispatch_failure'),
-    )
+    const dispatchFailureCall = consoleErrorSpy.mock.calls.find((call) => {
+      const log = call[0] as Record<string, unknown>
+      return typeof log === 'object' && log !== null && log.event === 'notification.dispatch_failure'
+    })
     expect(dispatchFailureCall).toBeDefined()
 
     const outboxEvent = Array.from(dbBinding.outboxEvents.values())[0]
@@ -1406,20 +1407,27 @@ function createDatabaseBinding(accountState: {
         }
       }
 
-      if (statementText.includes("UPDATE interviews") && statementText.includes("status = 'ongoing'")) {
+      if (statementText.includes("UPDATE interviews") && statementText.includes("status = 'completed'")) {
         const interviewId = String(statementValues[0])
+        const participantUserId = String(statementValues[2])
         const interview = interviewsById.get(interviewId)
 
-        if (!interview) {
+        if (
+          !interview ||
+          (participantUserId &&
+            interview.scheduler_id !== participantUserId &&
+            interview.interviewer_id !== participantUserId)
+        ) {
+          return { rows: [] }
+        }
+
+        if (interview.status !== 'ongoing') {
           return { rows: [] }
         }
 
         const updatedInterview = {
           ...interview,
-          status: 'ongoing',
-          started_at: statementValues[2] ?? interview.started_at,
-          expires_at: statementValues[3] ?? interview.expires_at,
-          warning_at: statementValues[4] ?? interview.warning_at,
+          status: 'completed',
           updated_at: statementValues[1],
         }
 
@@ -1430,17 +1438,30 @@ function createDatabaseBinding(accountState: {
         }
       }
 
-      if (statementText.includes("UPDATE interviews") && statementText.includes("status = 'completed'")) {
+      if (statementText.includes("UPDATE interviews") && statementText.includes("status = 'ongoing'")) {
         const interviewId = String(statementValues[0])
+        const participantUserId = String(statementValues[5])
         const interview = interviewsById.get(interviewId)
 
-        if (!interview) {
+        if (
+          !interview ||
+          (participantUserId &&
+            interview.scheduler_id !== participantUserId &&
+            interview.interviewer_id !== participantUserId)
+        ) {
+          return { rows: [] }
+        }
+
+        if (interview.status !== 'scheduled') {
           return { rows: [] }
         }
 
         const updatedInterview = {
           ...interview,
-          status: 'completed',
+          status: 'ongoing',
+          started_at: statementValues[2] ?? interview.started_at,
+          expires_at: statementValues[3] ?? interview.expires_at,
+          warning_at: statementValues[4] ?? interview.warning_at,
           updated_at: statementValues[1],
         }
 

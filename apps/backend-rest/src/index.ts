@@ -95,16 +95,16 @@ const corsMaxAgeSeconds = '86400'
 
 const consoleInterviewServiceLogger: InterviewServiceLogger = {
   error(event, context) {
-    console.error(`[InterviewService] ${event}`, context)
+    console.error({ event, component: 'InterviewService', ...context })
   },
   info(event, context) {
-    console.info(`[InterviewService] ${event}`, context)
+    console.info({ event, component: 'InterviewService', ...context })
   },
 }
 
 const consoleNotificationDispatchLogger: NotificationDispatchServiceLogger = {
   error(event, context) {
-    console.error(`[NotificationDispatch] ${event}`, context)
+    console.error({ event, component: 'NotificationDispatch', ...context })
   },
 }
 
