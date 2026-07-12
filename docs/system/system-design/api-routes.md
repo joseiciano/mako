@@ -200,8 +200,10 @@
     - Valid transition: `scheduled -> ongoing`.
     - Idempotent retry: repeated `start` on already `ongoing` interview returns `{ success: true, interview }` without conflicting state mutation.
     - Invalid transitions (`cancelled -> start`, `completed -> start`) are rejected with 409 without state mutation.
-    - Successful `start` is the persisted lifecycle boundary that later timer orchestration hooks into; Story 3.8 does not implement Workflow timer orchestration.
+    - Successful `start` is the persisted lifecycle boundary that triggers active workflow timer orchestration (60-minute session, 5-minute warning).
+    - Start is atomic guarded (`AND status = 'scheduled'`) and idempotent on retry (`already_ongoing`). Concurrent starts converge to one deterministic `ongoing` state.
     - Response uses credential-safe `InterviewDetail` schema (excludes `realtime_session_id`, `excalidraw_room_id`, `excalidraw_key`).
+  - **Telemetry**: Structured logs emit `start_requested` and `start_succeeded` with safe context (`interview_id`, `participant_user_id`, `action`, `outcome`, `status`, timer fields). No secrets logged.
   - **Query Params**: None
 
 - **`POST /api/interviews/:id/end`**
@@ -235,8 +237,9 @@
     - Valid transition: `ongoing -> completed`.
     - Idempotent retry: repeated `end` on already `completed` interview returns `{ success: true, interview }` without conflicting state mutation.
     - Invalid transitions (`scheduled -> end`, `cancelled -> end`) are rejected with 409 without state mutation.
-    - Manual `end` persists the terminal lifecycle state; Workflow timeout convergence is owned by follow-up lifecycle orchestration work.
+    - Manual `end` persists the terminal lifecycle state; timer timeout convergence is handled by the same atomic guarded transition (concurrent manual end and timer completion both converge to `completed`).
     - Response uses credential-safe `InterviewDetail` schema (excludes `realtime_session_id`, `excalidraw_room_id`, `excalidraw_key`).
+  - **Telemetry**: Structured logs emit `end_requested` and `end_succeeded` with safe context (`interview_id`, `participant_user_id`, `action`, `outcome`, `status`). No secrets logged.
   - **Query Params**: None
 
 - **`POST /api/interviews/:id/ai-chat`**

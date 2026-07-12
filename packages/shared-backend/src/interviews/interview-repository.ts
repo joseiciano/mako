@@ -547,64 +547,119 @@ export class InterviewRepository {
     }
 
     const queryExecutor = this.getQueryExecutor()
-    await queryExecutor.query(createSqlQuery('BEGIN;'))
+    const maxAttempts = 3
 
-    try {
-      const lookupResult = await queryExecutor.query<Interview>(
-        createSqlQuery(
-          `
-            SELECT
-              id,
-              scheduler_id,
-              scheduler_alias,
-              interviewer_id,
-              interviewer_alias,
-              type,
-              mode,
-              tier,
-              status,
-              scheduled_at,
-              realtime_session_id,
-              excalidraw_room_id,
-              excalidraw_key,
-              recording_url,
-              screenshot_urls,
-              feedback,
-              started_at,
-              expires_at,
-              warning_at,
-              created_at,
-              updated_at
-            FROM interviews
-            WHERE id = $1
-              AND (scheduler_id = $2 OR interviewer_id = $2)
-            LIMIT 1
-            FOR UPDATE;
-          `,
-          [parsedInput.interview_id, parsedInput.participant_user_id],
-        ),
-      )
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      try {
+        await queryExecutor.query(createSqlQuery('BEGIN;'))
 
-      const [existingInterview] = lookupResult.rows
+        if (parsedInput.action === 'start') {
+          const updateResult = await queryExecutor.query<Interview>(
+            createSqlQuery(
+              `
+                UPDATE interviews
+                SET status = 'ongoing',
+                    started_at = COALESCE($3, started_at),
+                    expires_at = COALESCE($4, expires_at),
+                    warning_at = COALESCE($5, warning_at),
+                    updated_at = $2
+                WHERE id = $1
+                  AND (scheduler_id = $6 OR interviewer_id = $6)
+                  AND status = 'scheduled'
+                RETURNING
+                  id,
+                  scheduler_id,
+                  scheduler_alias,
+                  interviewer_id,
+                  interviewer_alias,
+                  type,
+                  mode,
+                  tier,
+                  status,
+                  scheduled_at,
+                  realtime_session_id,
+                  excalidraw_room_id,
+                  excalidraw_key,
+                  recording_url,
+                  screenshot_urls,
+                  feedback,
+                  started_at,
+                  expires_at,
+                  warning_at,
+                  created_at,
+                  updated_at;
+              `,
+              [
+                parsedInput.interview_id,
+                parsedInput.updated_at,
+                parsedInput.started_at ?? null,
+                parsedInput.expires_at ?? null,
+                parsedInput.warning_at ?? null,
+                parsedInput.participant_user_id,
+              ],
+            ),
+          )
 
-      if (!existingInterview) {
-        await queryExecutor.query(createSqlQuery('COMMIT;'))
-        return { outcome: 'not_found' }
-      }
-
-      const parsedInterview = parseInterview(existingInterview)
-      const currentStatus = parsedInterview.status
-
-      if (parsedInput.action === 'start') {
-        if (currentStatus === 'ongoing') {
-          await queryExecutor.query(createSqlQuery('COMMIT;'))
-          return {
-            outcome: 'already_ongoing',
-            interview: parsedInterview,
+          if (hasRows(updateResult)) {
+            await queryExecutor.query(createSqlQuery('COMMIT;'))
+            return {
+              outcome: 'started',
+              interview: parseInterview(updateResult.rows[0]),
+            }
           }
-        }
 
-        if (currentStatus !== 'scheduled') {
+          // Atomic guard returned no row — classify via safe SELECT (no FOR UPDATE)
+          const fallbackResult = await queryExecutor.query<Interview>(
+            createSqlQuery(
+              `
+                SELECT
+                  id,
+                  scheduler_id,
+                  scheduler_alias,
+                  interviewer_id,
+                  interviewer_alias,
+                  type,
+                  mode,
+                  tier,
+                  status,
+                  scheduled_at,
+                  realtime_session_id,
+                  excalidraw_room_id,
+                  excalidraw_key,
+                  recording_url,
+                  screenshot_urls,
+                  feedback,
+                  started_at,
+                  expires_at,
+                  warning_at,
+                  created_at,
+                  updated_at
+                FROM interviews
+                WHERE id = $1
+                  AND (scheduler_id = $2 OR interviewer_id = $2)
+                LIMIT 1;
+              `,
+              [parsedInput.interview_id, parsedInput.participant_user_id],
+            ),
+          )
+
+          const [existingInterview] = fallbackResult.rows
+
+          if (!existingInterview) {
+            await queryExecutor.query(createSqlQuery('COMMIT;'))
+            return { outcome: 'not_found' }
+          }
+
+          const parsedInterview = parseInterview(existingInterview)
+
+          if (parsedInterview.status === 'ongoing') {
+            await queryExecutor.query(createSqlQuery('COMMIT;'))
+            return {
+              outcome: 'already_ongoing',
+              interview: parsedInterview,
+            }
+          }
+
           await queryExecutor.query(createSqlQuery('COMMIT;'))
           return {
             outcome: 'invalid_status',
@@ -612,16 +667,17 @@ export class InterviewRepository {
           }
         }
 
+        // action === 'end'
         const updateResult = await queryExecutor.query<Interview>(
           createSqlQuery(
             `
               UPDATE interviews
-              SET status = 'ongoing',
-                  started_at = COALESCE($3, started_at),
-                  expires_at = COALESCE($4, expires_at),
-                  warning_at = COALESCE($5, warning_at),
+              SET status = 'completed',
                   updated_at = $2
               WHERE id = $1
+                AND (scheduler_id = $3 OR interviewer_id = $3)
+                AND status = 'ongoing'
+                AND ($4::timestamptz IS NULL OR started_at = $4::timestamptz)
               RETURNING
                 id,
                 scheduler_id,
@@ -648,94 +704,89 @@ export class InterviewRepository {
             [
               parsedInput.interview_id,
               parsedInput.updated_at,
-              parsedInput.started_at ?? null,
-              parsedInput.expires_at ?? null,
-              parsedInput.warning_at ?? null,
+              parsedInput.participant_user_id,
+              parsedInput.started_at_precondition ?? null,
             ],
           ),
         )
 
-        const [updatedInterview] = updateResult.rows
-
-        if (!updatedInterview) {
-          throw new Error('Failed to start interview record.')
+        if (hasRows(updateResult)) {
+          await queryExecutor.query(createSqlQuery('COMMIT;'))
+          return {
+            outcome: 'completed',
+            interview: parseInterview(updateResult.rows[0]),
+          }
         }
 
-        await queryExecutor.query(createSqlQuery('COMMIT;'))
+        // Atomic guard returned no row — classify via safe SELECT (no FOR UPDATE)
+        const fallbackResult = await queryExecutor.query<Interview>(
+          createSqlQuery(
+            `
+              SELECT
+                id,
+                scheduler_id,
+                scheduler_alias,
+                interviewer_id,
+                interviewer_alias,
+                type,
+                mode,
+                tier,
+                status,
+                scheduled_at,
+                realtime_session_id,
+                excalidraw_room_id,
+                excalidraw_key,
+                recording_url,
+                screenshot_urls,
+                feedback,
+                started_at,
+                expires_at,
+                warning_at,
+                created_at,
+                updated_at
+              FROM interviews
+              WHERE id = $1
+                AND (scheduler_id = $2 OR interviewer_id = $2)
+              LIMIT 1;
+            `,
+            [parsedInput.interview_id, parsedInput.participant_user_id],
+          ),
+        )
 
-        return {
-          outcome: 'started',
-          interview: parseInterview(updatedInterview),
+        const [existingInterview] = fallbackResult.rows
+
+        if (!existingInterview) {
+          await queryExecutor.query(createSqlQuery('COMMIT;'))
+          return { outcome: 'not_found' }
         }
-      }
 
-      // action === 'end'
-      if (currentStatus === 'completed') {
-        await queryExecutor.query(createSqlQuery('COMMIT;'))
-        return {
-          outcome: 'already_completed',
-          interview: parsedInterview,
+        const parsedInterview = parseInterview(existingInterview)
+
+        if (parsedInterview.status === 'completed') {
+          await queryExecutor.query(createSqlQuery('COMMIT;'))
+          return {
+            outcome: 'already_completed',
+            interview: parsedInterview,
+          }
         }
-      }
 
-      if (currentStatus !== 'ongoing') {
         await queryExecutor.query(createSqlQuery('COMMIT;'))
         return {
           outcome: 'invalid_status',
           interview: parsedInterview,
         }
+      } catch (error) {
+        await rollbackTransactionSafely(queryExecutor)
+
+        if (attempt < maxAttempts - 1 && isRetryableTransactionError(error)) {
+          continue
+        }
+
+        throw error
       }
-
-      const updateResult = await queryExecutor.query<Interview>(
-        createSqlQuery(
-          `
-            UPDATE interviews
-            SET status = 'completed',
-                updated_at = $2
-            WHERE id = $1
-            RETURNING
-              id,
-              scheduler_id,
-              scheduler_alias,
-              interviewer_id,
-              interviewer_alias,
-              type,
-              mode,
-              tier,
-              status,
-              scheduled_at,
-              realtime_session_id,
-              excalidraw_room_id,
-              excalidraw_key,
-              recording_url,
-              screenshot_urls,
-              feedback,
-              started_at,
-              expires_at,
-              warning_at,
-              created_at,
-              updated_at;
-          `,
-          [parsedInput.interview_id, parsedInput.updated_at],
-        ),
-      )
-
-      const [updatedInterview] = updateResult.rows
-
-      if (!updatedInterview) {
-        throw new Error('Failed to end interview record.')
-      }
-
-      await queryExecutor.query(createSqlQuery('COMMIT;'))
-
-      return {
-        outcome: 'completed',
-        interview: parseInterview(updatedInterview),
-      }
-    } catch (error) {
-      await rollbackTransactionSafely(queryExecutor)
-      throw error
     }
+
+    throw new Error('Unexpected lifecycle transition state.')
   }
 
   async provisionInterview(
@@ -1302,6 +1353,16 @@ export function createInMemoryInterviewDataSource(
         }
       }
 
+      if (
+        parsedInput.started_at_precondition &&
+        existingInterview.started_at !== parsedInput.started_at_precondition
+      ) {
+        return {
+          outcome: 'invalid_status',
+          interview: structuredClone(existingInterview),
+        }
+      }
+
       const completedInterview = parseInterview({
         ...existingInterview,
         status: 'completed',
@@ -1474,42 +1535,24 @@ function buildListParticipantInterviewsQuery(
   )
 }
 
-function buildConsumptionReservationQuery(
-  input: CreateInterviewRecordInput,
-): SqlQuery {
-  if (input.policy_consumption === 'free_ai_interview') {
-    return createSqlQuery(
-      `
-        UPDATE "user"
-        SET free_ai_interviews = free_ai_interviews - 1,
-            "updatedAt" = NOW()
-        WHERE id = $1
-          AND deleted_at IS NULL
-          AND free_ai_interviews > 0
-        RETURNING id;
-      `,
-      [input.scheduler_id],
-    )
-  }
-
-  return createSqlQuery(
-    `
-      UPDATE "user"
-      SET credits = credits - 1,
-          "updatedAt" = NOW()
-      WHERE id = $1
-        AND deleted_at IS NULL
-        AND credits > 0
-      RETURNING id;
-    `,
-    [input.scheduler_id],
-  )
-}
-
 async function rollbackTransactionSafely(
   queryExecutor: SqlQueryExecutor,
 ): Promise<void> {
   try {
     await queryExecutor.query(createSqlQuery('ROLLBACK;'))
   } catch {}
+}
+
+function isRetryableTransactionError(error: unknown): boolean {
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    typeof (error as { code: unknown }).code === 'string'
+  ) {
+    const code = (error as { code: string }).code
+    return code === '40001' || code === '40P01'
+  }
+
+  return false
 }
