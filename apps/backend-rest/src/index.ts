@@ -53,13 +53,10 @@ import {
   type ProvisionInterviewRecordInput,
   type ProvisionInterviewRecordResult,
   type RealtimeProvider,
-<<<<<<< HEAD
-=======
   type SqlQuery,
   type SqlQueryExecutor,
   type PaymentServiceLogger,
   type StripeClient,
->>>>>>> 92a919e ([milestone-6:6-6] Wire payment routes into backend-rest and add Stripe env bindings)
 } from '@mako/shared-backend'
 import type { Context, Next } from 'hono'
 import { Hono } from 'hono'
