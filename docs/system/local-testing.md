@@ -76,3 +76,35 @@ Each app/package now uses Vitest with consistent scripts:
 
 - Verify `DATABASE_URL` points to localhost (`localhost` or `127.0.0.1`)
 - Verify the database name ends in `_test`
+
+## Stripe Webhook Local Testing
+
+The `POST /api/payments/webhook` endpoint verifies Stripe webhook signatures using `STRIPE_WEBHOOK_SECRET`. To test webhook handling locally:
+
+1. Install the [Stripe CLI](https://docs.stripe.com/stripe-cli) and authenticate:
+   ```bash
+   stripe login
+   ```
+
+2. Start the backend worker locally (defaults to `localhost:8787`):
+   ```bash
+   pnpm --filter @mako/backend-rest dev
+   ```
+
+3. Forward Stripe webhook events to the local worker:
+   ```bash
+   stripe listen --forward-to localhost:8787/api/payments/webhook
+   ```
+
+4. Copy the `whsec_...` signing secret printed by `stripe listen` and set it as `STRIPE_WEBHOOK_SECRET` in `apps/backend-rest/.dev.vars`. Restart the worker so it picks up the new secret.
+
+5. Trigger a test event with payment metadata that matches the backend package contract:
+   ```bash
+   stripe trigger payment_intent.succeeded \
+     --add 'data.object.metadata.package_id=credits_5' \
+     --add 'data.object.metadata.user_id=11111111-1111-4111-8111-111111111111'
+   ```
+
+   The worker logs the credit grant. Verify the user's credit balance updated via `GET /api/account`. The `user_id` must match a real local user; the demo account ID above works in demo-mode flows.
+
+**Note**: `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` must both be present in `.dev.vars` for local payment flows. The Stripe SDK client is initialized from `STRIPE_SECRET_KEY`; webhook signature verification uses `STRIPE_WEBHOOK_SECRET`.

@@ -68,16 +68,59 @@
   - **Query Params**: None
 
 ### Payments & Credits
+- **`GET /api/payments/packages`**
+  - **Description**: Returns the list of available credit packages (server-side source of truth for price-to-credit mapping). Authenticated route.
+  - **Request Body**: None
+  - **Response Body**:
+    ```json
+    {
+      "packages": [
+        {
+          "package_id": "credits_5",
+          "display_name": "5 Credits",
+          "amount_cents": 2500,
+          "credits_granted": 5
+        },
+        {
+          "package_id": "credits_10",
+          "display_name": "10 Credits",
+          "amount_cents": 4500,
+          "credits_granted": 10
+        },
+        {
+          "package_id": "credits_20",
+          "display_name": "20 Credits",
+          "amount_cents": 8000,
+          "credits_granted": 20
+        }
+      ]
+    }
+    ```
+  - **Field Mapping**: `amount_cents` is the Stripe Payment Intent amount in USD cents. `credits_granted` is the number of interview credits granted on successful payment. The frontend must not derive credit amounts independently.
+  - **Query Params**: None
+
 - **`POST /api/payments/create-intent`**
   - **Description**: Generates a Stripe Payment Intent for purchasing interview credits.
   - **Request Body**: `{ package_id: string }`
   - **Response Body**: `{ client_secret: string }`
+  - **Behavior Rules**:
+    - Route is authenticated; unauthenticated requests receive 401.
+    - `package_id` is validated against the server-side package configuration; unknown packages are rejected with 400.
+    - Creates a Stripe Payment Intent with `amount` resolved from the package config, `currency: "usd"`, and `metadata` containing `package_id` and `user_id`.
+    - Does not store the Payment Intent at creation time; the webhook handler creates the authoritative transaction record.
+    - Credit balance does not change until the webhook processes `payment_intent.succeeded`.
   - **Query Params**: None
 
 - **`POST /api/payments/webhook`**
   - **Description**: Stripe webhook handler for fulfilling credit purchases. (Internal only)
   - **Request Body**: `Stripe.Event`
   - **Response Body**: `200 OK`
+  - **Behavior Rules**:
+    - Verifies the Stripe webhook signature using `STRIPE_WEBHOOK_SECRET` before processing; invalid signatures return 400.
+    - Handles `payment_intent.succeeded`: resolves `credits_granted` from package config via `metadata.package_id` and grants credits via the credit service. Idempotent via the unique constraint on `Credit_Transactions.stripe_payment_intent_id`.
+    - Handles `payment_intent.payment_failed`: logs the failure with payment intent id and user context; does not affect balances.
+    - Returns `200 OK` for all recognized event types to acknowledge receipt.
+    - Does not send email or push notifications (notification scope belongs to the notification service).
   - **Query Params**: None
 
 ### Interviews
