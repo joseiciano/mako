@@ -39,6 +39,9 @@ export {
 export type { AccountProfile, UpdateAccountProfileInput } from './account'
 
 export {
+  aiChatParamsSchema,
+  aiChatRequestSchema,
+  aiChatResponseSchema,
   cancelInterviewParamsSchema,
   cancelInterviewResponseSchema,
   createInterviewRequestSchema,
@@ -64,6 +67,9 @@ export {
   startInterviewParamsSchema,
 } from './interviews'
 export type {
+  AiChatParams,
+  AiChatRequest,
+  AiChatResponse,
   CancelInterviewParams,
   CancelInterviewResponse,
   CreateInterviewRequest,

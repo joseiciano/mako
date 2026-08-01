@@ -6,6 +6,7 @@ import {
 import {
   AccountRepository,
   AccountService,
+  AiChatRepository,
   AvailabilityRepository,
   AvailabilityService,
   type CancelInterviewRecordInput,
@@ -209,6 +210,7 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
         notificationTransport,
         realtimeProvider,
         timerOrchestration,
+        new AiChatRepository(),
       )
     },
     resolveSession: function resolveSession(context) {

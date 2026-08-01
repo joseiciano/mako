@@ -6,13 +6,15 @@ import {
   interviewDetailSchema,
   interviewLifecycleResponseSchema,
   interviewListItemSchema,
-  interviewSchema,
   interviewListResponseSchema,
+  interviewSchema,
   interviewStatusSchema,
   interviewTierSchema,
   interviewTypeSchema,
   maxInterviewListLimit,
   provisionInterviewResponseSchema,
+  type AiChatRequest,
+  type AiChatResponse,
   type CancelInterviewResponse,
   type CreateInterviewResponse,
   type Interview,
@@ -184,6 +186,20 @@ export type ProvisionInterviewRecordResult =
   | {
       outcome: 'not_found'
     }
+
+export type AiChatServiceInput = {
+  interview_id: string
+  session: InterviewSession | null
+  message: AiChatRequest['message']
+  canvas_snapshot: AiChatRequest['canvas_snapshot']
+  guidance_mode: AiChatRequest['guidance_mode']
+}
+
+export type AiChatServiceResult = AiChatResponse
+
+export type AiChatServicePort = {
+  generateReply(input: AiChatServiceInput): Promise<AiChatServiceResult>
+}
 
 export const lifecycleInterviewRecordInputSchema = z.object({
   interview_id: z.string().uuid(),

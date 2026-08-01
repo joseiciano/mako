@@ -142,6 +142,27 @@ export const interviewLifecycleResponseSchema = z.object({
   interview: interviewDetailSchema,
 })
 
+export const aiChatParamsSchema = z.object({
+  id: z.string().uuid(),
+})
+
+export const aiChatRequestSchema = z
+  .object({
+    message: z.string().min(1),
+    canvas_snapshot: z.object({
+      type: z.literal('excalidraw_scene'),
+      scene: z.record(z.string(), jsonValueSchema),
+    }),
+    guidance_mode: z.literal('review'),
+  })
+  .strict()
+
+export const aiChatResponseSchema = z.object({
+  reply: z.string(),
+  guidance_mode: z.literal('review'),
+  prompt_version: z.string().min(1),
+})
+
 export const provisionInterviewParamsSchema = z.object({
   id: z.string().uuid(),
 })
@@ -176,6 +197,9 @@ export type EndInterviewParams = z.infer<typeof endInterviewParamsSchema>
 export type InterviewLifecycleResponse = z.infer<typeof interviewLifecycleResponseSchema>
 export type ProvisionInterviewParams = z.infer<typeof provisionInterviewParamsSchema>
 export type ProvisionInterviewResponse = z.infer<typeof provisionInterviewResponseSchema>
+export type AiChatParams = z.infer<typeof aiChatParamsSchema>
+export type AiChatRequest = z.infer<typeof aiChatRequestSchema>
+export type AiChatResponse = z.infer<typeof aiChatResponseSchema>
 
 function queryIntegerParameterSchema<TSchema extends z.ZodType<number>>(
   schema: TSchema,

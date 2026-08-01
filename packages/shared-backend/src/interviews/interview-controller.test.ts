@@ -8,7 +8,8 @@ import {
 import { registerInterviewController } from './interview-controller'
 import { InterviewService } from './interview-service'
 import { createDemoRealtimeProvider } from './realtime-provider'
-import type { InterviewSession } from './types'
+import { AiChatRepository } from './ai-chat-repository'
+import type { AiChatServicePort, InterviewSession } from './types'
 import type {
   InterviewPostCommitEvent,
   InterviewPostCommitEventPublisher,
@@ -1187,6 +1188,289 @@ describe('InterviewController', function interviewControllerSuite() {
 
     expect(response.status).toBe(400)
   })
+
+  it('returns 500 when no ai-chat responder is configured', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/ai-chat',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          message: 'What should I add next?',
+          canvas_snapshot: {
+            type: 'excalidraw_scene',
+            scene: { elements: [] },
+          },
+          guidance_mode: 'review',
+        }),
+      },
+    )
+
+    expect(response.status).toBe(500)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Unexpected interview error.',
+    })
+  })
+
+  it('returns 400 when ai-chat body is invalid in no-responder configuration', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/ai-chat',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          message: '',
+          canvas_snapshot: { type: 'excalidraw_scene', scene: {} },
+          guidance_mode: 'review',
+        }),
+      },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'Invalid request payload',
+    })
+  })
+
+  it('returns 400 when ai-chat route param is not a valid uuid in no-responder configuration', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+    })
+
+    const response = await app.request(
+      '/api/interviews/not-a-uuid/ai-chat',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          message: 'Hello',
+          canvas_snapshot: {
+            type: 'excalidraw_scene',
+            scene: {},
+          },
+          guidance_mode: 'review',
+        }),
+      },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'Invalid request payload',
+    })
+  })
+
+  it('returns 400 when ai-chat request body is not valid json', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      aiChatResponder: createStubAiChatResponder(),
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/ai-chat',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{bad-json',
+      },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Request body must be valid JSON.',
+    })
+  })
+
+  it('returns 400 when ai-chat route param is not a valid uuid', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      aiChatResponder: createStubAiChatResponder(),
+    })
+
+    const response = await app.request(
+      '/api/interviews/not-a-uuid/ai-chat',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          message: 'Hello',
+          canvas_snapshot: {
+            type: 'excalidraw_scene',
+            scene: {},
+          },
+          guidance_mode: 'review',
+        }),
+      },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'Invalid request payload',
+    })
+  })
+
+  it('returns 400 when ai-chat body is schema-invalid', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      aiChatResponder: createStubAiChatResponder(),
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/ai-chat',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          message: '',
+          canvas_snapshot: {
+            type: 'excalidraw_scene',
+            scene: {},
+          },
+          guidance_mode: 'review',
+        }),
+      },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'Invalid request payload',
+    })
+  })
+
+  it('delegates valid ai-chat request to the responder and returns its result', async function run() {
+    const responder = createStubAiChatResponder({
+      reply: 'You are missing a cache invalidation strategy.',
+      guidance_mode: 'review',
+      prompt_version: 'ai-whiteboard-v1',
+    })
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      aiChatResponder: responder,
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/ai-chat',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          message: 'What should I add next?',
+          canvas_snapshot: {
+            type: 'excalidraw_scene',
+            scene: { elements: [{ type: 'rectangle', id: '1' }] },
+          },
+          guidance_mode: 'review',
+        }),
+      },
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      reply: 'You are missing a cache invalidation strategy.',
+      guidance_mode: 'review',
+      prompt_version: 'ai-whiteboard-v1',
+    })
+    expect(responder.lastInput).toMatchObject({
+      interview_id: '33333333-3333-4333-8333-333333333333',
+      message: 'What should I add next?',
+      canvas_snapshot: {
+        type: 'excalidraw_scene',
+        scene: { elements: [{ type: 'rectangle', id: '1' }] },
+      },
+      guidance_mode: 'review',
+    })
+  })
+
+  it('returns 500 when responder returns malformed output', async function run() {
+    const responder: AiChatServicePort = {
+      async generateReply() {
+        return { reply: 123, guidance_mode: 'wrong', prompt_version: '' } as never
+      },
+    }
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      aiChatResponder: responder,
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/ai-chat',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          message: 'Hello',
+          canvas_snapshot: {
+            type: 'excalidraw_scene',
+            scene: {},
+          },
+          guidance_mode: 'review',
+        }),
+      },
+    )
+
+    expect(response.status).toBe(500)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Unexpected interview error.',
+    })
+  })
+
+  it('returns 500 when responder throws an error', async function run() {
+    const responder: AiChatServicePort = {
+      async generateReply() {
+        throw new Error('AI service unavailable')
+      },
+    }
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      aiChatResponder: responder,
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/ai-chat',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          message: 'Hello',
+          canvas_snapshot: {
+            type: 'excalidraw_scene',
+            scene: {},
+          },
+          guidance_mode: 'review',
+        }),
+      },
+    )
+
+    expect(response.status).toBe(500)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Unexpected interview error.',
+    })
+  })
 })
 
 function createInterviewApp(options: {
@@ -1196,8 +1480,10 @@ function createInterviewApp(options: {
   credits: number
   seedInterviews?: readonly Interview[]
   postCommitEventPublisher?: InterviewPostCommitEventPublisher
+  aiChatResponder?: AiChatServicePort
 }) {
   const app = new Hono<{ Bindings: TestBindings }>()
+  const aiChatRepository = new AiChatRepository(options.aiChatResponder)
   const interviewService = new InterviewService(
     new InterviewRepository(
       createInMemoryInterviewDataSource([
@@ -1217,6 +1503,13 @@ function createInterviewApp(options: {
       return '2026-04-13T10:00:00.000Z'
     },
     options.postCommitEventPublisher,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    aiChatRepository,
   )
 
   registerInterviewController(app, {
@@ -1256,4 +1549,30 @@ function createInterviewRecord(overrides: Partial<Interview> = {}): Interview {
     updated_at: '2026-04-13T09:55:00.000Z',
     ...overrides,
   }
+}
+
+type StubAiChatResponder = AiChatServicePort & {
+  lastInput: Parameters<AiChatServicePort['generateReply']>[0] | null
+}
+
+function createStubAiChatResponder(
+  result: { reply: string; guidance_mode: 'review'; prompt_version: string } = {
+    reply: 'stub reply',
+    guidance_mode: 'review',
+    prompt_version: 'stub-v1',
+  },
+): StubAiChatResponder {
+  let capturedInput: Parameters<AiChatServicePort['generateReply']>[0] | null = null
+
+  const responder: StubAiChatResponder = {
+    get lastInput() {
+      return capturedInput
+    },
+    async generateReply(input) {
+      capturedInput = input
+      return result
+    },
+  }
+
+  return responder
 }

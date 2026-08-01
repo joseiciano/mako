@@ -1,19 +1,23 @@
-import type {
-  CancelInterviewParams,
-  CancelInterviewResponse,
-  CreateInterviewRequest,
-  CreateInterviewResponse,
-  EndInterviewParams,
-  Interview,
-  InterviewDetailResponse,
-  InterviewLifecycleResponse,
-  InterviewListQuery,
-  InterviewListResponse,
-  ProvisionInterviewParams,
-  ProvisionInterviewResponse,
-  StartInterviewParams,
+import {
+  aiChatResponseSchema,
+  type AiChatRequest,
+  type AiChatResponse,
+  type CancelInterviewParams,
+  type CancelInterviewResponse,
+  type CreateInterviewRequest,
+  type CreateInterviewResponse,
+  type EndInterviewParams,
+  type Interview,
+  type InterviewDetailResponse,
+  type InterviewLifecycleResponse,
+  type InterviewListQuery,
+  type InterviewListResponse,
+  type ProvisionInterviewParams,
+  type ProvisionInterviewResponse,
+  type StartInterviewParams,
 } from '@mako/shared'
 import { buildInterviewAliases } from '../interview'
+import { AiChatRepository } from './ai-chat-repository'
 import { InterviewRepository } from './interview-repository'
 import {
   buildInterviewCancelledEvent,
@@ -70,6 +74,7 @@ export class InterviewService {
     private readonly notificationTransport?: NotificationTransport,
     private readonly realtimeProvider: RealtimeProvider = createDemoRealtimeProvider(),
     private readonly timerOrchestration?: TimerOrchestrationPort,
+    private readonly aiChatRepository?: AiChatRepository,
   ) {}
 
   async createInterview(
@@ -464,6 +469,32 @@ export class InterviewService {
     }
 
     throw new Error('Unexpected interview end outcome.')
+  }
+
+  async aiChat(
+    session: InterviewSession | null,
+    input: {
+      interview_id: string
+      message: AiChatRequest['message']
+      canvas_snapshot: AiChatRequest['canvas_snapshot']
+      guidance_mode: AiChatRequest['guidance_mode']
+    },
+  ): Promise<AiChatResponse> {
+    this.requireSession(session)
+
+    if (!this.aiChatRepository) {
+      throw new Error('AI chat is not configured.')
+    }
+
+    const result = await this.aiChatRepository.generateReply({
+      interview_id: input.interview_id,
+      session,
+      message: input.message,
+      canvas_snapshot: input.canvas_snapshot,
+      guidance_mode: input.guidance_mode,
+    })
+
+    return aiChatResponseSchema.parse(result)
   }
 
   private async createAiLedInterview(input: {

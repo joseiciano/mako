@@ -15,6 +15,8 @@ import {
 import { InterviewService, type InterviewServiceLogger } from './interview-service'
 import { createDemoRealtimeProvider, type RealtimeProvider } from './realtime-provider'
 import { createInMemoryTimerOrchestration, type TimerOrchestrationPort } from './timer-orchestration'
+import { AiChatRepository } from './ai-chat-repository'
+import type { AiChatServicePort } from './types'
 import type {
   InterviewPostCommitEvent,
   InterviewPostCommitEventPublisher,
@@ -2055,6 +2057,136 @@ describe('InterviewService', function interviewServiceSuite() {
       outcome: 'completed',
     })
   })
+
+  it('delegates aiChat to the repository and returns validated result', async function run() {
+    let repositoryCallCount = 0
+    const stubResponder: AiChatServicePort = {
+      async generateReply(input) {
+        repositoryCallCount += 1
+        return {
+          reply: 'You should add error handling.',
+          guidance_mode: 'review',
+          prompt_version: 'test-v1',
+        }
+      },
+    }
+    const aiChatRepository = new AiChatRepository(stubResponder)
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      createDemoRealtimeProvider(),
+      undefined,
+      aiChatRepository,
+    )
+
+    const result = await service.aiChat(activeSession, {
+      interview_id: '33333333-3333-4333-8333-333333333333',
+      message: 'What should I add next?',
+      canvas_snapshot: {
+        type: 'excalidraw_scene',
+        scene: { elements: [] },
+      },
+      guidance_mode: 'review',
+    })
+
+    expect(result).toEqual({
+      reply: 'You should add error handling.',
+      guidance_mode: 'review',
+      prompt_version: 'test-v1',
+    })
+    expect(repositoryCallCount).toBe(1)
+  })
+
+  it('rejects aiChat when session is null', async function run() {
+    const stubResponder: AiChatServicePort = {
+      async generateReply() {
+        return {
+          reply: 'reply',
+          guidance_mode: 'review',
+          prompt_version: 'v1',
+        }
+      },
+    }
+    const aiChatRepository = new AiChatRepository(stubResponder)
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      createDemoRealtimeProvider(),
+      undefined,
+      aiChatRepository,
+    )
+
+    await expect(
+      service.aiChat(null, {
+        interview_id: '33333333-3333-4333-8333-333333333333',
+        message: 'Hello',
+        canvas_snapshot: { type: 'excalidraw_scene', scene: {} },
+        guidance_mode: 'review',
+      }),
+    ).rejects.toBeInstanceOf(InterviewUnauthorizedError)
+  })
+
+  it('throws when aiChatRepository is not configured', async function run() {
+    const { service } = createInterviewService({
+      freeAiInterviews: 0,
+      credits: 0,
+    })
+
+    await expect(
+      service.aiChat(activeSession, {
+        interview_id: '33333333-3333-4333-8333-333333333333',
+        message: 'Hello',
+        canvas_snapshot: { type: 'excalidraw_scene', scene: {} },
+        guidance_mode: 'review',
+      }),
+    ).rejects.toThrow('AI chat is not configured.')
+  })
+
+  it('propagates responder errors from aiChat', async function run() {
+    const stubResponder: AiChatServicePort = {
+      async generateReply() {
+        throw new Error('AI provider timeout')
+      },
+    }
+    const aiChatRepository = new AiChatRepository(stubResponder)
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      createDemoRealtimeProvider(),
+      undefined,
+      aiChatRepository,
+    )
+
+    await expect(
+      service.aiChat(activeSession, {
+        interview_id: '33333333-3333-4333-8333-333333333333',
+        message: 'Hello',
+        canvas_snapshot: { type: 'excalidraw_scene', scene: {} },
+        guidance_mode: 'review',
+      }),
+    ).rejects.toThrow('AI provider timeout')
+  })
 })
 
 function createInterviewService(
@@ -2076,6 +2208,7 @@ function createInterviewService(
   persistOutboxEvent?: (event: import('../notification-queue-event-contract').NotificationQueueEvent) => Promise<void>,
   realtimeProvider: RealtimeProvider = createDemoRealtimeProvider(),
   timerOrchestration?: TimerOrchestrationPort,
+  aiChatRepository?: AiChatRepository,
 ) {
   const repository = new InterviewRepository({
     dataSource: createInMemoryInterviewDataSource([
@@ -2104,6 +2237,7 @@ function createInterviewService(
     notificationTransport,
     realtimeProvider,
     timerOrchestration,
+    aiChatRepository,
   )
 
   return {
