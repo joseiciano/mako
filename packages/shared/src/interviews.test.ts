@@ -1,5 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
+  aiChatParamsSchema,
+  aiChatRequestSchema,
+  aiChatResponseSchema,
   cancelInterviewParamsSchema,
   cancelInterviewResponseSchema,
   createInterviewRequestSchema,
@@ -683,6 +686,217 @@ describe('interview shared contracts', function interviewSharedContractsSuite() 
           created_at: '2026-04-01T10:00:00.000Z',
           updated_at: '2026-04-10T10:30:00.000Z',
         },
+      })
+    }).toThrow()
+  })
+
+  it('parses valid ai-chat route params', function run() {
+    const parsed = aiChatParamsSchema.parse({
+      id: '11111111-1111-4111-8111-111111111111',
+    })
+    expect(parsed.id).toBe('11111111-1111-4111-8111-111111111111')
+  })
+
+  it('rejects ai-chat params with invalid id', function run() {
+    expect(function parseInvalid() {
+      aiChatParamsSchema.parse({ id: 'not-a-uuid' })
+    }).toThrow()
+  })
+
+  it('parses valid ai-chat request with Excalidraw scene snapshot', function run() {
+    const parsed = aiChatRequestSchema.parse({
+      message: 'What should I add next?',
+      canvas_snapshot: {
+        type: 'excalidraw_scene',
+        scene: { elements: [], appState: { viewBackgroundColor: '#fff' } },
+      },
+      guidance_mode: 'review',
+    })
+
+    expect(parsed.message).toBe('What should I add next?')
+    expect(parsed.canvas_snapshot.type).toBe('excalidraw_scene')
+    expect(parsed.canvas_snapshot.scene).toEqual({
+      elements: [],
+      appState: { viewBackgroundColor: '#fff' },
+    })
+    expect(parsed.guidance_mode).toBe('review')
+  })
+
+  it('parses ai-chat request with nested scene objects', function run() {
+    const parsed = aiChatRequestSchema.parse({
+      message: 'Review this',
+      canvas_snapshot: {
+        type: 'excalidraw_scene',
+        scene: {
+          elements: [{ type: 'rectangle', id: '1', x: 0, y: 0 }],
+          appState: { gridSize: 1 },
+        },
+      },
+      guidance_mode: 'review',
+    })
+
+    expect(parsed.canvas_snapshot.scene.elements).toHaveLength(1)
+  })
+
+  it('parses ai-chat request with empty scene object', function run() {
+    const parsed = aiChatRequestSchema.parse({
+      message: 'Hello',
+      canvas_snapshot: {
+        type: 'excalidraw_scene',
+        scene: {},
+      },
+      guidance_mode: 'review',
+    })
+
+    expect(parsed.canvas_snapshot.scene).toEqual({})
+  })
+
+  it('rejects ai-chat request missing message', function run() {
+    expect(function parseInvalid() {
+      aiChatRequestSchema.parse({
+        canvas_snapshot: {
+          type: 'excalidraw_scene',
+          scene: {},
+        },
+        guidance_mode: 'review',
+      })
+    }).toThrow()
+  })
+
+  it('rejects ai-chat request with empty message', function run() {
+    expect(function parseInvalid() {
+      aiChatRequestSchema.parse({
+        message: '',
+        canvas_snapshot: {
+          type: 'excalidraw_scene',
+          scene: {},
+        },
+        guidance_mode: 'review',
+      })
+    }).toThrow()
+  })
+
+  it('rejects ai-chat request missing canvas_snapshot', function run() {
+    expect(function parseInvalid() {
+      aiChatRequestSchema.parse({
+        message: 'What should I add?',
+        guidance_mode: 'review',
+      })
+    }).toThrow()
+  })
+
+  it('rejects ai-chat request with scene as array instead of object', function run() {
+    expect(function parseInvalid() {
+      aiChatRequestSchema.parse({
+        message: 'What should I add?',
+        canvas_snapshot: {
+          type: 'excalidraw_scene',
+          scene: [1, 2, 3],
+        },
+        guidance_mode: 'review',
+      })
+    }).toThrow()
+  })
+
+  it('rejects ai-chat request with scene as string instead of object', function run() {
+    expect(function parseInvalid() {
+      aiChatRequestSchema.parse({
+        message: 'What should I add?',
+        canvas_snapshot: {
+          type: 'excalidraw_scene',
+          scene: 'not-an-object',
+        },
+        guidance_mode: 'review',
+      })
+    }).toThrow()
+  })
+
+  it('rejects ai-chat request with wrong canvas_snapshot type', function run() {
+    expect(function parseInvalid() {
+      aiChatRequestSchema.parse({
+        message: 'What should I add?',
+        canvas_snapshot: {
+          type: 'mermaid_diagram',
+          scene: {},
+        },
+        guidance_mode: 'review',
+      })
+    }).toThrow()
+  })
+
+  it('rejects ai-chat request with wrong guidance_mode', function run() {
+    expect(function parseInvalid() {
+      aiChatRequestSchema.parse({
+        message: 'What should I add?',
+        canvas_snapshot: {
+          type: 'excalidraw_scene',
+          scene: {},
+        },
+        guidance_mode: 'brainstorm',
+      })
+    }).toThrow()
+  })
+
+  it('rejects ai-chat request with extra fields', function run() {
+    expect(function parseInvalid() {
+      aiChatRequestSchema.parse({
+        message: 'What should I add?',
+        canvas_snapshot: {
+          type: 'excalidraw_scene',
+          scene: {},
+        },
+        guidance_mode: 'review',
+        extra_field: 'not allowed',
+      })
+    }).toThrow()
+  })
+
+  it('parses valid ai-chat response', function run() {
+    const parsed = aiChatResponseSchema.parse({
+      reply: 'You are missing a cache invalidation strategy.',
+      guidance_mode: 'review',
+      prompt_version: 'ai-whiteboard-v1',
+    })
+
+    expect(parsed.reply).toBe('You are missing a cache invalidation strategy.')
+    expect(parsed.guidance_mode).toBe('review')
+    expect(parsed.prompt_version).toBe('ai-whiteboard-v1')
+  })
+
+  it('rejects ai-chat response with wrong guidance_mode', function run() {
+    expect(function parseInvalid() {
+      aiChatResponseSchema.parse({
+        reply: 'Some reply',
+        guidance_mode: 'brainstorm',
+        prompt_version: 'v1',
+      })
+    }).toThrow()
+  })
+
+  it('rejects ai-chat response missing prompt_version', function run() {
+    expect(function parseInvalid() {
+      aiChatResponseSchema.parse({
+        reply: 'Some reply',
+        guidance_mode: 'review',
+      })
+    }).toThrow()
+  })
+
+  it('rejects ai-chat response with empty prompt_version', function run() {
+    expect(function parseInvalid() {
+      aiChatResponseSchema.parse({
+        reply: 'Some reply',
+        guidance_mode: 'review',
+        prompt_version: '',
+      })
+    }).toThrow()
+  })
+
+  it('rejects ai-chat response missing reply', function run() {
+    expect(function parseInvalid() {
+      aiChatResponseSchema.parse({
+        guidance_mode: 'review',
+        prompt_version: 'v1',
       })
     }).toThrow()
   })

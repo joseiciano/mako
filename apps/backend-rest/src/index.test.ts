@@ -530,6 +530,99 @@ describe('backend-rest smoke tests', function () {
     expect(body.interviews[0]).not.toHaveProperty('feedback')
   })
 
+  it('returns 500 for ai-chat when no responder is configured in demo mode', async function () {
+    const app = createApp()
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/ai-chat',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          message: 'What should I add next?',
+          canvas_snapshot: {
+            type: 'excalidraw_scene',
+            scene: { elements: [] },
+          },
+          guidance_mode: 'review',
+        }),
+      },
+    )
+
+    expect(response.status).toBe(500)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Unexpected interview error.',
+    })
+  })
+
+  it('returns 400 for ai-chat with invalid uuid path param through shared schemas', async function () {
+    const app = createApp()
+
+    const response = await app.request(
+      '/api/interviews/not-a-uuid/ai-chat',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          message: 'Hello',
+          canvas_snapshot: {
+            type: 'excalidraw_scene',
+            scene: {},
+          },
+          guidance_mode: 'review',
+        }),
+      },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'Invalid request payload',
+    })
+  })
+
+  it('returns 400 for ai-chat with invalid request body through shared schemas', async function () {
+    const app = createApp()
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/ai-chat',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          message: '',
+          canvas_snapshot: {
+            type: 'excalidraw_scene',
+            scene: {},
+          },
+          guidance_mode: 'review',
+        }),
+      },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'Invalid request payload',
+    })
+  })
+
+  it('returns 400 for ai-chat with non-json request body', async function () {
+    const app = createApp()
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/ai-chat',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{bad-json',
+      },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Request body must be valid JSON.',
+    })
+  })
+
   it('keeps demo account balances in sync after interview creation', async function () {
     const app = createApp()
 

@@ -1,4 +1,8 @@
 export {
+  AiChatRepository,
+  AiChatUnavailableError,
+} from './ai-chat-repository'
+export {
   createDemoRealtimeProvider,
   createRealtimeKitProvider,
   type CreateParticipantTokenInput,
@@ -68,6 +72,9 @@ export {
   toCreateInterviewResponse,
   toInterviewListResponse,
   toProvisionInterviewResponse,
+  type AiChatServiceInput,
+  type AiChatServicePort,
+  type AiChatServiceResult,
   type CancelInterviewRecordInput,
   type CancelInterviewRecordResult,
   type CreateInterviewRecordInput,

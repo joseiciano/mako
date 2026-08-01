@@ -1,4 +1,7 @@
 import {
+  aiChatParamsSchema,
+  aiChatRequestSchema,
+  aiChatResponseSchema,
   cancelInterviewParamsSchema,
   cancelInterviewResponseSchema,
   createInterviewRequestSchema,
@@ -163,6 +166,45 @@ export function registerInterviewController<Bindings extends ControllerBindings>
       return c.json(interviewLifecycleResponseSchema.parse(endResponse), 200)
     } catch (error) {
       return toErrorResponse(c, error)
+    }
+  })
+
+  app.post('/api/interviews/:id/ai-chat', async function postAiChatHandler(c) {
+    const session = await options.resolveSession(c)
+    const jsonBody = await readRequestBody(c)
+
+    if (jsonBody === null) {
+      return c.json({ error: 'Request body must be valid JSON.' }, 400)
+    }
+
+    let parsedParams: { id: string }
+    try {
+      parsedParams = aiChatParamsSchema.parse({
+        id: c.req.param('id'),
+      })
+    } catch (error) {
+      return toErrorResponse(c, error)
+    }
+
+    let parsedBody: ReturnType<typeof aiChatRequestSchema.parse>
+    try {
+      parsedBody = aiChatRequestSchema.parse(jsonBody)
+    } catch (error) {
+      return toErrorResponse(c, error)
+    }
+
+    try {
+      const interviewService = options.createService({ bindings: c.env })
+      const result = await interviewService.aiChat(session, {
+        interview_id: parsedParams.id,
+        message: parsedBody.message,
+        canvas_snapshot: parsedBody.canvas_snapshot,
+        guidance_mode: parsedBody.guidance_mode,
+      })
+
+      return c.json(aiChatResponseSchema.parse(result), 200)
+    } catch (error) {
+      return c.json({ error: 'Unexpected interview error.' }, 500)
     }
   })
 }
