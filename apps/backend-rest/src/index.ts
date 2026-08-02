@@ -11,10 +11,14 @@ import {
   AvailabilityService,
   type CancelInterviewRecordInput,
   type CancelInterviewRecordResult,
+  CREDIT_PACKAGES,
+  CreditRepository,
+  CreditService,
   InterviewPolicyConflictError,
   InterviewRepository,
   InterviewService,
   type InterviewServiceLogger,
+  PaymentService,
   backendRuntime,
   createInMemoryAvailabilityDataSource,
   createAuthSessionMiddleware,
@@ -22,6 +26,7 @@ import {
   createDemoRealtimeProvider,
   createRealtimeKitProvider,
   createHeaderSessionResolver,
+  createStripeClient,
   getAccountSessionFromAuthContext,
   isAuthConfigured,
   listParticipantInterviewsInputSchema,
@@ -32,6 +37,7 @@ import {
   registerAuthController,
   registerAvailabilityController,
   registerInterviewController,
+  registerPaymentController,
   createInterviewQueuePostCommitEventPublisher,
   createWorkflowTimerOrchestration,
   NotificationRepository,
@@ -48,6 +54,10 @@ import {
   type ProvisionInterviewRecordInput,
   type ProvisionInterviewRecordResult,
   type RealtimeProvider,
+  type SqlQuery,
+  type SqlQueryExecutor,
+  type PaymentServiceLogger,
+  type StripeClient,
 } from '@mako/shared-backend'
 import type { Context, Next } from 'hono'
 import { Hono } from 'hono'
@@ -71,6 +81,8 @@ export type WorkerBindings = {
   CLOUDFLARE_API_TOKEN?: string
   CLOUDFLARE_REALTIMEKIT_APP_ID?: string
   SESSION_TIMER_WORKFLOW?: Workflow
+  STRIPE_SECRET_KEY?: string
+  STRIPE_WEBHOOK_SECRET?: string
 }
 
 const demoSession = {
@@ -109,10 +121,28 @@ const consoleNotificationDispatchLogger: NotificationDispatchServiceLogger = {
   },
 }
 
+const consolePaymentLogger: PaymentServiceLogger = {
+  info(event, context) {
+    console.info(`[Payment] ${event}`, context)
+  },
+  error(event, context) {
+    console.error(`[Payment] ${event}`, context)
+  },
+}
+
 export function createApp(): Hono<{ Bindings: WorkerBindings }> {
   const app = new Hono<{ Bindings: WorkerBindings }>()
   const demoDataSources = createDemoDataSources(seededDemoAccounts)
   const demoSessionResolver = createHeaderSessionResolver(demoSession)
+
+  let stripeClient: StripeClient | null = null
+
+  function getStripeClient(bindings: WorkerBindings | undefined): StripeClient {
+    if (!stripeClient) {
+      stripeClient = createStripeClient(bindings?.STRIPE_SECRET_KEY ?? 'sk_test_disabled')
+    }
+    return stripeClient
+  }
 
   app.use('/api/*', applyCorsHeaders)
 
@@ -234,6 +264,24 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
     },
     resolveSession: function resolveSession(context) {
       return resolveAppSession(context, demoSessionResolver)
+    },
+  })
+
+  registerPaymentController(app, {
+    createService: function createService(context) {
+      const stripe = getStripeClient(context.bindings)
+      const queryExecutor = createDatabaseQueryExecutor(context.bindings)
+      const creditService = new CreditService(
+        new CreditRepository(queryExecutor),
+        queryExecutor,
+      )
+      return new PaymentService(stripe, creditService, CREDIT_PACKAGES, consolePaymentLogger)
+    },
+    resolveSession: function resolveSession(context) {
+      return resolveAppSession(context, demoSessionResolver)
+    },
+    getWebhookSecret: function getWebhookSecret(bindings) {
+      return bindings.STRIPE_WEBHOOK_SECRET
     },
   })
 

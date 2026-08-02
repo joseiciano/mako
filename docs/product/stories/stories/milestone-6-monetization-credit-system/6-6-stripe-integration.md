@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 6: Monetization & Credit System
 **Description**: Implement the "Purchase Credits" flow with Stripe Payment Intents, including the create-intent endpoint, webhook handler, and credit fulfillment via the credit service.
-**Status**: Todo
+**Status**: Done
 **Prerequisites**:
 - `docs/product/stories/stories/milestone-6-monetization-credit-system/6-2-credit-repository-service.md`
 

@@ -27,3 +27,18 @@ This document goes over all the tools we will be using for our backend services
 
 
 **NOTE**: We are speaking to our postgres database directly with SQL queries, speaking to it with Cloudflare Hyperdrive. We are not, and never will be using an orm. Never recommend an orm, never use an orm, never mention an orm. 
+
+## Environment Variables & Secrets
+
+The backend worker reads the following secrets from Cloudflare Workers bindings (set via `wrangler secret put` or `.dev.vars` for local development). CI/CD deployment secrets are managed via `./scripts/set-github-env-secrets.sh`.
+
+### Stripe
+
+| Variable | Description |
+|---|---|
+| `STRIPE_SECRET_KEY` | Stripe API secret key (`sk_live_...` or `sk_test_...`). Used to initialize the Stripe SDK client for creating Payment Intents. |
+| `STRIPE_WEBHOOK_SECRET` | Stripe webhook endpoint signing secret (`whsec_...`). Used to verify the signature of incoming webhook events on `POST /api/payments/webhook`. |
+
+**Local development**: add both values to `apps/backend-rest/.dev.vars`.
+
+**Webhook endpoint**: register `https://api.mako.example.com/api/payments/webhook` in the Stripe Dashboard. For local testing, use the Stripe CLI to forward events (see `docs/system/local-testing.md`).

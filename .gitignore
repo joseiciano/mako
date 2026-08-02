@@ -12,6 +12,7 @@ coverage/
 # Cloudflare/TanStack generated
 .wrangler/
 .tanstack/
+.dev.vars
 
 # Logs
 *.log

@@ -35,6 +35,7 @@ export * from './matcher'
 export * from './notifications'
 export * from './credit'
 export * from './tier-policy'
+export * from './payment'
 export {
   interviewCreatedEventSchema,
   interviewCancelledEventSchema,

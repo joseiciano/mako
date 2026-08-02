@@ -2,6 +2,35 @@ import * as sharedBackend from '@mako/shared-backend'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createApp, type WorkerBindings } from './index'
 
+function createMockStripeClient(overrides: {
+  create?: ReturnType<typeof vi.fn>
+  constructEvent?: ReturnType<typeof vi.fn>
+} = {}) {
+  return {
+    paymentIntents: {
+      create: overrides.create ?? vi.fn().mockResolvedValue({
+        id: 'pi_test_123',
+        client_secret: 'pi_test_123_secret_abc',
+      }),
+    },
+    webhooks: {
+      constructEventAsync: overrides.constructEvent ?? vi.fn().mockResolvedValue({
+        type: 'payment_intent.succeeded',
+        data: {
+          object: {
+            id: 'pi_test_123',
+            amount_received: 2500,
+            metadata: {
+              package_id: 'credits_5',
+              user_id: '11111111-1111-4111-8111-111111111111',
+            },
+          },
+        },
+      }),
+    },
+  } as unknown as ReturnType<typeof sharedBackend.createStripeClient>
+}
+
 describe('backend-rest smoke tests', function () {
   afterEach(function restoreMocks() {
     vi.restoreAllMocks()
@@ -1171,6 +1200,209 @@ describe('backend-rest smoke tests', function () {
   })
 })
 
+describe('payment routes', function () {
+  afterEach(function () {
+    vi.restoreAllMocks()
+  })
+
+  it('returns the full credit package list for authenticated requests', async function () {
+    const app = createApp()
+    const response = await getPaymentPackages(app)
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body).toEqual({
+      packages: [
+        { package_id: 'credits_5', display_name: '5 Credits', amount_cents: 2500, credits_granted: 5 },
+        { package_id: 'credits_10', display_name: '10 Credits', amount_cents: 4500, credits_granted: 10 },
+        { package_id: 'credits_20', display_name: '20 Credits', amount_cents: 8000, credits_granted: 20 },
+      ],
+    })
+  })
+
+  it('rejects unauthenticated package list requests with 401', async function () {
+    const app = createApp()
+    const response = await getPaymentPackages(app, {
+      HYPERDRIVE: { connectionString: 'postgres://hyperdrive.local/mako' },
+    })
+    expect(response.status).toBe(401)
+  })
+
+  it('creates a payment intent and returns the client secret', async function () {
+    const mockStripe = createMockStripeClient()
+    vi.spyOn(sharedBackend, 'createStripeClient').mockReturnValue(mockStripe)
+    const app = createApp()
+    const response = await createPaymentIntent(app, { package_id: 'credits_5' })
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body).toEqual({ client_secret: 'pi_test_123_secret_abc' })
+    expect(mockStripe.paymentIntents.create).toHaveBeenCalledWith({
+      amount: 2500,
+      currency: 'usd',
+      metadata: {
+        package_id: 'credits_5',
+        user_id: '11111111-1111-4111-8111-111111111111',
+      },
+    })
+  })
+
+  it('rejects unknown package_id with 400', async function () {
+    vi.spyOn(sharedBackend, 'createStripeClient').mockReturnValue(createMockStripeClient())
+    const app = createApp()
+    const response = await createPaymentIntent(app, { package_id: 'credits_999' })
+    expect(response.status).toBe(400)
+  })
+
+  it('rejects missing package_id with 400', async function () {
+    vi.spyOn(sharedBackend, 'createStripeClient').mockReturnValue(createMockStripeClient())
+    const app = createApp()
+    const response = await app.request('/api/payments/create-intent', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({}),
+    })
+    expect(response.status).toBe(400)
+  })
+
+  it('rejects unauthenticated create-intent requests with 401', async function () {
+    vi.spyOn(sharedBackend, 'createStripeClient').mockReturnValue(createMockStripeClient())
+    const app = createApp()
+    const response = await createPaymentIntent(app, { package_id: 'credits_5' }, {
+      HYPERDRIVE: { connectionString: 'postgres://hyperdrive.local/mako' },
+    })
+    expect(response.status).toBe(401)
+  })
+
+  it('grants credits on payment_intent.succeeded webhook', async function () {
+    const dbBinding = createDatabaseBinding({ credits: 8, freeAiInterviews: 1 })
+    const env: WorkerBindings = {
+      DB: dbBinding,
+      STRIPE_WEBHOOK_SECRET: 'whsec_test',
+    }
+    const mockStripe = createMockStripeClient()
+    vi.spyOn(sharedBackend, 'createStripeClient').mockReturnValue(mockStripe)
+    const app = createApp()
+
+    const webhookResponse = await postWebhook(app, JSON.stringify({ id: 'evt_1' }), env)
+    expect(webhookResponse.status).toBe(200)
+
+    const accountResponse = await getAccount(app, env)
+    const account = (await accountResponse.json()) as { credits: number }
+    expect(account.credits).toBe(13) // 8 + 5
+  })
+
+  it('does not double-grant credits on duplicate payment_intent.succeeded webhook', async function () {
+    const dbBinding = createDatabaseBinding({ credits: 8, freeAiInterviews: 1 })
+    const env: WorkerBindings = {
+      DB: dbBinding,
+      STRIPE_WEBHOOK_SECRET: 'whsec_test',
+    }
+    const mockStripe = createMockStripeClient()
+    vi.spyOn(sharedBackend, 'createStripeClient').mockReturnValue(mockStripe)
+    const app = createApp()
+
+    await postWebhook(app, JSON.stringify({ id: 'evt_1' }), env)
+    await postWebhook(app, JSON.stringify({ id: 'evt_2' }), env)
+
+    const accountResponse = await getAccount(app, env)
+    const account = (await accountResponse.json()) as { credits: number }
+    expect(account.credits).toBe(13) // still 8 + 5, not 8 + 10
+  })
+
+  it('does not grant credits on payment_intent.payment_failed webhook', async function () {
+    const dbBinding = createDatabaseBinding({ credits: 8, freeAiInterviews: 1 })
+    const env: WorkerBindings = {
+      DB: dbBinding,
+      STRIPE_WEBHOOK_SECRET: 'whsec_test',
+    }
+    const mockStripe = createMockStripeClient({
+      constructEvent: vi.fn().mockResolvedValue({
+        type: 'payment_intent.payment_failed',
+        data: {
+          object: {
+            id: 'pi_failed_1',
+            metadata: { package_id: 'credits_5', user_id: '11111111-1111-4111-8111-111111111111' },
+          },
+        },
+      }),
+    })
+    vi.spyOn(sharedBackend, 'createStripeClient').mockReturnValue(mockStripe)
+    const app = createApp()
+
+    const webhookResponse = await postWebhook(app, JSON.stringify({ id: 'evt_fail' }), env)
+    expect(webhookResponse.status).toBe(200)
+
+    const accountResponse = await getAccount(app, env)
+    const account = (await accountResponse.json()) as { credits: number }
+    expect(account.credits).toBe(8) // unchanged
+  })
+
+  it('returns 400 for invalid webhook signature', async function () {
+    const dbBinding = createDatabaseBinding({ credits: 8, freeAiInterviews: 1 })
+    const env: WorkerBindings = {
+      DB: dbBinding,
+      STRIPE_WEBHOOK_SECRET: 'whsec_test',
+    }
+    const mockStripe = createMockStripeClient({
+      constructEvent: vi.fn().mockRejectedValue(new Error('Invalid signature')),
+    })
+    vi.spyOn(sharedBackend, 'createStripeClient').mockReturnValue(mockStripe)
+    const app = createApp()
+
+    const response = await postWebhook(app, JSON.stringify({ id: 'evt_bad' }), env)
+    expect(response.status).toBe(400)
+  })
+
+  it('returns 400 when stripe-signature header is missing', async function () {
+    const app = createApp()
+    const response = await app.request('/api/payments/webhook', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ id: 'evt_1' }),
+    }, { STRIPE_WEBHOOK_SECRET: 'whsec_test' })
+    expect(response.status).toBe(400)
+  })
+
+  it('completes end-to-end purchase flow from create-intent to credit balance update', async function () {
+    const dbBinding = createDatabaseBinding({ credits: 8, freeAiInterviews: 1 })
+    const env: WorkerBindings = {
+      DB: dbBinding,
+      STRIPE_WEBHOOK_SECRET: 'whsec_test',
+    }
+    const mockStripe = createMockStripeClient({
+      constructEvent: vi.fn().mockResolvedValue({
+        type: 'payment_intent.succeeded',
+        data: {
+          object: {
+            id: 'pi_test_123',
+            amount_received: 4500,
+            metadata: {
+              package_id: 'credits_10',
+              user_id: '11111111-1111-4111-8111-111111111111',
+            },
+          },
+        },
+      }),
+    })
+    vi.spyOn(sharedBackend, 'createStripeClient').mockReturnValue(mockStripe)
+    const app = createApp()
+
+    // 1. Create payment intent
+    const intentResponse = await createPaymentIntent(app, { package_id: 'credits_10' }, env)
+    expect(intentResponse.status).toBe(200)
+    const intent = (await intentResponse.json()) as { client_secret: string }
+    expect(intent.client_secret).toBe('pi_test_123_secret_abc')
+
+    // 2. Simulate Stripe webhook for the same payment intent
+    const webhookResponse = await postWebhook(app, JSON.stringify({ id: 'evt_1' }), env)
+    expect(webhookResponse.status).toBe(200)
+
+    // 3. Verify credit balance updated via GET /api/account
+    const accountResponse = await getAccount(app, env)
+    const account = (await accountResponse.json()) as { credits: number }
+    expect(account.credits).toBe(18) // 8 + 10
+  })
+})
+
 type TrackingQueue = Queue & {
   messages: unknown[]
 }
@@ -1228,6 +1460,41 @@ function getAccount(
   env: Partial<WorkerBindings> = {},
 ) {
   return app.request('/api/account', {}, env)
+}
+
+function getPaymentPackages(
+  app: ReturnType<typeof createApp>,
+  env: Partial<WorkerBindings> = {},
+) {
+  return app.request('/api/payments/packages', {}, env)
+}
+
+function createPaymentIntent(
+  app: ReturnType<typeof createApp>,
+  payload: { package_id?: string } = {},
+  env: Partial<WorkerBindings> = {},
+) {
+  return app.request('/api/payments/create-intent', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ package_id: payload.package_id ?? 'credits_5' }),
+  }, env)
+}
+
+function postWebhook(
+  app: ReturnType<typeof createApp>,
+  body: string,
+  env: Partial<WorkerBindings> = {},
+  signature: string = 't=9999999999,v1=fakesignature',
+) {
+  return app.request('/api/payments/webhook', {
+    method: 'POST',
+    headers: {
+      'stripe-signature': signature,
+      'content-type': 'application/json',
+    },
+    body,
+  }, env)
 }
 
 function listInterviews(
@@ -1299,6 +1566,7 @@ function createDatabaseBinding(accountState: {
   const executedStatements: string[] = []
   const interviewsById = new Map<string, Record<string, unknown>>()
   const outboxEvents = new Map<string, Record<string, unknown>>()
+  const seenPaymentIntentIds = new Set<string>()
 
   const availabilityRequestsById = new Map<string, Record<string, unknown>>()
   const availabilitySlotsById = new Map<string, Record<string, unknown>>()
@@ -1364,6 +1632,34 @@ function createDatabaseBinding(accountState: {
         accountState.freeAiInterviews -= 1
         return {
           rows: [{ id: '11111111-1111-4111-8111-111111111111' }],
+        }
+      }
+
+      if (statementText.includes('INSERT INTO "Credit_Transactions"')) {
+        const stripePaymentIntentId = String(statementValues[2])
+        if (seenPaymentIntentIds.has(stripePaymentIntentId)) {
+          return { rows: [] }
+        }
+        seenPaymentIntentIds.add(stripePaymentIntentId)
+        return {
+          rows: [
+            {
+              id: statementValues[0],
+              user_id: statementValues[1],
+              stripe_payment_intent_id: stripePaymentIntentId,
+              amount: statementValues[3],
+              credits_granted: statementValues[4],
+              status: 'succeeded',
+              created_at: '2026-01-01T00:00:00.000Z',
+            },
+          ],
+        }
+      }
+
+      if (statementText.includes('SET credits = credits +')) {
+        accountState.credits += Number(statementValues[1])
+        return {
+          rows: [{ id: '11111111-1111-4111-8111-111111111111', credits: accountState.credits }],
         }
       }
 
