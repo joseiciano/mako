@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 4: AI Interviewer Implementation
 **Description**: Implement participant-safe backend behavior for `POST /api/interviews/:id/ai-chat` with explicit auth, mode, and lifecycle guardrails.
-**Status**: Todo
+**Status**: Completed
 **Prerequisites**:
 - `docs/system/system-design/api-routes.md`
 - `docs/system/system-design/state-management-lifecycle.md`
@@ -12,21 +12,21 @@
 ## What Needs to Be Done
 
 ### 1. Participant-only authorization behavior
-- [ ] Require authenticated participant access for `POST /api/interviews/:id/ai-chat`.
-- [ ] Reject non-participant and unauthenticated requests with explicit route-level errors.
+- [x] Require authenticated participant access for `POST /api/interviews/:id/ai-chat`.
+- [x] Reject non-participant and unauthenticated requests with explicit route-level errors.
 
 ### 2. Interview mode and lifecycle guardrails
-- [ ] Enforce `mode = 'ai_led'` and reject peer-to-peer interviews for this endpoint.
-- [ ] Keep route behavior as runtime-only guidance and do not mutate interview lifecycle `status` ownership.
-- [ ] Keep behavior aligned with `docs/system/system-design/state-management-lifecycle.md` so chat turns do not take over start/end/timer responsibilities.
+- [x] Enforce `mode = 'ai_led'` and reject peer-to-peer interviews for this endpoint.
+- [x] Keep route behavior as runtime-only guidance and do not mutate interview lifecycle `status` ownership.
+- [x] Keep behavior aligned with `docs/system/system-design/state-management-lifecycle.md` so chat turns do not take over start/end/timer responsibilities.
 
 ### 3. Backend failure semantics
-- [ ] Return documented response shape for valid requests and explicit failures for invalid mode, missing interview, or unauthorized access.
-- [ ] Keep validation and error handling isolated to AI chat route scope without changing existing provision/start/end route behavior.
+- [x] Return documented response shape for valid requests and explicit failures for invalid mode, missing interview, or unauthorized access.
+- [x] Keep validation and error handling isolated to AI chat route scope without changing existing provision/start/end route behavior.
 
 ### 4. Guardrail-focused backend tests
-- [ ] Add backend tests for auth rejection, participant-only access, mode guard behavior, and no-lifecycle-mutation behavior.
-- [ ] Add tests covering request validation and explicit failure responses for unsupported paths.
+- [x] Add backend tests for auth rejection, participant-only access, mode guard behavior, and no-lifecycle-mutation behavior.
+- [x] Add tests covering request validation and explicit failure responses for unsupported paths.
 
 ## Implementation Notes
 - This story stops at guarded backend route behavior.

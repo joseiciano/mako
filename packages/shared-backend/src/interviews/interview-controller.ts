@@ -204,7 +204,10 @@ export function registerInterviewController<Bindings extends ControllerBindings>
 
       return c.json(aiChatResponseSchema.parse(result), 200)
     } catch (error) {
-      return c.json({ error: 'Unexpected interview error.' }, 500)
+      if (isZodError(error)) {
+        return c.json({ error: 'Unexpected interview error.' }, 500)
+      }
+      return toErrorResponse(c, error)
     }
   })
 }

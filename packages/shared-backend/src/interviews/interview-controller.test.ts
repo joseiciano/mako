@@ -1194,6 +1194,13 @@ describe('InterviewController', function interviewControllerSuite() {
       session: activeSession,
       freeAiInterviews: 0,
       credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          mode: 'ai_led',
+        }),
+      ],
     })
 
     const response = await app.request(
@@ -1367,6 +1374,13 @@ describe('InterviewController', function interviewControllerSuite() {
       freeAiInterviews: 0,
       credits: 0,
       aiChatResponder: responder,
+      seedInterviews: [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          mode: 'ai_led',
+        }),
+      ],
     })
 
     const response = await app.request(
@@ -1413,6 +1427,13 @@ describe('InterviewController', function interviewControllerSuite() {
       freeAiInterviews: 0,
       credits: 0,
       aiChatResponder: responder,
+      seedInterviews: [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          mode: 'ai_led',
+        }),
+      ],
     })
 
     const response = await app.request(
@@ -1448,6 +1469,13 @@ describe('InterviewController', function interviewControllerSuite() {
       freeAiInterviews: 0,
       credits: 0,
       aiChatResponder: responder,
+      seedInterviews: [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          mode: 'ai_led',
+        }),
+      ],
     })
 
     const response = await app.request(
@@ -1469,6 +1497,101 @@ describe('InterviewController', function interviewControllerSuite() {
     expect(response.status).toBe(500)
     await expect(response.json()).resolves.toEqual({
       error: 'Unexpected interview error.',
+    })
+  })
+
+  it('returns 404 when ai-chat targets a missing interview', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      aiChatResponder: createStubAiChatResponder(),
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/ai-chat',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          message: 'Hello',
+          canvas_snapshot: { type: 'excalidraw_scene', scene: {} },
+          guidance_mode: 'review',
+        }),
+      },
+    )
+
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Interview was not found for the active participant.',
+    })
+  })
+
+  it('returns 404 when ai-chat targets a non-participant interview', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      aiChatResponder: createStubAiChatResponder(),
+      seedInterviews: [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: '99999999-9999-4999-8999-999999999999',
+          mode: 'ai_led',
+        }),
+      ],
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/ai-chat',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          message: 'Hello',
+          canvas_snapshot: { type: 'excalidraw_scene', scene: {} },
+          guidance_mode: 'review',
+        }),
+      },
+    )
+
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Interview was not found for the active participant.',
+    })
+  })
+
+  it('returns 422 when ai-chat targets a peer_to_peer interview', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      aiChatResponder: createStubAiChatResponder(),
+      seedInterviews: [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          mode: 'peer_to_peer',
+        }),
+      ],
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/ai-chat',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          message: 'Hello',
+          canvas_snapshot: { type: 'excalidraw_scene', scene: {} },
+          guidance_mode: 'review',
+        }),
+      },
+    )
+
+    expect(response.status).toBe(422)
+    await expect(response.json()).resolves.toEqual({
+      error: 'AI chat is only available for AI-led interviews.',
     })
   })
 })
