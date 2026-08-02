@@ -15,7 +15,7 @@ import {
 import { InterviewService, type InterviewServiceLogger } from './interview-service'
 import { createDemoRealtimeProvider, type RealtimeProvider } from './realtime-provider'
 import { createInMemoryTimerOrchestration, type TimerOrchestrationPort } from './timer-orchestration'
-import { AiChatRepository } from './ai-chat-repository'
+import { AiChatRepository, AiChatUnavailableError } from './ai-chat-repository'
 import type { AiChatServicePort } from './types'
 import type {
   InterviewPostCommitEvent,
@@ -2212,6 +2212,57 @@ describe('InterviewService', function interviewServiceSuite() {
     expect(responderNeverCalled.generateReply).not.toHaveBeenCalled()
   })
 
+  it('passes chat history through to the responder from aiChat', async function run() {
+    let capturedHistory: unknown
+    const stubResponder: AiChatServicePort = {
+      async generateReply(input) {
+        capturedHistory = input.chat_history
+        return {
+          reply: 'Looks good!',
+          guidance_mode: 'review',
+          prompt_version: 'test-v1',
+        }
+      },
+    }
+    const aiChatRepository = new AiChatRepository(stubResponder)
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          mode: 'ai_led',
+        }),
+      ],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      createDemoRealtimeProvider(),
+      undefined,
+      aiChatRepository,
+    )
+
+    await service.aiChat(activeSession, {
+      interview_id: '33333333-3333-4333-8333-333333333333',
+      message: 'What do you think?',
+      canvas_snapshot: { type: 'excalidraw_scene', scene: { elements: [] } },
+      guidance_mode: 'review',
+      chat_history: [
+        { role: 'user', content: 'Here is my design.' },
+        { role: 'assistant', content: 'Consider a cache layer.' },
+      ],
+    })
+
+    expect(capturedHistory).toEqual([
+      { role: 'user', content: 'Here is my design.' },
+      { role: 'assistant', content: 'Consider a cache layer.' },
+    ])
+  })
+
   it('does not mutate lifecycle fields after a successful aiChat', async function run() {
     const stubResponder: AiChatServicePort = {
       async generateReply() {
@@ -2321,7 +2372,7 @@ describe('InterviewService', function interviewServiceSuite() {
         canvas_snapshot: { type: 'excalidraw_scene', scene: {} },
         guidance_mode: 'review',
       }),
-    ).rejects.toThrow('AI chat is not configured.')
+    ).rejects.toBeInstanceOf(AiChatUnavailableError)
   })
 
   it('propagates responder errors from aiChat', async function run() {

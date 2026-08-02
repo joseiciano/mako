@@ -56,7 +56,7 @@ terraform init -reconfigure -backend-config=backend-r2.hcl
 
 ## Notes
 
-- AI Gateway currently has no first-class Terraform resource in the Cloudflare provider. This setup exposes `AI_GATEWAY_BASE_URL` binding when `ai_gateway_name` is provided.
+- AI Gateway has no first-class Terraform resource in the Cloudflare provider. When `ai_gateway_name` is set, Terraform exposes `AI_GATEWAY_BASE_URL` as a `plain_text` binding. The backend worker extracts the gateway ID from this URL at runtime and sends it via the `cf-aig-gateway-id` header on the Cloudflare REST `/accounts/{id}/ai/v1/chat/completions` endpoint for observability and routing. The responder intentionally disables cache for mutable interview context.
 - Worker scripts under `./workers` are bootstrap placeholders to establish Terraform-managed worker resources. Application deployments can later replace script content via CI/Wrangler.
 - `cloudflare_workers_script.notification_orchestrator` intentionally ignores script content/runtime binding drift so Wrangler remains the source of truth for that worker's deployed config.
 - Migration note: this stack no longer provisions a Realtime app. If you previously managed `cloudflare_calls_sfu_app.realtime` in state and want to keep that app, run `terraform state rm cloudflare_calls_sfu_app.realtime` before `terraform apply`, then set `realtime_app_id` in your tfvars.

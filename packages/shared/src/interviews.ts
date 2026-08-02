@@ -146,14 +146,32 @@ export const aiChatParamsSchema = z.object({
   id: z.string().uuid(),
 })
 
+export const aiChatMaxSceneBytes = 16 * 1024
+export const aiChatMaxHistoryMessages = 8
+export const aiChatMaxHistoryContentLength = 750
+export const aiChatMaxMessageLength = 2000
+
+export const aiChatHistoryMessageSchema = z.object({
+  role: z.enum(['user', 'assistant']),
+  content: z.string().min(1).max(aiChatMaxHistoryContentLength),
+})
+
 export const aiChatRequestSchema = z
   .object({
-    message: z.string().min(1),
+    message: z.string().min(1).max(aiChatMaxMessageLength),
     canvas_snapshot: z.object({
       type: z.literal('excalidraw_scene'),
-      scene: z.record(z.string(), jsonValueSchema),
+      scene: z
+        .record(z.string(), jsonValueSchema)
+        .refine(isSceneWithinByteLimit, {
+          message: 'canvas snapshot must serialize within the 16KiB limit',
+        }),
     }),
     guidance_mode: z.literal('review'),
+    chat_history: z
+      .array(aiChatHistoryMessageSchema)
+      .max(aiChatMaxHistoryMessages)
+      .optional(),
   })
   .strict()
 
@@ -200,6 +218,16 @@ export type ProvisionInterviewResponse = z.infer<typeof provisionInterviewRespon
 export type AiChatParams = z.infer<typeof aiChatParamsSchema>
 export type AiChatRequest = z.infer<typeof aiChatRequestSchema>
 export type AiChatResponse = z.infer<typeof aiChatResponseSchema>
+export type AiChatHistoryMessage = z.infer<typeof aiChatHistoryMessageSchema>
+
+function isSceneWithinByteLimit(scene: Record<string, unknown>): boolean {
+  const serialized = JSON.stringify(scene)
+  if (serialized === undefined) {
+    return true
+  }
+
+  return new TextEncoder().encode(serialized).length <= aiChatMaxSceneBytes
+}
 
 function queryIntegerParameterSchema<TSchema extends z.ZodType<number>>(
   schema: TSchema,

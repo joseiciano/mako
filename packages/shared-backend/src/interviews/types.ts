@@ -13,6 +13,7 @@ import {
   interviewTypeSchema,
   maxInterviewListLimit,
   provisionInterviewResponseSchema,
+  type AiChatHistoryMessage,
   type AiChatRequest,
   type AiChatResponse,
   type CancelInterviewResponse,
@@ -193,6 +194,7 @@ export type AiChatServiceInput = {
   message: AiChatRequest['message']
   canvas_snapshot: AiChatRequest['canvas_snapshot']
   guidance_mode: AiChatRequest['guidance_mode']
+  chat_history?: AiChatHistoryMessage[]
 }
 
 export type AiChatServiceResult = AiChatResponse

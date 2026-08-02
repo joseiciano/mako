@@ -115,7 +115,8 @@ jobs:
           accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           packageManager: pnpm
           workingDirectory: apps/backend-rest
-          command: deploy --config wrangler.jsonc
+          command: deploy --config wrangler.jsonc --keep-vars
+          # --keep-vars retains Terraform-provisioned vars (e.g. AI_GATEWAY_BASE_URL) that are not declared in wrangler.jsonc.
           # Runtime Cloudflare token is used by backend-rest for RealtimeKit calls; keep scope limited to required RealtimeKit/meeting operations.
           secrets: |
             BETTER_AUTH_SECRET

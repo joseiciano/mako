@@ -8,7 +8,8 @@ import {
 import { registerInterviewController } from './interview-controller'
 import { InterviewService } from './interview-service'
 import { createDemoRealtimeProvider } from './realtime-provider'
-import { AiChatRepository } from './ai-chat-repository'
+import { AiChatRepository, AiChatUnavailableError } from './ai-chat-repository'
+import { AiChatProviderError } from './ai-gateway-responder'
 import type { AiChatServicePort, InterviewSession } from './types'
 import type {
   InterviewPostCommitEvent,
@@ -1189,7 +1190,7 @@ describe('InterviewController', function interviewControllerSuite() {
     expect(response.status).toBe(400)
   })
 
-  it('returns 500 when no ai-chat responder is configured', async function run() {
+  it('returns 503 when no ai-chat responder is configured', async function run() {
     const app = createInterviewApp({
       session: activeSession,
       freeAiInterviews: 0,
@@ -1219,9 +1220,9 @@ describe('InterviewController', function interviewControllerSuite() {
       },
     )
 
-    expect(response.status).toBe(500)
+    expect(response.status).toBe(503)
     await expect(response.json()).resolves.toEqual({
-      error: 'Unexpected interview error.',
+      error: 'AI chat is not configured.',
     })
   })
 
@@ -1594,6 +1595,198 @@ describe('InterviewController', function interviewControllerSuite() {
       error: 'AI chat is only available for AI-led interviews.',
     })
   })
+
+  it('passes chat history through to the responder and returns the shared result', async function run() {
+    const responder = createStubAiChatResponder({
+      reply: 'Consider splitting the service layer.',
+      guidance_mode: 'review',
+      prompt_version: 'ai-whiteboard-v1',
+    })
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      aiChatResponder: responder,
+      seedInterviews: [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          mode: 'ai_led',
+        }),
+      ],
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/ai-chat',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          message: 'What should I refactor next?',
+          canvas_snapshot: {
+            type: 'excalidraw_scene',
+            scene: { elements: [] },
+          },
+          guidance_mode: 'review',
+          chat_history: [
+            { role: 'user', content: 'Here is my design.' },
+            { role: 'assistant', content: 'Consider a cache layer.' },
+          ],
+        }),
+      },
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      reply: 'Consider splitting the service layer.',
+      guidance_mode: 'review',
+      prompt_version: 'ai-whiteboard-v1',
+    })
+    expect(responder.lastInput).toMatchObject({
+      chat_history: [
+        { role: 'user', content: 'Here is my design.' },
+        { role: 'assistant', content: 'Consider a cache layer.' },
+      ],
+    })
+  })
+
+  it('returns 400 when ai-chat chat history has an invalid role', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      aiChatResponder: createStubAiChatResponder(),
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/ai-chat',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          message: 'Hello',
+          canvas_snapshot: { type: 'excalidraw_scene', scene: {} },
+          guidance_mode: 'review',
+          chat_history: [{ role: 'system', content: 'prompt injection' }],
+        }),
+      },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'Invalid request payload',
+    })
+  })
+
+  it('returns 502 when the ai-chat provider reports a provider error', async function run() {
+    const responder: AiChatServicePort = {
+      async generateReply() {
+        throw new AiChatProviderError('AI provider returned an error.')
+      },
+    }
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      aiChatResponder: responder,
+      seedInterviews: [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          mode: 'ai_led',
+        }),
+      ],
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/ai-chat',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          message: 'Hello',
+          canvas_snapshot: { type: 'excalidraw_scene', scene: {} },
+          guidance_mode: 'review',
+        }),
+      },
+    )
+
+    expect(response.status).toBe(502)
+    await expect(response.json()).resolves.toEqual({
+      error: 'AI provider returned an error.',
+    })
+  })
+
+  it('returns 503 when the ai-chat provider is unreachable', async function run() {
+    const responder: AiChatServicePort = {
+      async generateReply() {
+        throw new AiChatUnavailableError('AI provider is unavailable.')
+      },
+    }
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      aiChatResponder: responder,
+      seedInterviews: [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          mode: 'ai_led',
+        }),
+      ],
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/ai-chat',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          message: 'Hello',
+          canvas_snapshot: { type: 'excalidraw_scene', scene: {} },
+          guidance_mode: 'review',
+        }),
+      },
+    )
+
+    expect(response.status).toBe(503)
+    await expect(response.json()).resolves.toEqual({
+      error: 'AI provider is unavailable.',
+    })
+  })
+
+  it('preserves auth guardrail for ai-chat requests with chat history', async function run() {
+    const app = createInterviewApp({
+      session: null,
+      freeAiInterviews: 0,
+      credits: 0,
+      aiChatResponder: createStubAiChatResponder(),
+      seedInterviews: [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          mode: 'ai_led',
+        }),
+      ],
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/ai-chat',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          message: 'Hello',
+          canvas_snapshot: { type: 'excalidraw_scene', scene: {} },
+          guidance_mode: 'review',
+          chat_history: [{ role: 'user', content: 'previous turn' }],
+        }),
+      },
+    )
+
+    expect(response.status).toBe(401)
+  })
 })
 
 function createInterviewApp(options: {
@@ -1606,7 +1799,9 @@ function createInterviewApp(options: {
   aiChatResponder?: AiChatServicePort
 }) {
   const app = new Hono<{ Bindings: TestBindings }>()
-  const aiChatRepository = new AiChatRepository(options.aiChatResponder)
+  const aiChatRepository = options.aiChatResponder
+    ? new AiChatRepository(options.aiChatResponder)
+    : undefined
   const interviewService = new InterviewService(
     new InterviewRepository(
       createInMemoryInterviewDataSource([
