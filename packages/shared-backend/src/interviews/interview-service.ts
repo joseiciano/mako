@@ -480,7 +480,28 @@ export class InterviewService {
       guidance_mode: AiChatRequest['guidance_mode']
     },
   ): Promise<AiChatResponse> {
-    this.requireSession(session)
+    const userSession = this.requireSession(session)
+
+    const participantUserId = authenticatedInterviewUserIdSchema.parse(
+      userSession.userId,
+    )
+
+    const interview = await this.interviewRepository.getParticipantInterviewById({
+      interview_id: input.interview_id,
+      participant_user_id: participantUserId,
+    })
+
+    if (!interview) {
+      throw new InterviewNotFoundError(
+        'Interview was not found for the active participant.',
+      )
+    }
+
+    if (interview.mode !== 'ai_led') {
+      throw new InterviewBusinessRuleError(
+        'AI chat is only available for AI-led interviews.',
+      )
+    }
 
     if (!this.aiChatRepository) {
       throw new Error('AI chat is not configured.')

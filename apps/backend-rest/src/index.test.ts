@@ -562,8 +562,14 @@ describe('backend-rest smoke tests', function () {
   it('returns 500 for ai-chat when no responder is configured in demo mode', async function () {
     const app = createApp()
 
+    const createResponse = await createInterview(app)
+    expect(createResponse.status).toBe(201)
+    const createdInterview = (await createResponse.json()) as {
+      interview: { id: string }
+    }
+
     const response = await app.request(
-      '/api/interviews/33333333-3333-4333-8333-333333333333/ai-chat',
+      `/api/interviews/${createdInterview.interview.id}/ai-chat`,
       {
         method: 'POST',
         headers: { 'content-type': 'application/json' },

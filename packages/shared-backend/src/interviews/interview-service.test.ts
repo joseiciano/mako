@@ -1,5 +1,5 @@
 import type { Interview } from '@mako/shared'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   InterviewRepository,
   createInMemoryInterviewDataSource,
@@ -2074,7 +2074,13 @@ describe('InterviewService', function interviewServiceSuite() {
     const { service } = createInterviewService(
       { freeAiInterviews: 0, credits: 0 },
       undefined,
-      [],
+      [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          mode: 'ai_led',
+        }),
+      ],
       undefined,
       undefined,
       undefined,
@@ -2102,6 +2108,161 @@ describe('InterviewService', function interviewServiceSuite() {
       prompt_version: 'test-v1',
     })
     expect(repositoryCallCount).toBe(1)
+  })
+
+  it('rejects aiChat when the interview is not found for the participant', async function run() {
+    const responderNeverCalled = { generateReply: vi.fn() }
+    const aiChatRepository = new AiChatRepository(responderNeverCalled)
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      createDemoRealtimeProvider(),
+      undefined,
+      aiChatRepository,
+    )
+
+    await expect(
+      service.aiChat(activeSession, {
+        interview_id: '33333333-3333-4333-8333-333333333333',
+        message: 'Hello',
+        canvas_snapshot: { type: 'excalidraw_scene', scene: {} },
+        guidance_mode: 'review',
+      }),
+    ).rejects.toBeInstanceOf(InterviewNotFoundError)
+
+    expect(responderNeverCalled.generateReply).not.toHaveBeenCalled()
+  })
+
+  it('rejects aiChat when the participant is not on the interview', async function run() {
+    const responderNeverCalled = { generateReply: vi.fn() }
+    const aiChatRepository = new AiChatRepository(responderNeverCalled)
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: '99999999-9999-4999-8999-999999999999',
+          mode: 'ai_led',
+        }),
+      ],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      createDemoRealtimeProvider(),
+      undefined,
+      aiChatRepository,
+    )
+
+    await expect(
+      service.aiChat(activeSession, {
+        interview_id: '33333333-3333-4333-8333-333333333333',
+        message: 'Hello',
+        canvas_snapshot: { type: 'excalidraw_scene', scene: {} },
+        guidance_mode: 'review',
+      }),
+    ).rejects.toBeInstanceOf(InterviewNotFoundError)
+
+    expect(responderNeverCalled.generateReply).not.toHaveBeenCalled()
+  })
+
+  it('rejects aiChat when the interview mode is peer_to_peer', async function run() {
+    const responderNeverCalled = { generateReply: vi.fn() }
+    const aiChatRepository = new AiChatRepository(responderNeverCalled)
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          mode: 'peer_to_peer',
+        }),
+      ],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      createDemoRealtimeProvider(),
+      undefined,
+      aiChatRepository,
+    )
+
+    await expect(
+      service.aiChat(activeSession, {
+        interview_id: '33333333-3333-4333-8333-333333333333',
+        message: 'Hello',
+        canvas_snapshot: { type: 'excalidraw_scene', scene: {} },
+        guidance_mode: 'review',
+      }),
+    ).rejects.toBeInstanceOf(InterviewBusinessRuleError)
+
+    expect(responderNeverCalled.generateReply).not.toHaveBeenCalled()
+  })
+
+  it('does not mutate lifecycle fields after a successful aiChat', async function run() {
+    const stubResponder: AiChatServicePort = {
+      async generateReply() {
+        return {
+          reply: 'Looks good!',
+          guidance_mode: 'review',
+          prompt_version: 'test-v1',
+        }
+      },
+    }
+    const aiChatRepository = new AiChatRepository(stubResponder)
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const { service, repository } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          mode: 'ai_led',
+          status: 'ongoing',
+          started_at: '2026-04-13T10:00:00.000Z',
+          expires_at: '2026-04-13T11:00:00.000Z',
+          warning_at: '2026-04-13T10:55:00.000Z',
+        }),
+      ],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      createDemoRealtimeProvider(),
+      undefined,
+      aiChatRepository,
+    )
+
+    await service.aiChat(activeSession, {
+      interview_id: interviewId,
+      message: 'What do you think?',
+      canvas_snapshot: { type: 'excalidraw_scene', scene: { elements: [] } },
+      guidance_mode: 'review',
+    })
+
+    const after = await repository.getInterviewById(interviewId)
+    expect(after).toMatchObject({
+      status: 'ongoing',
+      started_at: '2026-04-13T10:00:00.000Z',
+      expires_at: '2026-04-13T11:00:00.000Z',
+      warning_at: '2026-04-13T10:55:00.000Z',
+    })
   })
 
   it('rejects aiChat when session is null', async function run() {
@@ -2141,10 +2302,17 @@ describe('InterviewService', function interviewServiceSuite() {
   })
 
   it('throws when aiChatRepository is not configured', async function run() {
-    const { service } = createInterviewService({
-      freeAiInterviews: 0,
-      credits: 0,
-    })
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          mode: 'ai_led',
+        }),
+      ],
+    )
 
     await expect(
       service.aiChat(activeSession, {
@@ -2166,7 +2334,13 @@ describe('InterviewService', function interviewServiceSuite() {
     const { service } = createInterviewService(
       { freeAiInterviews: 0, credits: 0 },
       undefined,
-      [],
+      [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          mode: 'ai_led',
+        }),
+      ],
       undefined,
       undefined,
       undefined,
