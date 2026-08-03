@@ -122,19 +122,11 @@ describe('billing-dumb rendering', function billingDumbSuite() {
     expect(screen.queryByText(/refunds/i)).not.toBeInTheDocument()
   })
 
-  it('does not render Stripe Elements or purchase controls', function run() {
+  it('does not render Stripe Elements or purchase controls when no packages', function run() {
     render(
       <BillingDumb
         state="populated"
-        account={{
-          id: 'u1',
-          email: 'a@b.com',
-          displayName: 'User',
-          credits: 10,
-          freeStandardInterviews: 1,
-          freeAiInterviews: 1,
-          createdAt: '2026-01-01T00:00:00.000Z',
-        }}
+        account={accountFixture()}
       />,
     )
 
@@ -142,4 +134,190 @@ describe('billing-dumb rendering', function billingDumbSuite() {
     expect(screen.queryByRole('button', { name: /purchase/i })).not.toBeInTheDocument()
     expect(screen.queryByRole('button', { name: /buy/i })).not.toBeInTheDocument()
   })
+
+  it('renders packages loading state without blocking balance summary', function run() {
+    render(
+      <BillingDumb
+        state="populated"
+        account={accountFixture()}
+        packagesLoading={true}
+      />,
+    )
+
+    expect(screen.getByText('Credits')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Loading credit packages...')
+  })
+
+  it('renders package error state with retry for packages only', function run() {
+    const onRetryPackages = vi.fn()
+    render(
+      <BillingDumb
+        state="populated"
+        account={accountFixture()}
+        packagesError="Payments are unavailable"
+        onRetryPackages={onRetryPackages}
+        isRetryingPackages={false}
+      />,
+    )
+
+    expect(screen.getByText('Credits')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('Payments are unavailable')
+    const retryButton = screen.getByRole('button', { name: /retry packages/i })
+    expect(retryButton).toBeInTheDocument()
+    expect(retryButton).not.toBeDisabled()
+  })
+
+  it('renders each package with amount and credits', function run() {
+    render(
+      <BillingDumb
+        state="populated"
+        account={accountFixture()}
+        packages={packagesFixture()}
+      />,
+    )
+
+    expect(screen.getByText('5 Credits')).toBeInTheDocument()
+    expect(screen.getByText('$25.00')).toBeInTheDocument()
+    expect(screen.getByText('10 Credits')).toBeInTheDocument()
+    expect(screen.getByText('$45.00')).toBeInTheDocument()
+  })
+
+  it('selects a package via single-select radio semantics', function run() {
+    const onSelectPackage = vi.fn()
+    render(
+      <BillingDumb
+        state="populated"
+        account={accountFixture()}
+        packages={packagesFixture()}
+        onSelectPackage={onSelectPackage}
+      />,
+    )
+
+    const firstRadio = screen.getByRole('radio', { name: /select 5 credits/i })
+    firstRadio.click()
+
+    expect(onSelectPackage).toHaveBeenCalledWith('credits_5')
+  })
+
+  it('disables purchase until a package is selected', function run() {
+    const onPurchase = vi.fn()
+    render(
+      <BillingDumb
+        state="populated"
+        account={accountFixture()}
+        packages={packagesFixture()}
+        onPurchase={onPurchase}
+      />,
+    )
+
+    const purchaseButton = screen.getByRole('button', { name: /start purchase/i })
+    expect(purchaseButton).toBeDisabled()
+
+    purchaseButton.click()
+    expect(onPurchase).not.toHaveBeenCalled()
+  })
+
+  it('shows selected state and enables purchase when a package is selected', function run() {
+    const onPurchase = vi.fn()
+    render(
+      <BillingDumb
+        state="populated"
+        account={accountFixture()}
+        packages={packagesFixture()}
+        selectedPackageId="credits_10"
+        onPurchase={onPurchase}
+        onSelectPackage={vi.fn()}
+      />,
+    )
+
+    const selectedRadio = screen.getByRole('radio', { name: /select 10 credits/i })
+    expect(selectedRadio).toBeChecked()
+
+    const purchaseButton = screen.getByRole('button', { name: /start purchase/i })
+    expect(purchaseButton).not.toBeDisabled()
+
+    purchaseButton.click()
+    expect(onPurchase).toHaveBeenCalled()
+  })
+
+  it('disables purchase while create-intent is in flight', function run() {
+    const onPurchase = vi.fn()
+    render(
+      <BillingDumb
+        state="populated"
+        account={accountFixture()}
+        packages={packagesFixture()}
+        selectedPackageId="credits_5"
+        isPurchasing={true}
+        onPurchase={onPurchase}
+      />,
+    )
+
+    const purchaseButton = screen.getByRole('button', { name: /starting purchase/i })
+    expect(purchaseButton).toBeDisabled()
+
+    purchaseButton.click()
+    expect(onPurchase).not.toHaveBeenCalled()
+  })
+
+  it('surfaces purchase error messaging', function run() {
+    render(
+      <BillingDumb
+        state="populated"
+        account={accountFixture()}
+        packages={packagesFixture()}
+        selectedPackageId="credits_5"
+        purchaseError="Unable to start your purchase."
+        onPurchase={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Unable to start your purchase.')
+  })
+
+  it('reports successful payment intent creation', function run() {
+    render(
+      <BillingDumb
+        state="populated"
+        account={accountFixture()}
+        packages={packagesFixture()}
+        selectedPackageId="credits_5"
+        purchaseResult="pi_secret"
+        onPurchase={vi.fn()}
+      />,
+    )
+
+    expect(
+      screen.getByText(/payment intent created/i),
+    ).toBeInTheDocument()
+  })
 })
+
+function accountFixture() {
+  return {
+    id: 'u1',
+    email: 'a@b.com',
+    displayName: 'User',
+    credits: 10,
+    freeStandardInterviews: 1,
+    freeAiInterviews: 1,
+    createdAt: '2026-01-01T00:00:00.000Z',
+  }
+}
+
+function packagesFixture() {
+  return [
+    {
+      package_id: 'credits_5',
+      display_name: '5 Credits',
+      amount_cents: 2500,
+      credits_granted: 5,
+    },
+    {
+      package_id: 'credits_10',
+      display_name: '10 Credits',
+      amount_cents: 4500,
+      credits_granted: 10,
+    },
+  ]
+}
