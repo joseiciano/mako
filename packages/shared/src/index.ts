@@ -39,9 +39,14 @@ export {
 export type { AccountProfile, UpdateAccountProfileInput } from './account'
 
 export {
+  aiChatHistoryMessageSchema,
   aiChatParamsSchema,
   aiChatRequestSchema,
   aiChatResponseSchema,
+  aiChatMaxHistoryContentLength,
+  aiChatMaxHistoryMessages,
+  aiChatMaxMessageLength,
+  aiChatMaxSceneBytes,
   cancelInterviewParamsSchema,
   cancelInterviewResponseSchema,
   createInterviewRequestSchema,
@@ -67,6 +72,7 @@ export {
   startInterviewParamsSchema,
 } from './interviews'
 export type {
+  AiChatHistoryMessage,
   AiChatParams,
   AiChatRequest,
   AiChatResponse,

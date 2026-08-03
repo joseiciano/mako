@@ -3,6 +3,11 @@ export {
   AiChatUnavailableError,
 } from './ai-chat-repository'
 export {
+  AI_CHAT_PROMPT_VERSION,
+  AiChatProviderError,
+  createAiGatewayResponder,
+} from './ai-gateway-responder'
+export {
   createDemoRealtimeProvider,
   createRealtimeKitProvider,
   type CreateParticipantTokenInput,

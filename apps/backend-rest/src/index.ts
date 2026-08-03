@@ -20,6 +20,7 @@ import {
   type InterviewServiceLogger,
   PaymentService,
   backendRuntime,
+  createAiGatewayResponder,
   createInMemoryAvailabilityDataSource,
   createAuthSessionMiddleware,
   createBetterAuth,
@@ -47,6 +48,7 @@ import {
   type AccountProfileRecord,
   type AccountRepositoryDataSource,
   type AvailabilityRepositoryDataSource,
+  type AiChatServicePort,
   type CreateInterviewRecordInput,
   type InterviewRepositoryDataSource,
   type LifecycleInterviewRecordInput,
@@ -80,6 +82,7 @@ export type WorkerBindings = {
   CLOUDFLARE_ACCOUNT_ID?: string
   CLOUDFLARE_API_TOKEN?: string
   CLOUDFLARE_REALTIMEKIT_APP_ID?: string
+  AI_GATEWAY_BASE_URL?: string
   SESSION_TIMER_WORKFLOW?: Workflow
   STRIPE_SECRET_KEY?: string
   STRIPE_WEBHOOK_SECRET?: string
@@ -240,7 +243,7 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
         notificationTransport,
         realtimeProvider,
         timerOrchestration,
-        new AiChatRepository(),
+        new AiChatRepository(createWorkerAiChatResponder(context.bindings)),
       )
     },
     resolveSession: function resolveSession(context) {
@@ -302,6 +305,25 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
 const app = createApp()
 
 export default app
+
+function createWorkerAiChatResponder(bindings: WorkerBindings): AiChatServicePort {
+  return createAiGatewayResponder({
+    accountId: bindings.CLOUDFLARE_ACCOUNT_ID,
+    apiToken: bindings.CLOUDFLARE_API_TOKEN,
+    gatewayId: extractAiGatewayId(bindings.AI_GATEWAY_BASE_URL),
+    fetch: globalThis.fetch,
+  })
+}
+
+function extractAiGatewayId(baseUrl: string | undefined): string | undefined {
+  if (!baseUrl) {
+    return undefined
+  }
+
+  const trimmed = baseUrl.endsWith('/') ? baseUrl.slice(0, -1) : baseUrl
+  const segments = trimmed.split('/')
+  return segments[segments.length - 1]
+}
 
 function createWorkerRealtimeProvider(bindings: WorkerBindings): RealtimeProvider {
   if (!hasDatabaseAccess(bindings)) {

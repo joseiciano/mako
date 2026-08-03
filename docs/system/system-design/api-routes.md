@@ -295,7 +295,11 @@
         "type": "excalidraw_scene",
         "scene": {}
       },
-      "guidance_mode": "review"
+      "guidance_mode": "review",
+      "chat_history": [
+        { "role": "user", "content": "previous question" },
+        { "role": "assistant", "content": "previous answer" }
+      ]
     }
     ```
   - **Response Body**:
@@ -306,11 +310,20 @@
       "prompt_version": "ai-whiteboard-v1"
     }
     ```
-  - **Behavior Rules**:
-    - Route is only valid for `mode = 'ai_led'` interviews.
-    - Route is participant-only.
-    - Canvas input should be Excalidraw JSON (or server-side normalized derivative). Mermaid is optional downstream output, not required request input.
-    - Clients should send snapshots on explicit review actions and/or debounced intervals (not per-stroke).
+  - **Error Responses**:
+    - `400 Bad Request` — invalid request body or route parameter (schema validation failure).
+    - `401 Unauthorized` — unauthenticated request.
+    - `404 Not Found` — interview not found or participant not on the interview.
+    - `422 Unprocessable Entity` — valid request but interview mode is `peer_to_peer` (AI chat only for `ai_led`).
+    - `502 Bad Gateway` — upstream AI provider returned an error (non-OK HTTP status, malformed JSON, or empty reply). The response body contains `{ "error": "<detail>" }`.
+    - `503 Service Unavailable` — AI chat is not configured or upstream provider is unreachable (missing credentials, network failure, or timeout). The response body contains `{ "error": "<detail>" }`.
+   - **Behavior Rules**:
+     - Route is only valid for `mode = 'ai_led'` interviews.
+     - Route is participant-only.
+     - Canvas input must be Excalidraw JSON (`type: "excalidraw_scene"`). The schema enforces the Excalidraw literal type; Mermaid is optional downstream output, not required request input.
+     - `chat_history` is optional; when provided it is bounded to 8 messages and inserted between the system prompt and user message. Each history `content` is bounded to 750 characters and the current `message` is bounded to 2000 characters.
+     - Clients should send snapshots on explicit review actions and/or debounced intervals (not per-stroke).
+      - AI requests bypass cache (`cf-aig-skip-cache: true`) because the canvas snapshot context is mutable.
   - **Query Params**: None
 
 - **`GET /api/interviews/:id`**

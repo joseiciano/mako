@@ -101,7 +101,7 @@ variable "greedy_matcher_cron" {
 }
 
 variable "ai_gateway_name" {
-  description = "Optional Cloudflare AI Gateway name used to construct an API base URL binding."
+  description = "Optional Cloudflare AI Gateway name. When set, the responder routes through the AI Gateway for observability and routing."
   type        = string
   default     = ""
 }

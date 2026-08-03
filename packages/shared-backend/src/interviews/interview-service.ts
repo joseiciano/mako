@@ -1,5 +1,6 @@
 import {
   aiChatResponseSchema,
+  type AiChatHistoryMessage,
   type AiChatRequest,
   type AiChatResponse,
   type CancelInterviewParams,
@@ -17,7 +18,7 @@ import {
   type StartInterviewParams,
 } from '@mako/shared'
 import { buildInterviewAliases } from '../interview'
-import { AiChatRepository } from './ai-chat-repository'
+import { AiChatRepository, AiChatUnavailableError } from './ai-chat-repository'
 import { InterviewRepository } from './interview-repository'
 import {
   buildInterviewCancelledEvent,
@@ -478,6 +479,7 @@ export class InterviewService {
       message: AiChatRequest['message']
       canvas_snapshot: AiChatRequest['canvas_snapshot']
       guidance_mode: AiChatRequest['guidance_mode']
+      chat_history?: AiChatHistoryMessage[]
     },
   ): Promise<AiChatResponse> {
     const userSession = this.requireSession(session)
@@ -504,7 +506,7 @@ export class InterviewService {
     }
 
     if (!this.aiChatRepository) {
-      throw new Error('AI chat is not configured.')
+      throw new AiChatUnavailableError()
     }
 
     const result = await this.aiChatRepository.generateReply({
@@ -513,6 +515,7 @@ export class InterviewService {
       message: input.message,
       canvas_snapshot: input.canvas_snapshot,
       guidance_mode: input.guidance_mode,
+      chat_history: input.chat_history,
     })
 
     return aiChatResponseSchema.parse(result)

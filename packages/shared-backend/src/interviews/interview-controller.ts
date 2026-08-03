@@ -16,6 +16,8 @@ import {
   startInterviewParamsSchema,
 } from '@mako/shared'
 import type { Context, Hono } from 'hono'
+import { AiChatUnavailableError } from './ai-chat-repository'
+import { AiChatProviderError } from './ai-gateway-responder'
 import { InterviewService } from './interview-service'
 import {
   InterviewBusinessRuleError,
@@ -200,6 +202,7 @@ export function registerInterviewController<Bindings extends ControllerBindings>
         message: parsedBody.message,
         canvas_snapshot: parsedBody.canvas_snapshot,
         guidance_mode: parsedBody.guidance_mode,
+        chat_history: parsedBody.chat_history,
       })
 
       return c.json(aiChatResponseSchema.parse(result), 200)
@@ -207,6 +210,15 @@ export function registerInterviewController<Bindings extends ControllerBindings>
       if (isZodError(error)) {
         return c.json({ error: 'Unexpected interview error.' }, 500)
       }
+
+      if (error instanceof AiChatProviderError) {
+        return c.json({ error: error.message }, 502)
+      }
+
+      if (error instanceof AiChatUnavailableError) {
+        return c.json({ error: error.message }, 503)
+      }
+
       return toErrorResponse(c, error)
     }
   })

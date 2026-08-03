@@ -559,7 +559,7 @@ describe('backend-rest smoke tests', function () {
     expect(body.interviews[0]).not.toHaveProperty('feedback')
   })
 
-  it('returns 500 for ai-chat when no responder is configured in demo mode', async function () {
+  it('returns 503 for ai-chat when no responder is configured in demo mode', async function () {
     const app = createApp()
 
     const createResponse = await createInterview(app)
@@ -582,11 +582,12 @@ describe('backend-rest smoke tests', function () {
           guidance_mode: 'review',
         }),
       },
+      {},
     )
 
-    expect(response.status).toBe(500)
+    expect(response.status).toBe(503)
     await expect(response.json()).resolves.toEqual({
-      error: 'Unexpected interview error.',
+      error: 'AI chat is not configured.',
     })
   })
 
