@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 6: Monetization & Credit System
 **Description**: Add credit package selection to `/billing` and initiate Stripe Payment Intents through the backend payments API.
-**Status**: Todo
+**Status**: Done
 **Prerequisites**:
 - `docs/product/stories/stories/milestone-6-monetization-credit-system/6-5-billing-route-shell-and-balance-summary.md`
 - `docs/product/stories/stories/milestone-6-monetization-credit-system/6-6-stripe-integration.md`

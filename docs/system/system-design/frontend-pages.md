@@ -7,8 +7,9 @@
     - **Data**: `GET /api/account`, `GET /api/interviews?status=scheduled`
 - **Interviews History (`/interviews`)**: A comprehensive list of all past and upcoming sessions.
     - **Data**: `GET /api/interviews`
-- **Billing & Credits (`/billing`)**: Balance summary from `GET /api/account`; credit purchase and payment intent integration planned for later stories.
-    - **Data**: `GET /api/account`
+- **Billing & Credits (`/billing`)**: Balance summary from `GET /api/account`; credit package selection from `GET /api/payments/packages` with single-package selection, and `POST /api/payments/create-intent` to initiate a Stripe Payment Intent (returns a client secret). Checkout/payment confirmation is handled in a later story.
+    - **Data**: `GET /api/account`, `GET /api/payments/packages`, `POST /api/payments/create-intent`
+    - **Scope Note**: Payment amounts are never derived client-side; the backend package config is authoritative. Selected package and transient create-intent state are local to the billing smart component.
 - **Settings & Profile (`/settings`)**: Manage profile, employment history, and interviewer verification.
     - **Data**: `GET /api/account`, `PATCH /api/account`, `GET /api/interviewer/status`, `GET /api/companies`
 
