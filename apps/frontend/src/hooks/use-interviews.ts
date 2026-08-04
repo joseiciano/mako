@@ -1,4 +1,7 @@
 import type {
+  AiChatParams,
+  AiChatRequest,
+  AiChatResponse,
   CancelInterviewParams,
   CancelInterviewResponse,
   CreateInterviewRequest,
@@ -13,6 +16,9 @@ import type {
   StartInterviewParams,
 } from '@mako/shared'
 import {
+  aiChatParamsSchema,
+  aiChatRequestSchema,
+  aiChatResponseSchema,
   cancelInterviewParamsSchema,
   cancelInterviewResponseSchema,
   createInterviewRequestSchema,
@@ -183,6 +189,18 @@ export function useEndInterview(): UseMutationResult<
     },
     onSuccess: async function onEndSuccess() {
       await invalidateInterviewSurfaces(queryClient)
+    },
+  })
+}
+
+export function useAIChat(): UseMutationResult<
+  AiChatResponse,
+  Error,
+  SubmitAiChatParams
+> {
+  return useMutation({
+    mutationFn: function submitAiChatMutation(params) {
+      return submitAiChat(params)
     },
   })
 }
@@ -371,4 +389,39 @@ export async function endInterview(
   }
 
   return interviewLifecycleResponseSchema.parse(payload)
+}
+
+export type SubmitAiChatParams = AiChatParams & AiChatRequest
+
+export async function submitAiChat(
+  params: SubmitAiChatParams,
+  fetchImpl: typeof fetch = fetch,
+): Promise<AiChatResponse> {
+  const parsedParams = aiChatParamsSchema.parse({ id: params.id })
+  const parsedBody = aiChatRequestSchema.parse({
+    message: params.message,
+    canvas_snapshot: params.canvas_snapshot,
+    guidance_mode: params.guidance_mode,
+    chat_history: params.chat_history,
+  })
+
+  const response = await fetchImpl(
+    createApiUrl(`/api/interviews/${parsedParams.id}/ai-chat`),
+    createApiRequestInit({
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...demoSessionHeaders,
+      },
+      body: JSON.stringify(parsedBody),
+    }),
+  )
+
+  const payload = await parseResponse(response)
+
+  if (!response.ok) {
+    throw new Error(readErrorMessage(payload, 'Unable to submit AI chat message.'))
+  }
+
+  return aiChatResponseSchema.parse(payload)
 }
