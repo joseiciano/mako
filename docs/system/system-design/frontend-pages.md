@@ -31,6 +31,7 @@
       - `peer_to_peer` sessions share one room/key pair across both participants.
       - `ai_led` sessions use a single-user room/key pair plus chat guidance.
       - AI chat guidance uses Excalidraw JSON snapshots as source-of-truth input; Mermaid is optional derived output for reporting/export.
+      - **AI Coach Chat**: The AI-led (but not peer-to-peer) session renders an `AIChatSmart` panel that submits each user turn with the current Excalidraw canvas snapshot to `POST /api/interviews/:id/ai-chat`. The panel captures the canvas scene on-demand at submit time (not per-stroke), renders loading/success/failure states, and supports retry without a full session reload. Implemented via `apps/frontend/src/components/interviews/ai-chat/` and wired in `session-dumb.tsx` gated on `mode === 'ai_led'` through Story 4.4.
       - Lifecycle/timer UI must consume backend-backed interview status and workflow-backed timer state rather than local-only inferred countdown state.
       - `Start Session` / `End Session` controls are participant-scoped lifecycle actions, not whiteboard provisioning actions.
       - Session timer/start/end controls are owned by the dedicated lifecycle stories and routes, not by whiteboard provisioning or the details consumer rollout.
