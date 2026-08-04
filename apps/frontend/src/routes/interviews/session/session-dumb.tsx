@@ -1,3 +1,4 @@
+import { lazy, Suspense } from 'react'
 import type { InterviewDetail } from '@mako/shared'
 import { WhiteboardSmart } from '#/components/interviews/whiteboard'
 import type {
@@ -18,6 +19,11 @@ import {
 import type { LifecycleControls, SessionTimerState } from './session-lifecycle'
 
 const JOINABLE_STATUSES = new Set(['scheduled', 'ongoing'])
+
+const AIChatSmart = lazy(async function loadAIChatSmart() {
+  const module = await import('#/components/interviews/ai-chat')
+  return { default: module.AIChatSmart }
+})
 
 export type SessionDumbProps = {
   interview: InterviewDetail | null
@@ -147,6 +153,15 @@ function renderContent(props: SessionDumbProps) {
           onRetryJoin={props.onRetryWhiteboard}
           provisionedWhiteboardHandle={props.whiteboardProvisionHandle}
         />
+
+        {props.interview?.mode === 'ai_led' ? (
+          <Suspense fallback={null}>
+            <AIChatSmart
+              interviewId={props.interview.id}
+              whiteboardProvisionHandle={props.whiteboardProvisionHandle}
+            />
+          </Suspense>
+        ) : null}
       </div>
     )
   }

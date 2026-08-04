@@ -21,6 +21,14 @@ vi.mock('#/components/interviews/media', function () {
   }
 })
 
+vi.mock('#/components/interviews/ai-chat', function () {
+  return {
+    AIChatSmart: vi.fn(function MockAIChatSmart() {
+      return <div data-testid="ai-chat-smart-mock" />
+    }),
+  }
+})
+
 function makeProps(overrides?: Partial<SessionDumbProps>): SessionDumbProps {
   return {
     interview: null,
@@ -176,6 +184,32 @@ describe('SessionDumb', function () {
       />,
     )
     expect(screen.getByTestId('media-smart-mock')).toBeInTheDocument()
+  })
+
+  it('renders AI chat panel when provisioned for ai_led interview', function () {
+    render(
+      <SessionDumb
+        {...makeProps({
+          interview: makeInterview({ mode: 'ai_led' }),
+          status: 'provisioned',
+          whiteboardProvisionHandle: 'whiteboard-handle-1',
+        })}
+      />,
+    )
+    expect(screen.getByTestId('ai-chat-smart-mock')).toBeInTheDocument()
+  })
+
+  it('does not render AI chat panel when provisioned for peer_to_peer interview', function () {
+    render(
+      <SessionDumb
+        {...makeProps({
+          interview: makeInterview({ mode: 'peer_to_peer' }),
+          status: 'provisioned',
+          whiteboardProvisionHandle: 'whiteboard-handle-1',
+        })}
+      />,
+    )
+    expect(screen.queryByTestId('ai-chat-smart-mock')).not.toBeInTheDocument()
   })
 
   it('shows media error message when provisioned media fails', function () {

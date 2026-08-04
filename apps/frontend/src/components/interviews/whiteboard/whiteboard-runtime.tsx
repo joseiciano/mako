@@ -1,9 +1,11 @@
 import { Component, Suspense, lazy, useEffect } from 'react'
 import type { ComponentType, ReactNode } from 'react'
+import type { WhiteboardSceneApi } from './whiteboard-scene-store'
 import type { WhiteboardRuntimeProps } from './whiteboard-types'
 
 type ExcalidrawComponentProps = {
   isCollaborating?: boolean
+  excalidrawAPI?: (api: WhiteboardSceneApi) => void
 }
 
 const LazyExcalidraw = lazy(async function loadExcalidraw() {
@@ -59,15 +61,22 @@ function RuntimeFallback() {
 function ConnectedOnMount({
   onConnected,
   isCollaborating,
+  onSceneApiReady,
 }: {
   onConnected: () => void
   isCollaborating: boolean
+  onSceneApiReady: (api: WhiteboardSceneApi) => void
 }) {
   useEffect(function signalConnected() {
     onConnected()
   }, [onConnected])
 
-  return <LazyExcalidraw isCollaborating={isCollaborating} />
+  return (
+    <LazyExcalidraw
+      excalidrawAPI={onSceneApiReady}
+      isCollaborating={isCollaborating}
+    />
+  )
 }
 
 export function WhiteboardRuntime({
@@ -75,6 +84,7 @@ export function WhiteboardRuntime({
   onConnected,
   onReconnecting,
   onFailed,
+  onSceneApiReady,
 }: WhiteboardRuntimeProps) {
   useEffect(
     function bindNetworkRecoveryEvents() {
@@ -108,7 +118,11 @@ export function WhiteboardRuntime({
     <div className="h-[28rem] min-h-[28rem] w-full" data-testid="whiteboard-runtime">
       <ExcalidrawErrorBoundary onFailed={onFailed}>
         <Suspense fallback={<RuntimeFallback />}>
-          <ConnectedOnMount onConnected={onConnected} isCollaborating={collaborationEnabled} />
+          <ConnectedOnMount
+            isCollaborating={collaborationEnabled}
+            onConnected={onConnected}
+            onSceneApiReady={onSceneApiReady}
+          />
         </Suspense>
       </ExcalidrawErrorBoundary>
     </div>

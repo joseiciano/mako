@@ -14,6 +14,7 @@ import {
   provisionInterview,
   startInterview,
   interviewDetailQueryOptions,
+  submitAiChat,
 } from './use-interviews'
 import { readHeader } from './test-utils/read-header'
 
@@ -787,5 +788,142 @@ describe('use-interviews data layer', function useInterviewsSuite() {
         },
       ),
     ).rejects.toThrow('Unable to end interview session.')
+  })
+
+  it('submits an AI chat message via POST', async function run() {
+    vi.stubEnv(
+      'VITE_AUTH_BASE_URL',
+      'https://api.test.local/api/auth',
+    )
+
+    const result = await submitAiChat(
+      {
+        id: '11111111-1111-4111-8111-111111111111',
+        message: 'Review my design',
+        canvas_snapshot: { type: 'excalidraw_scene', scene: { elements: [] } },
+        guidance_mode: 'review',
+      },
+      async function mockFetch(input, init) {
+        expect(input).toBe(
+          'https://api.test.local/api/interviews/11111111-1111-4111-8111-111111111111/ai-chat',
+        )
+        expect(init?.method).toBe('POST')
+        expect(init?.credentials).toBe('include')
+        expect(readHeader(init?.headers, 'content-type')).toBe(
+          'application/json',
+        )
+
+        const body = JSON.parse((init?.body as string) ?? '{}')
+        expect(body).toEqual({
+          message: 'Review my design',
+          canvas_snapshot: { type: 'excalidraw_scene', scene: { elements: [] } },
+          guidance_mode: 'review',
+        })
+
+        return new Response(
+          JSON.stringify({
+            reply: 'Consider a cache.',
+            guidance_mode: 'review',
+            prompt_version: 'ai-whiteboard-v1',
+          }),
+          {
+            status: 200,
+            headers: { 'content-type': 'application/json' },
+          },
+        )
+      },
+    )
+
+    expect(result.reply).toBe('Consider a cache.')
+    expect(result.guidance_mode).toBe('review')
+    expect(result.prompt_version).toBe('ai-whiteboard-v1')
+  })
+
+  it('includes chat_history in the AI chat body when provided', async function run() {
+    await submitAiChat(
+      {
+        id: '11111111-1111-4111-8111-111111111111',
+        message: 'Follow up',
+        canvas_snapshot: { type: 'excalidraw_scene', scene: {} },
+        guidance_mode: 'review',
+        chat_history: [
+          { role: 'user', content: 'prev q' },
+          { role: 'assistant', content: 'prev a' },
+        ],
+      },
+      async function mockFetch(_input, init) {
+        const body = JSON.parse((init?.body as string) ?? '{}')
+        expect(body.chat_history).toEqual([
+          { role: 'user', content: 'prev q' },
+          { role: 'assistant', content: 'prev a' },
+        ])
+        return new Response(
+          JSON.stringify({
+            reply: 'ok',
+            guidance_mode: 'review',
+            prompt_version: 'ai-whiteboard-v1',
+          }),
+          { status: 200 },
+        )
+      },
+    )
+  })
+
+  it('surfaces backend error message for failed AI chat requests', async function run() {
+    await expect(
+      submitAiChat(
+        {
+          id: '11111111-1111-4111-8111-111111111111',
+          message: 'hi',
+          canvas_snapshot: { type: 'excalidraw_scene', scene: {} },
+          guidance_mode: 'review',
+        },
+        async function mockFetch() {
+          return new Response(
+            JSON.stringify({ error: 'AI chat is not configured.' }),
+            {
+              status: 503,
+              headers: { 'content-type': 'application/json' },
+            },
+          )
+        },
+      ),
+    ).rejects.toThrow('AI chat is not configured.')
+  })
+
+  it('falls back to a stable error message when AI chat payload omits error field', async function run() {
+    await expect(
+      submitAiChat(
+        {
+          id: '11111111-1111-4111-8111-111111111111',
+          message: 'hi',
+          canvas_snapshot: { type: 'excalidraw_scene', scene: {} },
+          guidance_mode: 'review',
+        },
+        async function mockFetch() {
+          return new Response(JSON.stringify({ message: 'Server error' }), {
+            status: 500,
+            headers: { 'content-type': 'application/json' },
+          })
+        },
+      ),
+    ).rejects.toThrow('Unable to submit AI chat message.')
+  })
+
+  it('rejects AI chat submissions when id is not a uuid', async function run() {
+    const fetchSpy = vi.fn()
+
+    await expect(
+      submitAiChat(
+        {
+          id: 'not-a-uuid',
+          message: 'hi',
+          canvas_snapshot: { type: 'excalidraw_scene', scene: {} },
+          guidance_mode: 'review',
+        },
+        fetchSpy,
+      ),
+    ).rejects.toThrow()
+    expect(fetchSpy).not.toHaveBeenCalled()
   })
 })

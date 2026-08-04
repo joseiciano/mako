@@ -6,6 +6,12 @@ export {
   createWhiteboardProvisionHandle,
   getWhiteboardProvisionConfig,
 } from './whiteboard-provision-store'
+export {
+  clearAllWhiteboardSceneApis,
+  getWhiteboardSceneSnapshot,
+  registerWhiteboardSceneApi,
+  unregisterWhiteboardSceneApi,
+} from './whiteboard-scene-store'
 export type {
   ProvisionedWhiteboardConfig,
   WhiteboardCollaborationConfig,
@@ -15,3 +21,4 @@ export type {
   WhiteboardRuntimeProps,
   WhiteboardSmartProps,
 } from './whiteboard-types'
+export type { WhiteboardSceneSnapshot } from './whiteboard-scene-store'

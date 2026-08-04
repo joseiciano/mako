@@ -1,8 +1,10 @@
 import type { ComponentType, ReactNode } from 'react'
 import type { ProvisionInterviewResponse } from '@mako/shared'
+import type { WhiteboardSceneApi } from './whiteboard-scene-store'
+import type { WhiteboardProvisionHandle } from './whiteboard-shared-types'
 
 export type ProvisionedWhiteboardConfig = ProvisionInterviewResponse
-export type WhiteboardProvisionHandle = string
+export type { WhiteboardProvisionHandle } from './whiteboard-shared-types'
 
 export type WhiteboardConnectionStatus =
   | 'idle'
@@ -25,6 +27,7 @@ export type WhiteboardRuntimeProps = {
   onConnected: () => void
   onReconnecting: () => void
   onFailed: (message: string) => void
+  onSceneApiReady: (api: WhiteboardSceneApi) => void
 }
 
 export type WhiteboardRuntimeComponent = ComponentType<WhiteboardRuntimeProps>

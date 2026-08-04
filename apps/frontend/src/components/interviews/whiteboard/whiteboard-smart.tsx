@@ -3,6 +3,11 @@ import { mapProvisionToWhiteboardConfig } from './whiteboard-config'
 import { WhiteboardDumb } from './whiteboard-dumb'
 import { WhiteboardRuntime } from './whiteboard-runtime'
 import { getWhiteboardProvisionConfig } from './whiteboard-provision-store'
+import {
+  registerWhiteboardSceneApi,
+  unregisterWhiteboardSceneApi,
+} from './whiteboard-scene-store'
+import type { WhiteboardSceneApi } from './whiteboard-scene-store'
 import type { WhiteboardSmartProps } from './whiteboard-types'
 
 export function WhiteboardSmart({
@@ -32,6 +37,23 @@ export function WhiteboardSmart({
     [hasCollaborationConfig, connectionStatus, onConnecting],
   )
 
+  useEffect(
+    function sceneApiLifecycle() {
+      if (!hasCollaborationConfig) return
+      return function cleanup() {
+        unregisterWhiteboardSceneApi(provisionedWhiteboardHandle)
+      }
+    },
+    [hasCollaborationConfig, provisionedWhiteboardHandle],
+  )
+
+  const handleSceneApiReady = useCallback(
+    function handleSceneApiReady(api: WhiteboardSceneApi) {
+      registerWhiteboardSceneApi(provisionedWhiteboardHandle, api)
+    },
+    [provisionedWhiteboardHandle],
+  )
+
   const handleFailed = useCallback(
     function handleFailed() {
       onFailed('Whiteboard sync could not recover. Retry the session connection.')
@@ -46,10 +68,11 @@ export function WhiteboardSmart({
           onConnected={onConnected}
           onFailed={handleFailed}
           onReconnecting={onReconnecting}
+          onSceneApiReady={handleSceneApiReady}
         />
       )
     },
-    [RuntimeComponent, onConnected, onReconnecting, handleFailed],
+    [RuntimeComponent, onConnected, onReconnecting, handleFailed, handleSceneApiReady],
   )
 
   if (!hasCollaborationConfig) {

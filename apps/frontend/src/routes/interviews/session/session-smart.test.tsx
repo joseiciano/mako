@@ -10,6 +10,7 @@ vi.mock('#/hooks/use-interviews', function () {
     useProvisionInterview: vi.fn(),
     useStartInterview: vi.fn(),
     useEndInterview: vi.fn(),
+    useAIChat: vi.fn(),
   }
 })
 
@@ -56,6 +57,7 @@ import {
   useProvisionInterview,
   useStartInterview,
   useEndInterview,
+  useAIChat,
 } from '#/hooks/use-interviews'
 import { useNavigate } from '@tanstack/react-router'
 import { WhiteboardSmart } from '#/components/interviews/whiteboard'
@@ -121,6 +123,31 @@ const mockNavigate = vi.fn()
 const mockMutate = vi.fn()
 const mockStartMutate = vi.fn()
 const mockEndMutate = vi.fn()
+const mockAiChatMutate = vi.fn()
+
+function mockUseAIChat(
+  overrides: Partial<ReturnType<typeof useAIChat>>,
+): ReturnType<typeof useAIChat> {
+  return {
+    context: undefined,
+    data: undefined,
+    error: null,
+    failureCount: 0,
+    failureReason: null,
+    isError: false,
+    isIdle: true,
+    isPaused: false,
+    isPending: false,
+    isSuccess: false,
+    mutate: vi.fn(),
+    mutateAsync: vi.fn(),
+    reset: vi.fn(),
+    status: 'idle',
+    submittedAt: 0,
+    variables: undefined,
+    ...overrides,
+  } as unknown as ReturnType<typeof useAIChat>
+}
 
 function mockUseStartInterview(
   overrides: Partial<ReturnType<typeof useStartInterview>>,
@@ -183,6 +210,10 @@ beforeEach(function () {
   }))
   vi.mocked(useEndInterview).mockReturnValue(mockUseEndInterview({
     mutate: mockEndMutate,
+    isPending: false,
+  }))
+  vi.mocked(useAIChat).mockReturnValue(mockUseAIChat({
+    mutate: mockAiChatMutate,
     isPending: false,
   }))
 })
