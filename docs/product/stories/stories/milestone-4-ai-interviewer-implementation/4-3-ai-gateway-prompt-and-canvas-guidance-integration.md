@@ -34,7 +34,7 @@
 ## Implementation Notes
 - Scope is runtime AI guidance only.
 - Voice input/output, transcript generation, and post-interview feedback analysis remain out of scope.
-- Prompt version constant: `AI_CHAT_PROMPT_VERSION = 'ai-whiteboard-v1'` in `packages/shared-backend/src/interviews/ai-gateway-responder.ts`.
+- Prompt version constant: `AI_CHAT_PROMPT_VERSION` is defined in `packages/shared-backend/src/interviews/ai-chat-prompt.ts` (value `system-design-review-v1` as of Story 4.6) and re-exported by `packages/shared-backend/src/interviews/ai-gateway-responder.ts`. In Story 4.3 it was originally `ai-whiteboard-v1` in `ai-gateway-responder.ts`.
 - Canvas snapshot input is enforced as `excalidraw_scene` literal type in the shared schema (`packages/shared/src/interviews.ts`).
 - Snapshot cadence is documented in `docs/system/system-design/api-routes.md`: clients send snapshots on explicit review actions and/or debounced intervals, not per-stroke.
 - AI Gateway responder uses `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` bindings; optional `gatewayId` is sent via the `cf-aig-gateway-id` header on the Cloudflare REST `/accounts/{id}/ai/v1/chat/completions` endpoint, with a direct Workers AI call (no header) when not configured. See `docs/infrastructure/backend.md`.
