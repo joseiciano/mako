@@ -19,6 +19,7 @@ import {
 } from '@mako/shared'
 import { buildInterviewAliases } from '../interview'
 import { AiChatRepository, AiChatUnavailableError } from './ai-chat-repository'
+import { AiChatProviderError } from './ai-gateway-responder'
 import { InterviewRepository } from './interview-repository'
 import {
   buildInterviewCancelledEvent,
@@ -509,16 +510,40 @@ export class InterviewService {
       throw new AiChatUnavailableError()
     }
 
-    const result = await this.aiChatRepository.generateReply({
+    this.logSafely('info', 'ai_chat_requested', {
       interview_id: input.interview_id,
-      session,
-      message: input.message,
-      canvas_snapshot: input.canvas_snapshot,
+      participant_user_id: participantUserId,
       guidance_mode: input.guidance_mode,
-      chat_history: input.chat_history,
     })
 
-    return aiChatResponseSchema.parse(result)
+    try {
+      const result = await this.aiChatRepository.generateReply({
+        interview_id: input.interview_id,
+        session,
+        message: input.message,
+        canvas_snapshot: input.canvas_snapshot,
+        guidance_mode: input.guidance_mode,
+        chat_history: input.chat_history,
+      })
+
+      const parsedResult = aiChatResponseSchema.parse(result)
+
+      this.logSafely('info', 'ai_chat_succeeded', {
+        interview_id: input.interview_id,
+        participant_user_id: participantUserId,
+        guidance_mode: parsedResult.guidance_mode,
+        prompt_version: parsedResult.prompt_version,
+      })
+
+      return parsedResult
+    } catch (error) {
+      this.logSafely('error', 'ai_chat_failed', {
+        interview_id: input.interview_id,
+        participant_user_id: participantUserId,
+        error_type: toAiChatErrorType(error),
+      })
+      throw error
+    }
   }
 
   private async createAiLedInterview(input: {
@@ -698,6 +723,18 @@ function toErrorMessage(error: unknown): string {
   }
 
   return String(error)
+}
+
+function toAiChatErrorType(error: unknown): string {
+  if (error instanceof AiChatProviderError) {
+    return 'provider_error'
+  }
+
+  if (error instanceof AiChatUnavailableError) {
+    return 'unavailable'
+  }
+
+  return 'unexpected_error'
 }
 
 const SESSION_DURATION_MS = 60 * 60 * 1000

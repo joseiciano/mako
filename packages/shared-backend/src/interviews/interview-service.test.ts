@@ -16,6 +16,7 @@ import { InterviewService, type InterviewServiceLogger } from './interview-servi
 import { createDemoRealtimeProvider, type RealtimeProvider } from './realtime-provider'
 import { createInMemoryTimerOrchestration, type TimerOrchestrationPort } from './timer-orchestration'
 import { AiChatRepository, AiChatUnavailableError } from './ai-chat-repository'
+import { AiChatProviderError } from './ai-gateway-responder'
 import type { AiChatServicePort } from './types'
 import type {
   InterviewPostCommitEvent,
@@ -2411,6 +2412,175 @@ describe('InterviewService', function interviewServiceSuite() {
         guidance_mode: 'review',
       }),
     ).rejects.toThrow('AI provider timeout')
+  })
+
+  it('logs ai_chat_requested and ai_chat_succeeded with safe context on success', async function run() {
+    const loggedInfo: Array<{ event: string; context: Record<string, unknown> }> = []
+    const stubResponder: AiChatServicePort = {
+      async generateReply() {
+        return {
+          reply: 'Looks good!',
+          guidance_mode: 'review',
+          prompt_version: 'ai-whiteboard-v1',
+        }
+      },
+    }
+    const aiChatRepository = new AiChatRepository(stubResponder)
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          mode: 'ai_led',
+          excalidraw_key: 'wb-secret-key',
+        }),
+      ],
+      undefined,
+      {
+        info(_event, context) {
+          loggedInfo.push({ event: _event, context })
+        },
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      createDemoRealtimeProvider(),
+      undefined,
+      aiChatRepository,
+    )
+
+    const result = await service.aiChat(activeSession, {
+      interview_id: '33333333-3333-4333-8333-333333333333',
+      message: 'What do you think?',
+      canvas_snapshot: { type: 'excalidraw_scene', scene: { elements: [] } },
+      guidance_mode: 'review',
+    })
+
+    expect(result.prompt_version).toBe('ai-whiteboard-v1')
+    expect(loggedInfo.map((entry) => entry.event)).toEqual([
+      'ai_chat_requested',
+      'ai_chat_succeeded',
+    ])
+    expect(loggedInfo[0].context).toMatchObject({
+      interview_id: '33333333-3333-4333-8333-333333333333',
+      participant_user_id: activeSession.userId,
+      guidance_mode: 'review',
+    })
+    expect(loggedInfo[1].context).toMatchObject({
+      interview_id: '33333333-3333-4333-8333-333333333333',
+      participant_user_id: activeSession.userId,
+      guidance_mode: 'review',
+      prompt_version: 'ai-whiteboard-v1',
+    })
+
+    // Telemetry must never leak message content, canvas snapshots, or whiteboard keys.
+    expect(JSON.stringify(loggedInfo)).not.toContain('What do you think?')
+    expect(JSON.stringify(loggedInfo)).not.toContain('wb-secret-key')
+    expect(loggedInfo[0].context).not.toHaveProperty('message')
+    expect(loggedInfo[0].context).not.toHaveProperty('canvas_snapshot')
+    expect(loggedInfo[0].context).not.toHaveProperty('chat_history')
+  })
+
+  it('logs ai_chat_failed with a safe error_type and no raw provider detail', async function run() {
+    const loggedErrors: Array<{ event: string; context: Record<string, unknown> }> = []
+    const stubResponder: AiChatServicePort = {
+      async generateReply() {
+        throw new AiChatProviderError('AI provider returned an error (500).')
+      },
+    }
+    const aiChatRepository = new AiChatRepository(stubResponder)
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          mode: 'ai_led',
+          excalidraw_key: 'wb-secret-key',
+        }),
+      ],
+      undefined,
+      {
+        error(_event, context) {
+          loggedErrors.push({ event: _event, context })
+        },
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      createDemoRealtimeProvider(),
+      undefined,
+      aiChatRepository,
+    )
+
+    await expect(
+      service.aiChat(activeSession, {
+        interview_id: '33333333-3333-4333-8333-333333333333',
+        message: 'What do you think?',
+        canvas_snapshot: { type: 'excalidraw_scene', scene: { elements: [] } },
+        guidance_mode: 'review',
+      }),
+    ).rejects.toBeInstanceOf(AiChatProviderError)
+
+    expect(loggedErrors).toHaveLength(1)
+    expect(loggedErrors[0].event).toBe('ai_chat_failed')
+    expect(loggedErrors[0].context).toMatchObject({
+      interview_id: '33333333-3333-4333-8333-333333333333',
+      participant_user_id: activeSession.userId,
+      error_type: 'provider_error',
+    })
+    expect(JSON.stringify(loggedErrors)).not.toContain('wb-secret-key')
+    expect(loggedErrors[0].context).not.toHaveProperty('error_message')
+  })
+
+  it('classifies an unavailable repository error as error_type unavailable', async function run() {
+    const loggedErrors: Array<{ event: string; context: Record<string, unknown> }> = []
+    const stubResponder: AiChatServicePort = {
+      async generateReply() {
+        throw new AiChatUnavailableError('AI provider is unreachable.')
+      },
+    }
+    const aiChatRepository = new AiChatRepository(stubResponder)
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          mode: 'ai_led',
+        }),
+      ],
+      undefined,
+      {
+        error(_event, context) {
+          loggedErrors.push({ event: _event, context })
+        },
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      createDemoRealtimeProvider(),
+      undefined,
+      aiChatRepository,
+    )
+
+    await expect(
+      service.aiChat(activeSession, {
+        interview_id: '33333333-3333-4333-8333-333333333333',
+        message: 'Hello',
+        canvas_snapshot: { type: 'excalidraw_scene', scene: {} },
+        guidance_mode: 'review',
+      }),
+    ).rejects.toBeInstanceOf(AiChatUnavailableError)
+
+    expect(loggedErrors[0].context).toMatchObject({ error_type: 'unavailable' })
   })
 })
 

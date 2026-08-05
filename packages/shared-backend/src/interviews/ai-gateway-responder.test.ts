@@ -279,6 +279,28 @@ describe('createAiGatewayResponder', function aiGatewayResponderSuite() {
     )
   })
 
+  it('does not echo raw upstream response content in the provider error message', async function run() {
+    const sensitiveUpstreamBody = {
+      errors: [{ message: 'credential leaked: secret-token-123' }],
+    }
+    const { fetchImpl } = createFetchStub(500, sensitiveUpstreamBody)
+
+    const responder = createAiGatewayResponder({
+      accountId: 'acct-1',
+      apiToken: 'tok-1',
+      fetch: fetchImpl,
+    })
+
+    const error = await responder.generateReply(BASE_INPUT).catch((caught) => caught)
+
+    expect(error).toBeInstanceOf(AiChatProviderError)
+    expect(String((error as Error).message)).not.toContain('secret-token-123')
+    expect(String((error as Error).message)).not.toContain('credential leaked')
+    expect(String((error as Error).message)).toBe(
+      'AI provider returned an error (500).',
+    )
+  })
+
   it('throws AiChatProviderError when the response is malformed JSON', async function run() {
     const fetchImpl: typeof fetch = (async () =>
       new Response('<html>not json</html>', {
