@@ -24,6 +24,7 @@ import {
   type InterviewLifecycleResponse,
   type InterviewListItem,
   type InterviewListResponse,
+  type InterviewType,
   type ProvisionInterviewResponse,
 } from '@mako/shared'
 import { z } from 'zod'
@@ -195,6 +196,7 @@ export type AiChatServiceInput = {
   canvas_snapshot: AiChatRequest['canvas_snapshot']
   guidance_mode: AiChatRequest['guidance_mode']
   chat_history?: AiChatHistoryMessage[]
+  interview_type: InterviewType
 }
 
 export type AiChatServiceResult = AiChatResponse

@@ -524,6 +524,7 @@ export class InterviewService {
         canvas_snapshot: input.canvas_snapshot,
         guidance_mode: input.guidance_mode,
         chat_history: input.chat_history,
+        interview_type: interview.type,
       })
 
       const parsedResult = aiChatResponseSchema.parse(result)

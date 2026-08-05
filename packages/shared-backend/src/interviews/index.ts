@@ -3,10 +3,18 @@ export {
   AiChatUnavailableError,
 } from './ai-chat-repository'
 export {
-  AI_CHAT_PROMPT_VERSION,
   AiChatProviderError,
   createAiGatewayResponder,
 } from './ai-gateway-responder'
+export {
+  AI_CHAT_PROMPT_VERSION,
+  buildAiChatMessages,
+  buildSystemDesignSystemPrompt,
+  buildSystemPrompt,
+  buildUnsupportedTypeSystemPrompt,
+  type AiChatPromptInput,
+  type AiChatPromptMessage,
+} from './ai-chat-prompt'
 export {
   createDemoRealtimeProvider,
   createRealtimeKitProvider,

@@ -307,7 +307,7 @@
     {
       "reply": "You're missing a cache invalidation strategy between services A and B.",
       "guidance_mode": "review",
-      "prompt_version": "ai-whiteboard-v1"
+      "prompt_version": "system-design-review-v1"
     }
     ```
   - **Error Responses**:
@@ -321,8 +321,11 @@
      - Route is only valid for `mode = 'ai_led'` interviews.
      - Route is participant-only.
      - Canvas input must be Excalidraw JSON (`type: "excalidraw_scene"`). The schema enforces the Excalidraw literal type; Mermaid is optional downstream output, not required request input.
-     - `chat_history` is optional; when provided it is bounded to 8 messages and inserted between the system prompt and user message. Each history `content` is bounded to 750 characters and the current `message` is bounded to 2000 characters.
-     - Clients should send snapshots on explicit review actions and/or debounced intervals (not per-stroke).
+      - `chat_history` is optional; when provided it is bounded to 8 messages and inserted between the system prompt and user message. Each history `content` is bounded to 750 characters and the current `message` is bounded to 2000 characters.
+      - `prompt_version` identifies the active backend-owned prompt definition. As of Story 4.6 the version is `system-design-review-v1` (system-design interviewer guidance). The version is defined in `packages/shared-backend/src/interviews/ai-chat-prompt.ts` and is derived from the retrieved interview's `type`.
+      - Prompt behavior: for `system_design` interviews the system prompt instructs runtime interviewer guidance (not grading/report generation), a review-oriented style (clarifying questions, gap detection, tradeoff probing, next-step hints), grounding only on the supplied snapshot/context, explicit acknowledgement of uncertain or missing context, and a prohibition on controlling session lifecycle/timers or claiming canvas edits. Guidance is succinct and candidate-facing.
+      - Forward compatibility: `coding` and `behavioral` interview types receive a safe unsupported-type fallback prompt that states specialized guidance is not available yet and does not pretend a system-design prompt applies.
+      - Clients should send snapshots on explicit review actions and/or debounced intervals (not per-stroke).
       - AI requests bypass cache (`cf-aig-skip-cache: true`) because the canvas snapshot context is mutable.
   - **Query Params**: None
 
