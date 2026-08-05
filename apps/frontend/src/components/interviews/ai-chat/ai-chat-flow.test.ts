@@ -3,7 +3,9 @@ import type { AIChatMessage } from './ai-chat-types'
 import {
   aiChatPanelReducer,
   buildChatHistory,
+  hasReachedRetryLimit,
   initialAIChatPanelState,
+  MAX_AI_CHAT_RETRIES,
 } from './ai-chat-flow'
 
 describe('ai-chat-flow reducer', function () {
@@ -14,6 +16,7 @@ describe('ai-chat-flow reducer', function () {
       submitState: 'idle',
       errorMessage: null,
       lastFailedMessageContent: null,
+      retryCount: 0,
     })
   })
 
@@ -156,6 +159,34 @@ describe('ai-chat-flow reducer', function () {
     expect(state.messages).toHaveLength(0)
   })
 
+  it('resets retry count on a fresh submit', function () {
+    let state = initialAIChatPanelState
+    for (let attempt = 0; attempt < MAX_AI_CHAT_RETRIES; attempt += 1) {
+      state = aiChatPanelReducer(state, { type: 'RETRY_STARTED' })
+    }
+    expect(state.retryCount).toBe(MAX_AI_CHAT_RETRIES)
+
+    state = aiChatPanelReducer(state, { type: 'SUBMIT_STARTED', payload: 'new message' })
+    expect(state.retryCount).toBe(0)
+  })
+
+  it('increments retry count on each RETRY_STARTED and bounds it at the retry limit', function () {
+    let state = initialAIChatPanelState
+    for (let attempt = 0; attempt < MAX_AI_CHAT_RETRIES; attempt += 1) {
+      state = aiChatPanelReducer(state, { type: 'RETRY_STARTED' })
+    }
+    expect(state.retryCount).toBe(MAX_AI_CHAT_RETRIES)
+    expect(hasReachedRetryLimit(state)).toBe(true)
+  })
+
+  it('does not reach the retry limit below the allowed number of retries', function () {
+    let state = initialAIChatPanelState
+    for (let attempt = 0; attempt < MAX_AI_CHAT_RETRIES - 1; attempt += 1) {
+      state = aiChatPanelReducer(state, { type: 'RETRY_STARTED' })
+    }
+    expect(state.retryCount).toBe(MAX_AI_CHAT_RETRIES - 1)
+    expect(hasReachedRetryLimit(state)).toBe(false)
+  })
 })
 
 describe('buildChatHistory', function () {

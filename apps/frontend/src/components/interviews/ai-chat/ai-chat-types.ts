@@ -16,6 +16,7 @@ export type AIChatDumbProps = {
   errorMessage: string | null
   disabled: boolean
   canRetry: boolean
+  retryLimitReached: boolean
   onInputChange: (value: string) => void
   onSubmit: () => void
   onRetry: () => void

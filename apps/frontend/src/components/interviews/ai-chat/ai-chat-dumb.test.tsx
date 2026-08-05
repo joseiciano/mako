@@ -16,6 +16,7 @@ function makeProps(overrides?: Partial<AIChatDumbProps>): AIChatDumbProps {
     errorMessage: null,
     disabled: false,
     canRetry: false,
+    retryLimitReached: false,
     onInputChange: vi.fn(),
     onSubmit: vi.fn(),
     onRetry: vi.fn(),

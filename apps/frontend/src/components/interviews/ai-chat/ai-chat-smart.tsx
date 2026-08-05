@@ -8,6 +8,7 @@ import { AIChatDumb } from './ai-chat-dumb'
 import {
   aiChatPanelReducer,
   buildChatHistory,
+  hasReachedRetryLimit,
   initialAIChatPanelState,
 } from './ai-chat-flow'
 
@@ -98,7 +99,13 @@ export function AIChatSmart({
   }
 
   function handleRetry() {
-    if (state.submitState === 'sending' || !state.lastFailedMessageContent) return
+    if (
+      state.submitState === 'sending' ||
+      !state.lastFailedMessageContent ||
+      hasReachedRetryLimit(state)
+    ) {
+      return
+    }
 
     const snapshot = getWhiteboardSceneSnapshot(whiteboardProvisionHandle)
     if (!snapshot) {
@@ -122,7 +129,9 @@ export function AIChatSmart({
   }
 
   const dumbProps: AIChatDumbProps = {
-    canRetry: state.lastFailedMessageContent !== null,
+    canRetry:
+      state.lastFailedMessageContent !== null && !hasReachedRetryLimit(state),
+    retryLimitReached: hasReachedRetryLimit(state) && state.lastFailedMessageContent !== null,
     disabled: state.submitState === 'sending',
     errorMessage: state.errorMessage,
     inputValue: state.inputValue,

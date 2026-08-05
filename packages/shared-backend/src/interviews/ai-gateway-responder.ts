@@ -74,9 +74,8 @@ export function createAiGatewayResponder(
       }
 
       if (!response.ok) {
-        const detail = await response.text().catch(() => 'unknown')
         throw new AiChatProviderError(
-          `AI provider returned an error (${response.status}): ${detail}`,
+          `AI provider returned an error (${response.status}).`,
         )
       }
 

@@ -61,6 +61,11 @@ export function AIChatDumb(props: AIChatDumbProps) {
           role="alert"
         >
           <p>{props.errorMessage}</p>
+          {props.retryLimitReached ? (
+            <p className="mt-1 text-xs">
+              Retry limit reached. Type a new message to try again.
+            </p>
+          ) : null}
         </div>
       ) : null}
 

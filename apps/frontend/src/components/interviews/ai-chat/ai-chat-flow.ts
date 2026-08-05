@@ -5,12 +5,15 @@ import {
 import type { AiChatHistoryMessage } from '@mako/shared'
 import type { AIChatMessage, AIChatSubmitState } from './ai-chat-types'
 
+export const MAX_AI_CHAT_RETRIES = 3
+
 export type AIChatPanelState = {
   messages: AIChatMessage[]
   inputValue: string
   submitState: AIChatSubmitState
   errorMessage: string | null
   lastFailedMessageContent: string | null
+  retryCount: number
 }
 
 export type AIChatAction =
@@ -29,6 +32,7 @@ export const initialAIChatPanelState: AIChatPanelState = {
   submitState: 'idle',
   errorMessage: null,
   lastFailedMessageContent: null,
+  retryCount: 0,
 }
 
 export function aiChatPanelReducer(
@@ -54,6 +58,7 @@ export function aiChatPanelReducer(
         submitState: 'sending',
         errorMessage: null,
         lastFailedMessageContent: null,
+        retryCount: 0,
       }
 
     case 'SUBMIT_SUCCEEDED':
@@ -89,6 +94,7 @@ export function aiChatPanelReducer(
         ...state,
         submitState: 'sending',
         errorMessage: null,
+        retryCount: state.retryCount + 1,
       }
 
     case 'RETRY_SUCCEEDED':
@@ -120,6 +126,10 @@ export function createChatMessageId(): string {
     return crypto.randomUUID()
   }
   return `ai-chat-${Date.now()}-${Math.random().toString(36).slice(2)}`
+}
+
+export function hasReachedRetryLimit(state: Pick<AIChatPanelState, 'retryCount'>): boolean {
+  return state.retryCount >= MAX_AI_CHAT_RETRIES
 }
 
 export function buildChatHistory(

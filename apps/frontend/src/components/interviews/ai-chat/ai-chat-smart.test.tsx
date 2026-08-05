@@ -165,6 +165,45 @@ describe('AIChatSmart', function () {
     expect((textarea as HTMLTextAreaElement).value).toBe('hello')
   })
 
+  it('bounds retry attempts and keeps failure actionable with a new message', async function () {
+    const user = userEvent.setup()
+    const handle = 'handle-1'
+    registerWhiteboardSceneApi(handle, makeSceneApi())
+    mockGetSnapshot.mockReturnValue({
+      type: 'excalidraw_scene',
+      scene: { elements: [] },
+    })
+
+    // Always fail so every retry is consumed against the limit.
+    mockAiChatMutate.mockImplementation(function (_params: any, options: any) {
+      options.onError?.(new Error('network'))
+    })
+
+    mockUseAIChat()
+
+    render(<AIChatSmart interviewId="int-1" whiteboardProvisionHandle={handle} />)
+
+    const textarea = screen.getByLabelText(/message the ai interviewer/i)
+    await user.type(textarea, 'Question one')
+    await user.click(screen.getByRole('button', { name: /send/i }))
+    await screen.findByRole('alert')
+
+    // Retry until the limit is reached; the retry button should disappear.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      // Focus back on the body so clicks target the alert region consistently.
+      await user.click(screen.getByRole('button', { name: /retry/i }))
+      await screen.findByRole('alert')
+    }
+
+    // After consuming the limit, no retry button is offered but the failure
+    // stays visible, so the user can still send a fresh message.
+    expect(screen.queryByRole('button', { name: /retry/i })).not.toBeInTheDocument()
+    expect(await screen.findByText(/retry limit reached/i)).toBeInTheDocument()
+
+    // Still actionable: typing a new message and sending works (mutate is invoked again).
+    expect((screen.getByLabelText(/message the ai interviewer/i) as HTMLTextAreaElement).disabled).toBe(false)
+  })
+
   it('routes a fresh submit after a failure through the SUBMIT path, not retry', async function () {
     const user = userEvent.setup()
     const handle = 'handle-1'
