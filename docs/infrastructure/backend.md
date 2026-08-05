@@ -62,7 +62,7 @@ The backend worker communicates with Cloudflare Workers AI (or Cloudflare AI Gat
 
 The gateway ID is derived from `AI_GATEWAY_BASE_URL` by the `extractAiGatewayId` helper in `apps/backend-rest/src/index.ts` and sent via the `cf-aig-gateway-id` header. When no gateway ID is configured, the responder makes the direct Workers AI call without that header.
 
-**Prompt versioning**: All AI chat responses include a `prompt_version` field (`ai-whiteboard-v1`) for auditability. The prompt version constant is defined in `packages/shared-backend/src/interviews/ai-gateway-responder.ts`.
+**Prompt versioning**: All AI chat responses include a `prompt_version` field (`system-design-review-v1` as of Story 4.6) for auditability. The prompt version constant and pure message/prompt builders live in `packages/shared-backend/src/interviews/ai-chat-prompt.ts`; the responder imports and re-exports the version so the previous export contract remains valid.
 
 **Cache behavior**: AI requests include `cf-aig-skip-cache: true` and `cf-aig-request-timeout: 30000` headers because the canvas snapshot context is mutable and must not be served from cache.
 

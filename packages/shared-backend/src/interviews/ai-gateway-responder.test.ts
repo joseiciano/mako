@@ -11,6 +11,7 @@ const BASE_INPUT: AiChatServiceInput = {
   interview_id: '33333333-3333-4333-8333-333333333333',
   session: { userId: '22222222-2222-4222-8222-222222222222', email: 'jane@example.com' },
   message: 'What should I refactor next?',
+  interview_type: 'system_design',
   canvas_snapshot: {
     type: 'excalidraw_scene',
     scene: { elements: [{ type: 'rectangle' }] },

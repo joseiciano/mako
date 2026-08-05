@@ -2111,6 +2111,56 @@ describe('InterviewService', function interviewServiceSuite() {
     expect(repositoryCallCount).toBe(1)
   })
 
+  it('passes the retrieved interview type into the repository port from aiChat', async function run() {
+    let capturedInput: Parameters<AiChatServicePort['generateReply']>[0] | null = null
+    const stubResponder: AiChatServicePort = {
+      async generateReply(input) {
+        capturedInput = input
+        return {
+          reply: 'Consider a retry queue.',
+          guidance_mode: 'review',
+          prompt_version: 'test-v1',
+        }
+      },
+    }
+    const aiChatRepository = new AiChatRepository(stubResponder)
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          mode: 'ai_led',
+          type: 'system_design',
+        }),
+      ],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      createDemoRealtimeProvider(),
+      undefined,
+      aiChatRepository,
+    )
+
+    await service.aiChat(activeSession, {
+      interview_id: '33333333-3333-4333-8333-333333333333',
+      message: 'What should I add next?',
+      canvas_snapshot: {
+        type: 'excalidraw_scene',
+        scene: { elements: [] },
+      },
+      guidance_mode: 'review',
+    })
+
+    expect(capturedInput).toMatchObject({
+      interview_type: 'system_design',
+    })
+  })
+
   it('rejects aiChat when the interview is not found for the participant', async function run() {
     const responderNeverCalled = { generateReply: vi.fn() }
     const aiChatRepository = new AiChatRepository(responderNeverCalled)

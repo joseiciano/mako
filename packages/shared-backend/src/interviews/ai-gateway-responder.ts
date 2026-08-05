@@ -1,11 +1,15 @@
 import { AiChatUnavailableError } from './ai-chat-repository'
+import {
+  AI_CHAT_PROMPT_VERSION,
+  buildAiChatMessages,
+} from './ai-chat-prompt'
 import type {
   AiChatServiceInput,
   AiChatServicePort,
   AiChatServiceResult,
 } from './types'
 
-export const AI_CHAT_PROMPT_VERSION = 'ai-whiteboard-v1'
+export { AI_CHAT_PROMPT_VERSION }
 
 export class AiChatProviderError extends Error {
   constructor(message: string) {
@@ -43,7 +47,7 @@ export function createAiGatewayResponder(
         throw new AiChatUnavailableError()
       }
 
-      const messages = buildChatMessages(input)
+      const messages = buildAiChatMessages(input)
 
       const headers: Record<string, string> = {
         Authorization: `Bearer ${apiToken}`,
@@ -91,35 +95,6 @@ export function createAiGatewayResponder(
       }
     },
   }
-}
-
-function buildChatMessages(input: AiChatServiceInput): Array<{
-  role: 'system' | 'user' | 'assistant'
-  content: string
-}> {
-  const sceneJson = JSON.stringify(input.canvas_snapshot)
-  const systemContent = [
-    `You are an AI interviewer guiding a candidate through a whiteboarding interview.`,
-    `Prompt version: ${AI_CHAT_PROMPT_VERSION}.`,
-    `The candidate is working on a shared Excalidraw canvas. Use the current canvas snapshot to ground your guidance.`,
-    `Current canvas snapshot:`,
-    sceneJson,
-  ].join('\n')
-
-  const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
-    { role: 'system', content: systemContent },
-  ]
-
-  for (const historyMessage of input.chat_history ?? []) {
-    messages.push({
-      role: historyMessage.role,
-      content: historyMessage.content,
-    })
-  }
-
-  messages.push({ role: 'user', content: input.message })
-
-  return messages
 }
 
 async function extractReply(
