@@ -22,6 +22,7 @@ export {
   transactionHistoryInputSchema,
   type CreditBalance,
   type CreditTransaction,
+  type CreditTransactionHistory,
   type CreditTransactionRow,
   type DecrementCreditsResult,
   type DeductCreditsInput,

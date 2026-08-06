@@ -1,5 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import { beforeAll, describe, expect, it } from 'vitest'
+import { creditTransactionSchema as clientCreditTransactionSchema } from '@mako/shared'
+import { creditTransactionRowSchema } from '../credit/types'
 
 describe('credit transactions schema readiness', function creditTransactionsSchemaReadinessSuite() {
   let normalizedMigrationSql: string
@@ -74,6 +76,38 @@ describe('credit transactions schema readiness', function creditTransactionsSche
 
   it('documents foreign key relationship to user table in migration SQL', async function run() {
     expect(normalizedMigrationSql).toContain('user_id UUID NOT NULL REFERENCES "user"(id)')
+  })
+
+  it('permits zero amount and zero credits_granted CreditTransaction rows end to end', async function run() {
+    // Migration CHECK constraints must explicitly allow zero-valued rows.
+    expect(normalizedMigrationSql).toContain('CHECK (amount >= 0)')
+    expect(normalizedMigrationSql).toContain('CHECK (credits_granted >= 0)')
+    expect(normalizedMigrationSql).not.toContain('CHECK (amount > 0)')
+    expect(normalizedMigrationSql).not.toContain('CHECK (credits_granted > 0)')
+
+    // Internal DB row schema maps a zero-valued row without rejection.
+    expect(
+      creditTransactionRowSchema.parse({
+        id: '11111111-1111-4111-8111-111111111111',
+        user_id: '22222222-2222-4222-8222-222222222222',
+        stripe_payment_intent_id: 'pi_zero',
+        amount: 0,
+        credits_granted: 0,
+        status: 'succeeded',
+        created_at: '2026-01-01T00:00:00.000Z',
+      }),
+    ).toMatchObject({ amount: 0, credits_granted: 0 })
+
+    // Client response schema accepts a zero-valued transaction.
+    expect(
+      clientCreditTransactionSchema.parse({
+        id: '11111111-1111-4111-8111-111111111111',
+        amount: 0,
+        credits_granted: 0,
+        status: 'succeeded',
+        created_at: '2026-01-01T00:00:00.000Z',
+      }),
+    ).toMatchObject({ amount: 0, credits_granted: 0 })
   })
 })
 

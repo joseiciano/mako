@@ -8,7 +8,7 @@ import {
   parseGrantCreditsInput,
   parseTransactionHistoryInput,
   type CreditBalance,
-  type CreditTransaction,
+  type CreditTransactionHistory,
   type DeductCreditsResult,
   type GrantCreditsInput,
   type GrantCreditsResult,
@@ -115,8 +115,12 @@ export class CreditService {
     return balance
   }
 
-  async getTransactionHistory(input: TransactionHistoryInput): Promise<CreditTransaction[]> {
-    return this.creditRepository.getTransactionHistory(parseTransactionHistoryInput(input))
+  async getTransactionHistory(input: TransactionHistoryInput): Promise<CreditTransactionHistory> {
+    const parsedInput = parseTransactionHistoryInput(input)
+    const transactions = await this.creditRepository.getTransactionHistory(parsedInput)
+    const total = await this.creditRepository.countTransactionHistory(parsedInput.userId)
+
+    return { transactions, total }
   }
 }
 

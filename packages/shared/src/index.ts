@@ -117,6 +117,18 @@ export {
   createPaymentIntentRequestSchema,
   createPaymentIntentResponseSchema,
 } from './credit-packages'
+export {
+  creditTransactionHistoryQuerySchema,
+  creditTransactionSchema,
+  creditTransactionHistoryResponseSchema,
+  defaultCreditTransactionHistoryLimit,
+  maxCreditTransactionHistoryLimit,
+} from './credit'
+export type {
+  CreditTransaction,
+  CreditTransactionHistoryQuery,
+  CreditTransactionHistoryResponse,
+} from './credit'
 export type {
   CreditPackage,
   CreditPackageListResponse,
