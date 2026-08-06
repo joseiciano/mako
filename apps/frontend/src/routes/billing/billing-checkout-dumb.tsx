@@ -91,6 +91,18 @@ export function BillingCheckoutDumb(props: BillingCheckoutDumbProps) {
         . You cannot change the package while confirming.
       </p>
 
+      {/*
+        The Payment Element is mounted here, OUTSIDE the status switch, so it
+        keeps the same React instance across status transitions. Rendering it
+        inside status-specific wrappers (form/fragment/div) would change the
+        parent element type on each transition and force a remount — and real
+        Stripe's PaymentElement only fires onReady once on mount, so a remount
+        after a failed confirm would silently break retry recovery.
+        It is only unmounted in the terminal pending-fulfillment state, where
+        payment is done and no retry can follow.
+      */}
+      {props.status !== 'pending-fulfillment' && renderPaymentElementBox(props)}
+
       {renderCheckoutBody(props, statusRegionRef)}
     </section>
   )
@@ -103,22 +115,18 @@ function renderCheckoutBody(
   switch (props.status) {
     case 'initializing':
       return (
-        <>
-          <p
-            aria-live="polite"
-            className="mt-4 rounded-md border border-slate-800 bg-slate-950/70 px-3 py-3 text-sm text-slate-300"
-            role="status"
-          >
-            Preparing secure checkout...
-          </p>
-          {renderPaymentElementBox(props)}
-        </>
+        <p
+          aria-live="polite"
+          className="mt-4 rounded-md border border-slate-800 bg-slate-950/70 px-3 py-3 text-sm text-slate-300"
+          role="status"
+        >
+          Preparing secure checkout...
+        </p>
       )
 
     case 'ready':
       return (
         <form className="mt-4 flex flex-col gap-4" onSubmit={props.onConfirm}>
-          {renderPaymentElementBox(props)}
           <div className="flex items-center gap-3">
             <button
               className="inline-flex items-center justify-center rounded-md border border-emerald-500 bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
@@ -136,16 +144,13 @@ function renderCheckoutBody(
 
     case 'confirming':
       return (
-        <>
-          <p
-            aria-live="polite"
-            className="mt-4 rounded-md border border-slate-800 bg-slate-950/70 px-3 py-3 text-sm text-slate-300"
-            role="status"
-          >
-            Confirming your payment...
-          </p>
-          {renderPaymentElementBox(props)}
-        </>
+        <p
+          aria-live="polite"
+          className="mt-4 rounded-md border border-slate-800 bg-slate-950/70 px-3 py-3 text-sm text-slate-300"
+          role="status"
+        >
+          Confirming your payment...
+        </p>
       )
 
     case 'pending-fulfillment':
@@ -171,6 +176,11 @@ function renderCheckoutBody(
       )
 
     case 'failed':
+      // The Payment Element is already mounted above (outside the switch), so
+      // the failed state only surfaces the alert + retry affordance. Keeping
+      // the element mounted lets the user fix their card details and resubmit
+      // without a remount that would re-run onReady (which real Stripe only
+      // fires once) and break retry recovery.
       return (
         <div
           ref={statusRegionRef}

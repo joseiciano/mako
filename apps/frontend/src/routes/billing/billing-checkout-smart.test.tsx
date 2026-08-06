@@ -321,6 +321,78 @@ describe('billing-checkout behavior', function billingCheckoutSuite() {
     expect(screen.getAllByTestId('payment-element')).toHaveLength(1)
   })
 
+  it('keeps the same PaymentElement instance mounted through confirm failure and retry', async function run() {
+    // Real Stripe fires onReady only once on first mount; simulate that so a
+    // remount during retry cannot silently recover via a second onReady.
+    let readyFired = false
+    const confirmPaymentMock = vi.fn(async () => ({
+      error: { message: 'Your card was declined.' },
+    }))
+    const stripe = { confirmPayment: confirmPaymentMock }
+    useStripeMock.mockReturnValue(stripe)
+    useElementsMock.mockReturnValue({})
+
+    // Track mount/cleanup lifecycle rather than DOM count after retry. A DOM
+    // count of one is satisfied both when the element stays mounted AND when it
+    // unmounts then remounts, so it cannot catch the regression.
+    const lifecycle = { mounts: 0, unmounts: 0 }
+    PaymentElementMock.mockImplementation(function MockPaymentElement(props: {
+      onReady?: () => void
+    }) {
+      React.useEffect(function notifyReadyOnce() {
+        if (!readyFired) {
+          readyFired = true
+          props.onReady?.()
+        }
+      }, [])
+      React.useLayoutEffect(function trackLifecycle() {
+        lifecycle.mounts += 1
+        return function trackCleanup() {
+          lifecycle.unmounts += 1
+        }
+      }, [])
+      return <div data-testid="payment-element">Payment Element</div>
+    })
+    getStripeLoaderMock.mockReturnValue(Promise.resolve(stripe))
+
+    render(
+      <BillingCheckout
+        clientSecret="pi_secret"
+        packageName="5 Credits"
+        packageAmountLabel="$25.00"
+        onCancel={vi.fn()}
+        onConfirmed={vi.fn()}
+      />,
+      { wrapper: createWrapper(createTestQueryClient()) },
+    )
+
+    await waitFor(function waitForReady() {
+      expect(screen.getByRole('button', { name: /confirm & pay/i })).toBeInTheDocument()
+    })
+
+    act(function clickConfirm() {
+      screen.getByRole('button', { name: /confirm & pay/i }).click()
+    })
+
+    await waitFor(function waitForFailure() {
+      expect(screen.getByText(/couldn't process your payment/i)).toBeInTheDocument()
+    })
+
+    // The Payment Element must have survived the transition to the failed
+    // state — it is never unmounted and no second instance is mounted.
+    expect(lifecycle.mounts).toBe(1)
+    expect(lifecycle.unmounts).toBe(0)
+
+    act(function clickRetry() {
+      screen.getByRole('button', { name: /try again/i }).click()
+    })
+
+    // Retry returns directly to ready; the same instance is still mounted.
+    expect(screen.getByRole('button', { name: /confirm & pay/i })).toBeInTheDocument()
+    expect(lifecycle.mounts).toBe(1)
+    expect(lifecycle.unmounts).toBe(0)
+  })
+
   it('confirms payment with a clean return_url (origin + pathname)', async function run() {
     const { stripe } = setupStripeReady()
     const originalLocation = window.location
