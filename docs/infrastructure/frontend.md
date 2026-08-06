@@ -10,3 +10,15 @@
 - **Lucide**: We use Lucide for iconography in the frontend UI.
 - **Excalidraw**: Used for the collaborative whiteboard in system design interviews.
 - **Cloudflare RealtimeKit React SDK**: Used for real-time interview audio/video communication.
+- **Stripe Elements**: Credit-card checkout on `/billing` uses `@stripe/stripe-js` and
+  `@stripe/react-stripe-js` (Stripe Payment Element). Stripe needs a publishable key at
+  runtime through the standard `VITE_*` frontend environment pattern. Configure
+  `VITE_STRIPE_PUBLISHABLE_KEY` for local development and deployment. When it is unset, the
+  checkout renders an unavailable state rather than crashing. Client-side confirmation only
+  completes the payment; credits are granted asynchronously by the backend Stripe webhook,
+  so the client never mutates balances and always invalidates/refetches the account query
+  after confirmation. Stripe setup stays in the focused `src/lib/stripe.ts` helper and the
+  billing checkout boundary (`src/routes/billing/billing-checkout-smart.tsx`) — it is never
+  placed inside package-selection or balance-display components.
+    - **Constraints**: Do not use Stripe Checkout Sessions, subscriptions, saved payment
+      methods, invoices, refunds, or admin billing controls.

@@ -1,4 +1,5 @@
 import type { AccountProfile, CreditPackage } from '@mako/shared'
+import type { ReactNode } from 'react'
 import { formatCentsToUsd } from '#/lib/format-currency'
 
 export type BillingState = 'loading' | 'error' | 'populated'
@@ -18,8 +19,9 @@ export type BillingDumbProps = {
   onSelectPackage?: (packageId: string) => void
   isPurchasing?: boolean
   purchaseError?: string
-  purchaseResult?: string
   onPurchase?: () => void
+  /** Renders the Stripe checkout once a payment intent is available. */
+  renderCheckout?: () => ReactNode
 }
 
 export function BillingDumb(props: BillingDumbProps) {
@@ -86,6 +88,7 @@ function renderBillingContent(props: BillingDumbProps) {
 
       <div className="flex flex-col gap-6">
         <CreditPackageSection {...props} />
+        {props.renderCheckout ? props.renderCheckout() : null}
 
         <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
           <h2 className="text-lg font-semibold text-white">Activity & history</h2>
@@ -145,6 +148,7 @@ function renderPackageContent(props: BillingDumbProps) {
   }
 
   const packages = props.packages ?? []
+  const checkoutActive = Boolean(props.renderCheckout)
 
   if (packages.length === 0) {
     return (
@@ -166,7 +170,9 @@ function renderPackageContent(props: BillingDumbProps) {
 
           return (
             <label
-              className={`flex cursor-pointer flex-col gap-1 rounded-lg border p-4 transition ${
+              className={`flex flex-col gap-1 rounded-lg border p-4 transition ${
+                checkoutActive ? 'cursor-default' : 'cursor-pointer'
+              } ${
                 isSelected
                   ? 'border-emerald-500 bg-emerald-950/40'
                   : 'border-slate-800 bg-slate-950/80 hover:border-slate-600'
@@ -185,6 +191,7 @@ function renderPackageContent(props: BillingDumbProps) {
                   aria-label={`Select ${pkg.display_name}`}
                   checked={isSelected}
                   className="accent-emerald-500"
+                  disabled={checkoutActive}
                   name="credit-package"
                   onChange={function handleChange(event) {
                     if (event.target.checked && props.onSelectPackage) {
@@ -194,35 +201,33 @@ function renderPackageContent(props: BillingDumbProps) {
                   type="radio"
                   value={pkg.package_id}
                 />
-                <span className="text-sm text-slate-400">Select</span>
+                <span className="text-sm text-slate-400">
+                  {checkoutActive ? 'Locked during checkout' : 'Select'}
+                </span>
               </span>
             </label>
           )
         })}
       </div>
 
-      <div className="flex flex-col gap-2">
-        <button
-          className="inline-flex w-fit items-center justify-center rounded-md border border-emerald-500 bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
-          disabled={!props.selectedPackageId || props.isPurchasing}
-          onClick={props.onPurchase}
-          type="button"
-        >
-          {props.isPurchasing ? 'Starting purchase...' : 'Start purchase'}
-        </button>
+      {!checkoutActive && (
+        <div className="flex flex-col gap-2">
+          <button
+            className="inline-flex w-fit items-center justify-center rounded-md border border-emerald-500 bg-emerald-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-emerald-500 disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!props.selectedPackageId || props.isPurchasing}
+            onClick={props.onPurchase}
+            type="button"
+          >
+            {props.isPurchasing ? 'Starting purchase...' : 'Start purchase'}
+          </button>
 
-        {props.purchaseError && (
-          <p className="text-sm text-red-300" role="alert">
-            {props.purchaseError}
-          </p>
-        )}
-
-        {props.purchaseResult && (
-          <p aria-live="polite" className="text-sm text-emerald-300" role="status">
-            Payment intent created. Checkout continues in the next step.
-          </p>
-        )}
-      </div>
+          {props.purchaseError && (
+            <p className="text-sm text-red-300" role="alert">
+              {props.purchaseError}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   )
 }

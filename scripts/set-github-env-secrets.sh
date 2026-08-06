@@ -34,7 +34,8 @@ while true; do
   echo "9) VITE_AUTH_BASE_URL"
   echo "10) CLOUDFLARE_REALTIMEKIT_APP_ID"
   echo "11) STRIPE_WEBHOOK_SECRET"
-  echo "12) Done"
+  echo "12) VITE_STRIPE_PUBLISHABLE_KEY"
+  echo "13) Done"
 
   read -r -p "Enter number: " choice
 
@@ -50,7 +51,8 @@ while true; do
     9) secret_name="VITE_AUTH_BASE_URL" ;;
     10) secret_name="CLOUDFLARE_REALTIMEKIT_APP_ID" ;;
     11) secret_name="STRIPE_WEBHOOK_SECRET" ;;
-    12) break ;;
+    12) secret_name="VITE_STRIPE_PUBLISHABLE_KEY" ;;
+    13) break ;;
     *)
       echo "Invalid option."
       continue

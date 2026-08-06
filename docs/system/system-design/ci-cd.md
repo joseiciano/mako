@@ -41,6 +41,7 @@ Core secrets:
 - `VITE_AUTH_BASE_URL`
 - `NEON_API_KEY`
 - `STRIPE_SECRET_KEY`
+- `VITE_STRIPE_PUBLISHABLE_KEY`
 
 Optional secrets (add when feature is enabled):
 
@@ -52,7 +53,7 @@ Secret sync behavior:
 - Terraform workflow consumes Cloudflare/Neon/Stripe secrets during infra apply.
 - Backend deploy injects `HYPERDRIVE_ID` into `apps/backend-rest/wrangler.jsonc` before deployment and syncs Worker runtime secrets (`BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `BETTER_AUTH_TRUSTED_ORIGINS`, `STRIPE_SECRET_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_REALTIMEKIT_APP_ID`). Postgres runtime access is provided through the Cloudflare Hyperdrive binding.
 - Notification orchestrator deploy also injects `HYPERDRIVE_ID` into `apps/notification-orchestrator/wrangler.jsonc` before deployment so queue consumers can reach Postgres through Hyperdrive.
-- Frontend deploy requires Cloudflare deployment credentials and `VITE_AUTH_BASE_URL`, which is injected at build time so the auth client knows the backend origin.
+- Frontend deploy requires Cloudflare deployment credentials and `VITE_AUTH_BASE_URL`, which is injected at build time so the auth client knows the backend origin. The checkout feature also needs `VITE_STRIPE_PUBLISHABLE_KEY` injected at build time so the Stripe Payment Element can initialize.
 
 ## CI/CD Setup Runbook
 
@@ -89,6 +90,7 @@ Core secrets (required):
 - `VITE_AUTH_BASE_URL`
 - `NEON_API_KEY`
 - `STRIPE_SECRET_KEY`
+- `VITE_STRIPE_PUBLISHABLE_KEY`
 
 Optional secrets (add when feature is enabled):
 

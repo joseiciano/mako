@@ -275,21 +275,48 @@ describe('billing-dumb rendering', function billingDumbSuite() {
     expect(screen.getByRole('alert')).toHaveTextContent('Unable to start your purchase.')
   })
 
-  it('reports successful payment intent creation', function run() {
+  it('locks package selection and hides purchase controls during active checkout', function run() {
+    const checkoutRender = vi.fn(function renderCheckout() {
+      return <div data-testid="active-checkout">Checkout</div>
+    })
     render(
       <BillingDumb
         state="populated"
         account={accountFixture()}
         packages={packagesFixture()}
         selectedPackageId="credits_5"
-        purchaseResult="pi_secret"
+        onSelectPackage={vi.fn()}
         onPurchase={vi.fn()}
+        renderCheckout={checkoutRender}
       />,
     )
 
+    // All radios disabled and labelled as locked.
+    const radios = screen.getAllByRole('radio')
+    expect(radios).toHaveLength(2)
+    for (const radio of radios) {
+      expect(radio).toBeDisabled()
+    }
+    expect(screen.getAllByText('Locked during checkout')).toHaveLength(2)
+
+    // No Start purchase control during checkout.
     expect(
-      screen.getByText(/payment intent created/i),
-    ).toBeInTheDocument()
+      screen.queryByRole('button', { name: /start purchase/i }),
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /starting purchase/i }),
+    ).not.toBeInTheDocument()
+
+    // Package cards carry the exact locked-presentation class (cursor-default).
+    const labels = screen.getAllByRole('radio').map(function labelFor(radio) {
+      return radio.closest('label')
+    })
+    for (const label of labels) {
+      expect(label).toHaveClass('cursor-default')
+    }
+
+    // The checkout itself renders in place of the purchase controls.
+    expect(screen.getByTestId('active-checkout')).toBeInTheDocument()
   })
 })
 
