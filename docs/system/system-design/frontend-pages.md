@@ -7,9 +7,9 @@
     - **Data**: `GET /api/account`, `GET /api/interviews?status=scheduled`
 - **Interviews History (`/interviews`)**: A comprehensive list of all past and upcoming sessions.
     - **Data**: `GET /api/interviews`
-- **Billing & Credits (`/billing`)**: Balance summary from `GET /api/account`; credit package selection from `GET /api/payments/packages` with single-package selection, and `POST /api/payments/create-intent` to initiate a Stripe Payment Intent (returns a client secret). Checkout/payment confirmation is handled in a later story.
+- **Billing & Credits (`/billing`)**: Balance summary from `GET /api/account`; credit package selection from `GET /api/payments/packages` with single-package selection, and `POST /api/payments/create-intent` to initiate a Stripe Payment Intent (returns a client secret). Checkout and payment confirmation are handled by an embedded Stripe Payment Element, with `stripe.confirmPayment` completing the payment (including 3DS redirect handling) and the backend webhook granting credits asynchronously.
     - **Data**: `GET /api/account`, `GET /api/payments/packages`, `POST /api/payments/create-intent`
-    - **Scope Note**: Payment amounts are never derived client-side; the backend package config is authoritative. Selected package and transient create-intent state are local to the billing smart component.
+    - **Scope Note**: Payment amounts are never derived client-side; the backend package config is authoritative. Selected package and create-intent state are owned by the billing smart component and persisted to `sessionStorage` (`mako.billing.purchase`) so the checkout can be restored after a Stripe 3DS redirect.
 - **Settings & Profile (`/settings`)**: Manage profile, employment history, and interviewer verification.
     - **Data**: `GET /api/account`, `PATCH /api/account`, `GET /api/interviewer/status`, `GET /api/companies`
 

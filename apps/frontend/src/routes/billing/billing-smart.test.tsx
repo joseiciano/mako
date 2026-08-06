@@ -3,14 +3,19 @@ import { renderToString } from 'react-dom/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { BillingSmart } from './billing-smart'
 
-const { useAccountMock, useCreditPackagesMock, useCreatePaymentIntentMock } =
-  vi.hoisted(function createMocks() {
-    return {
-      useAccountMock: vi.fn(),
-      useCreditPackagesMock: vi.fn(),
-      useCreatePaymentIntentMock: vi.fn(),
-    }
-  })
+const {
+  useAccountMock,
+  useCreditPackagesMock,
+  useCreatePaymentIntentMock,
+  BillingCheckoutMock,
+} = vi.hoisted(function createMocks() {
+  return {
+    useAccountMock: vi.fn(),
+    useCreditPackagesMock: vi.fn(),
+    useCreatePaymentIntentMock: vi.fn(),
+    BillingCheckoutMock: vi.fn(),
+  }
+})
 
 vi.mock('#/hooks/use-account', function mockUseAccountModule() {
   return {
@@ -25,11 +30,32 @@ vi.mock('#/hooks/use-payments', function mockUsePaymentsModule() {
   }
 })
 
+vi.mock('./billing-checkout-smart', function mockBillingCheckoutModule() {
+  return {
+    BillingCheckout: BillingCheckoutMock,
+  }
+})
+
 describe('billing-smart query state orchestration', function billingSmartSuite() {
   beforeEach(function resetMocks() {
+    window.sessionStorage.clear()
     useAccountMock.mockReset()
     useCreditPackagesMock.mockReset()
     useCreatePaymentIntentMock.mockReset()
+    BillingCheckoutMock.mockReset()
+    BillingCheckoutMock.mockImplementation(function MockCheckout(props) {
+      return (
+        <div data-testid="billing-checkout-mock">
+          <button type="button" onClick={props.onCancel}>
+            Cancel purchase
+          </button>
+          <button type="button" onClick={props.onConfirmed}>
+            Confirm payment
+          </button>
+          <span>Checkout for {props.packageName}</span>
+        </div>
+      )
+    })
 
     mockPackageQuery({
       data: { packages: packagesFixture() },
@@ -218,7 +244,7 @@ describe('billing-smart query state orchestration', function billingSmartSuite()
     expect(mutate).not.toHaveBeenCalled()
   })
 
-  it('stores client secret and reports success after create-intent', function run() {
+  it('stores client secret and renders checkout after create-intent', function run() {
     let capturedOnSuccess: (result: { client_secret: string }) => void = () => {}
     useCreatePaymentIntentMock.mockReturnValue({
       isPending: false,
@@ -242,7 +268,54 @@ describe('billing-smart query state orchestration', function billingSmartSuite()
       capturedOnSuccess({ client_secret: 'pi_secret' })
     })
 
-    expect(screen.getByText(/payment intent created/i)).toBeInTheDocument()
+    expect(screen.getByTestId('billing-checkout-mock')).toBeInTheDocument()
+    const checkoutCallArgs = BillingCheckoutMock.mock.calls[0]?.[0]
+    expect(checkoutCallArgs).toEqual(
+      expect.objectContaining({
+        clientSecret: 'pi_secret',
+        packageName: '5 Credits',
+        packageAmountLabel: '$25.00',
+      }),
+    )
+    // Checkout locks package selection; radios become disabled.
+    expect(firstRadio).toBeDisabled()
+    expect(screen.queryByRole('button', { name: /start purchase/i })).not.toBeInTheDocument()
+  })
+
+  it('cancels checkout and unlocks package selection', function run() {
+    let capturedOnSuccess: (result: { client_secret: string }) => void = () => {}
+    useCreatePaymentIntentMock.mockReturnValue({
+      isPending: false,
+      isError: false,
+      error: null,
+      mutate: vi.fn(function implement(_payload, options) {
+        capturedOnSuccess = options!.onSuccess as (result: {
+          client_secret: string
+        }) => void
+      }),
+    })
+    mockAccountQuery({ data: createAccountFixture() })
+
+    render(<BillingSmart />)
+
+    screen.getByRole('radio', { name: /select 5 credits/i }).click()
+    screen.getByRole('button', { name: /start purchase/i }).click()
+
+    act(function triggerSuccess() {
+      capturedOnSuccess({ client_secret: 'pi_secret' })
+    })
+
+    expect(screen.getByTestId('billing-checkout-mock')).toBeInTheDocument()
+
+    act(function cancelCheckout() {
+      screen.getByRole('button', { name: /cancel purchase/i }).click()
+    })
+
+    expect(screen.queryByTestId('billing-checkout-mock')).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /start purchase/i })).toBeInTheDocument()
+    expect(
+      screen.getByRole('radio', { name: /select 5 credits/i }),
+    ).not.toBeDisabled()
   })
 
   it('clears the stored result when a different package is re-selected', function run() {
@@ -261,6 +334,7 @@ describe('billing-smart query state orchestration', function billingSmartSuite()
 
     render(<BillingSmart />)
 
+    // Select and create intent for 5 credits; checkout renders and locks selection.
     const firstRadio = screen.getByRole('radio', { name: /select 5 credits/i })
     firstRadio.click()
     screen.getByRole('button', { name: /start purchase/i }).click()
@@ -269,14 +343,20 @@ describe('billing-smart query state orchestration', function billingSmartSuite()
       capturedOnSuccess({ client_secret: 'pi_secret' })
     })
 
-    expect(screen.getByText(/payment intent created/i)).toBeInTheDocument()
+    expect(screen.getByTestId('billing-checkout-mock')).toBeInTheDocument()
+
+    // Cancel checkout so selection unlocks, then select a different package.
+    act(function cancelCheckout() {
+      screen.getByRole('button', { name: /cancel purchase/i }).click()
+    })
 
     const secondRadio = screen.getByRole('radio', { name: /select 10 credits/i })
     act(function reSelect() {
       secondRadio.click()
     })
 
-    expect(screen.queryByText(/payment intent created/i)).not.toBeInTheDocument()
+    expect(screen.queryByTestId('billing-checkout-mock')).not.toBeInTheDocument()
+    expect(BillingCheckoutMock).toHaveBeenCalledTimes(1)
   })
 
   it('surfaces purchase failure messaging', function run() {
@@ -291,6 +371,85 @@ describe('billing-smart query state orchestration', function billingSmartSuite()
     render(<BillingSmart />)
 
     expect(screen.getByRole('alert')).toHaveTextContent('Unable to start your purchase.')
+  })
+
+  it('restores checkout from a persisted purchase draft', function run() {
+    // Simulate returning from a 3DS redirect: the previous draft is in
+    // sessionStorage, so the checkout should remount without re-selecting.
+    window.sessionStorage.setItem(
+      'mako.billing.purchase',
+      JSON.stringify({ packageId: 'credits_10', clientSecret: 'pi_restored' }),
+    )
+    mockAccountQuery({ data: createAccountFixture() })
+
+    render(<BillingSmart />)
+
+    expect(screen.getByTestId('billing-checkout-mock')).toBeInTheDocument()
+    const checkoutCallArgs = BillingCheckoutMock.mock.calls[0]?.[0]
+    expect(checkoutCallArgs).toEqual(
+      expect.objectContaining({ clientSecret: 'pi_restored' }),
+    )
+    const tenCreditsRadio = screen.getByRole('radio', { name: /select 10 credits/i })
+    expect(tenCreditsRadio).toBeChecked()
+    expect(tenCreditsRadio).toBeDisabled() // locked during checkout
+  })
+
+  it('reads the persisted purchase draft from sessionStorage exactly once per mount', function run() {
+    window.sessionStorage.setItem(
+      'mako.billing.purchase',
+      JSON.stringify({ packageId: 'credits_10', clientSecret: 'pi_restored' }),
+    )
+    mockAccountQuery({ data: createAccountFixture() })
+    const getItemSpy = vi.spyOn(Storage.prototype, 'getItem')
+
+    const { rerender } = render(<BillingSmart />)
+    // A query/state-driven re-render must NOT re-read the draft:
+    // readPurchaseDraft() should be evaluated once on mount (lazy initializer).
+    rerender(<BillingSmart />)
+    rerender(<BillingSmart />)
+
+    expect(getItemSpy).toHaveBeenCalledTimes(1)
+    getItemSpy.mockRestore()
+  })
+
+  it('clears the persisted draft when checkout is cancelled', function run() {
+    window.sessionStorage.setItem(
+      'mako.billing.purchase',
+      JSON.stringify({ packageId: 'credits_5', clientSecret: 'pi_restored' }),
+    )
+    mockAccountQuery({ data: createAccountFixture() })
+
+    render(<BillingSmart />)
+
+    expect(screen.getByTestId('billing-checkout-mock')).toBeInTheDocument()
+
+    act(function cancelCheckout() {
+      screen.getByRole('button', { name: /cancel purchase/i }).click()
+    })
+
+    expect(window.sessionStorage.getItem('mako.billing.purchase')).toBeNull()
+    expect(screen.queryByTestId('billing-checkout-mock')).not.toBeInTheDocument()
+  })
+
+  it('clears the persisted draft on payment confirmation but keeps checkout visible', function run() {
+    window.sessionStorage.setItem(
+      'mako.billing.purchase',
+      JSON.stringify({ packageId: 'credits_5', clientSecret: 'pi_restored' }),
+    )
+    mockAccountQuery({ data: createAccountFixture() })
+
+    render(<BillingSmart />)
+
+    expect(screen.getByTestId('billing-checkout-mock')).toBeInTheDocument()
+
+    act(function confirmPayment() {
+      screen.getByRole('button', { name: /confirm payment/i }).click()
+    })
+
+    // The spent draft is dropped so a later remount never re-offers it, but the
+    // in-memory checkout stays mounted to keep the pending-fulfillment UI.
+    expect(window.sessionStorage.getItem('mako.billing.purchase')).toBeNull()
+    expect(screen.getByTestId('billing-checkout-mock')).toBeInTheDocument()
   })
 })
 
