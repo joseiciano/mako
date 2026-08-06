@@ -27,6 +27,21 @@ describe('billing-checkout-dumb presentation', function billingCheckoutDumbSuite
     expect(screen.getByRole('alert')).toHaveTextContent('Checkout unavailable')
   })
 
+  it('shows Cancel purchase and invokes onCancel on setup error', function run() {
+    const onCancel = vi.fn()
+
+    render(
+      <BillingCheckoutDumb
+        {...baseProps}
+        status="setup-error"
+        onCancel={onCancel}
+      />,
+    )
+
+    screen.getByRole('button', { name: /cancel purchase/i }).click()
+    expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+
   it('renders loading state during checkout initialization', function run() {
     render(<BillingCheckoutDumb {...baseProps} status="initializing" />)
 
@@ -98,6 +113,27 @@ describe('billing-checkout-dumb presentation', function billingCheckoutDumbSuite
 
     screen.getByRole('button', { name: /cancel purchase/i }).click()
     expect(onCancel).toHaveBeenCalled()
+  })
+
+  it('renders canceled failure without retry but with cancellation', function run() {
+    const onRetry = vi.fn()
+    const onCancel = vi.fn()
+
+    render(
+      <BillingCheckoutDumb
+        {...baseProps}
+        status="canceled"
+        onRetry={onRetry}
+        onCancel={onCancel}
+      />,
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/couldn't process your payment/i)
+    // Canceled intents cannot be reconfirmed — no retry affordance.
+    expect(screen.queryByRole('button', { name: /try again/i })).not.toBeInTheDocument()
+    // User can still cancel to pick another package.
+    screen.getByRole('button', { name: /cancel purchase/i }).click()
+    expect(onCancel).toHaveBeenCalledTimes(1)
   })
 
   it('focuses the status region when transitioning into failed status', function run() {

@@ -668,6 +668,85 @@ describe('billing-checkout behavior', function billingCheckoutSuite() {
     }
   })
 
+  it('shows failure without retry for a canceled intent return', async function run() {
+    const retrievePaymentIntentMock = vi.fn(async () => ({
+      paymentIntent: { status: 'canceled' },
+    }))
+    const stripe = { retrievePaymentIntent: retrievePaymentIntentMock }
+    useStripeMock.mockReturnValue(stripe)
+    useElementsMock.mockReturnValue({})
+    PaymentElementMock.mockImplementation(function MockPaymentElement(props: {
+      onReady?: () => void
+    }) {
+      React.useEffect(function notifyReady() {
+        props.onReady?.()
+      }, [])
+      return <div data-testid="payment-element">Payment Element</div>
+    })
+    getStripeLoaderMock.mockReturnValue(Promise.resolve(stripe))
+
+    const originalLocation = window.location
+    const fakeLocation = {
+      ...originalLocation,
+      search:
+        '?payment_intent=pi_123&payment_intent_client_secret=pi_secret',
+    }
+    Object.defineProperty(window, 'location', {
+      value: fakeLocation,
+      writable: true,
+      configurable: true,
+    })
+
+    const onCancel = vi.fn()
+    try {
+      render(
+        <BillingCheckout
+          clientSecret="pi_secret"
+          packageName="5 Credits"
+          packageAmountLabel="$25.00"
+          onCancel={onCancel}
+          onConfirmed={vi.fn()}
+        />,
+        { wrapper: createWrapper(createTestQueryClient()) },
+      )
+
+      await waitFor(function waitForFailure() {
+        expect(screen.getByText(/couldn't process your payment/i)).toBeInTheDocument()
+      })
+
+      // Canceled intents cannot be reconfirmed — no retry affordance.
+      expect(screen.queryByRole('button', { name: /try again/i })).not.toBeInTheDocument()
+      // User can still cancel to pick another package.
+      screen.getByRole('button', { name: /cancel purchase/i }).click()
+      expect(onCancel).toHaveBeenCalledTimes(1)
+    } finally {
+      Object.defineProperty(window, 'location', {
+        value: originalLocation,
+        writable: true,
+        configurable: true,
+      })
+    }
+  })
+
+  it('shows Cancel purchase and invokes onCancel on setup error', function run() {
+    getStripeLoaderMock.mockReturnValue(null)
+    const onCancel = vi.fn()
+
+    render(
+      <BillingCheckout
+        clientSecret="pi_secret"
+        packageName="5 Credits"
+        packageAmountLabel="$25.00"
+        onCancel={onCancel}
+        onConfirmed={vi.fn()}
+      />,
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/temporarily unavailable/i)
+    screen.getByRole('button', { name: /cancel purchase/i }).click()
+    expect(onCancel).toHaveBeenCalledTimes(1)
+  })
+
   it('displays the selected package summary', async function run() {
     useStripeMock.mockReturnValue(null)
     useElementsMock.mockReturnValue(null)

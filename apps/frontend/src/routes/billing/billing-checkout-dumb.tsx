@@ -21,6 +21,7 @@ export type BillingCheckoutDumbProps = {
 /** Statuses whose status region should receive programmatic focus on entry. */
 const FOCUSABLE_STATUSES: ReadonlySet<CheckoutStatus> = new Set([
   'failed',
+  'canceled',
   'pending-fulfillment',
 ])
 
@@ -52,9 +53,20 @@ export function BillingCheckoutDumb(props: BillingCheckoutDumbProps) {
         aria-labelledby="checkout-heading"
         className="rounded-xl border border-slate-800 bg-slate-900/50 p-6"
       >
-        <h2 id="checkout-heading" className="text-lg font-semibold text-white">
-          Checkout
-        </h2>
+        <div className="flex items-center justify-between gap-3">
+          <h2 id="checkout-heading" className="text-lg font-semibold text-white">
+            Checkout
+          </h2>
+          {props.onCancel && (
+            <button
+              className="rounded-md border border-slate-700 px-3 py-1.5 text-sm text-slate-300 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={props.onCancel}
+              type="button"
+            >
+              Cancel purchase
+            </button>
+          )}
+        </div>
         <p className="mt-3 text-sm text-red-300" role="alert">
           {props.message ?? 'Payment checkout is temporarily unavailable.'}
         </p>
@@ -176,11 +188,15 @@ function renderCheckoutBody(
       )
 
     case 'failed':
+    case 'canceled': {
       // The Payment Element is already mounted above (outside the switch), so
       // the failed state only surfaces the alert + retry affordance. Keeping
       // the element mounted lets the user fix their card details and resubmit
       // without a remount that would re-run onReady (which real Stripe only
       // fires once) and break retry recovery.
+      // A canceled intent cannot be reconfirmed, so it is surfaced WITHOUT a
+      // retry affordance; the user can only cancel to choose another package.
+      const isCanceled = props.status === 'canceled'
       return (
         <div
           ref={statusRegionRef}
@@ -189,18 +205,22 @@ function renderCheckoutBody(
           className="mt-4 rounded-md border border-red-900 bg-red-950/30 px-3 py-3"
         >
           <p className="text-sm text-red-200" role="alert">
-            We couldn't process your payment. Please review your details and try
-            again, or cancel to choose a different package.
+            {isCanceled
+              ? "We couldn't process your payment because the checkout was cancelled. Please cancel to choose a different package."
+              : "We couldn't process your payment. Please review your details and try again, or cancel to choose a different package."}
           </p>
-          <button
-            className="mt-3 inline-flex rounded-md border border-red-400 px-3 py-1.5 text-sm font-medium text-red-200 transition hover:bg-red-500/20"
-            onClick={props.onRetry}
-            type="button"
-          >
-            Try again
-          </button>
+          {!isCanceled && (
+            <button
+              className="mt-3 inline-flex rounded-md border border-red-400 px-3 py-1.5 text-sm font-medium text-red-200 transition hover:bg-red-500/20"
+              onClick={props.onRetry}
+              type="button"
+            >
+              Try again
+            </button>
+          )}
         </div>
       )
+    }
 
     default:
       // A status not handled above must surface rather than silently render a

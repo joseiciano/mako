@@ -11,6 +11,7 @@ export type CheckoutStatus =
   | 'ready'
   | 'confirming'
   | 'failed'
+  | 'canceled'
   | 'pending-fulfillment'
 
 export type BillingCheckoutProps = {
@@ -32,6 +33,7 @@ export function BillingCheckout(props: BillingCheckoutProps) {
       <BillingCheckoutDumb
         status="setup-error"
         message="Payment checkout is temporarily unavailable. Please try again later."
+        onCancel={props.onCancel}
       />
     )
   }
@@ -126,8 +128,10 @@ function CheckoutForm(props: {
           ) {
             // Missing intent, retrieval returned nothing, or the intent did not
             // succeed (canceled / requires_payment_method / requires_action /
-            // unknown). Never fabricate success from the URL secret alone.
-            setStatus('failed')
+            // unknown). Never fabricate success from the URL secret alone. A
+            // canceled intent cannot be reconfirmed, so surface it as a
+            // non-retryable state distinct from other recoverable failures.
+            setStatus(paymentIntent?.status === 'canceled' ? 'canceled' : 'failed')
             return
           }
           // Credential grant still happens asynchronously via the backend Stripe
