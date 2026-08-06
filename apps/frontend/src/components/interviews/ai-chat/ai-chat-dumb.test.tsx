@@ -17,9 +17,14 @@ function makeProps(overrides?: Partial<AIChatDumbProps>): AIChatDumbProps {
     disabled: false,
     canRetry: false,
     retryLimitReached: false,
+    voiceState: 'idle',
+    voiceErrorMessage: null,
+    voiceSupported: true,
+    voiceInterimTranscript: '',
     onInputChange: vi.fn(),
     onSubmit: vi.fn(),
     onRetry: vi.fn(),
+    onVoiceToggle: vi.fn(),
     ...overrides,
   }
 }
@@ -152,5 +157,84 @@ describe('AIChatDumb', function () {
     )
     expect(screen.getByRole('button', { name: /sending/i })).toBeDisabled()
     expect(screen.getByLabelText(/message the ai interviewer/i)).toBeDisabled()
+  })
+})
+
+describe('AIChatDumb voice input', function () {
+  it('renders a mic control with an idle hint when voice is supported', function () {
+    render(<AIChatDumb {...makeProps()} />)
+    expect(screen.getByRole('button', { name: /start voice input/i })).toBeInTheDocument()
+    expect(screen.getByText(/use the microphone to speak your question/i)).toBeInTheDocument()
+  })
+
+  it('toggles the mic button while listening', function () {
+    render(<AIChatDumb {...makeProps({ voiceState: 'listening' })} />)
+    expect(screen.getByRole('button', { name: /stop voice input/i })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+    expect(screen.getByRole('status')).toHaveTextContent(/listening/i)
+  })
+
+  it('shows the interim transcript while listening', function () {
+    render(
+      <AIChatDumb
+        {...makeProps({
+          voiceState: 'listening',
+          voiceInterimTranscript: 'Speak',
+        })}
+      />,
+    )
+    expect(screen.getByText('Speak')).toBeInTheDocument()
+  })
+
+  it('shows the transcribing state and disables the mic', function () {
+    render(<AIChatDumb {...makeProps({ voiceState: 'transcribing' })} />)
+    expect(screen.getByRole('status')).toHaveTextContent(/transcribing/i)
+    expect(screen.getByRole('button', { name: /start voice input/i })).toBeDisabled()
+  })
+
+  it('shows the ready-to-send state', function () {
+    render(<AIChatDumb {...makeProps({ voiceState: 'ready-to-send' })} />)
+    expect(screen.getByRole('status')).toHaveTextContent(/speech captured/i)
+  })
+
+  it('shows the voice failure message', function () {
+    render(
+      <AIChatDumb
+        {...makeProps({
+          voiceState: 'failed',
+          voiceErrorMessage: 'Microphone access was denied.',
+        })}
+      />,
+    )
+    expect(screen.getByRole('alert')).toHaveTextContent(/microphone access was denied/i)
+  })
+
+  it('hides the mic and explains when voice is unsupported', function () {
+    render(<AIChatDumb {...makeProps({ voiceSupported: false })} />)
+    expect(screen.queryByRole('button', { name: /voice input/i })).not.toBeInTheDocument()
+    expect(screen.getByText(/speech-to-text is not supported/i)).toBeInTheDocument()
+  })
+
+  it('calls onVoiceToggle when the mic is clicked', async function () {
+    const user = userEvent.setup()
+    const onVoiceToggle = vi.fn()
+    render(<AIChatDumb {...makeProps({ onVoiceToggle })} />)
+    await user.click(screen.getByRole('button', { name: /start voice input/i }))
+    expect(onVoiceToggle).toHaveBeenCalledOnce()
+  })
+
+  it('disables the mic while a message is sending', function () {
+    render(
+      <AIChatDumb
+        {...makeProps({
+          inputValue: 'hi',
+          submitState: 'sending',
+          voiceState: 'listening',
+        })}
+      />,
+    )
+    expect(screen.getByRole('button', { name: /voice input/i })).toBeDisabled()
   })
 })

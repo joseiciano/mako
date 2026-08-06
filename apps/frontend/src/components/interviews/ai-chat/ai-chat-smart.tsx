@@ -5,6 +5,7 @@ import type { WhiteboardProvisionHandle } from '#/components/interviews/whiteboa
 import type { WhiteboardSceneSnapshot } from '#/components/interviews/whiteboard'
 import type { AIChatDumbProps } from './ai-chat-types'
 import { AIChatDumb } from './ai-chat-dumb'
+import { useAIChatSpeech } from './use-ai-chat-speech'
 import {
   aiChatPanelReducer,
   buildChatHistory,
@@ -37,6 +38,14 @@ export function AIChatSmart({
   const [state, dispatch] = useReducer(aiChatPanelReducer, initialAIChatPanelState)
   const aiChatMutation = useAIChat()
   const isMountedRef = useRef(true)
+  const speech = useAIChatSpeech({
+    onFinalTranscript: function handleFinalTranscript(transcript) {
+      dispatch({
+        type: 'INPUT_CHANGED',
+        payload: appendRecognizedText(state.inputValue, transcript),
+      })
+    },
+  })
 
   useEffect(
     function trackMount() {
@@ -95,6 +104,7 @@ export function AIChatSmart({
     }
 
     dispatch({ type: 'SUBMIT_STARTED', payload: trimmed })
+    speech.resetVoice()
     runMutation(input, snapshot)
   }
 
@@ -128,6 +138,15 @@ export function AIChatSmart({
     dispatch({ type: 'INPUT_CHANGED', payload: value })
   }
 
+  function handleVoiceToggle() {
+    if (state.submitState === 'sending') return
+    if (speech.voiceState === 'listening') {
+      speech.stopListening()
+    } else {
+      speech.startListening()
+    }
+  }
+
   const dumbProps: AIChatDumbProps = {
     canRetry:
       state.lastFailedMessageContent !== null && !hasReachedRetryLimit(state),
@@ -140,7 +159,18 @@ export function AIChatSmart({
     onRetry: handleRetry,
     onSubmit: handleSubmit,
     submitState: state.submitState,
+    voiceState: speech.voiceState,
+    voiceErrorMessage: speech.voiceErrorMessage,
+    voiceSupported: speech.voiceSupported,
+    voiceInterimTranscript: speech.voiceInterimTranscript,
+    onVoiceToggle: handleVoiceToggle,
   }
 
   return <AIChatDumb {...dumbProps} />
+}
+
+function appendRecognizedText(current: string, transcript: string): string {
+  const trimmed = current.trim()
+  if (trimmed.length === 0) return transcript
+  return `${trimmed} ${transcript}`
 }

@@ -4,4 +4,5 @@ export type {
   AIChatDumbProps,
   AIChatMessage,
   AIChatSubmitState,
+  AIChatVoiceState,
 } from './ai-chat-types'

@@ -1,8 +1,11 @@
 import type { FormEvent } from 'react'
-import type { AIChatDumbProps } from './ai-chat-types'
+import type { AIChatDumbProps, AIChatVoiceState } from './ai-chat-types'
 
 export function AIChatDumb(props: AIChatDumbProps) {
   const isSending = props.submitState === 'sending'
+  const isListening = props.voiceState === 'listening'
+  const isVoiceTranscribing = props.voiceState === 'transcribing'
+  const micDisabled = !props.voiceSupported || isVoiceTranscribing || isSending
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -79,6 +82,8 @@ export function AIChatDumb(props: AIChatDumbProps) {
         </button>
       ) : null}
 
+      {renderVoiceControls(props, micDisabled, isListening)}
+
       <form className="flex gap-2" onSubmit={handleSubmit}>
         <label className="sr-only" htmlFor="ai-chat-input">
           Message the AI interviewer
@@ -103,4 +108,68 @@ export function AIChatDumb(props: AIChatDumbProps) {
       </form>
     </section>
   )
+}
+
+function renderVoiceControls(
+  props: AIChatDumbProps,
+  micDisabled: boolean,
+  isListening: boolean,
+) {
+  if (!props.voiceSupported) {
+    return (
+      <p className="mb-3 text-sm text-slate-400">
+        Speech-to-text is not supported in this browser. You can still type your
+        questions.
+      </p>
+    )
+  }
+
+  return (
+    <div className="mb-3 flex flex-col gap-2">
+      <div className="flex items-center gap-2">
+        <button
+          aria-label={isListening ? 'Stop voice input' : 'Start voice input'}
+          aria-pressed={isListening}
+          className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+          disabled={micDisabled}
+          onClick={props.onVoiceToggle}
+          type="button"
+        >
+          {isListening ? 'Stop' : 'Start'} voice input
+        </button>
+        {props.voiceState === 'idle' ? (
+          <p className="text-sm text-slate-400">
+            Use the microphone to speak your question, or type below.
+          </p>
+        ) : (
+          <span aria-live="polite" className="text-sm text-slate-300" role="status">
+            {voiceStatusLabel(props.voiceState)}
+          </span>
+        )}
+      </div>
+      {props.voiceInterimTranscript ? (
+        <p className="text-xs italic text-slate-400">{props.voiceInterimTranscript}</p>
+      ) : null}
+      {props.voiceState === 'failed' && props.voiceErrorMessage ? (
+        <p className="text-xs text-red-300" role="alert">
+          {props.voiceErrorMessage}
+        </p>
+      ) : null}
+    </div>
+  )
+}
+
+function voiceStatusLabel(state: AIChatVoiceState): string {
+  switch (state) {
+    case 'listening':
+      return 'Listening… speak now.'
+    case 'transcribing':
+      return 'Transcribing what you said…'
+    case 'ready-to-send':
+      return 'Speech captured. Review the text and press Send.'
+    case 'failed':
+      return 'Voice input failed.'
+    default:
+      return ''
+  }
 }
