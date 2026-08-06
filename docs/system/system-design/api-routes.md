@@ -209,6 +209,7 @@
     - `peer_to_peer`: both participants receive credentials for the same shared room/key pair.
     - `ai_led`: return a single-user room/key pair scoped to the interview.
     - Credentials returned here are not exposed through `GET /api/interviews`; use this route at join-time.
+    - Voice does not bypass or own provisioning; join-time credential ownership remains exclusively with this route.
   - **Query Params**: None
   - **Telemetry**: Structured logs are emitted at provision lifecycle points: `interview.provision_start` (with `interview_id`, `participant_user_id`), `interview.provision_success` (with `interview_id`, `outcome`), and `interview.provision_failure` (with `interview_id`, `error_type`). Logs must not leak sensitive collaboration credentials (`excalidraw_key`, realtime tokens).
 
@@ -246,6 +247,7 @@
     - Successful `start` is the persisted lifecycle boundary that triggers active workflow timer orchestration (60-minute session, 5-minute warning).
     - Start is atomic guarded (`AND status = 'scheduled'`) and idempotent on retry (`already_ongoing`). Concurrent starts converge to one deterministic `ongoing` state.
     - Response uses credential-safe `InterviewDetail` schema (excludes `realtime_session_id`, `excalidraw_room_id`, `excalidraw_key`).
+    - Voice does not bypass or own the start boundary; lifecycle transition ownership remains exclusively with this route.
   - **Telemetry**: Structured logs emit `start_requested` and `start_succeeded` with safe context (`interview_id`, `participant_user_id`, `action`, `outcome`, `status`, timer fields). No secrets logged.
   - **Query Params**: None
 
@@ -282,6 +284,7 @@
     - Invalid transitions (`scheduled -> end`, `cancelled -> end`) are rejected with 409 without state mutation.
     - Manual `end` persists the terminal lifecycle state; timer timeout convergence is handled by the same atomic guarded transition (concurrent manual end and timer completion both converge to `completed`).
     - Response uses credential-safe `InterviewDetail` schema (excludes `realtime_session_id`, `excalidraw_room_id`, `excalidraw_key`).
+    - Voice does not bypass or own the end boundary; lifecycle transition ownership remains exclusively with this route.
   - **Telemetry**: Structured logs emit `end_requested` and `end_succeeded` with safe context (`interview_id`, `participant_user_id`, `action`, `outcome`, `status`). No secrets logged.
   - **Query Params**: None
 
@@ -327,6 +330,12 @@
       - Forward compatibility: `coding` and `behavioral` interview types receive a safe unsupported-type fallback prompt that states specialized guidance is not available yet and does not pretend a system-design prompt applies.
       - Clients should send snapshots on explicit review actions and/or debounced intervals (not per-stroke).
       - AI requests bypass cache (`cf-aig-skip-cache: true`) because the canvas snapshot context is mutable.
+  - **Voice Wrapper Contract**:
+    - Voice is an ephemeral runtime wrapper only, scoped to `mode = 'ai_led'` sessions on `/interviews/:id/session`.
+    - Speech-to-text input submits the same `message` field and the full existing request contract described above to this route; text-to-speech playback renders the same `reply` field returned in the response.
+    - Voice introduces no new backend route, no new request/response field, no persisted interview schema field, and no lifecycle state.
+    - Voice does not bypass or assume ownership of `POST /api/interviews/:id/provision`, `POST /api/interviews/:id/start`, or `POST /api/interviews/:id/end`; those routes exclusively own provisioning and lifecycle boundaries.
+    - Microphone capture, transcription, playback, and fallback UI are later implementation scope and are not introduced here.
   - **Query Params**: None
 
 - **`GET /api/interviews/:id`**

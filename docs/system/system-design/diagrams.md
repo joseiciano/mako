@@ -34,6 +34,8 @@ Provisioning note: join-time provisioning is a runtime route phase (`POST /api/i
 Provisioning should be idempotent for reconnect/retry behavior within the same active interview so room/key/session values are reused rather than regenerated.
 Lifecycle note: active workflow timer starts from successful `POST /api/interviews/:id/start`; manual `POST /api/interviews/:id/end` and timer timeout converge safely to `completed` via atomic guarded transitions.
 
+Voice note: voice is an ephemeral runtime wrapper only, scoped to `mode = 'ai_led'` sessions on `/interviews/:id/session`. Speech-to-text submits the same `message` field and full existing request contract to `POST /api/interviews/:id/ai-chat`; text-to-speech playback renders the same `reply` field from the response. Voice introduces no new backend route, no new request/response field, no persisted interview schema field, and no lifecycle state. Voice does not bypass or own `POST /api/interviews/:id/provision`, `POST /api/interviews/:id/start`, or `POST /api/interviews/:id/end`; those routes exclusively own provisioning and lifecycle boundaries. Microphone capture, transcription, playback, and fallback UI are later implementation scope and are not introduced here.
+
 ### Creating account/updating 
 
 Refer to `../diagrams/crud.md`
