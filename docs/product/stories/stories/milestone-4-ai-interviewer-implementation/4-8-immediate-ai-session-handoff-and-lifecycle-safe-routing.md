@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 4: AI Interviewer Implementation
 **Description**: Deliver post-create immediate AI session handoff so users land in session flow right away without breaking provision, start, or timer ownership.
-**Status**: Todo
+**Status**: Completed
 **Prerequisites**:
 - `docs/system/system-design/api-routes.md`
 - `docs/system/system-design/frontend-pages.md`
@@ -15,22 +15,22 @@
 ## What Needs to Be Done
 
 ### 1. Implement immediate-session success handoff
-- [ ] On successful immediate AI creation, route user into documented interview session surface (`/interviews/:id/session`) instead of treating flow like ordinary future scheduling continuity.
-- [ ] Keep success UX explicit that session is available immediately while runtime controls still follow normal provision and start route boundaries.
+- [x] On successful immediate AI creation, route user into documented interview session surface (`/interviews/:id/session`) instead of treating flow like ordinary future scheduling continuity.
+- [x] Keep success UX explicit that session is available immediately while runtime controls still follow normal provision and start route boundaries.
 
 ### 2. Preserve provision and lifecycle ownership boundaries
-- [ ] Keep join-time provisioning ownership on `POST /api/interviews/:id/provision`; immediate mode must not move Realtime or Excalidraw credential creation into `POST /api/interviews`.
-- [ ] Keep lifecycle transition ownership on `POST /api/interviews/:id/start`; immediate mode must not introduce a new persisted status or hidden client-only lifecycle state.
-- [ ] Keep timer ownership aligned with documented Milestone 3 lifecycle behavior after handoff.
+- [x] Keep join-time provisioning ownership on `POST /api/interviews/:id/provision`; immediate mode must not move Realtime or Excalidraw credential creation into `POST /api/interviews`.
+- [x] Keep lifecycle transition ownership on `POST /api/interviews/:id/start`; immediate mode must not introduce a new persisted status or hidden client-only lifecycle state.
+- [x] Keep timer ownership aligned with documented Milestone 3 lifecycle behavior after handoff.
 
 ### 3. Keep session-ready UX compatible with AI-led runtime features
-- [ ] Ensure immediate-mode handoff lands in session UI that stays compatible with existing join, start, and timer controls.
-- [ ] Ensure AI-led session surface can load documented AI chat behavior after session handoff without coupling immediate mode to voice or transcript features.
+- [x] Ensure immediate-mode handoff lands in session UI that stays compatible with existing join, start, and timer controls.
+- [x] Ensure AI-led session surface can load documented AI chat behavior after session handoff without coupling immediate mode to voice or transcript features.
 
 ### 4. Add handoff integration coverage
-- [ ] Add tests covering accepted immediate AI create flow through post-create navigation into `/interviews/:id/session`.
-- [ ] Add tests proving immediate mode does not bypass provision or start ownership after handoff.
-- [ ] Add tests proving failed handoff states remain user-actionable without implying interview has already been provisioned or started.
+- [x] Add tests covering accepted immediate AI create flow through post-create navigation into `/interviews/:id/session`.
+- [x] Add tests proving immediate mode does not bypass provision or start ownership after handoff.
+- [x] Add tests proving failed handoff states remain user-actionable without implying interview has already been provisioned or started.
 
 ## Implementation Notes
 - Immediate mode here is handoff and routing scope, not new lifecycle model scope.

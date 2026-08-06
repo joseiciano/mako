@@ -99,6 +99,8 @@ export function ScheduleSmart() {
     useState<SubmissionBranch | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [pendingCreateGuard, setPendingCreateGuard] = useState(readPendingCreateGuard)
+  const [routingError, setRoutingError] = useState<string | null>(null)
+  const [pendingSessionId, setPendingSessionId] = useState<string | null>(null)
   const isDispatchingRef = useRef(false)
 
   const isSubmitting = createInterview.isPending || submitAvailability.isPending
@@ -230,7 +232,9 @@ export function ScheduleSmart() {
 
   const handleConfirm = useCallback(
     function handleConfirm() {
-      if (isDispatchingRef.current || isP2pSubmissionAccepted) return
+      if (isDispatchingRef.current || isP2pSubmissionAccepted || routingError !== null) {
+        return
+      }
       if (pendingCreateGuard && isAiImmediate) return
 
       dispatch({ type: 'SET_VALIDATION_ERROR', payload: null })
@@ -266,13 +270,26 @@ export function ScheduleSmart() {
         isDispatchingRef.current = true
         setLastSubmissionBranch('ai_led')
         createInterview.mutate(payload, {
-          onSuccess: async function onCreateSuccess() {
+          onSuccess: async function onCreateSuccess(data) {
             clearPendingCreateGuard()
             setPendingCreateGuard(false)
             clearScheduleDraft()
-            await navigate({
-              to: payload.scheduled_at === 'now' ? '/interviews' : '/dashboard',
-            })
+            const interviewId = data.interview.id
+            if (payload.scheduled_at === 'now' && interviewId) {
+              try {
+                await navigate({
+                  to: '/interviews/$id/session',
+                  params: { id: interviewId },
+                })
+              } catch {
+                setPendingSessionId(interviewId)
+                setRoutingError(
+                  'Your session is ready, but we could not open it yet. It has not been provisioned or started. Open it again below.',
+                )
+              }
+            } else {
+              await navigate({ to: '/dashboard' })
+            }
           },
           onError: function onCreateError(error) {
             const kind = classifyCreateFailure(error)
@@ -329,6 +346,7 @@ export function ScheduleSmart() {
       pendingCreateGuard,
       isAiImmediate,
       aiCreateBlocked,
+      routingError,
     ],
   )
 
@@ -337,6 +355,22 @@ export function ScheduleSmart() {
       handleConfirm()
     },
     [handleConfirm],
+  )
+
+  const handleRetryRouting = useCallback(
+    async function handleRetryRouting() {
+      if (!pendingSessionId) return
+
+      try {
+        await navigate({
+          to: '/interviews/$id/session',
+          params: { id: pendingSessionId },
+        })
+      } catch {
+        // Keep the routing error visible so the user can attempt again.
+      }
+    },
+    [pendingSessionId, navigate],
   )
 
   return (
@@ -351,6 +385,7 @@ export function ScheduleSmart() {
       isSubmitting={isSubmitting}
       successMessage={successMessage}
       errorMessage={errorMessage}
+      routingError={routingError}
       retryLabel={retryLabel}
       policyNote={policyNote}
       createBlocked={aiCreateBlocked || (pendingCreateGuard && isAiImmediate)}
@@ -369,6 +404,7 @@ export function ScheduleSmart() {
       onGoToStep={handleGoToStep}
       onConfirm={handleConfirm}
       onRetry={handleRetry}
+      onRetryRouting={handleRetryRouting}
     />
   )
 }
