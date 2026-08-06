@@ -5,7 +5,14 @@ export function AIChatDumb(props: AIChatDumbProps) {
   const isSending = props.submitState === 'sending'
   const isListening = props.voiceState === 'listening'
   const isVoiceTranscribing = props.voiceState === 'transcribing'
-  const micDisabled = !props.voiceSupported || isVoiceTranscribing || isSending
+  // The mic is disabled while a reply is being spoken aloud so voice input and
+  // playback never create ambiguous voice/playback state, and while sending or
+  // transcribing so the two voice pipelines cannot overlap.
+  const micDisabled =
+    !props.voiceSupported ||
+    isVoiceTranscribing ||
+    isSending ||
+    props.playbackState === 'speaking'
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault()
@@ -82,6 +89,7 @@ export function AIChatDumb(props: AIChatDumbProps) {
         </button>
       ) : null}
 
+      {renderPlaybackControls(props)}
       {renderVoiceControls(props, micDisabled, isListening)}
 
       <form className="flex gap-2" onSubmit={handleSubmit}>
@@ -107,6 +115,58 @@ export function AIChatDumb(props: AIChatDumbProps) {
         </button>
       </form>
     </section>
+  )
+}
+
+function renderPlaybackControls(props: AIChatDumbProps) {
+  if (!props.playbackSupported) {
+    return (
+      <p className="mb-3 text-sm text-slate-400">
+        Voice playback is not supported in this browser. You can still read AI
+        replies as text.
+      </p>
+    )
+  }
+
+  const isSpeaking = props.playbackState === 'speaking'
+
+  return (
+    <div className="mb-3 flex flex-wrap items-center gap-2">
+      <button
+        className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+        disabled={!props.canReplay}
+        onClick={props.onReplay}
+        type="button"
+      >
+        Replay
+      </button>
+      <button
+        className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+        disabled={!isSpeaking && !props.canReplay}
+        onClick={props.onStopPlayback}
+        type="button"
+      >
+        Stop playback
+      </button>
+      <button
+        aria-pressed={props.playbackMuted}
+        className="inline-flex items-center gap-1.5 rounded-md border border-slate-700 px-3 py-1.5 text-xs font-medium text-slate-200 transition hover:bg-slate-800"
+        onClick={props.onToggleMuted}
+        type="button"
+      >
+        {props.playbackMuted ? 'Unmute' : 'Mute'} voice
+      </button>
+      {isSpeaking ? (
+        <span aria-live="polite" className="text-sm text-slate-300" role="status">
+          Playing reply aloud…
+        </span>
+      ) : null}
+      {props.playbackErrorMessage ? (
+        <p className="text-xs text-red-300" role="alert">
+          {props.playbackErrorMessage}
+        </p>
+      ) : null}
+    </div>
   )
 }
 

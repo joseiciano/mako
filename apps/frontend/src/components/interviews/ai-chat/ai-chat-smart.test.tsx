@@ -15,6 +15,12 @@ import {
   installSpeechRecognition,
   resetFakeSpeechRecognition,
 } from './ai-chat-speech.test-helpers'
+import {
+  FakeSpeechSynthesis,
+  FakeSpeechSynthesisUtteranceConstructor,
+  installSpeechSynthesis,
+  resetFakeSpeechSynthesis,
+} from './ai-chat-synthesis.test-helpers'
 
 vi.mock('#/hooks/use-interviews', function () {
   return {
@@ -71,13 +77,22 @@ beforeEach(function () {
   mockAiChatMutate.mockReset()
   mockGetSnapshot.mockReset()
   resetFakeSpeechRecognition()
+  resetFakeSpeechSynthesis()
   installSpeechRecognition(FakeSpeechRecognitionConstructor)
+  installSpeechSynthesis(null, null)
 })
 
 afterEach(function () {
   clearAllWhiteboardSceneApis()
   installSpeechRecognition(null)
+  installSpeechSynthesis(null, null)
 })
+
+function installPlaybackSynthesis() {
+  const synthesis = new FakeSpeechSynthesis()
+  installSpeechSynthesis(synthesis, FakeSpeechSynthesisUtteranceConstructor)
+  return synthesis
+}
 
 describe('AIChatSmart', function () {
   it('submits user message with canvas snapshot and renders reply on success', async function () {
@@ -381,5 +396,364 @@ describe('AIChatSmart voice input', function () {
 
     expect(screen.queryByText(/speech captured/i)).not.toBeInTheDocument()
     expect(screen.getByText(/use the microphone/i)).toBeInTheDocument()
+  })
+})
+
+describe('AIChatSmart reply playback', function () {
+  function submitTurn(reply: string) {
+    const handle = 'handle-1'
+    registerWhiteboardSceneApi(handle, makeSceneApi())
+    mockGetSnapshot.mockReturnValue({
+      type: 'excalidraw_scene',
+      scene: { elements: [] },
+    })
+    mockAiChatMutate.mockImplementation(function (_params: any, options: any) {
+      options.onSuccess?.({
+        reply,
+        guidance_mode: 'review',
+        prompt_version: 'v1',
+      })
+    })
+    mockUseAIChat()
+    return handle
+  }
+
+  it('plays the AI reply aloud when a turn succeeds', async function () {
+    const user = userEvent.setup()
+    const handle = submitTurn('Consider caching the data.')
+    const synthesis = installPlaybackSynthesis()
+
+    render(<AIChatSmart interviewId="int-1" whiteboardProvisionHandle={handle} />)
+
+    await user.type(screen.getByLabelText(/message the ai interviewer/i), 'How do I scale?')
+    await user.click(screen.getByRole('button', { name: /send/i }))
+
+    await screen.findByText('Consider caching the data.')
+    expect(synthesis.lastSpokenText).toBe('Consider caching the data.')
+    expect(screen.getByText(/playing reply aloud/i)).toBeInTheDocument()
+  })
+
+  it('keeps typed chat usable when playback is unsupported', async function () {
+    const user = userEvent.setup()
+    const handle = submitTurn('Text only reply.')
+    // No synthesis installed: playback falls back to text-only.
+
+    render(<AIChatSmart interviewId="int-1" whiteboardProvisionHandle={handle} />)
+
+    const textarea = screen.getByLabelText(/message the ai interviewer/i)
+    await user.type(textarea, 'Ask away')
+    await user.click(screen.getByRole('button', { name: /send/i }))
+
+    await screen.findByText('Text only reply.')
+    expect(screen.getByText(/voice playback is not supported/i)).toBeInTheDocument()
+
+    // The panel never disables the typed path: a follow-up turn can still be
+    // composed after the reply lands.
+    await user.type(textarea, ' more')
+    expect((textarea as HTMLTextAreaElement).value).toBe(' more')
+  })
+
+  it('replays the last AI reply from the playback controls', async function () {
+    const user = userEvent.setup()
+    const handle = submitTurn('Replay me.')
+    const synthesis = installPlaybackSynthesis()
+
+    render(<AIChatSmart interviewId="int-1" whiteboardProvisionHandle={handle} />)
+
+    await user.type(screen.getByLabelText(/message the ai interviewer/i), 'Say it again?')
+    await user.click(screen.getByRole('button', { name: /send/i }))
+    await screen.findByText('Replay me.')
+    expect(synthesis.speakCalls).toHaveLength(1)
+
+    await user.click(screen.getByRole('button', { name: /replay/i }))
+    expect(synthesis.speakCalls).toHaveLength(2)
+    expect(synthesis.lastSpokenText).toBe('Replay me.')
+  })
+
+  it('stops playback from the controls', async function () {
+    const user = userEvent.setup()
+    const handle = submitTurn('Stop me.')
+    const synthesis = installPlaybackSynthesis()
+
+    render(<AIChatSmart interviewId="int-1" whiteboardProvisionHandle={handle} />)
+
+    await user.type(screen.getByLabelText(/message the ai interviewer/i), 'Play then stop')
+    await user.click(screen.getByRole('button', { name: /send/i }))
+    await screen.findByText('Stop me.')
+    expect(synthesis.speakCalls).toHaveLength(1)
+
+    await user.click(screen.getByRole('button', { name: /stop playback/i }))
+    expect(synthesis.cancelCalls).toBeGreaterThan(0)
+    expect(screen.queryByText(/playing reply aloud/i)).not.toBeInTheDocument()
+  })
+
+  it('mutes voice playback and blocks further auto-play', async function () {
+    const user = userEvent.setup()
+    const handle = 'handle-1'
+    registerWhiteboardSceneApi(handle, makeSceneApi())
+    mockGetSnapshot.mockReturnValue({
+      type: 'excalidraw_scene',
+      scene: { elements: [] },
+    })
+    mockAiChatMutate.mockImplementation(function (_params: any, options: any) {
+      options.onSuccess?.({
+        reply: 'Silent reply.',
+        guidance_mode: 'review',
+        prompt_version: 'v1',
+      })
+    })
+    mockUseAIChat()
+    const synthesis = installPlaybackSynthesis()
+
+    render(<AIChatSmart interviewId="int-1" whiteboardProvisionHandle={handle} />)
+
+    await user.click(screen.getByRole('button', { name: /mute voice/i }))
+    expect(screen.getByRole('button', { name: /unmute voice/i })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+
+    await user.type(screen.getByLabelText(/message the ai interviewer/i), 'Hello?')
+    await user.click(screen.getByRole('button', { name: /send/i }))
+    await screen.findByText('Silent reply.')
+
+    // Muted: the reply is rendered but never spoken.
+    expect(synthesis.speakCalls).toHaveLength(0)
+    expect(screen.queryByText(/playing reply aloud/i)).not.toBeInTheDocument()
+  })
+
+  it('honors mute state when the in-flight request resolves after muting', async function () {
+    const user = userEvent.setup()
+    const handle = 'handle-1'
+    registerWhiteboardSceneApi(handle, makeSceneApi())
+    mockGetSnapshot.mockReturnValue({
+      type: 'excalidraw_scene',
+      scene: { elements: [] },
+    })
+
+    let resolveSuccess: (() => void) | undefined
+    mockAiChatMutate.mockImplementation(function (_params: any, options: any) {
+      // Keep the request in flight so mute can happen before it resolves.
+      resolveSuccess = function resolve() {
+        options.onSuccess?.({
+          reply: 'Silent in-flight reply.',
+          guidance_mode: 'review',
+          prompt_version: 'v1',
+        })
+      }
+    })
+    mockUseAIChat()
+    const synthesis = installPlaybackSynthesis()
+
+    render(<AIChatSmart interviewId="int-1" whiteboardProvisionHandle={handle} />)
+
+    await user.type(screen.getByLabelText(/message the ai interviewer/i), 'Speak?')
+    await user.click(screen.getByRole('button', { name: /send/i }))
+    expect(resolveSuccess).toBeDefined()
+
+    // Mute while the request is still in flight.
+    await user.click(screen.getByRole('button', { name: /mute voice/i }))
+    expect(screen.getByRole('button', { name: /unmute voice/i })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+
+    // Resolve the in-flight request after the mute took effect.
+    act(function () {
+      resolveSuccess?.()
+    })
+
+    // The reply renders but the stale playback callback must not speak while
+    // muted at execution time.
+    await screen.findByText('Silent in-flight reply.')
+    expect(synthesis.speakCalls).toHaveLength(0)
+    expect(screen.queryByText(/playing reply aloud/i)).not.toBeInTheDocument()
+  })
+
+  it('stops reply playback when a new turn is submitted', async function () {
+    const user = userEvent.setup()
+    const handle = 'handle-1'
+    registerWhiteboardSceneApi(handle, makeSceneApi())
+    mockGetSnapshot.mockReturnValue({
+      type: 'excalidraw_scene',
+      scene: { elements: [] },
+    })
+    let turns = 0
+    mockAiChatMutate.mockImplementation(function (_params: any, options: any) {
+      turns += 1
+      options.onSuccess?.({
+        reply: turns === 1 ? 'First reply.' : 'Second reply.',
+        guidance_mode: 'review',
+        prompt_version: 'v1',
+      })
+    })
+    mockUseAIChat()
+    const synthesis = installPlaybackSynthesis()
+
+    render(<AIChatSmart interviewId="int-1" whiteboardProvisionHandle={handle} />)
+
+    const textarea = screen.getByLabelText(/message the ai interviewer/i)
+    await user.type(textarea, 'First question')
+    await user.click(screen.getByRole('button', { name: /send/i }))
+    await screen.findByText('First reply.')
+    expect(synthesis.speakCalls).toHaveLength(1)
+
+    await user.type(textarea, 'Second question')
+    await user.click(screen.getByRole('button', { name: /send/i }))
+    await screen.findByText('Second reply.')
+
+    expect(synthesis.cancelCalls).toBeGreaterThan(0)
+  })
+
+  it('disables voice input while a reply is being spoken and allows it after stopping playback', async function () {
+    const user = userEvent.setup()
+    const handle = submitTurn('Played aloud.')
+    const synthesis = installPlaybackSynthesis()
+
+    render(<AIChatSmart interviewId="int-1" whiteboardProvisionHandle={handle} />)
+
+    await user.type(screen.getByLabelText(/message the ai interviewer/i), 'Talk to me')
+    await user.click(screen.getByRole('button', { name: /send/i }))
+    await screen.findByText('Played aloud.')
+    expect(synthesis.speakCalls).toHaveLength(1)
+
+    // While the reply is spoken aloud the mic is disabled, so voice input can
+    // never overlap with playback; clicking it is a no-op.
+    const voiceButton = screen.getByRole('button', { name: /start voice input/i })
+    expect(voiceButton).toBeDisabled()
+    const cancelBeforeVoiceAttempt = synthesis.cancelCalls
+    await user.click(voiceButton)
+    expect(synthesis.cancelCalls).toBe(cancelBeforeVoiceAttempt)
+    expect(screen.queryByText(/playing reply aloud/i)).toBeInTheDocument()
+
+    // Stopping playback re-enables the mic, after which voice input can start.
+    await user.click(screen.getByRole('button', { name: /stop playback/i }))
+    expect(synthesis.cancelCalls).toBeGreaterThan(cancelBeforeVoiceAttempt)
+    expect(screen.queryByText(/playing reply aloud/i)).not.toBeInTheDocument()
+
+    await user.click(screen.getByRole('button', { name: /start voice input/i }))
+    expect(FakeSpeechRecognition.latest).not.toBeNull()
+  })
+})
+
+describe('AIChatSmart duplicate submit protection', function () {
+  it('does not send twice when the send button is triggered repeatedly', async function () {
+    const user = userEvent.setup()
+    const handle = 'handle-1'
+    registerWhiteboardSceneApi(handle, makeSceneApi())
+    mockGetSnapshot.mockReturnValue({
+      type: 'excalidraw_scene',
+      scene: { elements: [] },
+    })
+    let calls = 0
+    mockAiChatMutate.mockImplementation(function () {
+      calls += 1
+      // The mutation stays in flight for the duration of the test.
+    })
+    mockUseAIChat()
+
+    render(<AIChatSmart interviewId="int-1" whiteboardProvisionHandle={handle} />)
+
+    await user.type(screen.getByLabelText(/message the ai interviewer/i), 'double tap')
+    const send = screen.getByRole('button', { name: /send/i })
+    await user.click(send)
+    await user.click(send)
+
+    expect(calls).toBe(1)
+  })
+
+  it('still submits a retry exactly once when retry is triggered once', async function () {
+    const user = userEvent.setup()
+    const handle = 'handle-1'
+    registerWhiteboardSceneApi(handle, makeSceneApi())
+    mockGetSnapshot.mockReturnValue({
+      type: 'excalidraw_scene',
+      scene: { elements: [] },
+    })
+    let calls = 0
+    mockAiChatMutate.mockImplementation(function (_params: any, options: any) {
+      calls += 1
+      if (calls === 1) {
+        options.onError?.(new Error('network'))
+      } else {
+        options.onSuccess?.({
+          reply: 'Recovered.',
+          guidance_mode: 'review',
+          prompt_version: 'v1',
+        })
+      }
+    })
+    mockUseAIChat()
+
+    render(<AIChatSmart interviewId="int-1" whiteboardProvisionHandle={handle} />)
+
+    await user.type(screen.getByLabelText(/message the ai interviewer/i), 'question')
+    await user.click(screen.getByRole('button', { name: /send/i }))
+    await screen.findByRole('alert')
+
+    await user.click(screen.getByRole('button', { name: /retry/i }))
+    await screen.findByText('Recovered.')
+
+    expect(calls).toBe(2)
+  })
+})
+
+describe('AIChatSmart stale request callbacks', function () {
+  it('ignores a stale success from a replaced request: no dispatch, no guard clear, no playback', async function () {
+    const user = userEvent.setup()
+    const handle = 'handle-1'
+    registerWhiteboardSceneApi(handle, makeSceneApi())
+    mockGetSnapshot.mockReturnValue({
+      type: 'excalidraw_scene',
+      scene: { elements: [] },
+    })
+
+    const attempts: Array<{ options: any }> = []
+    mockAiChatMutate.mockImplementation(function (_params: any, options: any) {
+      attempts.push({ options })
+      // First attempt fails so a retry becomes available; the second attempt
+      // stays in flight so its callbacks can fire later.
+      if (attempts.length === 1) {
+        options.onError?.(new Error('network'))
+      }
+    })
+    mockUseAIChat()
+    const synthesis = installPlaybackSynthesis()
+
+    render(<AIChatSmart interviewId="int-1" whiteboardProvisionHandle={handle} />)
+
+    // Submit a message; the first attempt fails and offers a retry.
+    await user.type(screen.getByLabelText(/message the ai interviewer/i), 'Question one')
+    await user.click(screen.getByRole('button', { name: /send/i }))
+    await screen.findByRole('alert')
+
+    // Retry starts a newer, still-in-flight request that supersedes the first.
+    await user.click(screen.getByRole('button', { name: /retry/i }))
+    expect(attempts).toHaveLength(2)
+
+    // A stale success callback from the replaced (first) request fires late.
+    act(function () {
+      attempts[0].options.onSuccess?.({
+        reply: 'Stale reply.',
+        guidance_mode: 'review',
+        prompt_version: 'v1',
+      })
+    })
+
+    // The stale callback must not dispatch a reply, clear the in-flight guard,
+    // or start playback on behalf of the newer request.
+    expect(screen.queryByText('Stale reply.')).not.toBeInTheDocument()
+    expect(synthesis.speakCalls).toHaveLength(0)
+
+    // The newer request still resolves normally through the retry path.
+    act(function () {
+      attempts[1].options.onSuccess?.({
+        reply: 'Real reply.',
+        guidance_mode: 'review',
+        prompt_version: 'v1',
+      })
+    })
+    await screen.findByText('Real reply.')
+    expect(synthesis.lastSpokenText).toBe('Real reply.')
   })
 })

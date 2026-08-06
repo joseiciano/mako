@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 4: AI Interviewer Implementation
 **Description**: Harden runtime voice behavior with duplicate-submit protection, sensitive-data-safe telemetry, and explicit degraded-mode fallbacks.
-**Status**: Todo
+**Status**: Completed
 **Prerequisites**:
 - `docs/system/system-design/api-routes.md`
 - `docs/infrastructure/backend.md`
@@ -14,16 +14,16 @@
 ## What Needs to Be Done
 
 ### 1. Prevent overlapping and duplicate runtime actions
-- [ ] Prevent duplicate in-flight voice submits caused by repeated taps or clicks, stale recognition callbacks, or overlapping send actions.
-- [ ] Prevent playback or recognition state transitions from creating ambiguous UI state when voice input and AI reply playback happen close together.
+- [x] Prevent duplicate in-flight voice submits caused by repeated taps or clicks, stale recognition callbacks, or overlapping send actions.
+- [x] Prevent playback or recognition state transitions from creating ambiguous UI state when voice input and AI reply playback happen close together.
 
 ### 2. Protect sensitive data in logs and telemetry
-- [ ] Ensure logs and telemetry do not leak microphone payloads, raw room credentials, provider secrets, or equivalent sensitive material.
-- [ ] Keep voice observability aligned with existing AI chat and session logging patterns rather than introducing ad hoc debug output.
+- [x] Ensure logs and telemetry do not leak microphone payloads, raw room credentials, provider secrets, or equivalent sensitive material.
+- [x] Keep voice observability aligned with existing AI chat and session logging patterns rather than introducing ad hoc debug output.
 
 ### 3. Define explicit degraded-mode behavior
-- [ ] Define fallback behavior when speech recognition or speech synthesis is unavailable, denied, interrupted, or fails mid-session.
-- [ ] Ensure typed AI chat remains usable and clearly presented as fallback path when voice runtime behavior cannot proceed.
+- [x] Define fallback behavior when speech recognition or speech synthesis is unavailable, denied, interrupted, or fails mid-session.
+- [x] Ensure typed AI chat remains usable and clearly presented as fallback path when voice runtime behavior cannot proceed.
 
 ## Implementation Notes
 - Scope is hardening voice runtime behavior, not adding new primary chat features.
