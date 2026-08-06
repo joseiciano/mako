@@ -16,6 +16,7 @@ function renderSchedule(props: Partial<ScheduleDumbProps> = {}) {
     isSubmitting: false,
     successMessage: null,
     errorMessage: null,
+    routingError: null,
     retryLabel: null,
     policyNote: null,
     createBlocked: false,
@@ -34,6 +35,7 @@ function renderSchedule(props: Partial<ScheduleDumbProps> = {}) {
     onGoToStep: vi.fn(),
     onConfirm: vi.fn(),
     onRetry: vi.fn(),
+    onRetryRouting: vi.fn(),
     ...props,
   }
   return render(<ScheduleDumb {...defaultProps} />)

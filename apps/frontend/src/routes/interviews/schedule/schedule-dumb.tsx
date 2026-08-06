@@ -17,6 +17,7 @@ export type ScheduleDumbProps = {
   isSubmitting: boolean
   successMessage: string | null
   errorMessage: string | null
+  routingError: string | null
   retryLabel: string | null
   policyNote: string | null
   createBlocked: boolean
@@ -35,6 +36,7 @@ export type ScheduleDumbProps = {
   onGoToStep: (step: ScheduleStep) => void
   onConfirm: () => void
   onRetry: () => void
+  onRetryRouting: () => void
 }
 
 function StepIndicator(props: {
@@ -571,6 +573,23 @@ export function ScheduleDumb(props: ScheduleDumbProps) {
         </section>
       ) : null}
 
+      {props.routingError ? (
+        <section
+          className="rounded-xl border border-amber-500/60 bg-amber-500/10 p-4 text-sm text-amber-100"
+          role="alert"
+        >
+          <p>{props.routingError}</p>
+          <button
+            type="button"
+            onClick={props.onRetryRouting}
+            disabled={props.isSubmitting}
+            className="mt-3 inline-flex w-fit items-center justify-center rounded-lg border border-amber-300/60 px-3 py-1.5 text-xs font-semibold text-amber-50 transition hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            Open session
+          </button>
+        </section>
+      ) : null}
+
       <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
         <StepIndicator
           steps={props.visibleSteps}
@@ -643,7 +662,10 @@ export function ScheduleDumb(props: ScheduleDumbProps) {
               type="button"
               onClick={props.onConfirm}
               disabled={
-                props.isSubmitting || props.successMessage !== null || props.createBlocked
+                props.isSubmitting ||
+                props.successMessage !== null ||
+                props.createBlocked ||
+                props.routingError !== null
               }
               className="inline-flex w-fit items-center justify-center rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-70"
             >

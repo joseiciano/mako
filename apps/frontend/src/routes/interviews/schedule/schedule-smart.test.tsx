@@ -7,6 +7,11 @@ import {
   PENDING_CREATE_GUARD_KEY,
   serializeScheduleDraft,
 } from './schedule-flow'
+import type { CreateInterviewResponse } from '@mako/shared'
+
+function createInterviewResponse(id: string): CreateInterviewResponse {
+  return { interview: { id } } as unknown as CreateInterviewResponse
+}
 
 const mockNavigate = vi.fn()
 
@@ -129,10 +134,112 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
     expect(mockAvailabilityMutate).not.toHaveBeenCalled()
 
     const onSuccess = mockCreateMutate.mock.calls[0]![1].onSuccess
-    await onSuccess()
+    const createdId = 'interview_abc123'
+    await onSuccess(createInterviewResponse(createdId))
     await waitFor(function () {
-      expect(mockNavigate).toHaveBeenCalledWith({ to: '/interviews' })
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: '/interviews/$id/session',
+        params: { id: createdId },
+      })
     })
+    expect(
+      mockNavigate.mock.calls.filter(function (call) {
+        const to = String(call[0]?.to ?? '')
+        return to.includes('/provision') || to.includes('/start')
+      }),
+    ).toHaveLength(0)
+
+    cleanup()
+  })
+
+  it('routes accepted immediate ai create to session using returned id', async function testImmediateAiSessionRouting() {
+    const user = userEvent.setup()
+    render(<ScheduleSmart />)
+
+    await user.click(screen.getByText('System Design'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('Start now'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: /confirm & schedule/i }))
+
+    const onSuccess = mockCreateMutate.mock.calls[0]![1].onSuccess
+    const createdId = 'interview_session_42'
+    await onSuccess(createInterviewResponse(createdId))
+
+    await waitFor(function () {
+      expect(mockNavigate).toHaveBeenCalledWith({
+        to: '/interviews/$id/session',
+        params: { id: createdId },
+      })
+    })
+
+    expect(mockNavigate).toHaveBeenCalledTimes(1)
+    const target = String(mockNavigate.mock.calls[0]![0]?.to ?? '')
+    expect(target).toContain('/session')
+    expect(target).not.toContain('/provision')
+    expect(target).not.toContain('/start')
+
+    cleanup()
+  })
+
+  it('shows actionable error when immediate session navigation fails and retries without re-creating', async function testRoutingErrorRetry() {
+    const user = userEvent.setup()
+    mockNavigate.mockImplementationOnce(function () {
+      return Promise.reject(new Error('navigation failed'))
+    })
+    render(<ScheduleSmart />)
+
+    await user.click(screen.getByText('System Design'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('Start now'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: /confirm & schedule/i }))
+
+    expect(mockCreateMutate).toHaveBeenCalledTimes(1)
+
+    const onSuccess = mockCreateMutate.mock.calls[0]![1].onSuccess
+    const createdId = 'interview_routing_fail'
+    await onSuccess(createInterviewResponse(createdId))
+
+    // Actionable error: session is ready but not provisioned or started.
+    await waitFor(function () {
+      expect(screen.getByRole('alert')).toBeDefined()
+    })
+    expect(screen.getByText(/session is ready/i)).toBeDefined()
+    expect(screen.getByText(/not been provisioned or started/i)).toBeDefined()
+
+    // Confirm is disabled so the user cannot accidentally create again.
+    expect(screen.getByRole('button', { name: /confirm & schedule/i })).toHaveProperty(
+      'disabled',
+      true,
+    )
+
+    // Even a forced confirm click (bypassing the disabled attribute) must not
+    // create a second interview while the session handoff is pending.
+    fireEvent.click(screen.getByRole('button', { name: /confirm & schedule/i }))
+    expect(mockCreateMutate).toHaveBeenCalledTimes(1)
+
+    // Retry navigates to the same session URL without another create.
+    await user.click(screen.getByRole('button', { name: /open session/i }))
+
+    expect(mockCreateMutate).toHaveBeenCalledTimes(1)
+    expect(mockAvailabilityMutate).not.toHaveBeenCalled()
+    expect(mockNavigate).toHaveBeenCalledWith({
+      to: '/interviews/$id/session',
+      params: { id: createdId },
+    })
+
+    // No provision or start call is made.
+    expect(
+      mockNavigate.mock.calls.filter(function (call) {
+        const to = String(call[0]?.to ?? '')
+        return to.includes('/provision') || to.includes('/start')
+      }),
+    ).toHaveLength(0)
 
     cleanup()
   })
@@ -677,7 +784,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
     await user.click(screen.getByRole('button', { name: /confirm & schedule/i }))
 
     const onSuccess = mockCreateMutate.mock.calls[0]![1].onSuccess
-    await onSuccess()
+    await onSuccess(createInterviewResponse('interview_draft'))
 
     expect(window.sessionStorage.getItem(SCHEDULE_DRAFT_STORAGE_KEY)).toBeNull()
 
@@ -720,7 +827,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
     await user.click(screen.getByRole('button', { name: /confirm & schedule/i }))
 
     const onSuccess = mockCreateMutate.mock.calls[0]![1].onSuccess
-    await onSuccess()
+    await onSuccess(createInterviewResponse('interview_future'))
 
     await waitFor(function () {
       expect(mockNavigate).toHaveBeenCalledWith({ to: '/dashboard' })
