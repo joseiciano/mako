@@ -548,6 +548,126 @@ describe('billing-checkout behavior', function billingCheckoutSuite() {
     })
   })
 
+  it('uses retrievePaymentIntent to confirm a genuine Stripe return with succeeded status', async function run() {
+    const retrievePaymentIntentMock = vi.fn(async () => ({
+      paymentIntent: { status: 'succeeded' },
+    }))
+    const stripe = { retrievePaymentIntent: retrievePaymentIntentMock }
+    useStripeMock.mockReturnValue(stripe)
+    useElementsMock.mockReturnValue({})
+    PaymentElementMock.mockImplementation(function MockPaymentElement(props: {
+      onReady?: () => void
+    }) {
+      React.useEffect(function notifyReady() {
+        props.onReady?.()
+      }, [])
+      return <div data-testid="payment-element">Payment Element</div>
+    })
+    getStripeLoaderMock.mockReturnValue(Promise.resolve(stripe))
+
+    const originalLocation = window.location
+    const fakeLocation = {
+      ...originalLocation,
+      search:
+        '?payment_intent=pi_123&payment_intent_client_secret=pi_secret',
+    }
+    Object.defineProperty(window, 'location', {
+      value: fakeLocation,
+      writable: true,
+      configurable: true,
+    })
+
+    const onConfirmed = vi.fn()
+    try {
+      render(
+        <BillingCheckout
+          clientSecret="pi_secret"
+          packageName="5 Credits"
+          packageAmountLabel="$25.00"
+          onCancel={vi.fn()}
+          onConfirmed={onConfirmed}
+        />,
+        { wrapper: createWrapper(createTestQueryClient()) },
+      )
+
+      await waitFor(function waitForConfirmed() {
+        expect(onConfirmed).toHaveBeenCalledTimes(1)
+      })
+
+      // The official Stripe API is used to verify the intent, not redirect_status.
+      expect(retrievePaymentIntentMock).toHaveBeenCalledWith('pi_secret')
+      // Success transitions to pending fulfillment (webhook grants credits).
+      expect(screen.getByText(/credits are being applied/i)).toBeInTheDocument()
+    } finally {
+      Object.defineProperty(window, 'location', {
+        value: originalLocation,
+        writable: true,
+        configurable: true,
+      })
+    }
+  })
+
+  it('does not confirm when a matching URL secret resolves to a canceled intent', async function run() {
+    const retrievePaymentIntentMock = vi.fn(async () => ({
+      paymentIntent: { status: 'canceled' },
+    }))
+    const stripe = { retrievePaymentIntent: retrievePaymentIntentMock }
+    useStripeMock.mockReturnValue(stripe)
+    useElementsMock.mockReturnValue({})
+    PaymentElementMock.mockImplementation(function MockPaymentElement(props: {
+      onReady?: () => void
+    }) {
+      React.useEffect(function notifyReady() {
+        props.onReady?.()
+      }, [])
+      return <div data-testid="payment-element">Payment Element</div>
+    })
+    getStripeLoaderMock.mockReturnValue(Promise.resolve(stripe))
+
+    const originalLocation = window.location
+    const fakeLocation = {
+      ...originalLocation,
+      search:
+        '?payment_intent=pi_123&payment_intent_client_secret=pi_secret',
+    }
+    Object.defineProperty(window, 'location', {
+      value: fakeLocation,
+      writable: true,
+      configurable: true,
+    })
+
+    const onConfirmed = vi.fn()
+    try {
+      render(
+        <BillingCheckout
+          clientSecret="pi_secret"
+          packageName="5 Credits"
+          packageAmountLabel="$25.00"
+          onCancel={vi.fn()}
+          onConfirmed={onConfirmed}
+        />,
+        { wrapper: createWrapper(createTestQueryClient()) },
+      )
+
+      await waitFor(function waitForFailure() {
+        expect(screen.getByText(/couldn't process your payment/i)).toBeInTheDocument()
+      })
+
+      // A matching URL client secret only proves identity — it does NOT prove
+      // success. Never notify the parent or show pending for a non-successful
+      // intent.
+      expect(retrievePaymentIntentMock).toHaveBeenCalledWith('pi_secret')
+      expect(onConfirmed).not.toHaveBeenCalled()
+      expect(screen.queryByText(/credits are being applied/i)).not.toBeInTheDocument()
+    } finally {
+      Object.defineProperty(window, 'location', {
+        value: originalLocation,
+        writable: true,
+        configurable: true,
+      })
+    }
+  })
+
   it('displays the selected package summary', async function run() {
     useStripeMock.mockReturnValue(null)
     useElementsMock.mockReturnValue(null)

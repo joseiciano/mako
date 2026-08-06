@@ -86,17 +86,70 @@ function CheckoutForm(props: {
   const [elementReady, setElementReady] = useState(false)
 
   // When Stripe redirects for 3DS authentication it returns to the page with
-  // `payment_intent` / `payment_intent_client_secret` query params. Detecting
-  // that once — and confirming the returned client secret matches the active
-  // intent — lets us go straight to pending-fulfillment on return instead of
-  // showing "ready" and risking a duplicate confirm against an already-
-  // authenticated intent. Requiring the secret match also prevents a crafted
-  // URL from faking the fulfilled state. Computed lazily so the URL parse only
-  // runs once per mount, not on every render.
+  // `payment_intent` / `payment_intent_client_secret` query params. The
+  // matching client secret proves we were returned for THIS intent (preventing
+  // a crafted URL from faking fulfillment) but it does NOT prove success — the
+  // returned intent may be canceled, requires further action, etc. We must call
+  // `retrievePaymentIntent` to read the authoritative status. Computed lazily
+  // so the URL parse only runs once per mount, not on every render.
   const [returnedFromStripe] = useState(() =>
     typeof window !== 'undefined'
       ? isStripeReturn(window.location.search, props.clientSecret)
       : false,
+  )
+
+  // Guards the async retrieve+reconcile below so it runs exactly once per
+  // mount even if effects re-run (e.g. due to rerenders or prop identity
+  // changes). Prevents duplicate pending/onConfirmed handling.
+  const returnHandledRef = useRef(false)
+
+  useEffect(
+    function reconcileStripeReturn() {
+      if (!returnedFromStripe || returnHandledRef.current || !stripe) {
+        return
+      }
+      returnHandledRef.current = true
+
+      let cancelled = false
+      void (async function reconcile() {
+        try {
+          const { paymentIntent } = await stripe.retrievePaymentIntent(
+            props.clientSecret,
+          )
+          if (cancelled) {
+            return
+          }
+          if (
+            !paymentIntent ||
+            (paymentIntent.status !== 'succeeded' &&
+              paymentIntent.status !== 'processing')
+          ) {
+            // Missing intent, retrieval returned nothing, or the intent did not
+            // succeed (canceled / requires_payment_method / requires_action /
+            // unknown). Never fabricate success from the URL secret alone.
+            setStatus('failed')
+            return
+          }
+          // Credential grant still happens asynchronously via the backend Stripe
+          // webhook, so show pending fulfillment and let the account query refresh
+          // once Postgres updates. We do NOT show a final balance.
+          setStatus('pending-fulfillment')
+          props.onConfirmed()
+          void queryClient.invalidateQueries({ queryKey: accountQueryKey })
+          void queryClient.refetchQueries({ queryKey: accountQueryKey })
+        } catch {
+          if (!cancelled) {
+            setStatus('failed')
+          }
+        }
+      })()
+
+      return function cancel() {
+        cancelled = true
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [returnedFromStripe, stripe, props.clientSecret],
   )
 
   // A new client secret (new package / restart) resets the checkout phase.
@@ -188,12 +241,10 @@ function CheckoutForm(props: {
                 return
               }
               if (returnedFromStripe) {
-                // We landed back after a 3DS redirect; the intent was already
-                // confirmed. Do not offer a duplicate Confirm & pay — go
-                // straight to pending fulfillment and refresh the balance.
-                setStatus('pending-fulfillment')
-                props.onConfirmed()
-                void handleRefreshBalance()
+                // We landed back after a Stripe redirect. The returned intent's
+                // status is reconciled asynchronously via `retrievePaymentIntent`
+                // in the effect above; keep the checkout in a non-interactive
+                // phase until that resolution lands.
                 return
               }
               // The Payment Element reports readiness after it renders and
@@ -213,7 +264,9 @@ function CheckoutForm(props: {
  * redirect-based confirmation (e.g. 3DS) returns to `return_url`, and the
  * returned `payment_intent_client_secret` matches the active draft's client
  * secret. Requiring a match prevents a crafted URL (e.g.
- * `/billing?payment_intent=x`) from faking the succeeded/pending state.
+ * `/billing?payment_intent=x`) from spoofing a return. NOTE: a match only
+ * proves identity of the intent — it does NOT prove payment success. Callers
+ * must still reconcile the authoritative status via `retrievePaymentIntent`.
  */
 export function isStripeReturn(search: string, clientSecret: string): boolean {
   const params = new URLSearchParams(search)
