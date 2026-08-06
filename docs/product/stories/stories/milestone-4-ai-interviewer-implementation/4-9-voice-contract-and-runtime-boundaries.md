@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 4: AI Interviewer Implementation
 **Description**: Define how runtime voice behavior fits AI-led interview session ownership without drifting from existing AI chat, provision, start, or end boundaries.
-**Status**: Todo
+**Status**: Completed
 **Prerequisites**:
 - `docs/system/system-design/api-routes.md`
 - `docs/system/system-design/frontend-pages.md`
@@ -17,16 +17,16 @@
 ## What Needs to Be Done
 
 ### 1. Lock voice ownership to existing AI chat route
-- [ ] Keep runtime speech-to-text input and text-to-speech playback inside documented `POST /api/interviews/:id/ai-chat` ownership rather than introducing a separate backend voice route for this milestone.
-- [ ] Treat voice as runtime wrapper behavior around existing AI chat turns: speech recognition produces same chat `message` contract used by typed input, and playback uses same `reply` content returned from AI chat responses.
+- [x] Keep runtime speech-to-text input and text-to-speech playback inside documented `POST /api/interviews/:id/ai-chat` ownership rather than introducing a separate backend voice route for this milestone.
+- [x] Treat voice as runtime wrapper behavior around existing AI chat turns: speech recognition produces same chat `message` contract used by typed input, and playback uses same `reply` content returned from AI chat responses.
 
 ### 2. Preserve lifecycle and session boundaries
-- [ ] Keep voice scope limited to `mode = 'ai_led'` runtime behavior inside `/interviews/:id/session`.
-- [ ] Ensure voice activity does not create new interview statuses or bypass `POST /api/interviews/:id/provision`, `POST /api/interviews/:id/start`, or `POST /api/interviews/:id/end` ownership.
+- [x] Keep voice scope limited to `mode = 'ai_led'` runtime behavior inside `/interviews/:id/session`.
+- [x] Ensure voice activity does not create new interview statuses or bypass `POST /api/interviews/:id/provision`, `POST /api/interviews/:id/start`, or `POST /api/interviews/:id/end` ownership.
 
 ### 3. Reconcile design docs to locked wrapper model
-- [ ] Update `docs/system/system-design/api-routes.md`, `docs/system/system-design/frontend-pages.md`, and `docs/system/system-design/diagrams.md` only as needed to reflect wrapper-model voice behavior under existing AI chat and session expectations.
-- [ ] Keep documentation aligned with existing AI chat and session lifecycle terminology and explicitly avoid parallel voice-specific lifecycle or route concepts for current scope.
+- [x] Update `docs/system/system-design/api-routes.md`, `docs/system/system-design/frontend-pages.md`, and `docs/system/system-design/diagrams.md` only as needed to reflect wrapper-model voice behavior under existing AI chat and session expectations.
+- [x] Keep documentation aligned with existing AI chat and session lifecycle terminology and explicitly avoid parallel voice-specific lifecycle or route concepts for current scope.
 
 ## Implementation Notes
 - Scope here is contract and documentation alignment to locked wrapper-model voice ownership only.
