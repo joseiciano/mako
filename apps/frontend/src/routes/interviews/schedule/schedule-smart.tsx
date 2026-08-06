@@ -2,6 +2,7 @@ import { useReducer, useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate } from '@tanstack/react-router'
 import { useCreateInterview } from '#/hooks/use-interviews'
 import { useSubmitAvailability } from '#/hooks/use-submit-availability'
+import { useAccount } from '#/hooks/use-account'
 import { ScheduleDumb } from './schedule-dumb'
 import {
   initialScheduleState,
@@ -15,10 +16,12 @@ import {
   buildP2pPayload,
   getFieldErrors,
   getRetryLabel,
+  classifyCreateFailure,
   restoreScheduleDraft,
   serializeScheduleDraft,
   shouldPersistScheduleDraft,
   SCHEDULE_DRAFT_STORAGE_KEY,
+  PENDING_CREATE_GUARD_KEY,
   type ScheduleStep,
   type ScheduleState,
   type FlowSlot,
@@ -28,6 +31,30 @@ import type { InterviewType, InterviewMode } from '@mako/shared'
 
 const P2P_ACCEPTED_MESSAGE =
   'Availability submitted for matcher processing. Your interview will appear after matcher success.'
+
+const AI_QUOTA_EXHAUSTED_MESSAGE =
+  'You have no remaining free AI interviews or credits to start an AI interview. Add credits to continue.'
+
+const AI_NOT_CONFIRMED_MESSAGE =
+  'Your interview was not confirmed as created.'
+
+const PENDING_CREATE_ALERT_MESSAGE =
+  'We could not confirm whether your interview was created. Check your Interviews to avoid duplicates before trying again.'
+
+function readPendingCreateGuard() {
+  if (typeof window === 'undefined') return false
+  return window.sessionStorage.getItem(PENDING_CREATE_GUARD_KEY) === '1'
+}
+
+function writePendingCreateGuard() {
+  if (typeof window === 'undefined') return
+  window.sessionStorage.setItem(PENDING_CREATE_GUARD_KEY, '1')
+}
+
+function clearPendingCreateGuard() {
+  if (typeof window === 'undefined') return
+  window.sessionStorage.removeItem(PENDING_CREATE_GUARD_KEY)
+}
 
 function readInitialScheduleState() {
   if (typeof window === 'undefined') return initialScheduleState
@@ -61,6 +88,7 @@ export function ScheduleSmart() {
   const navigate = useNavigate()
   const createInterview = useCreateInterview()
   const submitAvailability = useSubmitAvailability()
+  const account = useAccount()
 
   const [state, dispatch] = useReducer(
     scheduleReducer,
@@ -70,6 +98,7 @@ export function ScheduleSmart() {
   const [lastSubmissionBranch, setLastSubmissionBranch] =
     useState<SubmissionBranch | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [pendingCreateGuard, setPendingCreateGuard] = useState(readPendingCreateGuard)
   const isDispatchingRef = useRef(false)
 
   const isSubmitting = createInterview.isPending || submitAvailability.isPending
@@ -79,12 +108,41 @@ export function ScheduleSmart() {
       : lastSubmissionBranch === 'ai_led'
         ? createInterview.error?.message ?? null
         : null
-  const errorMessage = state.validationError ?? mutationError
+
+  const isAiImmediate = state.mode === 'ai_led' && state.scheduledAt === 'now'
+  const accountProfile = account.isSuccess && account.data ? account.data : null
+  const aiImmediateExhausted =
+    accountProfile !== null &&
+    accountProfile.freeAiInterviews === 0 &&
+    accountProfile.credits === 0
+  const aiCreateBlocked = isAiImmediate && aiImmediateExhausted
+  const policyNote = isAiImmediate
+    ? 'Free AI interview quota is used first, then credits.'
+    : null
+  const exhaustedMessage = aiCreateBlocked ? AI_QUOTA_EXHAUSTED_MESSAGE : null
+
+  const aiFailureKind =
+    lastSubmissionBranch === 'ai_led'
+      ? classifyCreateFailure(createInterview.error)
+      : null
+  const isAiRetryable = aiFailureKind === 'retryable_transport'
+
+  const errorMessage =
+    state.validationError ??
+    (pendingCreateGuard
+      ? null
+      : aiFailureKind === 'retryable_transport'
+        ? mutationError === null
+          ? AI_NOT_CONFIRMED_MESSAGE
+          : `${mutationError} ${AI_NOT_CONFIRMED_MESSAGE}`
+        : mutationError)
   const retryLabel = getRetryLabel(
     state.validationError,
     mutationError,
     lastSubmissionBranch,
+    lastSubmissionBranch === 'peer_to_peer' ? true : isAiRetryable,
   )
+  const pendingCreateAlert = pendingCreateGuard ? PENDING_CREATE_ALERT_MESSAGE : null
   const fieldErrors = state.fieldErrors ?? getFieldErrors(state)
   const isP2pSubmissionAccepted =
     lastSubmissionBranch === 'peer_to_peer' && successMessage !== null
@@ -173,6 +231,7 @@ export function ScheduleSmart() {
   const handleConfirm = useCallback(
     function handleConfirm() {
       if (isDispatchingRef.current || isP2pSubmissionAccepted) return
+      if (pendingCreateGuard && isAiImmediate) return
 
       dispatch({ type: 'SET_VALIDATION_ERROR', payload: null })
       dispatch({ type: 'SET_FIELD_ERRORS', payload: null })
@@ -183,6 +242,14 @@ export function ScheduleSmart() {
           dispatch({
             type: 'SET_VALIDATION_ERROR',
             payload: 'Please select a valid date and time.',
+          })
+          return
+        }
+
+        if (isAiImmediate && aiCreateBlocked) {
+          dispatch({
+            type: 'SET_VALIDATION_ERROR',
+            payload: AI_QUOTA_EXHAUSTED_MESSAGE,
           })
           return
         }
@@ -200,10 +267,22 @@ export function ScheduleSmart() {
         setLastSubmissionBranch('ai_led')
         createInterview.mutate(payload, {
           onSuccess: async function onCreateSuccess() {
+            clearPendingCreateGuard()
+            setPendingCreateGuard(false)
             clearScheduleDraft()
             await navigate({
               to: payload.scheduled_at === 'now' ? '/interviews' : '/dashboard',
             })
+          },
+          onError: function onCreateError(error) {
+            const kind = classifyCreateFailure(error)
+            if (kind === 'ambiguous_transport') {
+              writePendingCreateGuard()
+              setPendingCreateGuard(true)
+            } else if (kind === 'client_rejection') {
+              clearPendingCreateGuard()
+              setPendingCreateGuard(false)
+            }
           },
           onSettled: function onCreateSettled() {
             isDispatchingRef.current = false
@@ -241,7 +320,16 @@ export function ScheduleSmart() {
         })
       }
     },
-    [state, createInterview, submitAvailability, navigate, isP2pSubmissionAccepted],
+    [
+      state,
+      createInterview,
+      submitAvailability,
+      navigate,
+      isP2pSubmissionAccepted,
+      pendingCreateGuard,
+      isAiImmediate,
+      aiCreateBlocked,
+    ],
   )
 
   const handleRetry = useCallback(
@@ -264,6 +352,10 @@ export function ScheduleSmart() {
       successMessage={successMessage}
       errorMessage={errorMessage}
       retryLabel={retryLabel}
+      policyNote={policyNote}
+      createBlocked={aiCreateBlocked || (pendingCreateGuard && isAiImmediate)}
+      createBlockedMessage={exhaustedMessage}
+      pendingCreateAlert={pendingCreateAlert}
       fieldErrors={fieldErrors}
       canAdvance={canAdvance(state)}
       canGoBack={canGoBack(state)}

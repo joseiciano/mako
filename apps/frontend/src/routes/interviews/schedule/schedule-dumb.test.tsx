@@ -17,6 +17,10 @@ function renderSchedule(props: Partial<ScheduleDumbProps> = {}) {
     successMessage: null,
     errorMessage: null,
     retryLabel: null,
+    policyNote: null,
+    createBlocked: false,
+    createBlockedMessage: null,
+    pendingCreateAlert: null,
     fieldErrors: {},
     canAdvance: false,
     canGoBack: false,
@@ -206,6 +210,57 @@ describe('ScheduleDumb', function scheduleDumbSuite() {
     })
     expect(screen.getByRole('status')).toHaveTextContent(/availability submitted/i)
     expect(screen.getByRole('status')).toHaveTextContent(/matcher success/i)
+    cleanup()
+  })
+
+  it('renders account policy note for immediate AI', function testPolicyNote() {
+    renderSchedule({ policyNote: 'Free AI interview quota is used first, then credits.' })
+    expect(screen.getByText(/free AI interview quota is used first, then credits/i)).toBeDefined()
+    cleanup()
+  })
+
+  it('renders blocked create message and disables confirm', function testCreateBlocked() {
+    renderSchedule({
+      step: 'confirm',
+      visibleSteps: ['type', 'mode', 'timing', 'confirm'],
+      interviewType: 'system_design',
+      mode: 'ai_led',
+      scheduledAt: 'now',
+      createBlocked: true,
+      createBlockedMessage: 'You have no remaining free AI interviews or credits.',
+    })
+    expect(screen.getByRole('alert')).toHaveTextContent(/no remaining free AI interviews or credits/i)
+    expect(
+      screen.getByRole('button', { name: /confirm & schedule/i }),
+    ).toHaveProperty('disabled', true)
+    cleanup()
+  })
+
+  it('renders pending-create alert with no retry action', function testPendingCreateAlert() {
+    renderSchedule({
+      pendingCreateAlert:
+        'We could not confirm whether your interview was created. Check your Interviews to avoid duplicates.',
+    })
+    expect(screen.getByRole('status')).toHaveTextContent(/could not confirm/i)
+    expect(screen.queryByRole('button', { name: /retry/i })).toBeNull()
+    cleanup()
+  })
+
+  it('disables confirm when create is blocked', async function testConfirmDisabledWhenBlocked() {
+    const onConfirm = vi.fn()
+    renderSchedule({
+      step: 'confirm',
+      visibleSteps: ['type', 'mode', 'timing', 'confirm'],
+      interviewType: 'system_design',
+      mode: 'ai_led',
+      scheduledAt: 'now',
+      createBlocked: true,
+      onConfirm,
+    })
+    await userEvent.click(
+      screen.getByRole('button', { name: /confirm & schedule/i }),
+    )
+    expect(onConfirm).not.toHaveBeenCalled()
     cleanup()
   })
 

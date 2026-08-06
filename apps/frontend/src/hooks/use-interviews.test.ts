@@ -415,6 +415,34 @@ describe('use-interviews data layer', function useInterviewsSuite() {
     ).rejects.toThrow('Insufficient credits')
   })
 
+  it('carries the HTTP status on failed create rejections', async function run() {
+    vi.stubEnv(
+      'VITE_AUTH_BASE_URL',
+      'https://api.test.local/api/auth',
+    )
+
+    await expect(
+      createInterview(
+        {
+          type: 'system_design',
+          mode: 'ai_led',
+          scheduled_at: 'now',
+        },
+        async function mockFetch() {
+          return new Response(
+            JSON.stringify({ error: 'Insufficient credits' }),
+            {
+              status: 402,
+              headers: {
+                'content-type': 'application/json',
+              },
+            },
+          )
+        },
+      ),
+    ).rejects.toMatchObject({ status: 402 })
+  })
+
   it('falls back to a stable error message when create payload omits error field', async function run() {
     vi.stubEnv(
       'VITE_AUTH_BASE_URL',

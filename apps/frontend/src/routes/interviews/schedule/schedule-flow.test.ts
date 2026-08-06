@@ -13,6 +13,7 @@ import {
   getFieldErrors,
   hasFieldErrors,
   getRetryLabel,
+  classifyCreateFailure,
   normalizeRestoredScheduleState,
   restoreScheduleDraft,
   serializeScheduleDraft,
@@ -840,6 +841,53 @@ describe('schedule-flow', function scheduleFlowSuite() {
 
     it('hides retry copy when no mutation error exists', function () {
       expect(getRetryLabel(null, null, 'peer_to_peer')).toBeNull()
+    })
+
+    it('hides retry copy when the failure is not retryable', function () {
+      expect(getRetryLabel(null, 'Insufficient credits', 'ai_led', false)).toBeNull()
+    })
+  })
+
+  describe('classifyCreateFailure', function createFailureSuite() {
+    it('classifies non-retryable 4xx as client_rejection', function () {
+      expect(
+        classifyCreateFailure(
+          Object.assign(new Error('Insufficient credits'), { status: 402 }),
+        ),
+      ).toBe('client_rejection')
+      expect(
+        classifyCreateFailure(
+          Object.assign(new Error('Bad request'), { status: 400 }),
+        ),
+      ).toBe('client_rejection')
+    })
+
+    it('classifies 408 and 429 as retryable_transport', function () {
+      expect(
+        classifyCreateFailure(Object.assign(new Error('x'), { status: 429 })),
+      ).toBe('retryable_transport')
+      expect(
+        classifyCreateFailure(Object.assign(new Error('x'), { status: 408 })),
+      ).toBe('retryable_transport')
+    })
+
+    it('classifies server 5xx as ambiguous_transport', function () {
+      expect(
+        classifyCreateFailure(Object.assign(new Error('x'), { status: 500 })),
+      ).toBe('ambiguous_transport')
+      expect(
+        classifyCreateFailure(Object.assign(new Error('x'), { status: 503 })),
+      ).toBe('ambiguous_transport')
+    })
+
+    it('classifies missing status as ambiguous_transport', function () {
+      expect(classifyCreateFailure(new Error('Network failure'))).toBe(
+        'ambiguous_transport',
+      )
+    })
+
+    it('returns null when there is no error', function () {
+      expect(classifyCreateFailure(null)).toBeNull()
     })
   })
 
