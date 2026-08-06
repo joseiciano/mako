@@ -63,6 +63,27 @@ describe('billing-checkout-dumb presentation', function billingCheckoutDumbSuite
     expect(screen.getByRole('button', { name: /confirm & pay/i })).toBeInTheDocument()
   })
 
+  it('keeps the same Payment Element DOM node mounted across ready -> failed -> ready', function run() {
+    const { container, rerender } = render(
+      <BillingCheckoutDumb {...baseProps} status="ready" />,
+    )
+
+    const readyNode = container.querySelector('[data-testid="payment-element"]')
+    expect(readyNode).not.toBeNull()
+
+    // Transition into the failed state. The Payment Element must stay mounted
+    // (real Stripe only fires onReady once on mount), so the SAME DOM node must
+    // still be present — not unmounted and remounted.
+    rerender(<BillingCheckoutDumb {...baseProps} status="failed" />)
+    expect(container.querySelector('[data-testid="payment-element"]')).toBe(readyNode)
+
+    // Retry returns to ready. The confirm button reappears and the element node
+    // is unchanged, proving the confirm flow does not rely on a remount to work.
+    rerender(<BillingCheckoutDumb {...baseProps} status="ready" />)
+    expect(container.querySelector('[data-testid="payment-element"]')).toBe(readyNode)
+    expect(screen.getByRole('button', { name: /confirm & pay/i })).toBeInTheDocument()
+  })
+
   it('disables confirm button until checkout is ready', function run() {
     render(
       <BillingCheckoutDumb
