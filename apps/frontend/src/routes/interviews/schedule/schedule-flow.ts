@@ -3,6 +3,7 @@ import type { InterviewType, InterviewMode } from '@mako/shared'
 export const supportedInterviewTypes: InterviewType[] = ['system_design']
 export const supportedModes: InterviewMode[] = ['ai_led', 'peer_to_peer']
 export const SCHEDULE_DRAFT_STORAGE_KEY = 'mako:schedule-flow:draft:v1'
+export const PENDING_CREATE_GUARD_KEY = 'mako:schedule-flow:pending-create:v1'
 
 const SCHEDULE_DRAFT_VERSION = 1
 
@@ -521,12 +522,47 @@ export function hasFieldErrors(errors: ScheduleFieldErrors): boolean {
   return Object.keys(errors).length > 0
 }
 
+export type CreateFailureKind =
+  | 'client_rejection'
+  | 'retryable_transport'
+  | 'ambiguous_transport'
+
+const RETRYABLE_TRANSPORT_STATUSES = new Set([408, 429])
+
+/**
+ * Classifies an interview-create failure so the UI can decide whether retry
+ * is safe, whether a definitive rejection occurred, or whether the outcome is
+ * ambiguous (server may have committed before failing) and a pending-create
+ * guard is required.
+ *
+ * - 4xx client statuses (e.g. 400, 402 quota, 409, 422) are definitive
+ *   rejections: no retry, no success claim.
+ * - 408/429 are known transient transport rejections: safe to retry.
+ * - 5xx or a missing status (network failure) are ambiguous: the create may
+ *   have been processed server-side, so a pending-create guard is required.
+ */
+export function classifyCreateFailure(error: Error | null): CreateFailureKind | null {
+  if (error === null) return null
+
+  const status = (error as { status?: number }).status
+
+  if (status !== undefined && status >= 400 && status < 500) {
+    return RETRYABLE_TRANSPORT_STATUSES.has(status)
+      ? 'retryable_transport'
+      : 'client_rejection'
+  }
+
+  return 'ambiguous_transport'
+}
+
 export function getRetryLabel(
   validationError: string | null,
   mutationError: string | null,
   lastSubmissionBranch: SubmissionBranch | null,
+  isRetryable = true,
 ): string | null {
   if (validationError !== null || mutationError === null) return null
+  if (!isRetryable) return null
 
   switch (lastSubmissionBranch) {
     case 'peer_to_peer':

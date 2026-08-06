@@ -2,7 +2,11 @@ import { render, screen, cleanup, fireEvent, waitFor } from '@testing-library/re
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import userEvent from '@testing-library/user-event'
 import { ScheduleSmart } from './schedule-smart'
-import { SCHEDULE_DRAFT_STORAGE_KEY, serializeScheduleDraft } from './schedule-flow'
+import {
+  SCHEDULE_DRAFT_STORAGE_KEY,
+  PENDING_CREATE_GUARD_KEY,
+  serializeScheduleDraft,
+} from './schedule-flow'
 
 const mockNavigate = vi.fn()
 
@@ -41,6 +45,37 @@ vi.mock('#/hooks/use-submit-availability', () => ({
   }),
 }))
 
+const accountFixture = {
+  id: 'demo-user',
+  email: 'demo@mako.dev',
+  displayName: 'Demo Candidate',
+  credits: 1,
+  freeStandardInterviews: 1,
+  freeAiInterviews: 1,
+  createdAt: '2026-01-01T00:00:00.000Z',
+}
+
+let mockAccountData: typeof accountFixture | null = accountFixture
+let mockAccountIsLoading = false
+let mockAccountIsError = false
+
+vi.mock('#/hooks/use-account', () => ({
+  useAccount: () => ({
+    get data() {
+      return mockAccountData
+    },
+    get isLoading() {
+      return mockAccountIsLoading
+    },
+    get isError() {
+      return mockAccountIsError
+    },
+    get isSuccess() {
+      return !mockAccountIsLoading && !mockAccountIsError && mockAccountData !== null
+    },
+  }),
+}))
+
 
 describe('ScheduleSmart', function scheduleSmartSuite() {
   beforeEach(function () {
@@ -51,6 +86,9 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
     mockCreateError = null
     mockAvailabilityIsPending = false
     mockAvailabilityError = null
+    mockAccountData = accountFixture
+    mockAccountIsLoading = false
+    mockAccountIsError = false
     window.sessionStorage.clear()
   })
 
@@ -465,9 +503,16 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
     cleanup()
   })
 
-  it('shows AI-specific retry action after create failure', async function testAiRetryAction() {
+  it('shows AI-specific retry action after a retryable create failure', async function testAiRetryAction() {
     const user = userEvent.setup()
+    mockCreateError = Object.assign(
+      new Error('Service temporarily unavailable'),
+      { status: 429 },
+    )
     mockCreateMutate.mockImplementationOnce(function (_payload, options) {
+      if (options?.onError) {
+        options.onError(mockCreateError)
+      }
       if (options?.onSettled) {
         options.onSettled()
       }
@@ -482,7 +527,10 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await user.click(screen.getByRole('button', { name: /confirm & schedule/i }))
 
-    mockCreateError = new Error('Insufficient credits')
+    mockCreateError = Object.assign(
+      new Error('Service temporarily unavailable'),
+      { status: 429 },
+    )
     rerender(<ScheduleSmart />)
 
     await user.click(screen.getByRole('button', { name: /retry scheduling/i }))
@@ -495,7 +543,14 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
   it('clears stale AI retry state when user changes branch after failure', async function testRetryClearsOnModeChange() {
     const user = userEvent.setup()
+    mockCreateError = Object.assign(
+      new Error('Service temporarily unavailable'),
+      { status: 429 },
+    )
     mockCreateMutate.mockImplementationOnce(function (_payload, options) {
+      if (options?.onError) {
+        options.onError(mockCreateError)
+      }
       if (options?.onSettled) {
         options.onSettled()
       }
@@ -510,7 +565,10 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await user.click(screen.getByRole('button', { name: /confirm & schedule/i }))
 
-    mockCreateError = new Error('Insufficient credits')
+    mockCreateError = Object.assign(
+      new Error('Service temporarily unavailable'),
+      { status: 429 },
+    )
     rerender(<ScheduleSmart />)
     expect(screen.getByRole('button', { name: /retry scheduling/i })).toBeDefined()
 
@@ -699,6 +757,287 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     expect(window.sessionStorage.getItem(SCHEDULE_DRAFT_STORAGE_KEY)).toBeNull()
     expect(mockNavigate).not.toHaveBeenCalled()
+
+    cleanup()
+  })
+
+  it('renders account policy note for immediate AI confirm', async function testPolicyNote() {
+    const user = userEvent.setup()
+    render(<ScheduleSmart />)
+
+    await user.click(screen.getByText('System Design'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('Start now'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    expect(
+      screen.getByText(/free AI interview quota is used first, then credits/i),
+    ).toBeDefined()
+
+    cleanup()
+  })
+
+  it('blocks immediate AI create without mutation when profile is exhausted', async function testExhaustedBlocksAiCreate() {
+    mockAccountData = { ...accountFixture, freeAiInterviews: 0, credits: 0 }
+    const user = userEvent.setup()
+    render(<ScheduleSmart />)
+
+    await user.click(screen.getByText('System Design'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('Start now'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    const confirmButton = screen.getByRole('button', { name: /confirm & schedule/i })
+    expect(confirmButton).toHaveProperty('disabled', true)
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      /no remaining free AI interviews or credits/i,
+    )
+    expect(mockCreateMutate).not.toHaveBeenCalled()
+
+    cleanup()
+  })
+
+  it('does not block P2P create when account is exhausted', async function testExhaustedAllowsP2p() {
+    mockAccountData = { ...accountFixture, freeAiInterviews: 0, credits: 0 }
+    const user = userEvent.setup()
+    render(<ScheduleSmart />)
+
+    await user.click(screen.getByText('System Design'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('Peer-to-Peer'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    await user.clear(screen.getByLabelText(/maximum matches/i))
+    await user.type(screen.getByLabelText(/maximum matches/i), '2')
+    await user.click(screen.getByRole('button', { name: /add slot/i }))
+    fireEvent.change(screen.getByLabelText(/slot 1 start time/i), {
+      target: { value: '2026-06-10T10:00' },
+    })
+    fireEvent.change(screen.getByLabelText(/slot 1 end time/i), {
+      target: { value: '2026-06-10T11:00' },
+    })
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: /confirm & schedule/i }))
+
+    expect(mockAvailabilityMutate).toHaveBeenCalledTimes(1)
+    expect(mockCreateMutate).not.toHaveBeenCalled()
+
+    cleanup()
+  })
+
+  it('does not block future scheduled AI create when account is exhausted', async function testExhaustedAllowsFutureAi() {
+    mockAccountData = { ...accountFixture, freeAiInterviews: 0, credits: 0 }
+    const user = userEvent.setup()
+    render(<ScheduleSmart />)
+
+    await user.click(screen.getByText('System Design'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('Schedule for later'))
+    fireEvent.change(screen.getByLabelText(/date and time/i), {
+      target: { value: '2026-06-10T10:00' },
+    })
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: /confirm & schedule/i }))
+
+    expect(mockCreateMutate).toHaveBeenCalledTimes(1)
+
+    cleanup()
+  })
+
+  it('does not block immediate AI create when account is still loading', async function testLoadingAccountAllowsCreate() {
+    mockAccountData = null
+    mockAccountIsLoading = true
+    const user = userEvent.setup()
+    render(<ScheduleSmart />)
+
+    await user.click(screen.getByText('System Design'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('Start now'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    const confirmButton = screen.getByRole('button', { name: /confirm & schedule/i })
+    expect(confirmButton).toHaveProperty('disabled', false)
+    await user.click(confirmButton)
+    expect(mockCreateMutate).toHaveBeenCalledTimes(1)
+
+    cleanup()
+  })
+
+  it('known quota rejection is no-retry and does not claim success', async function testQuotaRejectionNoRetry() {
+    const user = userEvent.setup()
+    mockCreateError = Object.assign(new Error('Insufficient credits'), {
+      status: 402,
+    })
+    mockCreateMutate.mockImplementationOnce(function (_payload, options) {
+      if (options?.onError) {
+        options.onError(mockCreateError)
+      }
+      if (options?.onSettled) {
+        options.onSettled()
+      }
+    })
+    render(<ScheduleSmart />)
+
+    await user.click(screen.getByText('System Design'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('Start now'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: /confirm & schedule/i }))
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Insufficient credits')
+    expect(screen.queryByRole('button', { name: /retry/i })).toBeNull()
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(mockNavigate).not.toHaveBeenCalled()
+    expect(window.sessionStorage.getItem(PENDING_CREATE_GUARD_KEY)).toBeNull()
+
+    cleanup()
+  })
+
+  it('known retryable transport failure shows retry and not-confirmed message', async function testRetryableTransport() {
+    const user = userEvent.setup()
+    mockCreateError = Object.assign(
+      new Error('Service temporarily unavailable'),
+      { status: 429 },
+    )
+    mockCreateMutate.mockImplementationOnce(function (_payload, options) {
+      if (options?.onError) {
+        options.onError(mockCreateError)
+      }
+      if (options?.onSettled) {
+        options.onSettled()
+      }
+    })
+    render(<ScheduleSmart />)
+
+    await user.click(screen.getByText('System Design'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('Start now'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: /confirm & schedule/i }))
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/not confirmed as created/i)
+    expect(screen.getByRole('button', { name: /retry scheduling/i })).toBeDefined()
+    expect(window.sessionStorage.getItem(PENDING_CREATE_GUARD_KEY)).toBeNull()
+
+    cleanup()
+  })
+
+  it('persists pending-create guard on ambiguous failure and blocks second create after remount', async function testAmbiguousFailureGuard() {
+    const user = userEvent.setup()
+    mockCreateError = new Error('Network failure')
+    mockCreateMutate.mockImplementationOnce(function (_payload, options) {
+      if (options?.onError) {
+        options.onError(mockCreateError)
+      }
+      if (options?.onSettled) {
+        options.onSettled()
+      }
+    })
+
+    const { unmount } = render(<ScheduleSmart />)
+
+    await user.click(screen.getByText('System Design'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('Start now'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByRole('button', { name: /confirm & schedule/i }))
+
+    expect(window.sessionStorage.getItem(PENDING_CREATE_GUARD_KEY)).toBe('1')
+    expect(screen.getByRole('status')).toHaveTextContent(/could not confirm/i)
+    expect(screen.getByRole('button', { name: /confirm & schedule/i })).toHaveProperty(
+      'disabled',
+      true,
+    )
+
+    unmount()
+    cleanup()
+
+    render(<ScheduleSmart />)
+
+    expect(screen.getByRole('status')).toHaveTextContent(/could not confirm/i)
+    const confirmButton = screen.getByRole('button', { name: /confirm & schedule/i })
+    expect(confirmButton).toHaveProperty('disabled', true)
+    await user.click(confirmButton)
+    expect(mockCreateMutate).toHaveBeenCalledTimes(1)
+
+    cleanup()
+  })
+
+  it('does not block P2P availability mutation when pending immediate-create guard is persisted', async function testGuardDoesNotBlockP2p() {
+    window.sessionStorage.setItem(PENDING_CREATE_GUARD_KEY, '1')
+    window.sessionStorage.setItem(
+      SCHEDULE_DRAFT_STORAGE_KEY,
+      serializeScheduleDraft({
+        step: 'confirm',
+        interviewType: 'system_design',
+        mode: 'peer_to_peer',
+        scheduledAt: null,
+        maxMatches: 2,
+        slots: [
+          {
+            startTime: '2026-06-10T10:00:00.000Z',
+            endTime: '2026-06-10T11:00:00.000Z',
+          },
+        ],
+        validationError: null,
+        fieldErrors: null,
+      }),
+    )
+
+    const user = userEvent.setup()
+    render(<ScheduleSmart />)
+
+    const confirmButton = screen.getByRole('button', { name: /confirm & schedule/i })
+    expect(confirmButton).toHaveProperty('disabled', false)
+
+    await user.click(confirmButton)
+
+    expect(mockAvailabilityMutate).toHaveBeenCalledTimes(1)
+    expect(mockCreateMutate).not.toHaveBeenCalled()
+
+    cleanup()
+  })
+
+  it('does not block future scheduled AI create when pending immediate-create guard is persisted', async function testGuardDoesNotBlockFutureAi() {
+    window.sessionStorage.setItem(PENDING_CREATE_GUARD_KEY, '1')
+    window.sessionStorage.setItem(
+      SCHEDULE_DRAFT_STORAGE_KEY,
+      serializeScheduleDraft({
+        step: 'confirm',
+        interviewType: 'system_design',
+        mode: 'ai_led',
+        scheduledAt: '2026-06-10T10:00:00.000Z',
+        maxMatches: null,
+        slots: [],
+        validationError: null,
+        fieldErrors: null,
+      }),
+    )
+
+    const user = userEvent.setup()
+    render(<ScheduleSmart />)
+
+    const confirmButton = screen.getByRole('button', { name: /confirm & schedule/i })
+    expect(confirmButton).toHaveProperty('disabled', false)
+
+    await user.click(confirmButton)
+
+    expect(mockCreateMutate).toHaveBeenCalledTimes(1)
+    expect(mockAvailabilityMutate).not.toHaveBeenCalled()
 
     cleanup()
   })

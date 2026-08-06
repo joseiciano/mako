@@ -46,7 +46,9 @@ import {
   demoSessionHeaders,
   parseResponse,
   readErrorMessage,
+  ApiError,
 } from '../lib/http-transport'
+import { accountQueryKey } from './use-account'
 
 export type InterviewListFilters = Partial<InterviewListQuery>
 
@@ -126,8 +128,10 @@ export function useCreateInterview(): UseMutationResult<
     mutationFn: function createInterviewMutation(payload) {
       return createInterview(payload)
     },
+    retry: false,
     onSuccess: async function onCreateSuccess() {
       await invalidateInterviewSurfaces(queryClient)
+      await queryClient.invalidateQueries({ queryKey: accountQueryKey })
     },
   })
 }
@@ -266,7 +270,10 @@ export async function createInterview(
   const responsePayload = await parseResponse(response)
 
   if (!response.ok) {
-    throw new Error(readErrorMessage(responsePayload, 'Unable to create interview.'))
+    throw new ApiError(
+      readErrorMessage(responsePayload, 'Unable to create interview.'),
+      response.status,
+    )
   }
 
   return createInterviewResponseSchema.parse(responsePayload)

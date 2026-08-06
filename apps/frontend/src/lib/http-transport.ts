@@ -5,6 +5,16 @@ export const demoSessionHeaders: Record<string, string> = import.meta.env.DEV
     }
   : {}
 
+export class ApiError extends Error {
+  readonly status?: number
+
+  constructor(message: string, status?: number) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+  }
+}
+
 export function createApiUrl(path: string): string {
   const apiBaseUrl = getApiBaseUrl().replace(/\/$/, '')
   const apiPath = normalizeApiPath(path)

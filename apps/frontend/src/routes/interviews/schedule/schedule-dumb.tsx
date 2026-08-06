@@ -18,6 +18,10 @@ export type ScheduleDumbProps = {
   successMessage: string | null
   errorMessage: string | null
   retryLabel: string | null
+  policyNote: string | null
+  createBlocked: boolean
+  createBlockedMessage: string | null
+  pendingCreateAlert: string | null
   fieldErrors: ScheduleFieldErrors
   canAdvance: boolean
   canGoBack: boolean
@@ -543,6 +547,30 @@ export function ScheduleDumb(props: ScheduleDumbProps) {
         </section>
       ) : null}
 
+      {props.pendingCreateAlert ? (
+        <section
+          className="rounded-xl border border-amber-500/60 bg-amber-500/10 p-4 text-sm text-amber-100"
+          role="status"
+        >
+          <p>{props.pendingCreateAlert}</p>
+        </section>
+      ) : null}
+
+      {props.policyNote ? (
+        <section className="rounded-xl border border-slate-700 bg-slate-900/60 p-4 text-sm text-slate-300">
+          <p>{props.policyNote}</p>
+        </section>
+      ) : null}
+
+      {props.createBlockedMessage ? (
+        <section
+          className="rounded-xl border border-rose-500/60 bg-rose-500/10 p-4 text-sm text-rose-100"
+          role="alert"
+        >
+          <p>{props.createBlockedMessage}</p>
+        </section>
+      ) : null}
+
       <section className="rounded-xl border border-slate-800 bg-slate-900/60 p-6">
         <StepIndicator
           steps={props.visibleSteps}
@@ -614,7 +642,9 @@ export function ScheduleDumb(props: ScheduleDumbProps) {
             <button
               type="button"
               onClick={props.onConfirm}
-              disabled={props.isSubmitting || props.successMessage !== null}
+              disabled={
+                props.isSubmitting || props.successMessage !== null || props.createBlocked
+              }
               className="inline-flex w-fit items-center justify-center rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-70"
             >
               {props.successMessage
