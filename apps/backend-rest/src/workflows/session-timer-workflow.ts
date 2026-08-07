@@ -3,7 +3,12 @@ import {
   type WorkflowEvent,
   type WorkflowStep,
 } from 'cloudflare:workers'
-import { InterviewRepository } from '@mako/shared-backend'
+import {
+  InterviewRepository,
+  buildInterviewCompletedEvent,
+  NotificationRepository,
+  NotificationService,
+} from '@mako/shared-backend'
 import type { TimerStartParams } from '@mako/shared-backend'
 import type { WorkerBindings } from '../index'
 import { createDatabaseQueryExecutor } from '../database'
@@ -79,7 +84,16 @@ export class SessionTimerWorkflow extends WorkflowEntrypoint<
 
     await step.do('complete_interview', async function completeInterview() {
       const queryExecutor = createDatabaseQueryExecutor(env)
-      const repository = new InterviewRepository({ queryExecutor })
+      const notificationRepository = new NotificationRepository({ queryExecutor })
+      const notificationService = new NotificationService(notificationRepository)
+      const repository = new InterviewRepository({
+        queryExecutor,
+        persistOutboxEvent: async function persistOutboxEvent(event) {
+          await notificationService.persistOutboxEvent(
+            event as Parameters<NotificationService['persistOutboxEvent']>[0],
+          )
+        },
+      })
 
       const interview = await repository.getInterviewById(params.interview_id)
 
@@ -93,13 +107,17 @@ export class SessionTimerWorkflow extends WorkflowEntrypoint<
         return { completed: false, reason: 'not_found' }
       }
 
+      const outboxEvent = buildInterviewCompletedEvent({
+        interview: { ...interview, status: 'completed' },
+      })
+
       const transitionResult = await repository.transitionInterviewLifecycle({
         interview_id: params.interview_id,
         participant_user_id: interview.scheduler_id,
         action: 'end',
         updated_at: new Date().toISOString(),
         started_at_precondition: params.started_at,
-      })
+      }, outboxEvent)
 
       if (
         transitionResult.outcome === 'completed' ||

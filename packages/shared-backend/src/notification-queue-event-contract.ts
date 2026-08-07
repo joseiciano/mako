@@ -61,6 +61,10 @@ export const matchedQueueEventInterviewSchema = z.object({
   scheduled_at: z.string().datetime({ offset: true }),
 })
 
+const completedQueueEventInterviewSchema = queueEventInterviewSchema.extend({
+  status: z.literal('completed'),
+})
+
 export const queueEventParticipantsSchema = z.object({
   scheduler_user_id: z.string().uuid(),
   interviewer_user_id: z.string().uuid().nullable(),
@@ -162,10 +166,26 @@ export type InterviewMatchCreatedEvent = z.infer<
   typeof interviewMatchCreatedEventSchema
 >
 
+export const interviewCompletedEventSchema = createParticipantMirrorRefinement(
+  z.object({
+    event_type: z.literal('interview.completed'),
+    event_id: z.string().uuid(),
+    idempotency_key: z.string().min(1),
+    occurred_at: eventTimestampSchema,
+    interview: completedQueueEventInterviewSchema,
+    participants: queueEventParticipantsSchema,
+  }),
+)
+
+export type InterviewCompletedEvent = z.infer<
+  typeof interviewCompletedEventSchema
+>
+
 export type NotificationQueueEvent =
   | InterviewCreatedEvent
   | InterviewCancelledEvent
   | InterviewMatchCreatedEvent
+  | InterviewCompletedEvent
 
 export type NotificationQueueEventPublisher = {
   publish(event: NotificationQueueEvent): Promise<void>
@@ -272,6 +292,35 @@ export function buildInterviewMatchCreatedIdempotencyKey(
   return `interview.match.created:${interviewId}`
 }
 
+export function buildInterviewCompletedEvent(
+  input: {
+    interview: z.input<typeof queueEventInterviewSchema>
+  },
+  dependencies: BuildEventDependencies = {},
+): InterviewCompletedEvent {
+  const createEventId = dependencies.createEventId ?? createDefaultEventId
+  const now = dependencies.now ?? createDefaultNow
+  const interview = completedQueueEventInterviewSchema.parse(input.interview)
+
+  return interviewCompletedEventSchema.parse({
+    event_type: 'interview.completed',
+    event_id: createEventId(),
+    idempotency_key: buildInterviewCompletedIdempotencyKey(interview.id),
+    occurred_at: now(),
+    interview,
+    participants: {
+      scheduler_user_id: interview.scheduler_id,
+      interviewer_user_id: interview.interviewer_id,
+    },
+  })
+}
+
+export function buildInterviewCompletedIdempotencyKey(
+  interviewId: string,
+): string {
+  return `interview.completed:${interviewId}`
+}
+
 export function createNotificationQueueEventPublisher(
   queueTransport: NotificationQueueTransport,
 ): NotificationQueueEventPublisher {
@@ -282,7 +331,9 @@ export function createNotificationQueueEventPublisher(
           ? interviewCreatedEventSchema.parse(event)
           : event.event_type === 'interview.cancelled'
             ? interviewCancelledEventSchema.parse(event)
-            : interviewMatchCreatedEventSchema.parse(event)
+            : event.event_type === 'interview.completed'
+              ? interviewCompletedEventSchema.parse(event)
+              : interviewMatchCreatedEventSchema.parse(event)
       await queueTransport.send(payload)
     },
   }

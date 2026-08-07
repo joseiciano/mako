@@ -48,9 +48,11 @@ export * from './interview-assets'
 export {
   interviewCreatedEventSchema,
   interviewCancelledEventSchema,
+  interviewCompletedEventSchema,
   interviewMatchCreatedEventSchema,
   type InterviewCreatedEvent,
   type InterviewCancelledEvent,
+  type InterviewCompletedEvent,
   type InterviewMatchCreatedEvent,
   type NotificationQueueEvent,
   type NotificationQueueEventPublisher,

@@ -23,6 +23,7 @@ import { AiChatProviderError } from './ai-gateway-responder'
 import { InterviewRepository } from './interview-repository'
 import {
   buildInterviewCancelledEvent,
+  buildInterviewCompletedEvent,
   buildInterviewCreatedEvent,
   type InterviewCreatedEvent,
   type InterviewPostCommitEventPublisher,
@@ -434,12 +435,27 @@ export class InterviewService {
       action: 'end',
     })
 
-    const transitionResult = await this.interviewRepository.transitionInterviewLifecycle({
+    const existingInterview = await this.interviewRepository.getParticipantInterviewById({
       interview_id: input.id,
       participant_user_id: participantUserId,
-      action: 'end',
-      updated_at: this.now(),
     })
+
+    const outboxEvent =
+      existingInterview && this.notificationService
+        ? buildInterviewCompletedEvent({
+            interview: { ...existingInterview, status: 'completed' },
+          })
+        : undefined
+
+    const transitionResult = await this.interviewRepository.transitionInterviewLifecycle(
+      {
+        interview_id: input.id,
+        participant_user_id: participantUserId,
+        action: 'end',
+        updated_at: this.now(),
+      },
+      outboxEvent,
+    )
 
     switch (transitionResult.outcome) {
       case 'completed':
@@ -450,6 +466,34 @@ export class InterviewService {
           outcome: 'completed',
           status: transitionResult.interview.status,
         })
+        if (this.notificationDispatchService && this.notificationTransport && outboxEvent) {
+          try {
+            await this.notificationDispatchService.dispatchOutboxEventByIdempotencyKey(
+              outboxEvent.idempotency_key,
+              this.notificationTransport,
+            )
+          } catch (error) {
+            this.logSafely('error', 'interview.post_commit_dispatch_failure', {
+              operation: 'end',
+              interview_id: transitionResult.interview.id,
+              error_message: toErrorMessage(error),
+            })
+          }
+        } else if (this.postCommitEventPublisher) {
+          try {
+            await this.postCommitEventPublisher.publish(
+              buildInterviewCompletedEvent({
+                interview: transitionResult.interview,
+              }),
+            )
+          } catch (error) {
+            this.logSafely('error', 'interview.post_commit_publish_failure', {
+              operation: 'end',
+              interview_id: transitionResult.interview.id,
+              error_message: toErrorMessage(error),
+            })
+          }
+        }
         return toInterviewLifecycleActionResponse(transitionResult.interview)
       case 'already_completed':
         this.logSafely('info', 'end_succeeded', {
