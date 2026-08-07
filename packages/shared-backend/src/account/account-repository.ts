@@ -26,7 +26,18 @@ export interface AccountRepositoryDataSource {
 export type AddCompanyRecordInput = {
   userId: string
   company: string
-  joined: string
+  role: string | null
+  joined: string // ISO-8601 timestamp
+  endedAt: string | null // ISO-8601 timestamp or null
+}
+
+export type UpdateCompanyRecordInput = {
+  id: string
+  userId: string
+  company: string
+  role: string
+  joined: string // ISO-8601 timestamp (from start date)
+  endedAt: string | null // ISO-8601 timestamp or null
 }
 
 type AccountRepositoryDependencies = {
@@ -191,14 +202,16 @@ export class AccountRepository {
           id,
           user_id,
           company,
+          role,
           joined,
+          ended_at,
           created_at,
           updated_at,
           deleted_at
         FROM user_companies
         WHERE user_id = $1
           AND deleted_at IS NULL
-        ORDER BY joined DESC, created_at DESC;
+        ORDER BY joined DESC, created_at DESC, id ASC;
       `,
       values: [userId],
     }
@@ -211,23 +224,42 @@ export class AccountRepository {
   }
 
   async addCompanyRecord(input: AddCompanyRecordInput): Promise<UserCompany> {
+    const recordId = crypto.randomUUID()
+    const now = new Date().toISOString()
+
     const query: SqlQuery = {
       text: `
         INSERT INTO user_companies (
+          id,
           user_id,
           company,
-          joined
-        ) VALUES ($1, $2, $3)
+          role,
+          joined,
+          ended_at,
+          created_at,
+          updated_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING
           id,
           user_id,
           company,
+          role,
           joined,
+          ended_at,
           created_at,
           updated_at,
           deleted_at;
       `,
-      values: [input.userId, input.company, input.joined],
+      values: [
+        recordId,
+        input.userId,
+        input.company,
+        input.role,
+        input.joined,
+        input.endedAt,
+        now,
+        now,
+      ],
     }
 
     const result = await this.getQueryExecutor().query<UserCompanyRow>(query)
@@ -238,6 +270,97 @@ export class AccountRepository {
     }
 
     return toUserCompany(createdRow)
+  }
+
+  async updateCompanyRecord(
+    input: UpdateCompanyRecordInput,
+  ): Promise<UserCompany | null> {
+    const now = new Date().toISOString()
+
+    const query: SqlQuery = {
+      text: `
+        UPDATE user_companies
+        SET company = $3,
+            role = $4,
+            joined = $5,
+            ended_at = $6,
+            updated_at = $7
+        WHERE id = $1
+          AND user_id = $2
+          AND deleted_at IS NULL
+        RETURNING
+          id,
+          user_id,
+          company,
+          role,
+          joined,
+          ended_at,
+          created_at,
+          updated_at,
+          deleted_at;
+      `,
+      values: [
+        input.id,
+        input.userId,
+        input.company,
+        input.role,
+        input.joined,
+        input.endedAt,
+        now,
+      ],
+    }
+
+    const result = await this.getQueryExecutor().query<UserCompanyRow>(query)
+    const [updatedRow] = result.rows
+
+    if (!updatedRow) {
+      return null
+    }
+
+    return toUserCompany(updatedRow)
+  }
+
+  async softDeleteCompanyRecord(input: {
+    id: string
+    userId: string
+  }): Promise<boolean> {
+    const now = new Date().toISOString()
+
+    const query: SqlQuery = {
+      text: `
+        UPDATE user_companies
+        SET deleted_at = $3,
+            updated_at = $4
+        WHERE id = $1
+          AND user_id = $2
+          AND deleted_at IS NULL
+        RETURNING id;
+      `,
+      values: [input.id, input.userId, now, now],
+    }
+
+    const result = await this.getQueryExecutor().query<{ id: string }>(query)
+
+    if (typeof result.rowCount === 'number') {
+      return result.rowCount > 0
+    }
+
+    return result.rows.length > 0
+  }
+
+  async isUserActive(userId: string): Promise<boolean> {
+    const query: SqlQuery = {
+      text: `
+        SELECT 1 FROM "user"
+        WHERE id = $1
+          AND deleted_at IS NULL
+        LIMIT 1;
+      `,
+      values: [userId],
+    }
+
+    const result = await this.getQueryExecutor().query<{ exists: number }>(query)
+    return result.rows.length > 0
   }
 
   private getDataSource(): AccountRepositoryDataSource {

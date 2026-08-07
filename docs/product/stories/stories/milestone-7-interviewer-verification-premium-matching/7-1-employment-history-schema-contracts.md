@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 7: Interviewer Verification & Premium Matching
 **Description**: Extend the existing `user_companies` model into the canonical employment-history source used by interviewer applications, while preserving existing records and keeping verification at the application/account level rather than on individual employment rows.
-**Status**: Todo
+**Status**: done
 
 ## What Needs to Be Done
 

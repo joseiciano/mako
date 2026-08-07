@@ -18,10 +18,13 @@ import {
   InterviewRepository,
   InterviewService,
   type InterviewServiceLogger,
+  InterviewerApplicationRepository,
+  InterviewerApplicationService,
   PaymentService,
   backendRuntime,
   createAiGatewayResponder,
   createInMemoryAvailabilityDataSource,
+  createInMemoryInterviewerApplicationDataSource,
   createAuthSessionMiddleware,
   createBetterAuth,
   createDemoRealtimeProvider,
@@ -40,6 +43,7 @@ import {
   registerAvailabilityController,
   registerCreditController,
   registerInterviewController,
+  registerInterviewerApplicationController,
   registerPaymentController,
   createInterviewQueuePostCommitEventPublisher,
   createWorkflowTimerOrchestration,
@@ -53,6 +57,7 @@ import {
   type AiChatServicePort,
   type CreateInterviewRecordInput,
   type InterviewRepositoryDataSource,
+  type InterviewerApplicationRepositoryDataSource,
   type LifecycleInterviewRecordInput,
   type LifecycleInterviewRecordResult,
   type ProvisionInterviewRecordInput,
@@ -60,6 +65,8 @@ import {
   type RealtimeProvider,
   type SqlQuery,
   type SqlQueryExecutor,
+  type AccountServiceLogger,
+  type InterviewerApplicationServiceLogger,
   type PaymentServiceLogger,
   type StripeClient,
 } from '@mako/shared-backend'
@@ -135,6 +142,24 @@ const consolePaymentLogger: PaymentServiceLogger = {
   },
 }
 
+const consoleAccountServiceLogger: AccountServiceLogger = {
+  info(event, context) {
+    console.info({ event, component: 'AccountService', ...context })
+  },
+  error(event, context) {
+    console.error({ event, component: 'AccountService', ...context })
+  },
+}
+
+const consoleInterviewerApplicationServiceLogger: InterviewerApplicationServiceLogger = {
+  info(event, context) {
+    console.info({ event, component: 'InterviewerApplicationService', ...context })
+  },
+  error(event, context) {
+    console.error({ event, component: 'InterviewerApplicationService', ...context })
+  },
+}
+
 export function createApp(): Hono<{ Bindings: WorkerBindings }> {
   const app = new Hono<{ Bindings: WorkerBindings }>()
   const demoDataSources = createDemoDataSources(seededDemoAccounts)
@@ -177,6 +202,8 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
                 queryExecutor: createDatabaseQueryExecutor(context.bindings),
               },
         ),
+        async function noopCleanupWorkflow() {},
+        consoleAccountServiceLogger,
       )
     },
     resolveSession: function resolveSession(context) {
@@ -266,6 +293,26 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
       )
 
       return new AvailabilityService(repository)
+    },
+    resolveSession: function resolveSession(context) {
+      return resolveAppSession(context, demoSessionResolver)
+    },
+  })
+
+  registerInterviewerApplicationController(app, {
+    createService: function createService(context) {
+      const queryExecutor = hasDatabaseAccess(context.bindings)
+        ? createDatabaseQueryExecutor(context.bindings)
+        : undefined
+
+      return new InterviewerApplicationService(
+        new InterviewerApplicationRepository(
+          queryExecutor
+            ? { queryExecutor }
+            : { dataSource: demoDataSources.interviewerApplication },
+        ),
+        consoleInterviewerApplicationServiceLogger,
+      )
     },
     resolveSession: function resolveSession(context) {
       return resolveAppSession(context, demoSessionResolver)
@@ -364,6 +411,7 @@ function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
   account: AccountRepositoryDataSource
   interview: InterviewRepositoryDataSource
   availability: AvailabilityRepositoryDataSource
+  interviewerApplication: InterviewerApplicationRepositoryDataSource
 } {
   const accountProfilesById = new Map<string, AccountProfileRecord>()
   const interviewsById = new Map<
@@ -371,6 +419,7 @@ function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
     ReturnType<typeof mergeDetailProcessingState>
   >()
   const availabilityDataSource = createInMemoryAvailabilityDataSource()
+  const interviewerApplicationDataSource = createInMemoryInterviewerApplicationDataSource()
 
   for (const account of seedAccounts) {
     accountProfilesById.set(account.id, structuredClone(account))
@@ -670,8 +719,9 @@ function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
           interview: structuredClone(completedInterview),
         }
       },
-    },
+      },
     availability: availabilityDataSource,
+    interviewerApplication: interviewerApplicationDataSource,
   }
 }
 

@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 7: Interviewer Verification & Premium Matching
 **Description**: Add the versioned Postgres persistence foundation for immutable interviewer applications, including lifecycle constraints, query indexes, and backend database-row validation. Application submission, status routes, admin decisions, and UI are delivered by later stories.
-**Status**: Todo
+**Status**: done
 
 ## What Needs to Be Done
 

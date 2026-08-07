@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 7: Interviewer Verification & Premium Matching
 **Description**: Implement the interviewer application backend to accept canonical employment record IDs, validate ownership, and persist an immutable normalized snapshot for manual admin verification.
-**Status**: Todo
+**Status**: done
 
 ## What Needs to Be Done
 

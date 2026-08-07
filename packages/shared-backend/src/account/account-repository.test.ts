@@ -166,7 +166,9 @@ describe('AccountRepository', function accountRepositorySuite() {
               id: companyId,
               user_id: userId,
               company: 'mako',
+              role: 'backend engineer',
               joined: '2023-01-01T00:00:00.000Z',
+              ended_at: null,
               created_at: '2023-01-01T00:00:00.000Z',
               updated_at: '2023-01-01T00:00:00.000Z',
               deleted_at: null,
@@ -186,9 +188,13 @@ describe('AccountRepository', function accountRepositorySuite() {
         id: companyId,
         userId,
         company: 'mako',
-        joined: '2023-01-01T00:00:00.000Z',
+        role: 'backend engineer',
+        start: '2023-01-01',
+        end: null,
+        isComplete: true,
         createdAt: '2023-01-01T00:00:00.000Z',
         updatedAt: '2023-01-01T00:00:00.000Z',
+        joined: '2023-01-01T00:00:00.000Z',
       },
     ])
   })
@@ -206,7 +212,9 @@ describe('AccountRepository', function accountRepositorySuite() {
               id: companyId,
               user_id: userId,
               company: 'stripe',
+              role: 'engineer',
               joined: '2022-05-01T00:00:00.000Z',
+              ended_at: null,
               created_at: '2022-05-01T00:00:00.000Z',
               updated_at: '2022-05-01T00:00:00.000Z',
               deleted_at: null,
@@ -219,17 +227,185 @@ describe('AccountRepository', function accountRepositorySuite() {
     const company = await repository.addCompanyRecord({
       userId,
       company: 'stripe',
+      role: 'engineer',
       joined: '2022-05-01T00:00:00.000Z',
+      endedAt: null,
     })
 
     expect(executedQueries).toHaveLength(1)
     expect(executedQueries[0]?.text).toContain('INSERT INTO user_companies')
-    expect(executedQueries[0]?.values).toEqual([
-      userId,
-      'stripe',
-      '2022-05-01T00:00:00.000Z',
-    ])
+    expect(executedQueries[0]?.values).toHaveLength(8)
+    expect(executedQueries[0]?.values[1]).toBe(userId)
+    expect(executedQueries[0]?.values[2]).toBe('stripe')
+    expect(executedQueries[0]?.values[3]).toBe('engineer')
+    expect(executedQueries[0]?.values[4]).toBe('2022-05-01T00:00:00.000Z')
+    expect(executedQueries[0]?.values[5]).toBeNull()
     expect(company.company).toBe('stripe')
     expect(company.userId).toBe(userId)
+    expect(company.role).toBe('engineer')
+    expect(company.isComplete).toBe(true)
+  })
+
+  it('updates a company record for a user', async function shouldUpdateCompany() {
+    const executedQueries: Array<{ text: string; values: readonly unknown[] }> = []
+
+    const repository = new AccountRepository({
+      query: async function query<Row>(queryInput: SqlQuery) {
+        executedQueries.push(queryInput)
+
+        return {
+          rows: [
+            {
+              id: companyId,
+              user_id: userId,
+              company: 'stripe',
+              role: 'senior engineer',
+              joined: '2020-03-01T00:00:00.000Z',
+              ended_at: '2023-06-01T00:00:00.000Z',
+              created_at: '2020-03-01T00:00:00.000Z',
+              updated_at: '2023-06-01T00:00:00.000Z',
+              deleted_at: null,
+            },
+          ] as Row[],
+        }
+      },
+    })
+
+    const company = await repository.updateCompanyRecord({
+      id: companyId,
+      userId,
+      company: 'stripe',
+      role: 'senior engineer',
+      joined: '2020-03-01T00:00:00.000Z',
+      endedAt: '2023-06-01T00:00:00.000Z',
+    })
+
+    expect(executedQueries).toHaveLength(1)
+    expect(executedQueries[0]?.text).toContain('UPDATE user_companies')
+    expect(executedQueries[0]?.values).toEqual([
+      companyId,
+      userId,
+      'stripe',
+      'senior engineer',
+      '2020-03-01T00:00:00.000Z',
+      '2023-06-01T00:00:00.000Z',
+      expect.any(String),
+    ])
+    expect(company).toEqual({
+      id: companyId,
+      userId,
+      company: 'stripe',
+      role: 'senior engineer',
+      start: '2020-03-01',
+      end: '2023-06-01',
+      isComplete: true,
+      createdAt: '2020-03-01T00:00:00.000Z',
+      updatedAt: '2023-06-01T00:00:00.000Z',
+      joined: '2020-03-01T00:00:00.000Z',
+    })
+  })
+
+  it('returns null when updating a missing company record', async function shouldReturnNullWhenMissing() {
+    const repository = new AccountRepository({
+      query: async function query<Row>() {
+        return { rows: [] as Row[] }
+      },
+    })
+
+    const company = await repository.updateCompanyRecord({
+      id: companyId,
+      userId,
+      company: 'stripe',
+      role: 'engineer',
+      joined: '2020-03-01T00:00:00.000Z',
+      endedAt: null,
+    })
+
+    expect(company).toBeNull()
+  })
+
+  it('soft deletes a company record by setting deleted_at', async function shouldSoftDeleteCompany() {
+    const executedQueries: Array<{ text: string; values: readonly unknown[] }> = []
+
+    const repository = new AccountRepository({
+      query: async function query<Row>(queryInput: SqlQuery) {
+        executedQueries.push(queryInput)
+        return {
+          rows: [{ id: companyId }] as Row[],
+        }
+      },
+    })
+
+    const didDelete = await repository.softDeleteCompanyRecord({
+      id: companyId,
+      userId,
+    })
+
+    expect(didDelete).toBe(true)
+    expect(executedQueries).toHaveLength(1)
+    expect(executedQueries[0]).toEqual(
+      expect.objectContaining({
+        text: expect.stringContaining('SET deleted_at = $3'),
+        values: [
+          companyId,
+          userId,
+          expect.any(String),
+          expect.any(String),
+        ],
+      }),
+    )
+    const [, , deletedAt, updatedAt] = executedQueries[0].values
+    expect(deletedAt).toBe(updatedAt)
+  })
+
+  it('returns false when soft deleting a missing company record', async function shouldReturnFalseWhenMissing() {
+    const repository = new AccountRepository({
+      query: async function query<Row>() {
+        return { rows: [] as Row[] }
+      },
+    })
+
+    const didDelete = await repository.softDeleteCompanyRecord({
+      id: companyId,
+      userId,
+    })
+
+    expect(didDelete).toBe(false)
+  })
+
+  it('reports whether a user account is active', async function shouldCheckUserActive() {
+    const executedQueries: Array<{ text: string; values: readonly unknown[] }> = []
+
+    const repository = new AccountRepository({
+      query: async function query<Row>(queryInput: SqlQuery) {
+        executedQueries.push(queryInput)
+        return {
+          rows: [{ exists: 1 }] as Row[],
+        }
+      },
+    })
+
+    const isActive = await repository.isUserActive(userId)
+
+    expect(isActive).toBe(true)
+    expect(executedQueries).toHaveLength(1)
+    expect(executedQueries[0]).toEqual(
+      expect.objectContaining({
+        text: expect.stringMatching(/FROM "user"[\s\S]*deleted_at IS NULL/),
+        values: [userId],
+      }),
+    )
+  })
+
+  it('reports inactive when no active user row exists', async function shouldCheckInactive() {
+    const repository = new AccountRepository({
+      query: async function query<Row>() {
+        return { rows: [] as Row[] }
+      },
+    })
+
+    const isActive = await repository.isUserActive(userId)
+
+    expect(isActive).toBe(false)
   })
 })

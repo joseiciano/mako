@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 7: Interviewer Verification & Premium Matching
 **Description**: Upgrade the existing professional-history settings UI to manage canonical company, role, start, and end fields and clearly identify legacy records that must be completed before an interviewer application.
-**Status**: Todo
+**Status**: done
 
 ## What Needs to Be Done
 

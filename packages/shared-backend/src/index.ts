@@ -6,10 +6,14 @@ export {
   availabilitySlotRowSchema,
   availabilitySlotStatusSchema,
   interviewTypeSchema,
+  interviewerApplicationRowSchema,
+  interviewerApplicationStatusSchema,
   parseAvailabilityRequestRow,
   parseAvailabilitySlotRow,
+  parseInterviewerApplicationRow,
   parseUserCompanyRow,
   parseUserRow,
+  persistedEmploymentSnapshotEntrySchema,
   userCompanyRowSchema,
   userRowSchema,
   type AvailabilityRequestStatus,
@@ -17,6 +21,9 @@ export {
   type AvailabilityRequestRow,
   type AvailabilitySlotRow,
   type InterviewType,
+  type InterviewerApplicationRow,
+  type InterviewerApplicationStatus,
+  type PersistedEmploymentSnapshotEntry,
   type UserCompanyRow,
   type UserRow,
 } from './database/foundation-schemas'
@@ -27,6 +34,7 @@ export {
   type PostgresQueryResult,
 } from './database/postgres-connection-pool'
 export * from './account'
+export * from './interviewer-application'
 export * from './auth'
 export * from './interview'
 export * from './interviews'

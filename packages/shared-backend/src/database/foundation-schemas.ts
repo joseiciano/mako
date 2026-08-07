@@ -58,13 +58,57 @@ export const userCompanyRowSchema = z.object({
     .refine(function isLowercaseCompany(value) {
       return value === value.toLowerCase()
     }, 'company must be lowercase'),
+  role: z.string().nullable(),
   joined: timestampSchema,
+  ended_at: nullableTimestampSchema,
   created_at: timestampSchema,
   updated_at: timestampSchema,
   deleted_at: nullableTimestampSchema,
 })
 
 export type UserCompanyRow = z.infer<typeof userCompanyRowSchema>
+
+export const interviewerApplicationStatusSchema = z.enum([
+  'pending',
+  'approved',
+  'rejected',
+])
+
+export type InterviewerApplicationStatus = z.infer<
+  typeof interviewerApplicationStatusSchema
+>
+
+// Persisted employment snapshot entry (read/admin model): sourceCompanyId may be null for legacy
+export const persistedEmploymentSnapshotEntrySchema = z.object({
+  sourceCompanyId: z.string().uuid().nullable(),
+  company: z.string().min(1),
+  role: z.string().min(1),
+  start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be a YYYY-MM-DD date string'),
+  end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be a YYYY-MM-DD date string').nullable(),
+})
+
+export type PersistedEmploymentSnapshotEntry = z.infer<
+  typeof persistedEmploymentSnapshotEntrySchema
+>
+
+export const interviewerApplicationRowSchema = z.object({
+  id: z.string().uuid(),
+  user_id: z.string().uuid(),
+  email: z.string().email(),
+  employment_history: z.array(persistedEmploymentSnapshotEntrySchema),
+  status: interviewerApplicationStatusSchema,
+  reviewed_by: z.string().uuid().nullable(),
+  created_at: timestampSchema,
+  updated_at: timestampSchema,
+})
+
+export type InterviewerApplicationRow = z.infer<typeof interviewerApplicationRowSchema>
+
+export function parseInterviewerApplicationRow(
+  row: unknown,
+): InterviewerApplicationRow {
+  return interviewerApplicationRowSchema.parse(row)
+}
 
 export const availabilityRequestRowSchema = z.object({
   id: z.string().uuid(),
