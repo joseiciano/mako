@@ -86,3 +86,33 @@ Implementation requirement: repeated or concurrent lifecycle actions must conver
 - The `started_at_precondition` field on end transitions ensures that workflow timer completion and manual end converge correctly when `started_at` values diverge.
 - Lifecycle observability events: `start_requested`, `start_succeeded`, `end_requested`, `end_succeeded`, `timer_warning`, `timer_completed`.
 - All lifecycle log contexts are allowlisted (interview_id, participant_user_id, action, outcome, status, timer fields). Sensitive fields (`realtime_session_id`, `excalidraw_key`, `excalidraw_room_id`, `token`, cookies, auth headers) are never logged.
+
+## 7. Feedback Lifecycle (Post-Completion)
+
+Feedback processing is triggered by the first successful `ongoing -> completed` transition. It is owned by a separate `InterviewFeedbackWorkflow` in the notification-orchestrator Worker, independent from `InterviewLifecycleWorkflow` timer orchestration.
+
+### Feedback Status States
+
+- `not_started`: Default. Feedback has not been initiated or is ineligible.
+- `pending`: Feedback processing queued.
+- `processing`: Pipeline actively running.
+- `ready`: Feedback report generated and persisted.
+- `failed`: Unrecoverable error; `feedback_error_code` set.
+
+### Feedback Trigger Boundary
+
+- The first successful `ongoing -> completed` transition (via `POST /api/interviews/:id/end` or timer timeout) is the only source event for feedback processing.
+- Idempotent `end` retries on an already-`completed` interview do not re-trigger feedback.
+- Recording consent is checked at completion time. If consent is missing, `feedback_status` stays `not_started` with `feedback_unavailable_reason = 'no_consent'`.
+
+### Retry Domain Separation
+
+- Timer failures (workflow timeout, timer orchestration errors) are retried by `InterviewLifecycleWorkflow`.
+- AI-analysis failures (transcription, analysis, persistence) are retried by `InterviewFeedbackWorkflow`.
+- The two retry domains are independent: a timer failure does not block feedback processing and vice versa.
+
+### Operational Replay
+
+- Operational replay is the only MVP regeneration path for failed feedback.
+- Replay is triggered by an operator (not by user action) and creates a new `feedback_attempt_id`.
+- Historical interviews are not automatically processed.

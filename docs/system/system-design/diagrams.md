@@ -14,8 +14,12 @@ Flow is as follows:
 7. **In-Session Events:** Active workflow timer emits structured timer warning/completion telemetry via logging.
 8. **Session Termination:** Manual completion via `POST /api/interviews/:id/end` persists `completed`; timer timeout completion converges on the same terminal state via atomic guarded transitions.
 9. **Data Persistence & Feedback:**
-   - Session recordings and screenshots are persisted to Cloudflare R2.
-   - AI Feedback is generated using Cloudflare AI Gateway and LLM providers.
+   - Session recordings and screenshots are persisted to private R2 with deterministic object-key prefixes under `interviews/{interview_id}/`.
+   - RealtimeKit recording finalization is verified via a signed status webhook (`POST /api/webhooks/realtimekit`).
+   - Workers AI transcribes participant-attributed audio tracks; transcript chunks are persisted to Postgres.
+   - AI Gateway analyzes the aggregated context (transcript, screenshots, metadata) and produces a strict feedback v1 report.
+   - The validated feedback report is persisted to the `interviews.feedback` column in Postgres.
+   - Participant-authorized application routes are the only browser access path for recordings and screenshots.
 10. **Collaboration Tools**:
    - For system design interviews, a **shared Excalidraw live collaboration session** is provisioned. Participants join using the persisted `excalidraw_room_id` and `excalidraw_key` returned by `POST /api/interviews/:id/provision`.
    - For peer-to-peer interviews, both users join the same interview-scoped room/key pair.

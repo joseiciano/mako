@@ -69,3 +69,67 @@ The gateway ID is derived from `AI_GATEWAY_BASE_URL` by the `extractAiGatewayId`
 **Error semantics**:
 - Provider errors (non-OK upstream response, malformed JSON, empty reply) are mapped to HTTP 502.
 - Missing credentials, network failures, and timeouts are mapped to HTTP 503.
+
+### RealtimeKit Recording
+
+RealtimeKit server-controlled recording is used for session capture. Recording is initiated and stopped via the RealtimeKit API with server-side control.
+
+| Variable | Description |
+|---|---|
+| `CLOUDFLARE_REALTIMEKIT_APP_ID` | RealtimeKit application ID for recording API calls. Already used by provisioning. |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID for RealtimeKit API authentication. |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API token with RealtimeKit permissions. |
+| `REALTIMEKIT_WEBHOOK_PUBLIC_KEY` | Public key for verifying RealtimeKit recording status webhook signatures. |
+
+**Recording behavior**:
+- Composite recording plus participant-separated audio tracks.
+- Maximum recording duration: 3,600 seconds (60 minutes).
+- Recording status verified via public-key-verified webhook (`POST /api/webhooks/realtimekit`).
+- Browser-composed full-session recordings are not uploaded.
+
+### Private R2 Storage
+
+R2 stores recordings, transcription audio, and whiteboard screenshots as private objects. Object keys use deterministic prefixes under `interviews/{interview_id}/` without user identifiers, aliases, emails, or original filenames.
+
+| Variable | Description |
+|---|---|
+| `R2_BUCKET_NAME` | R2 bucket name for private artifact storage. |
+| `R2_ACCOUNT_ID` | Cloudflare account ID for R2 access. |
+
+**Access model**:
+- Participant-authorized application routes are the only browser access path for recordings and screenshots.
+- Raw object keys, provider download URLs, and public `r2.dev` URLs are never returned to clients.
+- MVP retention: 30 days for raw recordings and screenshots. Transcript and feedback retained with interview until deletion.
+
+**Account deletion**:
+- `DELETE /api/account` (soft-delete) removes the shared interview's raw artifacts, transcript, and feedback for all participants when any recorded participant exercises deletion. No copy is retained under the counterpart's access.
+
+### Workers AI Transcription
+
+Workers AI is used for participant-attributed audio transcription. The transcription binding is configured on the backend worker.
+
+| Variable | Description |
+|---|---|
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID for Workers AI. |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API token with Workers AI permissions. |
+
+**Transcription behavior**:
+- AI-led sessions require a candidate-specific audio track.
+- Peer-to-peer sessions require participant-separated audio tracks mapped to scheduler/interviewer roles.
+- Composite audio is playback-only and not transcribed.
+- Transcript chunks are persisted to `interview_transcription_chunks` so retries do not retranscribe completed chunks.
+
+### AI Gateway Feedback Analysis
+
+The AI Gateway is used for feedback analysis (separate from AI chat). The analysis request sends aggregated context (transcript, screenshots, metadata) to a high-reasoning LLM via the AI Gateway.
+
+| Variable | Description |
+|---|---|
+| `AI_GATEWAY_BASE_URL` | AI Gateway base URL for feedback analysis. Same binding as AI chat. |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID. |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API token. |
+
+**Analysis behavior**:
+- Provider/model identifiers remain server configuration. They are not client-selectable API fields.
+- The response is validated against the strict feedback v1 schema before persistence.
+- Model name, raw provider response, token usage, system prompt, and provider error text are not persisted in the client feedback object.
