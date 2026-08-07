@@ -5,6 +5,7 @@ import {
   useCreatePaymentIntent,
   useCreditPackages,
 } from '#/hooks/use-payments'
+import { useTransactionHistory } from '#/hooks/use-transaction-history'
 import { formatCentsToUsd } from '#/lib/format-currency'
 import { BillingCheckout } from './billing-checkout-smart'
 import { BillingDumb } from './billing-dumb'
@@ -22,6 +23,7 @@ type PurchaseDraft = {
 export function BillingSmart() {
   const accountQuery = useAccount()
   const packagesQuery = useCreditPackages()
+  const transactionsQuery = useTransactionHistory()
   const createIntent = useCreatePaymentIntent()
   // Read the persisted draft once, lazily, on mount. sessionStorage access +
   // JSON.parse happen here and nowhere else per render, so account/packages
@@ -119,6 +121,14 @@ export function BillingSmart() {
       isPurchasing={createIntent.isPending}
       purchaseError={createIntent.isError ? createIntent.error.message : undefined}
       onPurchase={handlePurchase}
+      transactions={transactionsQuery.data?.transactions}
+      transactionsTotal={transactionsQuery.data?.total}
+      transactionsLoading={transactionsQuery.isPending}
+      transactionsError={
+        transactionsQuery.isError ? transactionsQuery.error.message : undefined
+      }
+      isRetryingTransactions={transactionsQuery.isFetching}
+      onRetryTransactions={transactionsQuery.refetch}
       renderCheckout={
         clientSecret && selectedPackage
           ? function renderCheckout() {

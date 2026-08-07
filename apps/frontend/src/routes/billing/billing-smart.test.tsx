@@ -7,12 +7,14 @@ const {
   useAccountMock,
   useCreditPackagesMock,
   useCreatePaymentIntentMock,
+  useTransactionHistoryMock,
   BillingCheckoutMock,
 } = vi.hoisted(function createMocks() {
   return {
     useAccountMock: vi.fn(),
     useCreditPackagesMock: vi.fn(),
     useCreatePaymentIntentMock: vi.fn(),
+    useTransactionHistoryMock: vi.fn(),
     BillingCheckoutMock: vi.fn(),
   }
 })
@@ -30,6 +32,12 @@ vi.mock('#/hooks/use-payments', function mockUsePaymentsModule() {
   }
 })
 
+vi.mock('#/hooks/use-transaction-history', function mockUseTransactionHistoryModule() {
+  return {
+    useTransactionHistory: useTransactionHistoryMock,
+  }
+})
+
 vi.mock('./billing-checkout-smart', function mockBillingCheckoutModule() {
   return {
     BillingCheckout: BillingCheckoutMock,
@@ -42,6 +50,7 @@ describe('billing-smart query state orchestration', function billingSmartSuite()
     useAccountMock.mockReset()
     useCreditPackagesMock.mockReset()
     useCreatePaymentIntentMock.mockReset()
+    useTransactionHistoryMock.mockReset()
     BillingCheckoutMock.mockReset()
     BillingCheckoutMock.mockImplementation(function MockCheckout(props) {
       return (
@@ -59,6 +68,9 @@ describe('billing-smart query state orchestration', function billingSmartSuite()
 
     mockPackageQuery({
       data: { packages: packagesFixture() },
+    })
+    mockTransactionHistoryQuery({
+      data: { transactions: [], total: 0 },
     })
     useCreatePaymentIntentMock.mockReturnValue({
       isPending: false,
@@ -179,6 +191,67 @@ describe('billing-smart query state orchestration', function billingSmartSuite()
 
     expect(screen.getByText('Credits')).toBeInTheDocument()
     expect(screen.getByRole('alert')).toHaveTextContent('Payments are unavailable')
+  })
+
+  it('passes transaction history rows and total from the history query', function run() {
+    mockAccountQuery({ data: createAccountFixture() })
+    mockTransactionHistoryQuery({
+      data: { transactions: transactionsFixture(), total: 2 },
+    })
+
+    render(<BillingSmart />)
+
+    expect(screen.getByText('$15.00')).toBeInTheDocument()
+    expect(screen.getByText('150 credits')).toBeInTheDocument()
+    expect(screen.getByText('Succeeded')).toBeInTheDocument()
+    expect(screen.getByText('Jun 24, 2026')).toBeInTheDocument()
+    expect(screen.getByText('2 total')).toBeInTheDocument()
+  })
+
+  it('shows transaction history loading without blocking the balance summary', function run() {
+    mockAccountQuery({ data: createAccountFixture() })
+    mockTransactionHistoryQuery({ isPending: true })
+
+    render(<BillingSmart />)
+
+    expect(screen.getByText('Credits')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Loading transaction history...')
+  })
+
+  it('surfaces transaction history error with retry for history only', function run() {
+    mockAccountQuery({ data: createAccountFixture() })
+    const refetchTransactions = vi.fn()
+    mockTransactionHistoryQuery({
+      isError: true,
+      error: new Error('History is unavailable'),
+      refetch: refetchTransactions,
+      isFetching: false,
+    })
+
+    render(<BillingSmart />)
+
+    expect(screen.getByText('Credits')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('History is unavailable')
+    const retryButton = screen.getByRole('button', { name: /retry history/i })
+    expect(retryButton).toBeInTheDocument()
+    expect(retryButton).not.toBeDisabled()
+
+    retryButton.click()
+    expect(refetchTransactions).toHaveBeenCalled()
+  })
+
+  it('disables transaction history retry while refetching', function run() {
+    mockAccountQuery({ data: createAccountFixture() })
+    mockTransactionHistoryQuery({
+      isError: true,
+      error: new Error('History is unavailable'),
+      isFetching: true,
+    })
+
+    render(<BillingSmart />)
+
+    const retryButton = screen.getByRole('button', { name: /retrying/i })
+    expect(retryButton).toBeDisabled()
   })
 
   it('calls create-intent with selected package_id on purchase', function run() {
@@ -451,6 +524,66 @@ describe('billing-smart query state orchestration', function billingSmartSuite()
     expect(window.sessionStorage.getItem('mako.billing.purchase')).toBeNull()
     expect(screen.getByTestId('billing-checkout-mock')).toBeInTheDocument()
   })
+
+  it('passes transaction history data to BillingDumb on successful load', function run() {
+    mockAccountQuery({ data: createAccountFixture() })
+    mockTransactionHistoryQuery({
+      data: transactionsHistoryFixture(),
+    })
+
+    render(<BillingSmart />)
+
+    expect(screen.getByText('$15.00')).toBeInTheDocument()
+    expect(screen.getByText('150 credits')).toBeInTheDocument()
+    expect(screen.getByText('Succeeded')).toBeInTheDocument()
+    expect(screen.getByText('Jun 24, 2026')).toBeInTheDocument()
+    expect(screen.getByText('2 total')).toBeInTheDocument()
+  })
+
+  it('shows transaction history loading indicator without hiding balance summary', function run() {
+    mockAccountQuery({ data: createAccountFixture() })
+    mockTransactionHistoryQuery({ isPending: true })
+
+    render(<BillingSmart />)
+
+    expect(screen.getByText('Credits')).toBeInTheDocument()
+    expect(screen.getByText('8')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Loading transaction history...')
+  })
+
+  it('surfaces transaction history error with retry while balance stays visible', function run() {
+    const refetch = vi.fn()
+    mockAccountQuery({ data: createAccountFixture() })
+    mockTransactionHistoryQuery({
+      isError: true,
+      error: new Error('History unavailable'),
+      refetch,
+      isFetching: false,
+    })
+
+    render(<BillingSmart />)
+
+    expect(screen.getByText('Credits')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('History unavailable')
+    const retryButton = screen.getByRole('button', { name: /retry history/i })
+    expect(retryButton).toBeInTheDocument()
+    expect(retryButton).not.toBeDisabled()
+  })
+
+  it('disables transaction history retry button while refetching', function run() {
+    mockAccountQuery({ data: createAccountFixture() })
+    mockTransactionHistoryQuery({
+      isError: true,
+      error: new Error('History unavailable'),
+      refetch: vi.fn(),
+      isFetching: true,
+    })
+
+    render(<BillingSmart />)
+
+    const retryButton = screen.getByRole('button', { name: /retrying/i })
+    expect(retryButton).toBeDisabled()
+  })
 })
 
 function mockAccountQuery(overrides: Record<string, unknown>) {
@@ -467,6 +600,18 @@ function mockAccountQuery(overrides: Record<string, unknown>) {
 
 function mockPackageQuery(overrides: Record<string, unknown>) {
   useCreditPackagesMock.mockReturnValue({
+    data: undefined,
+    isPending: false,
+    isError: false,
+    error: null,
+    refetch: vi.fn(),
+    isFetching: false,
+    ...overrides,
+  })
+}
+
+function mockTransactionHistoryQuery(overrides: Record<string, unknown>) {
+  useTransactionHistoryMock.mockReturnValue({
     data: undefined,
     isPending: false,
     isError: false,
@@ -505,4 +650,30 @@ function packagesFixture() {
       credits_granted: 10,
     },
   ]
+}
+
+function transactionsFixture() {
+  return [
+    {
+      id: '33333333-3333-4333-8333-333333333333',
+      amount: 1500,
+      credits_granted: 150,
+      status: 'succeeded',
+      created_at: '2026-06-24T12:00:00.000Z',
+    },
+    {
+      id: '11111111-1111-4111-8111-111111111111',
+      amount: 1000,
+      credits_granted: 100,
+      status: 'pending',
+      created_at: '2026-06-22T12:00:00.000Z',
+    },
+  ]
+}
+
+function transactionsHistoryFixture() {
+  return {
+    transactions: transactionsFixture(),
+    total: 2,
+  }
 }

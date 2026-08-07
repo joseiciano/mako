@@ -1,4 +1,8 @@
-import type { AccountProfile, CreditPackage } from '@mako/shared'
+import type {
+  AccountProfile,
+  CreditPackage,
+  CreditTransaction,
+} from '@mako/shared'
 import type { ReactNode } from 'react'
 import { formatCentsToUsd } from '#/lib/format-currency'
 
@@ -22,6 +26,12 @@ export type BillingDumbProps = {
   onPurchase?: () => void
   /** Renders the Stripe checkout once a payment intent is available. */
   renderCheckout?: () => ReactNode
+  transactions?: CreditTransaction[]
+  transactionsTotal?: number
+  transactionsLoading?: boolean
+  transactionsError?: string
+  isRetryingTransactions?: boolean
+  onRetryTransactions?: () => void
 }
 
 export function BillingDumb(props: BillingDumbProps) {
@@ -90,12 +100,7 @@ function renderBillingContent(props: BillingDumbProps) {
         <CreditPackageSection {...props} />
         {props.renderCheckout ? props.renderCheckout() : null}
 
-        <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
-          <h2 className="text-lg font-semibold text-white">Activity & history</h2>
-          <p className="mt-2 rounded-md border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-300">
-            Transaction history will appear here once credit purchases are enabled.
-          </p>
-        </section>
+        <TransactionHistorySection {...props} />
       </div>
     </div>
   )
@@ -230,6 +235,147 @@ function renderPackageContent(props: BillingDumbProps) {
       )}
     </div>
   )
+}
+
+function TransactionHistorySection(props: BillingDumbProps) {
+  const hasHistory = Array.isArray(props.transactions)
+
+  return (
+    <section
+      aria-labelledby="transaction-history-heading"
+      className="rounded-xl border border-slate-800 bg-slate-900/50 p-6"
+    >
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <h2
+          id="transaction-history-heading"
+          className="text-lg font-semibold text-white"
+        >
+          Transaction history
+        </h2>
+        {hasHistory && (
+          <span className="text-sm text-slate-400">
+            {props.transactionsTotal ?? 0} total
+          </span>
+        )}
+      </div>
+
+      {renderTransactionContent(props)}
+    </section>
+  )
+}
+
+function renderTransactionContent(props: BillingDumbProps) {
+  if (props.transactionsLoading) {
+    return (
+      <p
+        aria-live="polite"
+        className="mt-2 rounded-md border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-300"
+        role="status"
+      >
+        Loading transaction history...
+      </p>
+    )
+  }
+
+  if (props.transactionsError) {
+    return (
+      <div className="mt-2 rounded-md border border-red-900 bg-red-950/40 p-3 text-sm text-red-200">
+        <p role="alert">{props.transactionsError}</p>
+        {props.onRetryTransactions && (
+          <button
+            className="mt-3 inline-flex rounded-md border border-red-400 px-3 py-1.5 text-sm font-medium text-red-200 transition hover:bg-red-500/20 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={props.isRetryingTransactions}
+            onClick={props.onRetryTransactions}
+            type="button"
+          >
+            {props.isRetryingTransactions ? 'Retrying...' : 'Retry history'}
+          </button>
+        )}
+      </div>
+    )
+  }
+
+  const transactions = props.transactions ?? []
+
+  if (transactions.length === 0) {
+    return (
+      <p className="mt-2 rounded-md border border-slate-800 bg-slate-950/70 px-3 py-2 text-sm text-slate-300">
+        No credit purchases yet.
+      </p>
+    )
+  }
+
+  return (
+    <div className="mt-4 overflow-x-auto">
+      <table className="w-full text-left text-sm">
+        <caption className="sr-only">Credit purchase history</caption>
+        <thead>
+          <tr className="text-xs uppercase tracking-wide text-slate-400">
+            <th scope="col" className="py-2 pr-4 font-medium">
+              Amount
+            </th>
+            <th scope="col" className="py-2 pr-4 font-medium">
+              Credits
+            </th>
+            <th scope="col" className="py-2 pr-4 font-medium">
+              Status
+            </th>
+            <th scope="col" className="py-2 font-medium">
+              Date
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {transactions.map(function renderTransactionRow(transaction) {
+            return (
+              <tr
+                className="border-t border-slate-800"
+                key={transaction.id}
+              >
+                <td className="py-3 pr-4 font-medium text-white">
+                  {formatCentsToUsd(transaction.amount)}
+                </td>
+                <td className="py-3 pr-4 text-slate-300">
+                  {transaction.credits_granted} credits
+                </td>
+                <td className="py-3 pr-4 text-slate-300">
+                  {formatTransactionStatus(transaction.status)}
+                </td>
+                <td className="py-3 text-slate-400">
+                  {formatTransactionDate(transaction.created_at)}
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+function formatTransactionStatus(status: string): string {
+  if (status.length === 0) {
+    return status
+  }
+
+  return status.charAt(0).toUpperCase() + status.slice(1)
+}
+
+function formatTransactionDate(value: string): string {
+  const parsed = new Date(value)
+
+  if (Number.isNaN(parsed.valueOf())) {
+    return '—'
+  }
+
+  // Render in UTC so the date never shifts across timezones; created_at is an
+  // ISO timestamp and users expect the date they purchased on.
+  return parsed.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  })
 }
 
 function BalanceSummaryCards(props: { account: AccountProfile }) {
