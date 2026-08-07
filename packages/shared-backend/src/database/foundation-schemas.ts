@@ -58,7 +58,9 @@ export const userCompanyRowSchema = z.object({
     .refine(function isLowercaseCompany(value) {
       return value === value.toLowerCase()
     }, 'company must be lowercase'),
+  role: z.string().nullable(),
   joined: timestampSchema,
+  ended_at: nullableTimestampSchema,
   created_at: timestampSchema,
   updated_at: timestampSchema,
   deleted_at: nullableTimestampSchema,

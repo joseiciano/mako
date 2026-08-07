@@ -135,3 +135,19 @@ export type {
   CreatePaymentIntentRequest,
   CreatePaymentIntentResponse,
 } from './credit-packages'
+
+export {
+  employmentCompanyNameSchema,
+  employmentHistorySnapshotReadSchema,
+  employmentHistorySnapshotSchema,
+  employmentRecordCompatibilityResponseSchema,
+  employmentRecordInputSchema,
+  employmentRecordSchema,
+} from './employment'
+export type {
+  EmploymentHistorySnapshot,
+  EmploymentHistorySnapshotRead,
+  EmploymentRecord,
+  EmploymentRecordCompatibilityResponse,
+  EmploymentRecordInput,
+} from './employment'
