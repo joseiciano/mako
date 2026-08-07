@@ -45,6 +45,12 @@ vi.mock('#/hooks/use-account', function mockUseAccount() {
   }
 })
 
+vi.mock('#/hooks/use-transaction-history', function mockUseTransactionHistory() {
+  return {
+    transactionHistoryQueryKey: ['account', 'transactions'],
+  }
+})
+
 function createTestQueryClient(): QueryClient {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -194,6 +200,9 @@ describe('billing-checkout behavior', function billingCheckoutSuite() {
     // Account query invalidated + refetched so webhook-fulfilled balance appears.
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['account'] })
     expect(refetch).toHaveBeenCalledWith({ queryKey: ['account'] })
+    // Transaction history invalidated + refetched too so new purchases appear.
+    expect(invalidate).toHaveBeenCalledWith({ queryKey: ['account', 'transactions'] })
+    expect(refetch).toHaveBeenCalledWith({ queryKey: ['account', 'transactions'] })
     expect(screen.getByRole('status')).toHaveTextContent(/payment confirmed/i)
   })
 
@@ -537,7 +546,8 @@ describe('billing-checkout behavior', function billingCheckoutSuite() {
       expect(screen.getByText(/credits are being applied/i)).toBeInTheDocument()
     })
 
-    // Manual refresh button triggers invalidation + refetch.
+    // Manual refresh button triggers invalidation + refetch for account AND
+    // transaction history so both surfaces converge after webhook fulfillment.
     act(function clickRefresh() {
       screen.getByRole('button', { name: /check balance now/i }).click()
     })
@@ -545,6 +555,8 @@ describe('billing-checkout behavior', function billingCheckoutSuite() {
     await waitFor(function waitForRefetch() {
       expect(invalidate).toHaveBeenCalledWith({ queryKey: ['account'] })
       expect(refetch).toHaveBeenCalledWith({ queryKey: ['account'] })
+      expect(invalidate).toHaveBeenCalledWith({ queryKey: ['account', 'transactions'] })
+      expect(refetch).toHaveBeenCalledWith({ queryKey: ['account', 'transactions'] })
     })
   })
 
@@ -578,6 +590,11 @@ describe('billing-checkout behavior', function billingCheckoutSuite() {
     })
 
     const onConfirmed = vi.fn()
+    const queryClient = createTestQueryClient()
+    const invalidate = queryClient.invalidateQueries as unknown as ReturnType<
+      typeof vi.fn
+    >
+    const refetch = queryClient.refetchQueries as unknown as ReturnType<typeof vi.fn>
     try {
       render(
         <BillingCheckout
@@ -587,7 +604,7 @@ describe('billing-checkout behavior', function billingCheckoutSuite() {
           onCancel={vi.fn()}
           onConfirmed={onConfirmed}
         />,
-        { wrapper: createWrapper(createTestQueryClient()) },
+        { wrapper: createWrapper(queryClient) },
       )
 
       await waitFor(function waitForConfirmed() {
@@ -598,6 +615,13 @@ describe('billing-checkout behavior', function billingCheckoutSuite() {
       expect(retrievePaymentIntentMock).toHaveBeenCalledWith('pi_secret')
       // Success transitions to pending fulfillment (webhook grants credits).
       expect(screen.getByText(/credits are being applied/i)).toBeInTheDocument()
+      // Redirect-return reconciliation refreshes account AND transaction history.
+      await waitFor(function waitForBillingRefresh() {
+        expect(invalidate).toHaveBeenCalledWith({ queryKey: ['account'] })
+        expect(refetch).toHaveBeenCalledWith({ queryKey: ['account'] })
+        expect(invalidate).toHaveBeenCalledWith({ queryKey: ['account', 'transactions'] })
+        expect(refetch).toHaveBeenCalledWith({ queryKey: ['account', 'transactions'] })
+      })
     } finally {
       Object.defineProperty(window, 'location', {
         value: originalLocation,

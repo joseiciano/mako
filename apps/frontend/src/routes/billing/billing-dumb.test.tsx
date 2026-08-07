@@ -1,4 +1,5 @@
 import { render, screen } from '@testing-library/react'
+import type { CreditTransaction } from '@mako/shared'
 import { describe, expect, it, vi } from 'vitest'
 import { BillingDumb } from './billing-dumb'
 
@@ -318,7 +319,157 @@ describe('billing-dumb rendering', function billingDumbSuite() {
     // The checkout itself renders in place of the purchase controls.
     expect(screen.getByTestId('active-checkout')).toBeInTheDocument()
   })
+
+  it('shows transaction history loading state without hiding balance summary', function run() {
+    render(
+      <BillingDumb
+        state="populated"
+        account={accountFixture()}
+        transactionsLoading={true}
+      />,
+    )
+
+    expect(screen.getByText('Credits')).toBeInTheDocument()
+    expect(screen.getByRole('status')).toHaveTextContent('Loading transaction history...')
+  })
+
+  it('shows transaction history error state with retry for history only', function run() {
+    const onRetryTransactions = vi.fn()
+    render(
+      <BillingDumb
+        state="populated"
+        account={accountFixture()}
+        transactionsError="History is unavailable"
+        onRetryTransactions={onRetryTransactions}
+        isRetryingTransactions={false}
+      />,
+    )
+
+    expect(screen.getByText('Credits')).toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('History is unavailable')
+    const retryButton = screen.getByRole('button', { name: /retry history/i })
+    expect(retryButton).toBeInTheDocument()
+    expect(retryButton).not.toBeDisabled()
+  })
+
+  it('disables history retry button while refetching', function run() {
+    render(
+      <BillingDumb
+        state="populated"
+        account={accountFixture()}
+        transactionsError="History is unavailable"
+        onRetryTransactions={vi.fn()}
+        isRetryingTransactions={true}
+      />,
+    )
+
+    const retryButton = screen.getByRole('button', { name: /retrying/i })
+    expect(retryButton).toBeDisabled()
+  })
+
+  it('renders empty history state for users without credit purchases', function run() {
+    render(
+      <BillingDumb
+        state="populated"
+        account={accountFixture()}
+        transactions={[]}
+        transactionsTotal={0}
+      />,
+    )
+
+    expect(screen.getByRole('heading', { name: /transaction history/i })).toBeInTheDocument()
+    expect(
+      screen.getByText(/no credit purchases yet/i),
+    ).toBeInTheDocument()
+  })
+
+  it('renders transaction rows with amount, credits granted, status, and creation time', function run() {
+    render(
+      <BillingDumb
+        state="populated"
+        account={accountFixture()}
+        transactions={transactionsFixture()}
+        transactionsTotal={2}
+      />,
+    )
+
+    expect(screen.getByText('$15.00')).toBeInTheDocument()
+    expect(screen.getByText('$10.00')).toBeInTheDocument()
+    expect(screen.getByText('150 credits')).toBeInTheDocument()
+    expect(screen.getByText('100 credits')).toBeInTheDocument()
+    expect(screen.getByText('Succeeded')).toBeInTheDocument()
+    expect(screen.getByText('Pending')).toBeInTheDocument()
+    // Creation times rendered from created_at in a stable UTC format.
+    expect(screen.getByText('Jun 24, 2026')).toBeInTheDocument()
+    expect(screen.getByText('Jun 22, 2026')).toBeInTheDocument()
+    // Total shown alongside the history heading.
+    expect(screen.getByText('2 total')).toBeInTheDocument()
+  })
+
+  it('does not render internal Stripe control-flow fields from transaction mock data', function run() {
+    render(
+      <BillingDumb
+        state="populated"
+        account={accountFixture()}
+        transactions={
+          // Unsafe mock: simulates an unsanitized backend payload that leaks an
+          // internal Stripe identifier. The shared schema strips these fields,
+          // but the dumb component must ALSO never render them defensively.
+          [
+            {
+              id: '33333333-3333-4333-8333-333333333333',
+              stripe_payment_intent_id: 'pi_333_secret',
+              amount: 1500,
+              credits_granted: 150,
+              status: 'succeeded',
+              created_at: '2026-06-24T12:00:00.000Z',
+            } as CreditTransaction,
+          ]
+        }
+        transactionsTotal={1}
+      />,
+    )
+
+    expect(screen.getByText('$15.00')).toBeInTheDocument()
+    expect(screen.queryByText(/pi_333_secret/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/stripe_payment_intent_id/i)).not.toBeInTheDocument()
+  })
+
+  it('does not render checkout or package controls from transaction data', function run() {
+    render(
+      <BillingDumb
+        state="populated"
+        account={accountFixture()}
+        transactions={transactionsFixture()}
+        transactionsTotal={2}
+      />,
+    )
+
+    // A history-only render must never surface payment intent fields or controls.
+    expect(screen.queryByText(/payment intent/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/client_secret/i)).not.toBeInTheDocument()
+    expect(screen.queryByText(/pi_/i)).not.toBeInTheDocument()
+  })
 })
+
+function transactionsFixture() {
+  return [
+    {
+      id: '33333333-3333-4333-8333-333333333333',
+      amount: 1500,
+      credits_granted: 150,
+      status: 'succeeded',
+      created_at: '2026-06-24T12:00:00.000Z',
+    },
+    {
+      id: '11111111-1111-4111-8111-111111111111',
+      amount: 1000,
+      credits_granted: 100,
+      status: 'pending',
+      created_at: '2026-06-22T12:00:00.000Z',
+    },
+  ]
+}
 
 function accountFixture() {
   return {

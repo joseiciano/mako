@@ -1,8 +1,9 @@
 import { Elements, PaymentElement, useElements, useStripe } from '@stripe/react-stripe-js'
 import type { StripeError } from '@stripe/stripe-js'
 import { useEffect, useRef, useState } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
+import { useQueryClient, type QueryClient } from '@tanstack/react-query'
 import { accountQueryKey } from '#/hooks/use-account'
+import { transactionHistoryQueryKey } from '#/hooks/use-transaction-history'
 import { getStripeLoader } from '#/lib/stripe'
 import { BillingCheckoutDumb } from './billing-checkout-dumb'
 
@@ -139,8 +140,7 @@ function CheckoutForm(props: {
           // once Postgres updates. We do NOT show a final balance.
           setStatus('pending-fulfillment')
           props.onConfirmed()
-          void queryClient.invalidateQueries({ queryKey: accountQueryKey })
-          void queryClient.refetchQueries({ queryKey: accountQueryKey })
+          void refreshBillingQueries(queryClient)
         } catch {
           if (!cancelled) {
             setStatus('failed')
@@ -174,8 +174,7 @@ function CheckoutForm(props: {
   )
 
   async function handleRefreshBalance() {
-    await queryClient.invalidateQueries({ queryKey: accountQueryKey })
-    await queryClient.refetchQueries({ queryKey: accountQueryKey })
+    await refreshBillingQueries(queryClient)
   }
 
   async function handleConfirm(event: React.FormEvent) {
@@ -261,6 +260,19 @@ function CheckoutForm(props: {
       }}
     />
   )
+}
+
+/**
+ * Refreshes every server-backed billing query that the webhook may update:
+ * the account balance and the credit transaction history. Used by the manual
+ * "check balance now" refresh and the redirect-return reconciliation so both
+ * surfaces converge once Postgres is updated by the fulfillment webhook.
+ */
+async function refreshBillingQueries(queryClient: QueryClient) {
+  await queryClient.invalidateQueries({ queryKey: accountQueryKey })
+  await queryClient.refetchQueries({ queryKey: accountQueryKey })
+  await queryClient.invalidateQueries({ queryKey: transactionHistoryQueryKey })
+  await queryClient.refetchQueries({ queryKey: transactionHistoryQueryKey })
 }
 
 /**
