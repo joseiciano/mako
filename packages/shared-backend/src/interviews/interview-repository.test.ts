@@ -6,7 +6,7 @@ import {
 import { InterviewPolicyConflictError } from './types'
 import type { SqlQuery } from '../index'
 import type { NotificationQueueEvent } from '../notification-queue-event-contract'
-import type { Interview } from '@mako/shared'
+import type { Interview, InterviewDetail } from '@mako/shared'
 
 describe('InterviewRepository', function interviewRepositorySuite() {
   it('createDirectInterview persists outbox event before commit in SQL path', async function run() {
@@ -59,6 +59,13 @@ describe('InterviewRepository', function interviewRepositorySuite() {
                 recording_url: null,
                 screenshot_urls: null,
                 feedback: null,
+                recording_status: 'not_started',
+                transcript: null,
+                feedback_status: 'not_started',
+                feedback_unavailable_reason: null,
+                feedback_error_code: null,
+                feedback_prompt_version: null,
+                feedback_generated_at: null,
                 started_at: null,
                 expires_at: null,
                 warning_at: null,
@@ -177,6 +184,13 @@ describe('InterviewRepository', function interviewRepositorySuite() {
                 recording_url: null,
                 screenshot_urls: null,
                 feedback: null,
+                recording_status: 'not_started',
+                transcript: null,
+                feedback_status: 'not_started',
+                feedback_unavailable_reason: null,
+                feedback_error_code: null,
+                feedback_prompt_version: null,
+                feedback_generated_at: null,
                 started_at: null,
                 expires_at: null,
                 warning_at: null,
@@ -641,6 +655,16 @@ describe('InterviewRepository', function interviewRepositorySuite() {
       'feedback',
     ]
 
+    const feedbackProcessingColumns = [
+      'recording_status',
+      'transcript',
+      'feedback_status',
+      'feedback_unavailable_reason',
+      'feedback_error_code',
+      'feedback_prompt_version',
+      'feedback_generated_at',
+    ]
+
     function createMockQueryExecutor(
       overrides: Record<string, (query: SqlQuery) => { rows: unknown[]; rowCount: number }> = {},
     ) {
@@ -781,6 +805,13 @@ describe('InterviewRepository', function interviewRepositorySuite() {
               recording_url: null,
               screenshot_urls: null,
               feedback: null,
+              recording_status: 'not_started',
+              transcript: null,
+              feedback_status: 'not_started',
+              feedback_unavailable_reason: null,
+              feedback_error_code: null,
+              feedback_prompt_version: null,
+              feedback_generated_at: null,
               started_at: null,
               expires_at: null,
               warning_at: null,
@@ -826,6 +857,13 @@ describe('InterviewRepository', function interviewRepositorySuite() {
               recording_url: 'https://r2.example.com/recording.mp4',
               screenshot_urls: null,
               feedback: null,
+              recording_status: 'not_started',
+              transcript: null,
+              feedback_status: 'not_started',
+              feedback_unavailable_reason: null,
+              feedback_error_code: null,
+              feedback_prompt_version: null,
+              feedback_generated_at: null,
               started_at: null,
               expires_at: null,
               warning_at: null,
@@ -872,6 +910,10 @@ describe('InterviewRepository', function interviewRepositorySuite() {
       for (const column of detailColumns) {
         expect(getQuery!.text).toContain(column)
       }
+
+      for (const column of feedbackProcessingColumns) {
+        expect(getQuery!.text).toContain(column)
+      }
     })
 
     it('getParticipantInterviewById returns null for non-participants', async function run() {
@@ -915,6 +957,13 @@ describe('InterviewRepository', function interviewRepositorySuite() {
               recording_url: null,
               screenshot_urls: null,
               feedback: null,
+              recording_status: 'not_started',
+              transcript: null,
+              feedback_status: 'not_started',
+              feedback_unavailable_reason: null,
+              feedback_error_code: null,
+              feedback_prompt_version: null,
+              feedback_generated_at: null,
               started_at: null,
               expires_at: null,
               warning_at: null,
@@ -943,6 +992,13 @@ describe('InterviewRepository', function interviewRepositorySuite() {
               recording_url: null,
               screenshot_urls: null,
               feedback: null,
+              recording_status: 'not_started',
+              transcript: null,
+              feedback_status: 'not_started',
+              feedback_unavailable_reason: null,
+              feedback_error_code: null,
+              feedback_prompt_version: null,
+              feedback_generated_at: null,
               started_at: null,
               expires_at: null,
               warning_at: null,
@@ -998,6 +1054,13 @@ describe('InterviewRepository', function interviewRepositorySuite() {
               recording_url: null,
               screenshot_urls: null,
               feedback: null,
+              recording_status: 'not_started',
+              transcript: null,
+              feedback_status: 'not_started',
+              feedback_unavailable_reason: null,
+              feedback_error_code: null,
+              feedback_prompt_version: null,
+              feedback_generated_at: null,
               started_at: null,
               expires_at: null,
               warning_at: null,
@@ -1026,6 +1089,13 @@ describe('InterviewRepository', function interviewRepositorySuite() {
               recording_url: null,
               screenshot_urls: null,
               feedback: null,
+              recording_status: 'not_started',
+              transcript: null,
+              feedback_status: 'not_started',
+              feedback_unavailable_reason: null,
+              feedback_error_code: null,
+              feedback_prompt_version: null,
+              feedback_generated_at: null,
               started_at: null,
               expires_at: null,
               warning_at: null,
@@ -1055,6 +1125,10 @@ describe('InterviewRepository', function interviewRepositorySuite() {
       for (const column of optionalColumns) {
         expect(updateQuery!.text).toContain(column)
       }
+
+      for (const column of feedbackProcessingColumns) {
+        expect(updateQuery!.text).toContain(column)
+      }
     })
 
     it('cancelInterview returns already_cancelled when interview is already cancelled', async function run() {
@@ -1078,6 +1152,13 @@ describe('InterviewRepository', function interviewRepositorySuite() {
               recording_url: null,
               screenshot_urls: null,
               feedback: null,
+              recording_status: 'not_started',
+              transcript: null,
+              feedback_status: 'not_started',
+              feedback_unavailable_reason: null,
+              feedback_error_code: null,
+              feedback_prompt_version: null,
+              feedback_generated_at: null,
               started_at: null,
               expires_at: null,
               warning_at: null,
@@ -1123,6 +1204,13 @@ describe('InterviewRepository', function interviewRepositorySuite() {
               recording_url: null,
               screenshot_urls: null,
               feedback: null,
+              recording_status: 'not_started',
+              transcript: null,
+              feedback_status: 'not_started',
+              feedback_unavailable_reason: null,
+              feedback_error_code: null,
+              feedback_prompt_version: null,
+              feedback_generated_at: null,
               started_at: null,
               expires_at: null,
               warning_at: null,
@@ -1176,6 +1264,13 @@ describe('InterviewRepository', function interviewRepositorySuite() {
               recording_url: 'https://r2.example.com/recording.mp4',
               screenshot_urls: ['https://r2.example.com/ss1.png'],
               feedback: { score: 85 },
+              recording_status: 'not_started',
+              transcript: null,
+              feedback_status: 'not_started',
+              feedback_unavailable_reason: null,
+              feedback_error_code: null,
+              feedback_prompt_version: null,
+              feedback_generated_at: null,
               started_at: null,
               expires_at: null,
               warning_at: null,
@@ -1216,6 +1311,10 @@ describe('InterviewRepository', function interviewRepositorySuite() {
         expect(insertQuery!.text).toContain(column)
       }
 
+      for (const column of feedbackProcessingColumns) {
+        expect(insertQuery!.text).toContain(column)
+      }
+
       expect(result.realtime_session_id).toBe('sess_abc123')
       expect(result.excalidraw_room_id).toBe('room_def456')
       expect(result.excalidraw_key).toBe('key_ghi789')
@@ -1253,6 +1352,13 @@ describe('InterviewRepository', function interviewRepositorySuite() {
               recording_url: null,
               screenshot_urls: null,
               feedback: null,
+              recording_status: 'not_started',
+              transcript: null,
+              feedback_status: 'not_started',
+              feedback_unavailable_reason: null,
+              feedback_error_code: null,
+              feedback_prompt_version: null,
+              feedback_generated_at: null,
               started_at: null,
               expires_at: null,
               warning_at: null,
@@ -1317,6 +1423,13 @@ describe('InterviewRepository', function interviewRepositorySuite() {
               recording_url: null,
               screenshot_urls: null,
               feedback: null,
+              recording_status: 'not_started',
+              transcript: null,
+              feedback_status: 'not_started',
+              feedback_unavailable_reason: null,
+              feedback_error_code: null,
+              feedback_prompt_version: null,
+              feedback_generated_at: null,
               started_at: null,
               expires_at: null,
               warning_at: null,
@@ -1487,6 +1600,13 @@ describe('InterviewRepository', function interviewRepositorySuite() {
               recording_url: null,
               screenshot_urls: null,
               feedback: null,
+              recording_status: 'not_started',
+              transcript: null,
+              feedback_status: 'not_started',
+              feedback_unavailable_reason: null,
+              feedback_error_code: null,
+              feedback_prompt_version: null,
+              feedback_generated_at: null,
               started_at: null,
               expires_at: null,
               warning_at: null,
@@ -1515,6 +1635,13 @@ describe('InterviewRepository', function interviewRepositorySuite() {
               recording_url: null,
               screenshot_urls: null,
               feedback: null,
+              recording_status: 'not_started',
+              transcript: null,
+              feedback_status: 'not_started',
+              feedback_unavailable_reason: null,
+              feedback_error_code: null,
+              feedback_prompt_version: null,
+              feedback_generated_at: null,
               started_at: null,
               expires_at: null,
               warning_at: null,
@@ -1606,6 +1733,13 @@ describe('InterviewRepository', function interviewRepositorySuite() {
               recording_url: null,
               screenshot_urls: null,
               feedback: null,
+              recording_status: 'not_started',
+              transcript: null,
+              feedback_status: 'not_started',
+              feedback_unavailable_reason: null,
+              feedback_error_code: null,
+              feedback_prompt_version: null,
+              feedback_generated_at: null,
               started_at: null,
               expires_at: null,
               warning_at: null,
@@ -1634,6 +1768,13 @@ describe('InterviewRepository', function interviewRepositorySuite() {
               recording_url: null,
               screenshot_urls: null,
               feedback: null,
+              recording_status: 'not_started',
+              transcript: null,
+              feedback_status: 'not_started',
+              feedback_unavailable_reason: null,
+              feedback_error_code: null,
+              feedback_prompt_version: null,
+              feedback_generated_at: null,
               started_at: null,
               expires_at: null,
               warning_at: null,
@@ -1716,6 +1857,13 @@ describe('InterviewRepository', function interviewRepositorySuite() {
               recording_url: null,
               screenshot_urls: null,
               feedback: null,
+              recording_status: 'not_started',
+              transcript: null,
+              feedback_status: 'not_started',
+              feedback_unavailable_reason: null,
+              feedback_error_code: null,
+              feedback_prompt_version: null,
+              feedback_generated_at: null,
               started_at: null,
               expires_at: null,
               warning_at: null,
@@ -1787,6 +1935,13 @@ describe('InterviewRepository', function interviewRepositorySuite() {
               recording_url: null,
               screenshot_urls: null,
               feedback: null,
+              recording_status: 'not_started',
+              transcript: null,
+              feedback_status: 'not_started',
+              feedback_unavailable_reason: null,
+              feedback_error_code: null,
+              feedback_prompt_version: null,
+              feedback_generated_at: null,
               started_at: null,
               expires_at: null,
               warning_at: null,
@@ -2070,6 +2225,9 @@ describe('InterviewRepository', function interviewRepositorySuite() {
       expect(updateQuery!.text).toContain("status = 'ongoing'")
       expect(updateQuery!.text).toContain("AND status = 'scheduled'")
       expect(updateQuery!.text).toContain('scheduler_id = $6 OR interviewer_id = $6')
+      for (const column of feedbackProcessingColumns) {
+        expect(updateQuery!.text).toContain(column)
+      }
       expect(result.outcome).toBe('started')
       expect(mockQueryExecutor.queries.map((query) => query.text.trim().toUpperCase())).toEqual(
         expect.arrayContaining(['BEGIN;', 'COMMIT;']),
@@ -2110,6 +2268,9 @@ describe('InterviewRepository', function interviewRepositorySuite() {
       expect(updateQuery!.text).toContain("AND status = 'ongoing'")
       expect(updateQuery!.text).toContain('scheduler_id = $3 OR interviewer_id = $3')
       expect(updateQuery!.text).toContain('started_at')
+      for (const column of feedbackProcessingColumns) {
+        expect(updateQuery!.text).toContain(column)
+      }
       expect(result.outcome).toBe('completed')
       expect(mockQueryExecutor.queries.map((query) => query.text.trim().toUpperCase())).toEqual(
         expect.arrayContaining(['BEGIN;', 'COMMIT;']),
@@ -2455,7 +2616,9 @@ describe('InterviewRepository', function interviewRepositorySuite() {
   })
 })
 
-function createInterviewRecord(overrides: Partial<Interview> = {}): Interview {
+function createInterviewRecord(
+  overrides: Partial<Interview & InterviewDetail> = {},
+): Interview & InterviewDetail {
   return {
     id: '11111111-1111-4111-8111-111111111111',
     scheduler_id: '22222222-2222-4222-8222-222222222222',
@@ -2473,6 +2636,13 @@ function createInterviewRecord(overrides: Partial<Interview> = {}): Interview {
     recording_url: null,
     screenshot_urls: null,
     feedback: null,
+    recording_status: 'not_started',
+    transcript: null,
+    feedback_status: 'not_started',
+    feedback_unavailable_reason: null,
+    feedback_error_code: null,
+    feedback_prompt_version: null,
+    feedback_generated_at: null,
     started_at: null,
     expires_at: null,
     warning_at: null,

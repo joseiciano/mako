@@ -35,6 +35,7 @@ export {
 export {
   InterviewRepository,
   createInMemoryInterviewDataSource,
+  mergeDetailProcessingState,
   type InMemoryInterviewAccountRecord,
   type InterviewRepositoryDataSource,
 } from './interview-repository'

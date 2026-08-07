@@ -31,6 +31,7 @@ import {
   getAccountSessionFromAuthContext,
   isAuthConfigured,
   listParticipantInterviewsInputSchema,
+  mergeDetailProcessingState,
   parseInterview,
   parseInterviewDetail,
   parseInterviewListItem,
@@ -365,7 +366,10 @@ function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
   availability: AvailabilityRepositoryDataSource
 } {
   const accountProfilesById = new Map<string, AccountProfileRecord>()
-  const interviewsById = new Map<string, Interview>()
+  const interviewsById = new Map<
+    string,
+    ReturnType<typeof mergeDetailProcessingState>
+  >()
   const availabilityDataSource = createInMemoryAvailabilityDataSource()
 
   for (const account of seedAccounts) {
@@ -461,18 +465,20 @@ function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
           account.credits -= 1
         }
 
-        const interview = parseInterview({
-          ...input,
-          realtime_session_id: null,
-          excalidraw_room_id: null,
-          excalidraw_key: null,
-          recording_url: null,
-          screenshot_urls: null,
-          feedback: null,
-          started_at: null,
-          expires_at: null,
-          warning_at: null,
-        })
+        const interview = mergeDetailProcessingState(
+          parseInterview({
+            ...input,
+            realtime_session_id: null,
+            excalidraw_room_id: null,
+            excalidraw_key: null,
+            recording_url: null,
+            screenshot_urls: null,
+            feedback: null,
+            started_at: null,
+            expires_at: null,
+            warning_at: null,
+          }),
+        )
         interviewsById.set(interview.id, structuredClone(interview))
         return structuredClone(interview)
       },
@@ -528,13 +534,16 @@ function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
           }
         }
 
-        const provisionedInterview = parseInterview({
-          ...interview,
-          realtime_session_id: interview.realtime_session_id ?? input.realtime_session_id,
-          excalidraw_room_id: interview.excalidraw_room_id ?? input.excalidraw_room_id,
-          excalidraw_key: interview.excalidraw_key ?? input.excalidraw_key,
-          updated_at: input.updated_at,
-        })
+        const provisionedInterview = mergeDetailProcessingState(
+          parseInterview({
+            ...interview,
+            realtime_session_id: interview.realtime_session_id ?? input.realtime_session_id,
+            excalidraw_room_id: interview.excalidraw_room_id ?? input.excalidraw_room_id,
+            excalidraw_key: interview.excalidraw_key ?? input.excalidraw_key,
+            updated_at: input.updated_at,
+          }),
+          interview,
+        )
 
         interviewsById.set(interview.id, structuredClone(provisionedInterview))
 
@@ -570,11 +579,14 @@ function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
           }
         }
 
-        const cancelledInterview = parseInterview({
-          ...interview,
-          status: 'cancelled',
-          updated_at: input.updated_at,
-        })
+        const cancelledInterview = mergeDetailProcessingState(
+          parseInterview({
+            ...interview,
+            status: 'cancelled',
+            updated_at: input.updated_at,
+          }),
+          interview,
+        )
 
         interviewsById.set(cancelledInterview.id, structuredClone(cancelledInterview))
 
@@ -611,11 +623,14 @@ function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
             }
           }
 
-          const startedInterview = parseInterview({
-            ...interview,
-            status: 'ongoing',
-            updated_at: input.updated_at,
-          })
+          const startedInterview = mergeDetailProcessingState(
+            parseInterview({
+              ...interview,
+              status: 'ongoing',
+              updated_at: input.updated_at,
+            }),
+            interview,
+          )
 
           interviewsById.set(startedInterview.id, structuredClone(startedInterview))
 
@@ -639,11 +654,14 @@ function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
           }
         }
 
-        const completedInterview = parseInterview({
-          ...interview,
-          status: 'completed',
-          updated_at: input.updated_at,
-        })
+        const completedInterview = mergeDetailProcessingState(
+          parseInterview({
+            ...interview,
+            status: 'completed',
+            updated_at: input.updated_at,
+          }),
+          interview,
+        )
 
         interviewsById.set(completedInterview.id, structuredClone(completedInterview))
 
