@@ -37,6 +37,7 @@ import {
   registerAccountController,
   registerAuthController,
   registerAvailabilityController,
+  registerCreditController,
   registerInterviewController,
   registerPaymentController,
   createInterviewQueuePostCommitEventPublisher,
@@ -285,6 +286,16 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
     },
     getWebhookSecret: function getWebhookSecret(bindings) {
       return bindings.STRIPE_WEBHOOK_SECRET
+    },
+  })
+
+  registerCreditController(app, {
+    createService: function createService(context) {
+      const queryExecutor = createDatabaseQueryExecutor(context.bindings)
+      return new CreditService(new CreditRepository(queryExecutor), queryExecutor)
+    },
+    resolveSession: function resolveSession(context) {
+      return resolveAppSession(context, demoSessionResolver)
     },
   })
 

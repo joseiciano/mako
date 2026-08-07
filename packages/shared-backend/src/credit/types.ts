@@ -3,7 +3,7 @@ import { z } from 'zod'
 const positiveIntegerSchema = z.number().int().positive()
 
 export const creditUserIdSchema = z.string().min(1)
-export const creditPaginationLimitSchema = z.number().int().positive().max(100).default(25)
+export const creditPaginationLimitSchema = z.number().int().positive().max(100).default(20)
 export const creditPaginationOffsetSchema = z.number().int().nonnegative().default(0)
 export const creditTransactionStatusSchema = z.string().trim().min(1)
 
@@ -11,8 +11,8 @@ export const creditTransactionRowSchema = z.object({
   id: z.string(),
   user_id: z.string(),
   stripe_payment_intent_id: z.string().min(1),
-  amount: z.number().int().positive(),
-  credits_granted: z.number().int().positive(),
+  amount: z.number().int().nonnegative(),
+  credits_granted: z.number().int().nonnegative(),
   status: creditTransactionStatusSchema,
   created_at: z.string(),
 })
@@ -85,6 +85,11 @@ export type TransactionHistoryInput = {
   userId: string
   limit?: number
   offset?: number
+}
+
+export type CreditTransactionHistory = {
+  transactions: CreditTransaction[]
+  total: number
 }
 
 export const transactionHistoryInputSchema = z.object({

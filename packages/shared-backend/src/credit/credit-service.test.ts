@@ -35,7 +35,7 @@ describe('CreditService', function creditServiceSuite() {
         return { rows: [], rowCount: 0 }
       }
 
-      if (query.text.includes('INSERT INTO "Credit_Transactions"')) {
+      if (query.text.includes('INSERT INTO credit_transactions')) {
         return {
           rows: [
             {
@@ -80,7 +80,7 @@ describe('CreditService', function creditServiceSuite() {
     })
     expect(queryExecutor.queries.map(function toText(query) { return query.text })).toEqual([
       'BEGIN;',
-      expect.stringContaining('INSERT INTO "Credit_Transactions"'),
+      expect.stringContaining('INSERT INTO credit_transactions'),
       expect.stringContaining('SET credits = credits + $2'),
       'COMMIT;',
     ])
@@ -92,7 +92,7 @@ describe('CreditService', function creditServiceSuite() {
         return { rows: [], rowCount: 0 }
       }
 
-      if (query.text.includes('INSERT INTO "Credit_Transactions"')) {
+      if (query.text.includes('INSERT INTO credit_transactions')) {
         return { rows: [], rowCount: 0 }
       }
 
@@ -115,7 +115,7 @@ describe('CreditService', function creditServiceSuite() {
 
     expect(queryExecutor.queries.map(function toText(query) { return query.text })).toEqual([
       'BEGIN;',
-      expect.stringContaining('INSERT INTO "Credit_Transactions"'),
+      expect.stringContaining('INSERT INTO credit_transactions'),
       'ROLLBACK;',
     ])
   })
@@ -126,7 +126,7 @@ describe('CreditService', function creditServiceSuite() {
         return { rows: [], rowCount: 0 }
       }
 
-      if (query.text.includes('INSERT INTO "Credit_Transactions"')) {
+      if (query.text.includes('INSERT INTO credit_transactions')) {
         return {
           rows: [
             {

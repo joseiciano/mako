@@ -123,6 +123,27 @@
     - Does not send email or push notifications (notification scope belongs to the notification service).
   - **Query Params**: None
 
+- **`GET /api/account/transactions`**
+  - **Description**: Returns paginated credit transaction history for the authenticated user, sorted newest first (`created_at DESC`). Route is authenticated; unauthenticated requests receive 401. All rows are scoped to the authenticated `userId`.
+  - **Request Body**: None
+  - **Response Body**:
+    ```json
+    {
+      "transactions": [
+        {
+          "id": "uuid",
+          "amount": 2500,
+          "credits_granted": 5,
+          "status": "succeeded",
+          "created_at": "2026-06-24T12:00:00.000Z"
+        }
+      ],
+      "total": 1
+    }
+    ```
+  - **Field Mapping**: Response uses snake_case and exposes only user-safe ledger fields (`id`, `amount`, `credits_granted`, `status`, `created_at`). Internal fields (`user_id`, `stripe_payment_intent_id`, webhook metadata) are never exposed.
+  - **Query Params**: `limit?: number` (default 20, max 100), `offset?: number` (default 0). Invalid pagination values receive 400.
+
 ### Interviews
 - **`POST /api/interviews`**
   - **Description**: Schedules or initializes a new interview session.

@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 6: Monetization & Credit System
 **Description**: Add the shared response types and authenticated API route for user-scoped credit transaction history.
-**Status**: Todo
+**Status**: Done
 **Prerequisites**:
 - `docs/product/stories/stories/milestone-6-monetization-credit-system/6-1-credit-transactions-ledger-migration.md`
 - `docs/product/stories/stories/milestone-6-monetization-credit-system/6-2-credit-repository-service.md`

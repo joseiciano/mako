@@ -104,6 +104,8 @@ describe('CreditRepository', function creditRepositorySuite() {
       },
     ])
     expect(queryExecutor.queries[0]?.text).toContain('WHERE user_id = $1')
+    expect(queryExecutor.queries[0]?.text).toContain('FROM credit_transactions')
+    expect(queryExecutor.queries[0]?.text).not.toContain('"Credit_Transactions"')
     expect(queryExecutor.queries[0]?.text).toContain('ORDER BY created_at DESC, id DESC')
     expect(queryExecutor.queries[0]?.text).toContain('LIMIT $2')
     expect(queryExecutor.queries[0]?.text).toContain('OFFSET $3')
@@ -112,5 +114,140 @@ describe('CreditRepository', function creditRepositorySuite() {
       10,
       20,
     ])
+  })
+
+  it('maps zero-valued history rows through the row schema', async function testZeroValuedHistoryMapping() {
+    const queryExecutor = createMockQueryExecutor(function handleQuery() {
+      return {
+        rows: [
+          {
+            id: '11111111-1111-4111-8111-111111111111',
+            user_id: '22222222-2222-4222-8222-222222222222',
+            stripe_payment_intent_id: 'pi_zero',
+            amount: 0,
+            credits_granted: 0,
+            status: 'succeeded',
+            created_at: '2026-01-01T00:00:00.000Z',
+          },
+        ],
+        rowCount: 1,
+      }
+    })
+    const repository = new CreditRepository(queryExecutor)
+
+    const result = await repository.getTransactionHistory({
+      userId: '22222222-2222-4222-8222-222222222222',
+      limit: 20,
+      offset: 0,
+    })
+
+    expect(result).toEqual([
+      {
+        id: '11111111-1111-4111-8111-111111111111',
+        userId: '22222222-2222-4222-8222-222222222222',
+        amount: 0,
+        creditsGranted: 0,
+        status: 'succeeded',
+        createdAt: '2026-01-01T00:00:00.000Z',
+      },
+    ])
+  })
+
+  it('inserts credit transactions against unquoted lowercase credit_transactions', async function testInsertUsesUnquotedTableName() {
+    const queryExecutor = createMockQueryExecutor(function handleQuery() {
+      return {
+        rows: [
+          {
+            id: '11111111-1111-4111-8111-111111111111',
+            user_id: '22222222-2222-4222-8222-222222222222',
+            stripe_payment_intent_id: 'pi_123',
+            amount: 0,
+            credits_granted: 0,
+            status: 'succeeded',
+            created_at: '2026-01-01T00:00:00.000Z',
+          },
+        ],
+        rowCount: 1,
+      }
+    })
+    const repository = new CreditRepository(queryExecutor)
+
+    const result = await repository.insertCreditTransaction(queryExecutor, {
+      transactionId: '11111111-1111-4111-8111-111111111111',
+      userId: '22222222-2222-4222-8222-222222222222',
+      stripePaymentIntentId: 'pi_123',
+      amount: 0,
+      creditsGranted: 0,
+    })
+
+    expect(result).toEqual({
+      id: '11111111-1111-4111-8111-111111111111',
+      userId: '22222222-2222-4222-8222-222222222222',
+      amount: 0,
+      creditsGranted: 0,
+      status: 'succeeded',
+      createdAt: '2026-01-01T00:00:00.000Z',
+    })
+    expect(queryExecutor.queries[0]?.text).toContain('INSERT INTO credit_transactions')
+    expect(queryExecutor.queries[0]?.text).not.toContain('"Credit_Transactions"')
+    expect(queryExecutor.queries[0]?.values).toEqual([
+      '11111111-1111-4111-8111-111111111111',
+      '22222222-2222-4222-8222-222222222222',
+      'pi_123',
+      0,
+      0,
+      expect.any(String),
+    ])
+  })
+
+  it('inserts credit transactions with an explicit created_at for NOT NULL column without default', async function testInsertProvidesCreatedAt() {
+    const queryExecutor = createMockQueryExecutor(function handleQuery() {
+      return {
+        rows: [
+          {
+            id: '11111111-1111-4111-8111-111111111111',
+            user_id: '22222222-2222-4222-8222-222222222222',
+            stripe_payment_intent_id: 'pi_123',
+            amount: 0,
+            credits_granted: 0,
+            status: 'succeeded',
+            created_at: '2026-01-01T00:00:00.000Z',
+          },
+        ],
+        rowCount: 1,
+      }
+    })
+    const repository = new CreditRepository(queryExecutor)
+
+    await repository.insertCreditTransaction(queryExecutor, {
+      transactionId: '11111111-1111-4111-8111-111111111111',
+      userId: '22222222-2222-4222-8222-222222222222',
+      stripePaymentIntentId: 'pi_123',
+      amount: 0,
+      creditsGranted: 0,
+    })
+
+    const insertText = queryExecutor.queries[0]?.text ?? ''
+    const insertColumns = insertText.slice(
+      insertText.indexOf('INSERT INTO credit_transactions ('),
+      insertText.indexOf(') VALUES'),
+    )
+    expect(insertColumns).toContain('created_at')
+    expect(queryExecutor.queries[0]?.values).toHaveLength(6)
+    expect(typeof queryExecutor.queries[0]?.values[5]).toBe('string')
+  })
+
+  it('counts history against unquoted lowercase credit_transactions', async function testCountUsesUnquotedTableName() {
+    const queryExecutor = createMockQueryExecutor(function handleQuery() {
+      return { rows: [{ count: '3' }], rowCount: 1 }
+    })
+    const repository = new CreditRepository(queryExecutor)
+
+    const count = await repository.countTransactionHistory('22222222-2222-4222-8222-222222222222')
+
+    expect(count).toBe(3)
+    expect(queryExecutor.queries[0]?.text).toContain('FROM credit_transactions')
+    expect(queryExecutor.queries[0]?.text).not.toContain('"Credit_Transactions"')
+    expect(queryExecutor.queries[0]?.values).toEqual(['22222222-2222-4222-8222-222222222222'])
   })
 })

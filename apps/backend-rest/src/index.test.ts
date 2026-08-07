@@ -1642,7 +1642,7 @@ function createDatabaseBinding(accountState: {
         }
       }
 
-      if (statementText.includes('INSERT INTO "Credit_Transactions"')) {
+      if (statementText.includes('INSERT INTO credit_transactions')) {
         const stripePaymentIntentId = String(statementValues[2])
         if (seenPaymentIntentIds.has(stripePaymentIntentId)) {
           return { rows: [] }

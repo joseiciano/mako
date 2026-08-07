@@ -87,17 +87,19 @@ export class CreditRepository {
     queryExecutor: SqlQueryExecutor,
     input: GrantCreditsInput & { transactionId: string },
   ): Promise<CreditTransaction | null> {
+    const createdAt = new Date().toISOString()
     const result = await queryExecutor.query<CreditTransactionRow>(
       createSqlQuery(
         `
-          INSERT INTO "Credit_Transactions" (
+          INSERT INTO credit_transactions (
             id,
             user_id,
             stripe_payment_intent_id,
             amount,
             credits_granted,
-            status
-          ) VALUES ($1, $2, $3, $4, $5, 'succeeded')
+            status,
+            created_at
+          ) VALUES ($1, $2, $3, $4, $5, 'succeeded', $6)
           ON CONFLICT (stripe_payment_intent_id) DO NOTHING
           RETURNING
             id,
@@ -114,6 +116,7 @@ export class CreditRepository {
           input.stripePaymentIntentId,
           input.amount,
           input.creditsGranted,
+          createdAt,
         ],
       ),
     )
@@ -142,7 +145,8 @@ export class CreditRepository {
 
   async getTransactionHistory(input: TransactionHistoryInput): Promise<CreditTransaction[]> {
     const parsedInput = parseTransactionHistoryInput(input)
-    const result = await this.getQueryExecutor().query<CreditTransactionRow>(
+    const queryExecutor = this.getQueryExecutor()
+    const result = await queryExecutor.query<CreditTransactionRow>(
       createSqlQuery(
         `
           SELECT
@@ -153,7 +157,7 @@ export class CreditRepository {
             credits_granted,
             status,
             created_at
-          FROM "Credit_Transactions"
+          FROM credit_transactions
           WHERE user_id = $1
           ORDER BY created_at DESC, id DESC
           LIMIT $2
@@ -164,6 +168,21 @@ export class CreditRepository {
     )
 
     return result.rows.map(toCreditTransaction)
+  }
+
+  async countTransactionHistory(userId: string): Promise<number> {
+    const countResult = await this.getQueryExecutor().query<{ count: string }>(
+      createSqlQuery(
+        `
+          SELECT COUNT(*) AS count
+          FROM credit_transactions
+          WHERE user_id = $1;
+        `,
+        [userId],
+      ),
+    )
+
+    return Number(countResult.rows[0]?.count ?? 0)
   }
 
   private getQueryExecutor(): SqlQueryExecutor {
