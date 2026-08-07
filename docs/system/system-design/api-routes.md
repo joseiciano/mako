@@ -266,6 +266,16 @@
         "recording_url": null,
         "screenshot_urls": null,
         "feedback": null,
+        "recording_status": "not_started",
+        "transcript": null,
+        "feedback_status": "not_started",
+        "feedback_unavailable_reason": null,
+        "feedback_error_code": null,
+        "feedback_prompt_version": null,
+        "feedback_generated_at": null,
+        "started_at": "2026-04-10T10:30:00.000Z",
+        "expires_at": "2026-04-10T11:30:00.000Z",
+        "warning_at": "2026-04-10T11:25:00.000Z",
         "created_at": "2026-04-01T10:00:00.000Z",
         "updated_at": "2026-04-10T10:30:00.000Z"
       }
@@ -304,6 +314,16 @@
         "recording_url": null,
         "screenshot_urls": null,
         "feedback": null,
+        "recording_status": "not_started",
+        "transcript": null,
+        "feedback_status": "not_started",
+        "feedback_unavailable_reason": null,
+        "feedback_error_code": null,
+        "feedback_prompt_version": null,
+        "feedback_generated_at": null,
+        "started_at": "2026-04-10T10:30:00.000Z",
+        "expires_at": "2026-04-10T11:30:00.000Z",
+        "warning_at": "2026-04-10T11:25:00.000Z",
         "created_at": "2026-04-01T10:00:00.000Z",
         "updated_at": "2026-04-10T11:30:00.000Z"
       }
@@ -385,17 +405,23 @@
         "type": "system_design",
         "mode": "peer_to_peer",
         "tier": "standard",
-        "status": "scheduled",
+        "status": "completed",
         "scheduled_at": "2026-01-01T12:00:00.000Z",
-        "recording_url": "https://r2.example.com/recording.mp4",
-        "screenshot_urls": ["https://r2.example.com/ss1.png"],
-        "feedback": {
-          "overall_score": 85,
-          "strengths": ["Good communication"],
-          "improvements": ["System design depth"]
-        },
+        "recording_url": null,
+        "screenshot_urls": null,
+        "feedback": null,
+        "recording_status": "ready",
+        "transcript": null,
+        "feedback_status": "not_started",
+        "feedback_unavailable_reason": "no_consent",
+        "feedback_error_code": null,
+        "feedback_prompt_version": null,
+        "feedback_generated_at": null,
+        "started_at": "2026-01-01T12:00:00.000Z",
+        "expires_at": "2026-01-01T13:00:00.000Z",
+        "warning_at": "2026-01-01T12:55:00.000Z",
         "created_at": "2026-01-01T00:00:00.000Z",
-        "updated_at": "2026-01-01T00:00:00.000Z"
+        "updated_at": "2026-01-01T13:00:00.000Z"
       }
     }
     ```

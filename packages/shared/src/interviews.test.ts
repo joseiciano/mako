@@ -419,11 +419,7 @@ describe('interview shared contracts', function interviewSharedContractsSuite() 
       'https://r2.example.com/ss1.png',
       'https://r2.example.com/ss2.png',
     ])
-    expect(parsed.interview.feedback).toEqual({
-      overall_score: 85,
-      strengths: ['Good communication'],
-      improvements: ['System design depth'],
-    })
+    expect(parsed.interview.feedback).toBeNull()
   })
 
   it('parses created_at and updated_at with explicit UTC offset matching Postgres timestamptz', function run() {

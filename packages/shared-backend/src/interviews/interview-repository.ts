@@ -961,6 +961,13 @@ export class InterviewRepository {
               recording_url,
               screenshot_urls,
               feedback,
+              recording_status,
+              transcript,
+              feedback_status,
+              feedback_unavailable_reason,
+              feedback_error_code,
+              feedback_prompt_version,
+              feedback_generated_at,
               started_at,
               expires_at,
               warning_at,
@@ -1034,6 +1041,13 @@ export class InterviewRepository {
               recording_url,
               screenshot_urls,
               feedback,
+              recording_status,
+              transcript,
+              feedback_status,
+              feedback_unavailable_reason,
+              feedback_error_code,
+              feedback_prompt_version,
+              feedback_generated_at,
               started_at,
               expires_at,
               warning_at,
@@ -1061,7 +1075,10 @@ export class InterviewRepository {
 
       return {
         outcome: 'provisioned',
-        interview: parseInterview(provisionedInterview),
+        interview: mergeDetailProcessingState(
+          parseInterview(provisionedInterview),
+          provisionedInterview as InterviewWithDetailState,
+        ),
       }
     } catch (error) {
       await rollbackTransactionSafely(queryExecutor)
@@ -1096,6 +1113,13 @@ export class InterviewRepository {
             recording_url,
             screenshot_urls,
             feedback,
+            recording_status,
+            transcript,
+            feedback_status,
+            feedback_unavailable_reason,
+            feedback_error_code,
+            feedback_prompt_version,
+            feedback_generated_at,
             started_at,
             expires_at,
             warning_at,
@@ -1181,6 +1205,7 @@ export function mergeDetailProcessingState(
 
   return {
     ...interview,
+    feedback: interview.feedback as InterviewWithDetailState['feedback'],
     recording_status: prior.recording_status,
     transcript: prior.transcript,
     feedback_status: prior.feedback_status,

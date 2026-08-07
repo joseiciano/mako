@@ -23,7 +23,7 @@ The AI feedback pipeline is a multi-stage process triggered upon the first succe
 ### 2.1 Transcript Persistence
 
 - Transcripts are persisted in dedicated transcript storage (`interview_transcription_chunks`), not embedded as text inside `interviews.feedback`.
-- The `feedback` column on `interviews` stores only the structured feedback report JSON (versioned `schema_version: 1`).
+- The `feedback` column on `interviews` stores the structured feedback report JSON (versioned `schema_version: 1`) for new feedback. DB persistence tolerates legacy freeform JSON during the compatibility window; client-facing contracts validate/map to the strict versioned feedback v1 schema only at ready-persistence and client-detail boundaries (see `docs/system/system-design/db-schemas.md`).
 
 ### 2.2 Feedback Status Values and Transitions
 

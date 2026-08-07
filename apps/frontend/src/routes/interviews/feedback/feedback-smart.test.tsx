@@ -84,7 +84,21 @@ describe('FeedbackSmart', function () {
   it('renders completed feedback', function () {
     vi.mocked(useInterviewDetail).mockReturnValue(
       mockUseInterviewDetail({
-        data: makeInterview({ status: 'completed', feedback: { overall_score: 91 } }),
+        data: makeInterview({
+          status: 'completed',
+          feedback: {
+            schema_version: 1,
+            overall_score: 91,
+            summary: 'Excellent performance.',
+            dimensions: {
+              communication: { score: 90, summary: 'Clear.' },
+              problem_solving: { score: 92, summary: 'Methodical.' },
+              technical_depth: { score: 91, summary: 'Good depth.' },
+            },
+            strengths: [],
+            improvements: [],
+          },
+        }),
         isPending: false,
       }),
     )

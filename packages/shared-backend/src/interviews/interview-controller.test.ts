@@ -288,7 +288,7 @@ describe('InterviewController', function interviewControllerSuite() {
           excalidraw_key: 'key_ghi789',
           recording_url: 'https://r2.example.com/recording.mp4',
           screenshot_urls: ['https://r2.example.com/ss1.png'],
-          feedback: { score: 85 },
+          feedback: null,
         }),
       ],
     })

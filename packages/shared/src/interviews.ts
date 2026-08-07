@@ -84,6 +84,39 @@ export const interviewListItemSchema = interviewSchema.omit({
 })
 
 // ============================================================================
+// Feedback v1 Report Schema
+// ============================================================================
+
+export const feedbackDimensionSchema = z.object({
+  score: z.number().int().min(0).max(100),
+  summary: z.string().min(1).max(2000),
+}).strict()
+
+export const feedbackStrengthSchema = z.object({
+  title: z.string().min(1).max(200),
+  evidence: z.string().min(1).max(2000),
+}).strict()
+
+export const feedbackImprovementSchema = z.object({
+  title: z.string().min(1).max(200),
+  evidence: z.string().min(1).max(2000),
+  action: z.string().min(1).max(2000),
+}).strict()
+
+export const interviewFeedbackV1Schema = z.object({
+  schema_version: z.literal(1),
+  overall_score: z.number().int().min(0).max(100),
+  summary: z.string().min(1).max(4000),
+  dimensions: z.object({
+    communication: feedbackDimensionSchema,
+    problem_solving: feedbackDimensionSchema,
+    technical_depth: feedbackDimensionSchema,
+  }).strict(),
+  strengths: z.array(feedbackStrengthSchema).min(0).max(20),
+  improvements: z.array(feedbackImprovementSchema).min(0).max(20),
+}).strict()
+
+// ============================================================================
 // Processing State Schemas (referenced by interviewDetailSchema)
 // ============================================================================
 
@@ -122,6 +155,7 @@ export const interviewDetailSchema = interviewSchema.omit({
   realtime_session_id: true,
   excalidraw_room_id: true,
   excalidraw_key: true,
+  feedback: true,
 }).extend({
   recording_status: recordingStatusSchema,
   transcript: z.string().nullable(),
@@ -130,6 +164,7 @@ export const interviewDetailSchema = interviewSchema.omit({
   feedback_error_code: feedbackErrorCodeSchema.nullable(),
   feedback_prompt_version: z.string().nullable(),
   feedback_generated_at: z.string().datetime({ offset: true }).nullable(),
+  feedback: interviewFeedbackV1Schema.nullable().catch(null),
 })
 
 export const interviewListResponseSchema = z.object({
@@ -225,39 +260,6 @@ export const aiChatResponseSchema = z.object({
 })
 
 // ============================================================================
-// Feedback v1 Report Schema
-// ============================================================================
-
-export const feedbackDimensionSchema = z.object({
-  score: z.number().int().min(0).max(100),
-  summary: z.string().min(1).max(2000),
-}).strict()
-
-export const feedbackStrengthSchema = z.object({
-  title: z.string().min(1).max(200),
-  evidence: z.string().min(1).max(2000),
-}).strict()
-
-export const feedbackImprovementSchema = z.object({
-  title: z.string().min(1).max(200),
-  evidence: z.string().min(1).max(2000),
-  action: z.string().min(1).max(2000),
-}).strict()
-
-export const interviewFeedbackV1Schema = z.object({
-  schema_version: z.literal(1),
-  overall_score: z.number().int().min(0).max(100),
-  summary: z.string().min(1).max(4000),
-  dimensions: z.object({
-    communication: feedbackDimensionSchema,
-    problem_solving: feedbackDimensionSchema,
-    technical_depth: feedbackDimensionSchema,
-  }).strict(),
-  strengths: z.array(feedbackStrengthSchema).min(0).max(20),
-  improvements: z.array(feedbackImprovementSchema).min(0).max(20),
-}).strict()
-
-// ============================================================================
 // Processing and Report State Schemas
 // ============================================================================
 
@@ -335,6 +337,7 @@ export type FeedbackDimension = z.infer<typeof feedbackDimensionSchema>
 export type FeedbackStrength = z.infer<typeof feedbackStrengthSchema>
 export type FeedbackImprovement = z.infer<typeof feedbackImprovementSchema>
 export type InterviewFeedbackV1 = z.infer<typeof interviewFeedbackV1Schema>
+export type InterviewFeedback = z.infer<typeof interviewFeedbackSchema>
 export type RecordingStatus = z.infer<typeof recordingStatusSchema>
 export type FeedbackStatus = z.infer<typeof feedbackStatusSchema>
 export type FeedbackUnavailableReason = z.infer<typeof feedbackUnavailableReasonSchema>

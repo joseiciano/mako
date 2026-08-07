@@ -307,18 +307,113 @@ describe('interviewDetailSchema and interviewListItemSchema field exclusion', fu
   })
 })
 
-describe('legacy freeform feedback compatibility', function legacyCompatSuite() {
-  it('interviewDetailSchema does not crash on legacy freeform feedback JSON', function run() {
-    // Legacy feedback is arbitrary JSON; the detail schema should parse it without crashing
-    // because the feedback field on interviewSchema is a record (freeform)
+describe('interviewDetailSchema feedback boundary enforcement', function feedbackBoundarySuite() {
+  // Base interview fields used across all detail-schema parse tests
+  const baseDetailFields = {
+    id: '550e8400-e29b-41d4-a716-446655440000',
+    scheduler_id: '550e8400-e29b-41d4-a716-446655440001',
+    scheduler_alias: 'Candidate-Blue',
+    interviewer_id: null,
+    interviewer_alias: 'Interviewer-Red',
+    type: 'system_design',
+    mode: 'ai_led',
+    tier: 'standard',
+    status: 'completed',
+    scheduled_at: '2026-01-01T12:00:00.000Z',
+    recording_url: null,
+    screenshot_urls: null,
+    started_at: '2026-01-01T12:00:00.000Z',
+    expires_at: '2026-01-01T13:00:00.000Z',
+    warning_at: '2026-01-01T12:55:00.000Z',
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T13:00:00.000Z',
+    recording_status: 'not_started',
+    transcript: null,
+    feedback_status: 'not_started',
+    feedback_unavailable_reason: null,
+    feedback_error_code: null,
+    feedback_prompt_version: null,
+    feedback_generated_at: null,
+  }
+
+  const validV1Feedback = {
+    schema_version: 1,
+    overall_score: 85,
+    summary: 'Strong performance with good communication and solid technical depth.',
+    dimensions: {
+      communication: {
+        score: 90,
+        summary: 'Clear and concise explanations throughout the session.',
+      },
+      problem_solving: {
+        score: 82,
+        summary: 'Methodical approach to breaking down the system design problem.',
+      },
+      technical_depth: {
+        score: 83,
+        summary: 'Good understanding of caching and database scaling tradeoffs.',
+      },
+    },
+    strengths: [
+      {
+        title: 'Structured problem decomposition',
+        evidence: 'Candidate broke the system into load balancer, API, and storage layers within the first 5 minutes.',
+      },
+    ],
+    improvements: [
+      {
+        title: 'Cache invalidation strategy',
+        evidence: 'Candidate did not address cache invalidation between services A and B.',
+        action: 'Practice cache-aside and write-through patterns for distributed systems.',
+      },
+    ],
+  }
+
+  it('maps legacy freeform feedback JSON to null at the client-detail boundary', function run() {
     const legacyFeedback = {
       overall_score: 85,
       strengths: ['Good communication'],
       improvements: ['System design depth'],
     }
 
-    // The interviewSchema.feedback field accepts any record, so legacy JSON is tolerated
-    // The strict v1 validation only applies at ready-persistence and client-detail boundaries
+    const detail = interviewDetailSchema.parse({
+      ...baseDetailFields,
+      feedback: legacyFeedback,
+    })
+
+    expect(detail.feedback).toBeNull()
+  })
+
+  it('accepts valid v1 feedback at the client-detail boundary', function run() {
+    const detail = interviewDetailSchema.parse({
+      ...baseDetailFields,
+      feedback: validV1Feedback,
+      feedback_status: 'ready',
+      feedback_prompt_version: 'system-design-feedback-v1',
+      feedback_generated_at: '2026-08-07T12:00:00.000Z',
+    })
+
+    expect(detail.feedback).not.toBeNull()
+    expect(detail.feedback?.schema_version).toBe(1)
+    expect(detail.feedback?.overall_score).toBe(85)
+  })
+
+  it('maps null feedback to null', function run() {
+    const detail = interviewDetailSchema.parse({
+      ...baseDetailFields,
+      feedback: null,
+    })
+
+    expect(detail.feedback).toBeNull()
+  })
+
+  it('interviewFeedbackV1Schema still rejects legacy freeform JSON', function run() {
+    const legacyFeedback = {
+      overall_score: 85,
+      strengths: ['Good communication'],
+      improvements: ['System design depth'],
+    }
+
     expect(() => interviewFeedbackV1Schema.parse(legacyFeedback)).toThrow()
   })
 })
