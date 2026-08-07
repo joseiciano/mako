@@ -466,7 +466,7 @@ Dedicated transcript persistence for retry-safe transcription.
 
 Constraints:
 
-- Unique (`interview_id`, `feedback_attempt_id`, `participant_role`, `chunk_index`)
+- Unique (`interview_id`, `feedback_attempt_id`, `COALESCE(participant_role, '')`, `chunk_index`) — COALESCE ensures NULL participant_role is treated as a deterministic sentinel so duplicate chunks cannot coexist when participant_role is NULL.
 
 Indexes:
 

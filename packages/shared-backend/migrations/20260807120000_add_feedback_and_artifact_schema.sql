@@ -232,8 +232,10 @@ CREATE TABLE IF NOT EXISTS interview_transcription_chunks (
 );
 
 -- Unique constraint for deterministic chunk identity
+-- COALESCE ensures NULL participant_role is treated as a deterministic sentinel,
+-- preserving the "retries do not retranscribe completed chunks" guarantee.
 CREATE UNIQUE INDEX IF NOT EXISTS idx_interview_transcription_chunks_unique
-  ON interview_transcription_chunks (interview_id, feedback_attempt_id, participant_role, chunk_index);
+  ON interview_transcription_chunks (interview_id, feedback_attempt_id, COALESCE(participant_role, ''), chunk_index);
 
 -- Query indexes
 CREATE INDEX IF NOT EXISTS idx_interview_transcription_chunks_interview_attempt
