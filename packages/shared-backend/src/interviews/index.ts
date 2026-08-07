@@ -44,6 +44,14 @@ export {
   type InterviewServiceLogger,
 } from './interview-service'
 export {
+  RecordingConsentRepository,
+  type RecordingConsentRecord,
+  type RecordingConsentResult,
+  type RevokeConsentInput,
+  type UpsertConsentInput,
+} from './recording-consent-repository'
+export { RecordingConsentService } from './recording-consent-service'
+export {
   registerInterviewController,
   type InterviewControllerOptions,
 } from './interview-controller'

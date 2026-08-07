@@ -13,12 +13,16 @@ import {
   interviewListResponseSchema,
   provisionInterviewParamsSchema,
   provisionInterviewResponseSchema,
+  recordingConsentRequestSchema,
+  recordingConsentResponseSchema,
   startInterviewParamsSchema,
 } from '@mako/shared'
 import type { Context, Hono } from 'hono'
 import { AiChatUnavailableError } from './ai-chat-repository'
 import { AiChatProviderError } from './ai-gateway-responder'
+import { ArtifactValidationError } from '../interview-assets'
 import { InterviewService } from './interview-service'
+import { RecordingConsentService } from './recording-consent-service'
 import {
   InterviewBusinessRuleError,
   InterviewConflictError,
@@ -32,6 +36,9 @@ type ControllerBindings = Record<string, unknown>
 
 export type InterviewControllerOptions<Bindings extends ControllerBindings> = {
   createService: (context: { bindings: Bindings }) => InterviewService
+  createConsentService?: (
+    context: { bindings: Bindings },
+  ) => RecordingConsentService | undefined
   resolveSession: (
     context: Context<{ Bindings: Bindings }>,
   ) => Promise<InterviewSession | null> | InterviewSession | null
@@ -222,6 +229,79 @@ export function registerInterviewController<Bindings extends ControllerBindings>
       return toErrorResponse(c, error)
     }
   })
+
+  app.post('/api/interviews/:id/recording-consent', async function postRecordingConsentHandler(c) {
+    const session = await options.resolveSession(c)
+    const jsonBody = await readRequestBody(c)
+
+    if (jsonBody === null) {
+      return c.json({ error: 'Request body must be valid JSON.' }, 400)
+    }
+
+    let parsedParams: { id: string }
+    try {
+      parsedParams = cancelInterviewParamsSchema.parse({
+        id: c.req.param('id'),
+      })
+    } catch (error) {
+      return toErrorResponse(c, error)
+    }
+
+    let parsedBody: ReturnType<typeof recordingConsentRequestSchema.parse>
+    try {
+      parsedBody = recordingConsentRequestSchema.parse(jsonBody)
+    } catch (error) {
+      return toErrorResponse(c, error)
+    }
+
+    try {
+      const consentService = options.createConsentService?.({ bindings: c.env })
+
+      if (!consentService) {
+        return c.json({ error: 'Recording consent is not configured.' }, 503)
+      }
+
+      const consentResponse = await consentService.setConsent(session, {
+        interview_id: parsedParams.id,
+        decision: parsedBody.decision,
+        consent_copy_version: parsedBody.consent_copy_version,
+      })
+
+      return c.json(recordingConsentResponseSchema.parse(consentResponse), 200)
+    } catch (error) {
+      return toErrorResponse(c, error)
+    }
+  })
+
+  app.delete('/api/interviews/:id/recording-consent', async function deleteRecordingConsentHandler(c) {
+    const session = await options.resolveSession(c)
+
+    let parsedParams: { id: string }
+    try {
+      parsedParams = cancelInterviewParamsSchema.parse({
+        id: c.req.param('id'),
+      })
+    } catch (error) {
+      return toErrorResponse(c, error)
+    }
+
+    try {
+      const consentService = options.createConsentService?.({ bindings: c.env })
+
+      if (!consentService) {
+        return c.json({ error: 'Recording consent is not configured.' }, 503)
+      }
+
+      const consentResponse = await consentService.revokeConsent(session, {
+        interview_id: parsedParams.id,
+      })
+
+      return c.json(recordingConsentResponseSchema.parse(consentResponse), 200)
+    } catch (error) {
+      return toErrorResponse(c, error)
+    }
+  })
+
 }
 
 async function readRequestBody(context: Context): Promise<unknown | null> {

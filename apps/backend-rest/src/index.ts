@@ -50,6 +50,8 @@ import {
   NotificationRepository,
   NotificationService,
   NotificationDispatchService,
+  RecordingConsentRepository,
+  RecordingConsentService,
   createArtifactStorage,
   createR2BucketPort,
   type NotificationDispatchServiceLogger,
@@ -277,6 +279,18 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
         realtimeProvider,
         timerOrchestration,
         new AiChatRepository(createWorkerAiChatResponder(context.bindings)),
+      )
+    },
+    createConsentService: function createConsentService(context) {
+      if (!hasDatabaseAccess(context.bindings)) {
+        return undefined
+      }
+
+      const queryExecutor = createDatabaseQueryExecutor(context.bindings)
+
+      return new RecordingConsentService(
+        new RecordingConsentRepository({ queryExecutor }),
+        new InterviewRepository({ queryExecutor }),
       )
     },
     resolveSession: function resolveSession(context) {
