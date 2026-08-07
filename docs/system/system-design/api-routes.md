@@ -266,6 +266,16 @@
         "recording_url": null,
         "screenshot_urls": null,
         "feedback": null,
+        "recording_status": "not_started",
+        "transcript": null,
+        "feedback_status": "not_started",
+        "feedback_unavailable_reason": null,
+        "feedback_error_code": null,
+        "feedback_prompt_version": null,
+        "feedback_generated_at": null,
+        "started_at": "2026-04-10T10:30:00.000Z",
+        "expires_at": "2026-04-10T11:30:00.000Z",
+        "warning_at": "2026-04-10T11:25:00.000Z",
         "created_at": "2026-04-01T10:00:00.000Z",
         "updated_at": "2026-04-10T10:30:00.000Z"
       }
@@ -304,6 +314,16 @@
         "recording_url": null,
         "screenshot_urls": null,
         "feedback": null,
+        "recording_status": "not_started",
+        "transcript": null,
+        "feedback_status": "not_started",
+        "feedback_unavailable_reason": null,
+        "feedback_error_code": null,
+        "feedback_prompt_version": null,
+        "feedback_generated_at": null,
+        "started_at": "2026-04-10T10:30:00.000Z",
+        "expires_at": "2026-04-10T11:30:00.000Z",
+        "warning_at": "2026-04-10T11:25:00.000Z",
         "created_at": "2026-04-01T10:00:00.000Z",
         "updated_at": "2026-04-10T11:30:00.000Z"
       }
@@ -385,17 +405,23 @@
         "type": "system_design",
         "mode": "peer_to_peer",
         "tier": "standard",
-        "status": "scheduled",
+        "status": "completed",
         "scheduled_at": "2026-01-01T12:00:00.000Z",
-        "recording_url": "https://r2.example.com/recording.mp4",
-        "screenshot_urls": ["https://r2.example.com/ss1.png"],
-        "feedback": {
-          "overall_score": 85,
-          "strengths": ["Good communication"],
-          "improvements": ["System design depth"]
-        },
+        "recording_url": null,
+        "screenshot_urls": null,
+        "feedback": null,
+        "recording_status": "ready",
+        "transcript": null,
+        "feedback_status": "not_started",
+        "feedback_unavailable_reason": "no_consent",
+        "feedback_error_code": null,
+        "feedback_prompt_version": null,
+        "feedback_generated_at": null,
+        "started_at": "2026-01-01T12:00:00.000Z",
+        "expires_at": "2026-01-01T13:00:00.000Z",
+        "warning_at": "2026-01-01T12:55:00.000Z",
         "created_at": "2026-01-01T00:00:00.000Z",
-        "updated_at": "2026-01-01T00:00:00.000Z"
+        "updated_at": "2026-01-01T13:00:00.000Z"
       }
     }
     ```
@@ -452,3 +478,90 @@ Company route behavior:
 - Invalid JSON, fields, or IDs return `400`; unauthenticated requests return `401`; an authenticated inactive/deleted account returns `403`; missing, deleted, or non-owned records return `404`.
 - Responses use `Cache-Control: private, no-store`.
 - Changes do not rewrite application snapshots and do not mutate the account-level `"user".companies` eligibility flag.
+
+### Recording Consent
+- **`POST /api/interviews/:id/recording-consent`**
+  - **Description**: Records a participant's recording consent or decline decision.
+  - **Request Body**: `{ decision: 'consented' | 'declined' }`
+  - **Response Body**: `{ success: boolean }`
+  - **Behavior Rules**:
+    - Route is participant-only; non-participants receive 404.
+    - One consent record per participant per interview (composite primary key).
+    - Declining does not block the interview but makes automated feedback unavailable.
+  - **Query Params**: None
+
+- **`DELETE /api/interviews/:id/recording-consent`**
+  - **Description**: Revokes a participant's prior recording consent.
+  - **Request Body**: None
+  - **Response Body**: `{ success: boolean }`
+  - **Behavior Rules**:
+    - Route is participant-only.
+    - Sets `revoked_at` on the existing consent record; does not delete the row.
+  - **Query Params**: None
+
+### Provider Webhooks
+- **`POST /api/webhooks/realtimekit`**
+  - **Description**: Signed RealtimeKit recording status webhook handler.
+  - **Request Body**: Provider webhook event payload.
+  - **Response Body**: `200 OK`
+  - **Behavior Rules**:
+    - Verifies webhook signature using a public-key verification scheme before processing.
+    - Idempotent via `provider_event_id` as primary key on `realtimekit_webhook_events`.
+    - Handles recording finalization status transitions (`accepted`, `finalizing`, `processed`, `failed`).
+    - Does not expose provider error bodies to clients.
+  - **Query Params**: None
+
+### Artifacts
+- **`POST /api/interviews/:id/artifacts/screenshots`**
+  - **Description**: Uploads a whiteboard capture screenshot artifact.
+  - **Request Body**: Multipart form data with PNG image.
+  - **Response Body**: `{ artifact_id: string }`
+  - **Behavior Rules**:
+    - Route is participant-only.
+    - Upload remains open while the interview is ongoing.
+    - The first successful lifecycle completion transaction finalizes the screenshot set for both manual-end and timeout paths.
+    - Whiteboard captures are bounded PNG artifacts generated from the canonical Excalidraw scene at explicit milestones/finalization, not per-stroke uploads.
+  - **Query Params**: None
+
+- **`GET /api/interviews/:id/artifacts/recording`**
+  - **Description**: Participant-authorized streaming of the session recording.
+  - **Request Body**: None
+  - **Response Body**: Binary stream (recording file) or JSON with artifact availability status.
+  - **Behavior Rules**:
+    - Route is participant-only.
+    - Streams the object directly on success (no availability status field returned).
+    - Returns artifact availability status (`not_created`, `processing`, `expired`, `failed`) when the artifact cannot be streamed.
+    - Raw object keys, provider download URLs, and public `r2.dev` URLs are never returned.
+  - **Query Params**: None
+
+- **`GET /api/interviews/:id/artifacts/screenshots/:captureId`**
+  - **Description**: Participant-authorized streaming of a specific whiteboard capture screenshot.
+  - **Request Body**: None
+  - **Response Body**: Binary stream (PNG image) or JSON with artifact availability status.
+  - **Behavior Rules**:
+    - Route is participant-only.
+    - Streams the object directly on success (no availability status field returned).
+    - Returns artifact availability status (`not_created`, `processing`, `expired`, `failed`) when the artifact cannot be streamed.
+    - Raw object keys and public URLs are never returned.
+  - **Query Params**: None
+
+### Feedback Status
+- **`GET /api/interviews/:id/feedback-status`**
+  - **Description**: Lightweight participant-only feedback status polling endpoint.
+  - **Request Body**: None
+  - **Response Body**:
+    ```json
+    {
+      "feedback_status": "not_started | pending | processing | ready | failed",
+      "feedback_unavailable_reason": "no_consent | unsupported_format | no_recording | null",
+      "feedback_error_code": "assets_not_ready | transcription_failed | analysis_failed | invalid_feedback | internal_error | null",
+      "schema_version": 1 | null,
+      "prompt_version": "string | null",
+      "updated_at": "ISO-8601 timestamp"
+    }
+    ```
+  - **Behavior Rules**:
+    - Route is participant-only.
+    - Returns only status fields; does not include transcript or feedback prose.
+    - Designed for polling so active processing does not repeatedly transfer the full transcript/detail payload.
+  - **Query Params**: None

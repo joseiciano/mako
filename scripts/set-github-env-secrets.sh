@@ -35,7 +35,10 @@ while true; do
   echo "10) CLOUDFLARE_REALTIMEKIT_APP_ID"
   echo "11) STRIPE_WEBHOOK_SECRET"
   echo "12) VITE_STRIPE_PUBLISHABLE_KEY"
-  echo "13) Done"
+  echo "13) R2_BUCKET_NAME"
+  echo "14) R2_ACCOUNT_ID"
+  echo "15) REALTIMEKIT_WEBHOOK_PUBLIC_KEY"
+  echo "16) Done"
 
   read -r -p "Enter number: " choice
 
@@ -52,7 +55,10 @@ while true; do
     10) secret_name="CLOUDFLARE_REALTIMEKIT_APP_ID" ;;
     11) secret_name="STRIPE_WEBHOOK_SECRET" ;;
     12) secret_name="VITE_STRIPE_PUBLISHABLE_KEY" ;;
-    13) break ;;
+    13) secret_name="R2_BUCKET_NAME" ;;
+    14) secret_name="R2_ACCOUNT_ID" ;;
+    15) secret_name="REALTIMEKIT_WEBHOOK_PUBLIC_KEY" ;;
+    16) break ;;
     *)
       echo "Invalid option."
       continue

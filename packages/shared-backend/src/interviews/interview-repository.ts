@@ -252,6 +252,13 @@ export class InterviewRepository {
               recording_url,
               screenshot_urls,
               feedback,
+              recording_status,
+              transcript,
+              feedback_status,
+              feedback_unavailable_reason,
+              feedback_error_code,
+              feedback_prompt_version,
+              feedback_generated_at,
               started_at,
               expires_at,
               warning_at,
@@ -286,7 +293,10 @@ export class InterviewRepository {
       }
 
       await queryExecutor.query(createSqlQuery('COMMIT;'))
-      return parseInterview(createdInterview)
+      return mergeDetailProcessingState(
+        parseInterview(createdInterview),
+        createdInterview as InterviewWithDetailState,
+      )
     } catch (error) {
       await rollbackTransactionSafely(queryExecutor)
       throw error
@@ -383,6 +393,13 @@ export class InterviewRepository {
             recording_url,
             screenshot_urls,
             feedback,
+            recording_status,
+            transcript,
+            feedback_status,
+            feedback_unavailable_reason,
+            feedback_error_code,
+            feedback_prompt_version,
+            feedback_generated_at,
             started_at,
             expires_at,
             warning_at,
@@ -440,6 +457,13 @@ export class InterviewRepository {
               recording_url,
               screenshot_urls,
               feedback,
+              recording_status,
+              transcript,
+              feedback_status,
+              feedback_unavailable_reason,
+              feedback_error_code,
+              feedback_prompt_version,
+              feedback_generated_at,
               started_at,
               expires_at,
               warning_at,
@@ -504,6 +528,13 @@ export class InterviewRepository {
               recording_url,
               screenshot_urls,
               feedback,
+              recording_status,
+              transcript,
+              feedback_status,
+              feedback_unavailable_reason,
+              feedback_error_code,
+              feedback_prompt_version,
+              feedback_generated_at,
               started_at,
               expires_at,
               warning_at,
@@ -528,7 +559,10 @@ export class InterviewRepository {
 
       return {
         outcome: 'cancelled',
-        interview: parseInterview(cancelledInterview),
+        interview: mergeDetailProcessingState(
+          parseInterview(cancelledInterview),
+          cancelledInterview as InterviewWithDetailState,
+        ),
       }
     } catch (error) {
       await rollbackTransactionSafely(queryExecutor)
@@ -583,6 +617,13 @@ export class InterviewRepository {
                   recording_url,
                   screenshot_urls,
                   feedback,
+                  recording_status,
+                  transcript,
+                  feedback_status,
+                  feedback_unavailable_reason,
+                  feedback_error_code,
+                  feedback_prompt_version,
+                  feedback_generated_at,
                   started_at,
                   expires_at,
                   warning_at,
@@ -604,7 +645,10 @@ export class InterviewRepository {
             await queryExecutor.query(createSqlQuery('COMMIT;'))
             return {
               outcome: 'started',
-              interview: parseInterview(updateResult.rows[0]),
+              interview: mergeDetailProcessingState(
+                parseInterview(updateResult.rows[0]),
+                updateResult.rows[0] as InterviewWithDetailState,
+              ),
             }
           }
 
@@ -629,6 +673,13 @@ export class InterviewRepository {
                   recording_url,
                   screenshot_urls,
                   feedback,
+                  recording_status,
+                  transcript,
+                  feedback_status,
+                  feedback_unavailable_reason,
+                  feedback_error_code,
+                  feedback_prompt_version,
+                  feedback_generated_at,
                   started_at,
                   expires_at,
                   warning_at,
@@ -650,7 +701,10 @@ export class InterviewRepository {
             return { outcome: 'not_found' }
           }
 
-          const parsedInterview = parseInterview(existingInterview)
+          const parsedInterview = mergeDetailProcessingState(
+            parseInterview(existingInterview),
+            existingInterview as InterviewWithDetailState,
+          )
 
           if (parsedInterview.status === 'ongoing') {
             await queryExecutor.query(createSqlQuery('COMMIT;'))
@@ -695,6 +749,13 @@ export class InterviewRepository {
                 recording_url,
                 screenshot_urls,
                 feedback,
+                recording_status,
+                transcript,
+                feedback_status,
+                feedback_unavailable_reason,
+                feedback_error_code,
+                feedback_prompt_version,
+                feedback_generated_at,
                 started_at,
                 expires_at,
                 warning_at,
@@ -714,7 +775,10 @@ export class InterviewRepository {
           await queryExecutor.query(createSqlQuery('COMMIT;'))
           return {
             outcome: 'completed',
-            interview: parseInterview(updateResult.rows[0]),
+            interview: mergeDetailProcessingState(
+              parseInterview(updateResult.rows[0]),
+              updateResult.rows[0] as InterviewWithDetailState,
+            ),
           }
         }
 
@@ -739,6 +803,13 @@ export class InterviewRepository {
                 recording_url,
                 screenshot_urls,
                 feedback,
+                recording_status,
+                transcript,
+                feedback_status,
+                feedback_unavailable_reason,
+                feedback_error_code,
+                feedback_prompt_version,
+                feedback_generated_at,
                 started_at,
                 expires_at,
                 warning_at,
@@ -760,7 +831,10 @@ export class InterviewRepository {
           return { outcome: 'not_found' }
         }
 
-        const parsedInterview = parseInterview(existingInterview)
+        const parsedInterview = mergeDetailProcessingState(
+          parseInterview(existingInterview),
+          existingInterview as InterviewWithDetailState,
+        )
 
         if (parsedInterview.status === 'completed') {
           await queryExecutor.query(createSqlQuery('COMMIT;'))
@@ -887,6 +961,13 @@ export class InterviewRepository {
               recording_url,
               screenshot_urls,
               feedback,
+              recording_status,
+              transcript,
+              feedback_status,
+              feedback_unavailable_reason,
+              feedback_error_code,
+              feedback_prompt_version,
+              feedback_generated_at,
               started_at,
               expires_at,
               warning_at,
@@ -960,6 +1041,13 @@ export class InterviewRepository {
               recording_url,
               screenshot_urls,
               feedback,
+              recording_status,
+              transcript,
+              feedback_status,
+              feedback_unavailable_reason,
+              feedback_error_code,
+              feedback_prompt_version,
+              feedback_generated_at,
               started_at,
               expires_at,
               warning_at,
@@ -987,7 +1075,10 @@ export class InterviewRepository {
 
       return {
         outcome: 'provisioned',
-        interview: parseInterview(provisionedInterview),
+        interview: mergeDetailProcessingState(
+          parseInterview(provisionedInterview),
+          provisionedInterview as InterviewWithDetailState,
+        ),
       }
     } catch (error) {
       await rollbackTransactionSafely(queryExecutor)
@@ -1022,6 +1113,13 @@ export class InterviewRepository {
             recording_url,
             screenshot_urls,
             feedback,
+            recording_status,
+            transcript,
+            feedback_status,
+            feedback_unavailable_reason,
+            feedback_error_code,
+            feedback_prompt_version,
+            feedback_generated_at,
             started_at,
             expires_at,
             warning_at,
@@ -1078,6 +1176,46 @@ export class InterviewRepository {
   }
 }
 
+export type InterviewWithDetailState = Interview & InterviewDetail
+
+export const defaultDetailProcessingState = {
+  recording_status: 'not_started',
+  transcript: null,
+  feedback_status: 'not_started',
+  feedback_unavailable_reason: null,
+  feedback_error_code: null,
+  feedback_prompt_version: null,
+  feedback_generated_at: null,
+} as const satisfies Pick<
+  InterviewWithDetailState,
+  | 'recording_status'
+  | 'transcript'
+  | 'feedback_status'
+  | 'feedback_unavailable_reason'
+  | 'feedback_error_code'
+  | 'feedback_prompt_version'
+  | 'feedback_generated_at'
+>
+
+export function mergeDetailProcessingState(
+  interview: Interview,
+  previous?: InterviewWithDetailState | null,
+): InterviewWithDetailState {
+  const prior = previous ?? defaultDetailProcessingState
+
+  return {
+    ...interview,
+    feedback: interview.feedback as InterviewWithDetailState['feedback'],
+    recording_status: prior.recording_status,
+    transcript: prior.transcript,
+    feedback_status: prior.feedback_status,
+    feedback_unavailable_reason: prior.feedback_unavailable_reason,
+    feedback_error_code: prior.feedback_error_code,
+    feedback_prompt_version: prior.feedback_prompt_version,
+    feedback_generated_at: prior.feedback_generated_at,
+  }
+}
+
 export function createInMemoryInterviewDataSource(
   seedAccounts: readonly InMemoryInterviewAccountRecord[],
   seedInterviews: readonly Interview[] = [],
@@ -1086,7 +1224,7 @@ export function createInMemoryInterviewDataSource(
     string,
     { credits: number; freeStandardInterviews: number; freeAiInterviews: number }
   >()
-  const interviewsById = new Map<string, Interview>()
+  const interviewsById = new Map<string, InterviewWithDetailState>()
 
   for (const account of seedAccounts) {
     accountStateByUserId.set(account.userId, {
@@ -1097,7 +1235,7 @@ export function createInMemoryInterviewDataSource(
   }
 
   for (const interview of seedInterviews) {
-    interviewsById.set(interview.id, structuredClone(interview))
+    interviewsById.set(interview.id, structuredClone(interview) as InterviewWithDetailState)
   }
 
   return {
@@ -1141,18 +1279,20 @@ export function createInMemoryInterviewDataSource(
         accountState.credits -= 1
       }
 
-      const interview = parseInterview({
-        ...parsedInput,
-        realtime_session_id: null,
-        excalidraw_room_id: null,
-        excalidraw_key: null,
-        recording_url: null,
-        screenshot_urls: null,
-        feedback: null,
-        started_at: null,
-        expires_at: null,
-        warning_at: null,
-      })
+      const interview = mergeDetailProcessingState(
+        parseInterview({
+          ...parsedInput,
+          realtime_session_id: null,
+          excalidraw_room_id: null,
+          excalidraw_key: null,
+          recording_url: null,
+          screenshot_urls: null,
+          feedback: null,
+          started_at: null,
+          expires_at: null,
+          warning_at: null,
+        }),
+      )
       interviewsById.set(interview.id, structuredClone(interview))
       return structuredClone(interview)
     },
@@ -1234,15 +1374,18 @@ export function createInMemoryInterviewDataSource(
         }
       }
 
-      const provisionedInterview = parseInterview({
-        ...existingInterview,
-        realtime_session_id:
-          existingInterview.realtime_session_id ?? parsedInput.realtime_session_id,
-        excalidraw_room_id:
-          existingInterview.excalidraw_room_id ?? parsedInput.excalidraw_room_id,
-        excalidraw_key: existingInterview.excalidraw_key ?? parsedInput.excalidraw_key,
-        updated_at: parsedInput.updated_at,
-      })
+      const provisionedInterview = mergeDetailProcessingState(
+        parseInterview({
+          ...existingInterview,
+          realtime_session_id:
+            existingInterview.realtime_session_id ?? parsedInput.realtime_session_id,
+          excalidraw_room_id:
+            existingInterview.excalidraw_room_id ?? parsedInput.excalidraw_room_id,
+          excalidraw_key: existingInterview.excalidraw_key ?? parsedInput.excalidraw_key,
+          updated_at: parsedInput.updated_at,
+        }),
+        existingInterview,
+      )
 
       interviewsById.set(provisionedInterview.id, structuredClone(provisionedInterview))
 
@@ -1279,11 +1422,14 @@ export function createInMemoryInterviewDataSource(
         }
       }
 
-      const cancelledInterview = parseInterview({
-        ...existingInterview,
-        status: 'cancelled',
-        updated_at: parsedInput.updated_at,
-      })
+      const cancelledInterview = mergeDetailProcessingState(
+        parseInterview({
+          ...existingInterview,
+          status: 'cancelled',
+          updated_at: parsedInput.updated_at,
+        }),
+        existingInterview,
+      )
 
       interviewsById.set(cancelledInterview.id, structuredClone(cancelledInterview))
 
@@ -1321,14 +1467,17 @@ export function createInMemoryInterviewDataSource(
           }
         }
 
-        const startedInterview = parseInterview({
-          ...existingInterview,
-          status: 'ongoing',
-          started_at: parsedInput.started_at ?? existingInterview.started_at,
-          expires_at: parsedInput.expires_at ?? existingInterview.expires_at,
-          warning_at: parsedInput.warning_at ?? existingInterview.warning_at,
-          updated_at: parsedInput.updated_at,
-        })
+        const startedInterview = mergeDetailProcessingState(
+          parseInterview({
+            ...existingInterview,
+            status: 'ongoing',
+            started_at: parsedInput.started_at ?? existingInterview.started_at,
+            expires_at: parsedInput.expires_at ?? existingInterview.expires_at,
+            warning_at: parsedInput.warning_at ?? existingInterview.warning_at,
+            updated_at: parsedInput.updated_at,
+          }),
+          existingInterview,
+        )
 
         interviewsById.set(startedInterview.id, structuredClone(startedInterview))
 
@@ -1363,11 +1512,14 @@ export function createInMemoryInterviewDataSource(
         }
       }
 
-      const completedInterview = parseInterview({
-        ...existingInterview,
-        status: 'completed',
-        updated_at: parsedInput.updated_at,
-      })
+      const completedInterview = mergeDetailProcessingState(
+        parseInterview({
+          ...existingInterview,
+          status: 'completed',
+          updated_at: parsedInput.updated_at,
+        }),
+        existingInterview,
+      )
 
       interviewsById.set(completedInterview.id, structuredClone(completedInterview))
 

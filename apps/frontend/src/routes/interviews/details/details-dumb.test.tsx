@@ -152,7 +152,18 @@ describe('DetailsDumb', function () {
   it('renders feedback summary when feedback present', function () {
     const interview = makeInterview({
       status: 'completed',
-      feedback: { overall_score: 85, summary: 'Great work' },
+      feedback: {
+        schema_version: 1,
+        overall_score: 85,
+        summary: 'Great work',
+        dimensions: {
+          communication: { score: 85, summary: 'Good.' },
+          problem_solving: { score: 85, summary: 'Good.' },
+          technical_depth: { score: 85, summary: 'Good.' },
+        },
+        strengths: [],
+        improvements: [],
+      },
     })
     render(<DetailsDumb {...makeProps({ interview, canViewFeedback: true })} />)
     expect(screen.getByText('Great work')).toBeInTheDocument()

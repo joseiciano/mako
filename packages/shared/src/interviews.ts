@@ -83,10 +83,88 @@ export const interviewListItemSchema = interviewSchema.omit({
   warning_at: true,
 })
 
+// ============================================================================
+// Feedback v1 Report Schema
+// ============================================================================
+
+export const feedbackDimensionSchema = z.object({
+  score: z.number().int().min(0).max(100),
+  summary: z.string().min(1).max(2000),
+}).strict()
+
+export const feedbackStrengthSchema = z.object({
+  title: z.string().min(1).max(200),
+  evidence: z.string().min(1).max(2000),
+}).strict()
+
+export const feedbackImprovementSchema = z.object({
+  title: z.string().min(1).max(200),
+  evidence: z.string().min(1).max(2000),
+  action: z.string().min(1).max(2000),
+}).strict()
+
+export const interviewFeedbackV1Schema = z.object({
+  schema_version: z.literal(1),
+  overall_score: z.number().int().min(0).max(100),
+  summary: z.string().min(1).max(4000),
+  dimensions: z.object({
+    communication: feedbackDimensionSchema,
+    problem_solving: feedbackDimensionSchema,
+    technical_depth: feedbackDimensionSchema,
+  }).strict(),
+  strengths: z.array(feedbackStrengthSchema).min(0).max(20),
+  improvements: z.array(feedbackImprovementSchema).min(0).max(20),
+}).strict()
+
+// ============================================================================
+// Processing State Schemas (referenced by interviewDetailSchema)
+// ============================================================================
+
+export const recordingStatusSchema = z.enum([
+  'not_started',
+  'pending',
+  'recording',
+  'processing',
+  'ready',
+  'failed',
+])
+
+export const feedbackStatusSchema = z.enum([
+  'not_started',
+  'pending',
+  'processing',
+  'ready',
+  'failed',
+])
+
+export const feedbackUnavailableReasonSchema = z.enum([
+  'no_consent',
+  'unsupported_format',
+  'no_recording',
+])
+
+export const feedbackErrorCodeSchema = z.enum([
+  'assets_not_ready',
+  'transcription_failed',
+  'analysis_failed',
+  'invalid_feedback',
+  'internal_error',
+])
+
 export const interviewDetailSchema = interviewSchema.omit({
   realtime_session_id: true,
   excalidraw_room_id: true,
   excalidraw_key: true,
+  feedback: true,
+}).extend({
+  recording_status: recordingStatusSchema,
+  transcript: z.string().nullable(),
+  feedback_status: feedbackStatusSchema,
+  feedback_unavailable_reason: feedbackUnavailableReasonSchema.nullable(),
+  feedback_error_code: feedbackErrorCodeSchema.nullable(),
+  feedback_prompt_version: z.string().nullable(),
+  feedback_generated_at: z.string().datetime({ offset: true }).nullable(),
+  feedback: interviewFeedbackV1Schema.nullable().catch(null),
 })
 
 export const interviewListResponseSchema = z.object({
@@ -181,6 +259,42 @@ export const aiChatResponseSchema = z.object({
   prompt_version: z.string().min(1),
 })
 
+// ============================================================================
+// Processing and Report State Schemas
+// ============================================================================
+
+export const artifactKindSchema = z.enum([
+  'playback_recording',
+  'transcription_audio',
+  'screenshot',
+])
+
+export const artifactAvailabilitySchema = z.enum([
+  'not_created',
+  'processing',
+  'expired',
+  'failed',
+])
+
+// Legacy freeform feedback field stays tolerant for DB rows
+export const interviewFeedbackRowSchema = z.record(z.string(), jsonValueSchema).nullable()
+
+// Strict versioned union for ready-persistence and client-detail boundaries
+export const interviewFeedbackSchema = interviewFeedbackV1Schema.nullable()
+
+// ============================================================================
+// Feedback Status Response Schema (lightweight polling)
+// ============================================================================
+
+export const interviewFeedbackStatusResponseSchema = z.object({
+  feedback_status: feedbackStatusSchema,
+  feedback_unavailable_reason: feedbackUnavailableReasonSchema.nullable(),
+  feedback_error_code: feedbackErrorCodeSchema.nullable(),
+  schema_version: z.literal(1).nullable(),
+  prompt_version: z.string().nullable(),
+  updated_at: z.string().datetime({ offset: true }),
+}).strict()
+
 export const provisionInterviewParamsSchema = z.object({
   id: z.string().uuid(),
 })
@@ -219,6 +333,18 @@ export type AiChatParams = z.infer<typeof aiChatParamsSchema>
 export type AiChatRequest = z.infer<typeof aiChatRequestSchema>
 export type AiChatResponse = z.infer<typeof aiChatResponseSchema>
 export type AiChatHistoryMessage = z.infer<typeof aiChatHistoryMessageSchema>
+export type FeedbackDimension = z.infer<typeof feedbackDimensionSchema>
+export type FeedbackStrength = z.infer<typeof feedbackStrengthSchema>
+export type FeedbackImprovement = z.infer<typeof feedbackImprovementSchema>
+export type InterviewFeedbackV1 = z.infer<typeof interviewFeedbackV1Schema>
+export type InterviewFeedback = z.infer<typeof interviewFeedbackSchema>
+export type RecordingStatus = z.infer<typeof recordingStatusSchema>
+export type FeedbackStatus = z.infer<typeof feedbackStatusSchema>
+export type FeedbackUnavailableReason = z.infer<typeof feedbackUnavailableReasonSchema>
+export type FeedbackErrorCode = z.infer<typeof feedbackErrorCodeSchema>
+export type ArtifactKind = z.infer<typeof artifactKindSchema>
+export type ArtifactAvailability = z.infer<typeof artifactAvailabilitySchema>
+export type InterviewFeedbackStatusResponse = z.infer<typeof interviewFeedbackStatusResponseSchema>
 
 function isSceneWithinByteLimit(scene: Record<string, unknown>): boolean {
   const serialized = JSON.stringify(scene)

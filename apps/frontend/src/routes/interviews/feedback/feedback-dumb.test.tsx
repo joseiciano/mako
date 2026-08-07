@@ -41,29 +41,45 @@ describe('FeedbackDumb', function () {
     const interview = makeInterview({
       status: 'completed',
       feedback: {
+        schema_version: 1,
         overall_score: 85,
-        strengths: ['Good communication', 'Solid problem solving'],
-        improvements: ['Time management'],
+        summary: 'Strong performance.',
+        dimensions: {
+          communication: { score: 90, summary: 'Clear.' },
+          problem_solving: { score: 82, summary: 'Methodical.' },
+          technical_depth: { score: 83, summary: 'Good depth.' },
+        },
+        strengths: [
+          { title: 'Good communication', evidence: 'Clear explanations.' },
+        ],
+        improvements: [
+          { title: 'Time management', evidence: 'Ran out of time.', action: 'Practice timing.' },
+        ],
       },
     })
     render(<FeedbackDumb {...makeProps({ interview })} />)
     expect(screen.getByText('85')).toBeInTheDocument()
-    expect(screen.getByText('Good communication')).toBeInTheDocument()
-    expect(screen.getByText('Solid problem solving')).toBeInTheDocument()
-    expect(screen.getByText('Time management')).toBeInTheDocument()
   })
 
-  it('renders generic fallback for unknown feedback fields', function () {
+  it('renders v1 summary as fallback entry', function () {
     const interview = makeInterview({
       status: 'completed',
       feedback: {
-        custom_field: 'custom value',
-        nested: { key: 'val' },
+        schema_version: 1,
+        overall_score: 80,
+        summary: 'Solid overall performance.',
+        dimensions: {
+          communication: { score: 80, summary: 'Clear.' },
+          problem_solving: { score: 80, summary: 'Methodical.' },
+          technical_depth: { score: 80, summary: 'Good.' },
+        },
+        strengths: [],
+        improvements: [],
       },
     })
     render(<FeedbackDumb {...makeProps({ interview })} />)
-    expect(screen.getByText(/custom_field/i)).toBeInTheDocument()
-    expect(screen.getByText(/custom value/i)).toBeInTheDocument()
+    expect(screen.getByText('summary')).toBeInTheDocument()
+    expect(screen.getByText('Solid overall performance.')).toBeInTheDocument()
   })
 
   it('renders recording link when recording_url present', function () {

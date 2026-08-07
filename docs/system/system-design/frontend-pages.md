@@ -43,8 +43,16 @@
       - **State ownership**: Lifecycle controls and timer state derive from `useInterviewDetail` (TanStack Query); TanStack Store is reserved for local UI-only feedback such as lifecycle mutation errors. The countdown is derived from server-backed `expires_at`/`warning_at`, not stored as server state locally.
       - **Voice Wrapper Contract**: Voice is an ephemeral runtime wrapper only, scoped to `mode = 'ai_led'` sessions on this page. Speech-to-text is implemented (Story 4.10): microphone capture feeds recognized speech into the same chat input, which submits the same `message` field and full existing request contract to `POST /api/interviews/:id/ai-chat` with the same visible runtime states (idle/listening/transcribing/ready-to-send/failed). Text-to-speech playback of the `reply` field is not implemented and remains later scope (Story 4.11). Voice introduces no new backend route, no new request/response field, no persisted interview schema field, and no lifecycle state. Voice does not bypass or own `POST /api/interviews/:id/provision`, `POST /api/interviews/:id/start`, or `POST /api/interviews/:id/end`; those routes exclusively own provisioning and lifecycle boundaries.
 - **Post-Interview Feedback (`/interviews/:id/feedback`)**: Detailed report and AI-driven insights.
-    - **Features**: Performance scores, transcript, and whiteboard captures.
-    - **Data**: `GET /api/interviews/:id`
+    - **Features**: Performance scores (overall 0-100, communication/problem-solving/technical-depth dimensions), evidence-backed strengths, actionable improvements, transcript, and whiteboard captures.
+    - **Data**: `GET /api/interviews/:id`, `GET /api/interviews/:id/feedback-status` (lightweight polling)
+    - **Report States**:
+      - **Unavailable**: `feedback_status = 'not_started'` with `feedback_unavailable_reason` (`no_consent`, `no_recording`, `unsupported_format`). Shows explanation copy; no retry action for users.
+      - **Pending**: `feedback_status = 'pending'`. Shows "Feedback is queued for processing."
+      - **Processing**: `feedback_status = 'processing'`. Shows "Feedback is being generated." Polls `GET /api/interviews/:id/feedback-status`.
+      - **Failed**: `feedback_status = 'failed'` with `feedback_error_code`. Shows safe error message; no user-triggered retry (operational replay only).
+      - **Ready**: `feedback_status = 'ready'`. Renders the full feedback v1 report (overall score, dimensions, strengths, improvements).
+      - **Expired Raw Assets**: Recording/screenshots past 30-day retention. Feedback text and transcript remain available; raw asset playback returns availability status `expired`.
+    - **Artifact Access**: Recordings and screenshots are accessed via participant-authorized application routes (`GET /api/interviews/:id/artifacts/recording`, `GET /api/interviews/:id/artifacts/screenshots/:captureId`), not direct R2 URLs.
 
 ### Route/Story Tracking Note
 - `GET /api/interviews/:id` is now implemented and consumed by downstream details/session/feedback pages through `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-9-interview-details-route-get-api-interviews-id.md`.

@@ -1,4 +1,4 @@
-import type { Interview } from '@mako/shared'
+import type { Interview, InterviewDetail } from '@mako/shared'
 import { describe, expect, it, vi } from 'vitest'
 import {
   InterviewRepository,
@@ -466,18 +466,27 @@ describe('InterviewService', function interviewServiceSuite() {
           if (outboxEvent) {
             persistedOutboxEvents.push(outboxEvent)
           }
-          return parseInterview({
-            ...input,
-            realtime_session_id: null,
-            excalidraw_room_id: null,
-            excalidraw_key: null,
-            recording_url: null,
-            screenshot_urls: null,
-            feedback: null,
-            started_at: null,
-            expires_at: null,
-            warning_at: null,
-          })
+          return {
+            ...parseInterview({
+              ...input,
+              realtime_session_id: null,
+              excalidraw_room_id: null,
+              excalidraw_key: null,
+              recording_url: null,
+              screenshot_urls: null,
+              feedback: null,
+              started_at: null,
+              expires_at: null,
+              warning_at: null,
+            }),
+            recording_status: 'not_started',
+            transcript: null,
+            feedback_status: 'not_started',
+            feedback_unavailable_reason: null,
+            feedback_error_code: null,
+            feedback_prompt_version: null,
+            feedback_generated_at: null,
+          }
         },
       },
     })
@@ -2691,7 +2700,9 @@ function createInterviewService(
   }
 }
 
-function createInterviewRecord(overrides: Partial<Interview> = {}): Interview {
+function createInterviewRecord(
+  overrides: Partial<Interview & InterviewDetail> = {},
+): Interview & InterviewDetail {
   return {
     id: '11111111-1111-4111-8111-111111111111',
     scheduler_id: '22222222-2222-4222-8222-222222222222',
@@ -2709,6 +2720,13 @@ function createInterviewRecord(overrides: Partial<Interview> = {}): Interview {
     recording_url: null,
     screenshot_urls: null,
     feedback: null,
+    recording_status: 'not_started',
+    transcript: null,
+    feedback_status: 'not_started',
+    feedback_unavailable_reason: null,
+    feedback_error_code: null,
+    feedback_prompt_version: null,
+    feedback_generated_at: null,
     started_at: null,
     expires_at: null,
     warning_at: null,

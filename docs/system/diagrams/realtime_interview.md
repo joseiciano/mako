@@ -30,6 +30,8 @@ graph TD
         (Interview Lifecycle / Timers)"]
         AIGateway["Cloudflare AI Gateway
         (Mock Feedback / AI Interviewer)"]
+        WorkersAI["Cloudflare Workers AI
+        (Audio Transcription)"]
         Stripe["Stripe
         (Payments / Credits)"]
     end
@@ -40,7 +42,9 @@ graph TD
         DB["Neon Postgres
         (Data Collection)"]
         R2["Cloudflare R2
-        (Recordings & Screenshots)"]
+        (Private Artifacts:
+         Recordings, Audio Tracks,
+         Screenshots)"]
     end
 
     %% Relationships
@@ -68,6 +72,10 @@ graph TD
     BE_Worker -- "Update Credits/Data" --> Hyperdrive
     Hyperdrive <--> DB
     BE_Worker <--> R2
+    BE_Worker -- "Transcribe Audio" --> WorkersAI
+    WorkersAI -- "Transcript Chunks" --> Hyperdrive
+    AIGateway -- "Feedback v1 Report" --> Hyperdrive
+    Realtime -- "Recording Webhook" --> BE_Worker
 
     %% AI Integration
     AIGateway <--> AIProviders["AI Providers
@@ -78,7 +86,7 @@ graph TD
     classDef database fill:#00e599,stroke:#333,stroke-width:2px,color:#000;
     classDef frontend fill:#2563eb,stroke:#333,stroke-width:2px,color:#fff;
     
-    class FE_Worker,BE_Worker,Realtime,AIGateway,Hyperdrive,R2,Workflows cloudflare;
+    class FE_Worker,BE_Worker,Realtime,AIGateway,Hyperdrive,R2,Workflows,WorkersAI cloudflare;
     class DB database;
     class FE_Stack frontend;
 ```
@@ -90,4 +98,6 @@ graph TD
 - **Database:** Postgres hosted on Neon, optimized for serverless environments with Cloudflare Hyperdrive.
 - **AI Integration:** Cloudflare AI Gateway manages requests to AI providers for real-time interview feedback and the AI interviewer functionality.
 - **Real-time:** Cloudflare Realtime handles the live streaming required for mock interviews between users.
-- **Storage:** Cloudflare R2 stores session recordings and any captured screenshots for review.
+- **Storage:** Cloudflare R2 stores private session recordings, participant audio tracks, and whiteboard screenshots with deterministic key prefixes. Participant-authorized application routes are the only browser access path.
+- **Transcription:** Cloudflare Workers AI transcribes participant-attributed audio tracks; transcript chunks are persisted to Postgres for retry-safe processing.
+- **Feedback Pipeline:** RealtimeKit recording finalization webhook triggers the feedback workflow. Workers AI transcribes audio, AI Gateway analyzes the aggregated context, and the validated feedback v1 report is persisted to Postgres.
