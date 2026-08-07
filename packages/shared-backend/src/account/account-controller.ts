@@ -6,6 +6,7 @@ import type { Context, Hono } from 'hono'
 import { ZodError } from 'zod'
 import { AccountService } from './account-service'
 import {
+  AccountForbiddenError,
   AccountNotFoundError,
   AccountUnauthorizedError,
   AccountValidationError,
@@ -74,6 +75,7 @@ export function registerAccountController<Bindings extends ControllerBindings>(
 
     try {
       const companies = await accountService.getCompaniesByUserId(session)
+      c.header('Cache-Control', 'private, no-store')
       return c.json({ companies }, 200)
     } catch (error) {
       return toErrorResponse(c, error)
@@ -91,7 +93,43 @@ export function registerAccountController<Bindings extends ControllerBindings>(
 
     try {
       const company = await accountService.addCompanyRecord(session, jsonBody)
+      c.header('Cache-Control', 'private, no-store')
       return c.json({ company }, 201)
+    } catch (error) {
+      return toErrorResponse(c, error)
+    }
+  })
+
+  app.patch('/api/companies/:id', async function updateCompanyHandler(c) {
+    const accountService = options.createService({ bindings: c.env })
+    const session = await options.resolveSession(c)
+    const jsonBody = await readRequestBody(c)
+
+    if (jsonBody === null) {
+      return c.json({ error: 'Request body must be valid JSON.' }, 400)
+    }
+
+    try {
+      const company = await accountService.updateCompanyRecord(
+        session,
+        c.req.param('id'),
+        jsonBody,
+      )
+      c.header('Cache-Control', 'private, no-store')
+      return c.json({ company }, 200)
+    } catch (error) {
+      return toErrorResponse(c, error)
+    }
+  })
+
+  app.delete('/api/companies/:id', async function deleteCompanyHandler(c) {
+    const accountService = options.createService({ bindings: c.env })
+    const session = await options.resolveSession(c)
+
+    try {
+      await accountService.deleteCompanyRecord(session, c.req.param('id'))
+      c.header('Cache-Control', 'private, no-store')
+      return c.json({ success: true }, 200)
     } catch (error) {
       return toErrorResponse(c, error)
     }
@@ -107,7 +145,7 @@ async function readRequestBody(context: Context): Promise<unknown | null> {
 }
 
 function toErrorResponse(context: Context, error: unknown) {
-  if (error instanceof ZodError) {
+  if (isZodError(error)) {
     return context.json(
       {
         error: 'Invalid request payload',
@@ -121,6 +159,10 @@ function toErrorResponse(context: Context, error: unknown) {
     return context.json({ error: error.message }, 401)
   }
 
+  if (error instanceof AccountForbiddenError) {
+    return context.json({ error: error.message }, 403)
+  }
+
   if (error instanceof AccountNotFoundError) {
     return context.json({ error: error.message }, 404)
   }
@@ -130,6 +172,17 @@ function toErrorResponse(context: Context, error: unknown) {
   }
 
   return context.json({ error: 'Unexpected account error.' }, 500)
+}
+
+function isZodError(error: unknown): error is { issues: unknown[] } {
+  // @mako/shared resolves a different zod copy (v4) than this package (v3),
+  // so instanceof checks fail for errors thrown by shared schemas.
+  return (
+    error instanceof ZodError ||
+    (typeof error === 'object' &&
+      error !== null &&
+      (error as { name?: unknown }).name === 'ZodError')
+  )
 }
 
 export function createHeaderSessionResolver(
