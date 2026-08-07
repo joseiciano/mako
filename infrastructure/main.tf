@@ -144,6 +144,16 @@ resource "cloudflare_workers_script" "notification_orchestrator" {
       type = "hyperdrive"
       name = "HYPERDRIVE"
       id   = cloudflare_hyperdrive_config.postgres["production"].id
+    },
+    {
+      type          = "workflow"
+      name          = "FEEDBACK_WORKFLOW"
+      workflow_name = cloudflare_workflow.interview_feedback.workflow_name
+      script_name   = cloudflare_workers_script.notification_orchestrator.script_name
+    },
+    {
+      type = "ai"
+      name = "AI"
     }
   ]
 
@@ -153,9 +163,15 @@ resource "cloudflare_workers_script" "notification_orchestrator" {
       content_sha256,
       main_module,
       compatibility_date,
-      bindings,
     ]
   }
+}
+
+resource "cloudflare_workflow" "interview_feedback" {
+  account_id    = var.cloudflare_account_id
+  workflow_name = var.feedback_workflow_name
+  script_name   = cloudflare_workers_script.notification_orchestrator.script_name
+  class_name    = var.feedback_workflow_class_name
 }
 
 resource "cloudflare_workflow" "interview_lifecycle" {

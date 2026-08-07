@@ -14,6 +14,16 @@
     { "binding": "RECORDINGS_BUCKET", "bucket_name": "mako-recordings" },
     { "binding": "SCREENSHOTS_BUCKET", "bucket_name": "mako-screenshots" }
   ],
+  "workflows": [
+    {
+      "binding": "FEEDBACK_WORKFLOW",
+      "name": "feedback-workflow",
+      "class_name": "InterviewFeedbackWorkflow"
+    }
+  ],
+  "ai": {
+    "binding": "AI"
+  },
   "queues": {
     "producers": [
       {

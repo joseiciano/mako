@@ -14,6 +14,13 @@ import {
   reminderDueTransportMessageSchema,
 } from '@mako/shared-backend'
 import { createPostgresConnectionPool } from '@mako/shared-backend'
+import {
+  InterviewFeedbackWorkflow,
+  feedbackWorkflowPayloadSchema,
+} from './workflows/feedback-workflow'
+import type { FeedbackWorkflowPayload } from './workflows/feedback-workflow'
+
+export { InterviewFeedbackWorkflow, feedbackWorkflowPayloadSchema }
 
 export type WorkerBindings = {
   HYPERDRIVE: {
@@ -22,6 +29,7 @@ export type WorkerBindings = {
   RECORDINGS_BUCKET?: R2Bucket
   SCREENSHOTS_BUCKET?: R2Bucket
   NOTIFICATION_QUEUE: Queue<NotificationTransportMessage>
+  FEEDBACK_WORKFLOW?: Workflow<FeedbackWorkflowPayload>
 }
 
 export type NotificationWorkerDependencies = {

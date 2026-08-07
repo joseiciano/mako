@@ -70,6 +70,18 @@ variable "interview_workflow_class_name" {
   default     = "InterviewLifecycleWorkflow"
 }
 
+variable "feedback_workflow_name" {
+  description = "Workflow name for interview feedback processing."
+  type        = string
+  default     = "feedback-workflow"
+}
+
+variable "feedback_workflow_class_name" {
+  description = "Workflow class exported by the notification orchestrator for feedback processing."
+  type        = string
+  default     = "InterviewFeedbackWorkflow"
+}
+
 variable "recordings_bucket_name" {
   description = "R2 bucket name for interview recordings."
   type        = string
