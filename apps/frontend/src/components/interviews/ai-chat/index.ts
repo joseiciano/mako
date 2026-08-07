@@ -3,6 +3,7 @@ export { AIChatDumb } from './ai-chat-dumb'
 export type {
   AIChatDumbProps,
   AIChatMessage,
+  AIChatPlaybackState,
   AIChatSubmitState,
   AIChatVoiceState,
 } from './ai-chat-types'

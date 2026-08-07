@@ -21,10 +21,18 @@ function makeProps(overrides?: Partial<AIChatDumbProps>): AIChatDumbProps {
     voiceErrorMessage: null,
     voiceSupported: true,
     voiceInterimTranscript: '',
+    playbackState: 'idle',
+    playbackSupported: true,
+    playbackMuted: false,
+    canReplay: false,
+    playbackErrorMessage: null,
     onInputChange: vi.fn(),
     onSubmit: vi.fn(),
     onRetry: vi.fn(),
     onVoiceToggle: vi.fn(),
+    onReplay: vi.fn(),
+    onStopPlayback: vi.fn(),
+    onToggleMuted: vi.fn(),
     ...overrides,
   }
 }
@@ -236,5 +244,149 @@ describe('AIChatDumb voice input', function () {
       />,
     )
     expect(screen.getByRole('button', { name: /voice input/i })).toBeDisabled()
+  })
+
+  it('disables the mic while the AI reply is being spoken aloud', function () {
+    render(
+      <AIChatDumb
+        {...makeProps({
+          playbackSupported: true,
+          playbackState: 'speaking',
+          voiceState: 'idle',
+        })}
+      />,
+    )
+    expect(screen.getByRole('button', { name: /start voice input/i })).toBeDisabled()
+  })
+
+  it('keeps the mic disabled while speaking even when listening is active', function () {
+    render(
+      <AIChatDumb
+        {...makeProps({
+          playbackSupported: true,
+          playbackState: 'speaking',
+          voiceState: 'listening',
+        })}
+      />,
+    )
+    expect(screen.getByRole('button', { name: /stop voice input/i })).toBeDisabled()
+  })
+
+  it('re-enables the mic once reply playback has stopped', function () {
+    render(
+      <AIChatDumb
+        {...makeProps({
+          playbackSupported: true,
+          playbackState: 'idle',
+          voiceState: 'idle',
+        })}
+      />,
+    )
+    expect(screen.getByRole('button', { name: /start voice input/i })).not.toBeDisabled()
+  })
+})
+
+describe('AIChatDumb reply playback', function () {
+  it('renders playback controls when playback is supported', function () {
+    render(
+      <AIChatDumb
+        {...makeProps({
+          playbackSupported: true,
+          canReplay: true,
+        })}
+      />,
+    )
+    expect(screen.getByRole('button', { name: /replay/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /stop playback/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /mute voice/i })).toBeInTheDocument()
+  })
+
+  it('disables replay and stop before any reply has been spoken', function () {
+    render(<AIChatDumb {...makeProps({ playbackSupported: true, canReplay: false })} />)
+    expect(screen.getByRole('button', { name: /replay/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /stop playback/i })).toBeDisabled()
+  })
+
+  it('shows a speaking status while playback is active', function () {
+    render(
+      <AIChatDumb
+        {...makeProps({
+          playbackSupported: true,
+          playbackState: 'speaking',
+        })}
+      />,
+    )
+    expect(screen.getByText(/playing reply aloud/i)).toBeInTheDocument()
+  })
+
+  it('shows a playback error when synthesis fails', function () {
+    render(
+      <AIChatDumb
+        {...makeProps({
+          playbackSupported: true,
+          playbackErrorMessage: 'Playback could not reach the network.',
+        })}
+      />,
+    )
+    expect(screen.getByRole('alert')).toHaveTextContent(/network/i)
+  })
+
+  it('explains the typed fallback when playback is unsupported', function () {
+    render(<AIChatDumb {...makeProps({ playbackSupported: false })} />)
+    expect(screen.getByText(/voice playback is not supported/i)).toBeInTheDocument()
+  })
+
+  it('calls the playback handlers from the controls', async function () {
+    const user = userEvent.setup()
+    const onReplay = vi.fn()
+    const onStopPlayback = vi.fn()
+    const onToggleMuted = vi.fn()
+    render(
+      <AIChatDumb
+        {...makeProps({
+          playbackSupported: true,
+          canReplay: true,
+          playbackState: 'speaking',
+          onReplay,
+          onStopPlayback,
+          onToggleMuted,
+        })}
+      />,
+    )
+    await user.click(screen.getByRole('button', { name: /replay/i }))
+    await user.click(screen.getByRole('button', { name: /stop playback/i }))
+    await user.click(screen.getByRole('button', { name: /mute voice/i }))
+    expect(onReplay).toHaveBeenCalledOnce()
+    expect(onStopPlayback).toHaveBeenCalledOnce()
+    expect(onToggleMuted).toHaveBeenCalledOnce()
+  })
+
+  it('shows the unmute state when muted', function () {
+    render(
+      <AIChatDumb
+        {...makeProps({
+          playbackSupported: true,
+          playbackMuted: true,
+        })}
+      />,
+    )
+    expect(screen.getByRole('button', { name: /unmute voice/i })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    )
+  })
+
+  it('keeps typed input usable while playback is speaking', function () {
+    render(
+      <AIChatDumb
+        {...makeProps({
+          playbackSupported: true,
+          playbackState: 'speaking',
+          inputValue: 'hi',
+        })}
+      />,
+    )
+    expect(screen.getByRole('button', { name: /send/i })).not.toBeDisabled()
+    expect(screen.getByLabelText(/message the ai interviewer/i)).not.toBeDisabled()
   })
 })

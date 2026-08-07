@@ -13,6 +13,10 @@ import type { AIChatVoiceState } from './ai-chat-speech-types'
 
 export type { AIChatVoiceState } from './ai-chat-speech-types'
 
+import type { AIChatPlaybackState } from './ai-chat-synthesis-types'
+
+export type { AIChatPlaybackState } from './ai-chat-synthesis-types'
+
 export type AIChatDumbProps = {
   messages: AIChatMessage[]
   inputValue: string
@@ -25,8 +29,16 @@ export type AIChatDumbProps = {
   voiceErrorMessage: string | null
   voiceSupported: boolean
   voiceInterimTranscript: string
+  playbackState: AIChatPlaybackState
+  playbackSupported: boolean
+  playbackMuted: boolean
+  canReplay: boolean
+  playbackErrorMessage: string | null
   onInputChange: (value: string) => void
   onSubmit: () => void
   onRetry: () => void
   onVoiceToggle: () => void
+  onReplay: () => void
+  onStopPlayback: () => void
+  onToggleMuted: () => void
 }

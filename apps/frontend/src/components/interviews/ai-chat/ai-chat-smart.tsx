@@ -6,6 +6,7 @@ import type { WhiteboardSceneSnapshot } from '#/components/interviews/whiteboard
 import type { AIChatDumbProps } from './ai-chat-types'
 import { AIChatDumb } from './ai-chat-dumb'
 import { useAIChatSpeech } from './use-ai-chat-speech'
+import { useAIChatSynthesis } from './use-ai-chat-synthesis'
 import {
   aiChatPanelReducer,
   buildChatHistory,
@@ -38,6 +39,16 @@ export function AIChatSmart({
   const [state, dispatch] = useReducer(aiChatPanelReducer, initialAIChatPanelState)
   const aiChatMutation = useAIChat()
   const isMountedRef = useRef(true)
+  // Guards against overlapping in-flight mutations from repeated taps, stale
+  // recognition callbacks, or racing send/retry actions. The UI also disables
+  // the send control while sending, but the ref closes the remaining window
+  // between dispatches.
+  const submissionInFlightRef = useRef(false)
+  // Monotonic identity for the most recent submit/retry request. Callbacks that
+  // capture an older token belong to a completed or replaced request and are
+  // ignored entirely: they cannot clear the in-flight guard, dispatch reducer
+  // actions, or start playback for a newer request.
+  const submissionRequestIdRef = useRef(0)
   const speech = useAIChatSpeech({
     onFinalTranscript: function handleFinalTranscript(transcript) {
       dispatch({
@@ -46,6 +57,7 @@ export function AIChatSmart({
       })
     },
   })
+  const synthesis = useAIChatSynthesis()
 
   useEffect(
     function trackMount() {
@@ -66,15 +78,26 @@ export function AIChatSmart({
       chat_history: input.chatHistory.length > 0 ? input.chatHistory : undefined,
     }
 
+    // Each request bumps the monotonic token. Any callback that fires under an
+    // older token belongs to a superseded request and must be a no-op.
+    const requestId = ++submissionRequestIdRef.current
+
     aiChatMutation.mutate(params, {
       onSuccess: function onAiChatSuccess(response) {
+        if (requestId !== submissionRequestIdRef.current) return
+        submissionInFlightRef.current = false
         if (!isMountedRef.current) return
         dispatch({
           type: input.isRetry ? 'RETRY_SUCCEEDED' : 'SUBMIT_SUCCEEDED',
           payload: response.reply,
         })
+        // Audible playback is anchored to the exact reply content already
+        // rendered in the chat UI; no separate reply text is generated.
+        synthesis.playReply(response.reply)
       },
       onError: function onAiChatError() {
+        if (requestId !== submissionRequestIdRef.current) return
+        submissionInFlightRef.current = false
         if (!isMountedRef.current) return
         dispatch({
           type: input.isRetry ? 'RETRY_FAILED' : 'SUBMIT_FAILED',
@@ -86,7 +109,8 @@ export function AIChatSmart({
 
   function handleSubmit() {
     const trimmed = state.inputValue.trim()
-    if (trimmed.length === 0 || state.submitState === 'sending') return
+    if (submissionInFlightRef.current || state.submitState === 'sending') return
+    if (trimmed.length === 0) return
 
     const snapshot = getWhiteboardSceneSnapshot(whiteboardProvisionHandle)
     if (!snapshot) {
@@ -104,12 +128,17 @@ export function AIChatSmart({
     }
 
     dispatch({ type: 'SUBMIT_STARTED', payload: trimmed })
+    submissionInFlightRef.current = true
+    // A new turn supersedes any in-flight reply audio so playback never blocks
+    // typed or voice follow-up turns.
+    synthesis.stopPlayback()
     speech.resetVoice()
     runMutation(input, snapshot)
   }
 
   function handleRetry() {
     if (
+      submissionInFlightRef.current ||
       state.submitState === 'sending' ||
       !state.lastFailedMessageContent ||
       hasReachedRetryLimit(state)
@@ -131,6 +160,8 @@ export function AIChatSmart({
     }
 
     dispatch({ type: 'RETRY_STARTED' })
+    submissionInFlightRef.current = true
+    synthesis.stopPlayback()
     runMutation(input, snapshot)
   }
 
@@ -143,6 +174,9 @@ export function AIChatSmart({
     if (speech.voiceState === 'listening') {
       speech.stopListening()
     } else {
+      // Starting to listen should not overlap with reply playback: silence the
+      // audio so voice input and playback never create ambiguous runtime state.
+      synthesis.stopPlayback()
       speech.startListening()
     }
   }
@@ -164,6 +198,14 @@ export function AIChatSmart({
     voiceSupported: speech.voiceSupported,
     voiceInterimTranscript: speech.voiceInterimTranscript,
     onVoiceToggle: handleVoiceToggle,
+    playbackState: synthesis.playbackState,
+    playbackSupported: synthesis.playbackSupported,
+    playbackMuted: synthesis.playbackMuted,
+    canReplay: synthesis.canReplay,
+    playbackErrorMessage: synthesis.playbackErrorMessage,
+    onReplay: synthesis.replay,
+    onStopPlayback: synthesis.stopPlayback,
+    onToggleMuted: synthesis.toggleMuted,
   }
 
   return <AIChatDumb {...dumbProps} />
