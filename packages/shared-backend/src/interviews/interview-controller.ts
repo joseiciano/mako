@@ -15,6 +15,8 @@ import {
   provisionInterviewResponseSchema,
   recordingConsentRequestSchema,
   recordingConsentResponseSchema,
+  screenshotUploadRequestSchema,
+  screenshotUploadResponseSchema,
   startInterviewParamsSchema,
 } from '@mako/shared'
 import type { Context, Hono } from 'hono'
@@ -23,6 +25,7 @@ import { AiChatProviderError } from './ai-gateway-responder'
 import { ArtifactValidationError } from '../interview-assets'
 import { InterviewService } from './interview-service'
 import { RecordingConsentService } from './recording-consent-service'
+import { ScreenshotService } from './screenshot-service'
 import {
   InterviewBusinessRuleError,
   InterviewConflictError,
@@ -36,6 +39,9 @@ type ControllerBindings = Record<string, unknown>
 
 export type InterviewControllerOptions<Bindings extends ControllerBindings> = {
   createService: (context: { bindings: Bindings }) => InterviewService
+  createScreenshotService?: (
+    context: { bindings: Bindings },
+  ) => ScreenshotService | undefined
   createConsentService?: (
     context: { bindings: Bindings },
   ) => RecordingConsentService | undefined
@@ -302,6 +308,49 @@ export function registerInterviewController<Bindings extends ControllerBindings>
     }
   })
 
+  app.post('/api/interviews/:id/artifacts/screenshots', async function postScreenshotHandler(c) {
+    const screenshotService = options.createScreenshotService?.({ bindings: c.env })
+
+    if (!screenshotService) {
+      return c.json({ error: 'Screenshot uploads are not configured.' }, 503)
+    }
+
+    const session = await options.resolveSession(c)
+
+    if (session === null) {
+      return c.json(
+        { error: 'You must be authenticated to access this resource.' },
+        401,
+      )
+    }
+
+    // Read the raw request body once so Hono can derive the JSON metadata from
+    // the same bytes without a second body read.
+    const body = await c.req.arrayBuffer()
+
+    let jsonBody: unknown
+    try {
+      jsonBody = JSON.parse(new TextDecoder().decode(body))
+    } catch {
+      return c.json({ error: 'Request body must be valid JSON.' }, 400)
+    }
+
+    try {
+      const parsedParams = { id: c.req.param('id') }
+      const parsedBody = screenshotUploadRequestSchema.parse(jsonBody)
+      const result = await screenshotService.uploadScreenshot(session, {
+        interview_id: parsedParams.id,
+        idempotency_key: parsedBody.idempotency_key,
+        content_type: parsedBody.content_type,
+        capture_timestamp: parsedBody.capture_timestamp,
+        body,
+      })
+
+      return c.json(screenshotUploadResponseSchema.parse(result), 200)
+    } catch (error) {
+      return toErrorResponse(c, error)
+    }
+  })
 }
 
 async function readRequestBody(context: Context): Promise<unknown | null> {

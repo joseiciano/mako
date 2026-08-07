@@ -52,6 +52,8 @@ import {
   NotificationDispatchService,
   RecordingConsentRepository,
   RecordingConsentService,
+  ScreenshotRepository,
+  ScreenshotService,
   createArtifactStorage,
   createR2BucketPort,
   type NotificationDispatchServiceLogger,
@@ -291,6 +293,33 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
       return new RecordingConsentService(
         new RecordingConsentRepository({ queryExecutor }),
         new InterviewRepository({ queryExecutor }),
+      )
+    },
+    createScreenshotService: function createScreenshotService(context) {
+      if (!hasDatabaseAccess(context.bindings)) {
+        return undefined
+      }
+
+      const queryExecutor = createDatabaseQueryExecutor(context.bindings)
+      const screenshotRepository = new ScreenshotRepository({ queryExecutor })
+      const interviewRepository = new InterviewRepository({ queryExecutor })
+
+      const recordingsBucket = context.bindings.RECORDINGS_BUCKET
+      const screenshotsBucket = context.bindings.SCREENSHOTS_BUCKET
+
+      if (!screenshotsBucket) {
+        return undefined
+      }
+
+      const storagePort = createArtifactStorage(
+        recordingsBucket ? createR2BucketPort(recordingsBucket) : null,
+        createR2BucketPort(screenshotsBucket),
+      )
+
+      return new ScreenshotService(
+        screenshotRepository,
+        interviewRepository,
+        storagePort,
       )
     },
     resolveSession: function resolveSession(context) {

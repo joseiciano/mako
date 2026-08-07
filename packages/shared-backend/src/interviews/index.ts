@@ -52,6 +52,15 @@ export {
 } from './recording-consent-repository'
 export { RecordingConsentService } from './recording-consent-service'
 export {
+  ScreenshotRepository,
+  type ScreenshotArtifactRow,
+  type InsertScreenshotInput,
+  type ScreenshotRepositoryDependencies,
+} from './screenshot-repository'
+export {
+  ScreenshotService,
+} from './screenshot-service'
+export {
   registerInterviewController,
   type InterviewControllerOptions,
 } from './interview-controller'
