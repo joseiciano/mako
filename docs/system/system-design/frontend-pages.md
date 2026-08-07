@@ -12,8 +12,9 @@
     - **Scope Note**: Payment amounts are never derived client-side; the backend package config is authoritative. Selected package and create-intent state are owned by the billing smart component and persisted to `sessionStorage` (`mako.billing.purchase`) so the checkout can be restored after a Stripe 3DS redirect.
 - **Settings & Profile (`/settings`)**: Manage profile, employment history, and interviewer verification.
     - **Data**: `GET /api/account`, `PATCH /api/account`, `GET /api/interviewer/status`, `GET /api/companies`, `POST /api/companies`, `PATCH /api/companies/:id`, `DELETE /api/companies/:id`
-    - **Employment History**: Users manage company, role, start, and optional end dates. Migrated records missing a role remain visible as incomplete and cannot be selected for an interviewer application until updated.
-    - **Verification Boundary**: Applications select complete employment record IDs, while the server stores an immutable snapshot. Profile edits do not alter submitted evidence or automatically revoke account-level interviewer eligibility.
+    - **Employment History**: Users create, edit, and delete employment records with canonical `company`, `role`, `start` (YYYY-MM-DD), and optional `end` (YYYY-MM-DD, omitted via the "Current role" checkbox) fields via `POST /api/companies`, `PATCH /api/companies/:id`, and `DELETE /api/companies/:id`. The list renders the company, role, and a `start — end` range (`start — Present` when `end` is `null`), formatted directly from the canonical date strings without timezone parsing.
+    - **Incomplete Records**: Migrated records missing a `role` render with a "Needs details" state (`isComplete === false`) and an edit action. Incomplete records must be completed before they can be selected for an interviewer application.
+    - **Verification Boundary**: Applications select complete employment record IDs, while the server stores an immutable snapshot. Profile edits do not alter submitted evidence or automatically revoke account-level interviewer eligibility. Deleting a record never alters previously submitted applications.
 
 ### Interview Lifecycle
 - **Schedule Interview (`/interviews/new`)**: Configuration flow for type (System Design), mode (AI / P2P via availability), and timing/availability details.

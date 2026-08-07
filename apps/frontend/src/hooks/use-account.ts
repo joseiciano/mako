@@ -1,5 +1,7 @@
 import type {
   DeleteAccountResponse,
+  EmploymentRecordCompatibilityResponse,
+  EmploymentRecordInput,
 } from '@mako/shared'
 import {
   accountProfileSchema,
@@ -22,30 +24,22 @@ import {
   readErrorMessage,
 } from '../lib/http-transport'
 
-export type Company = {
-  id: string
-  userId: string
-  company: string
-  joined: string
-  createdAt: string
-  updatedAt: string
-}
-
-export type AddCompanyPayload = {
-  company: string
-  joined: string
-}
-
 type CompaniesResponse = {
-  companies: Company[]
+  companies: EmploymentRecordCompatibilityResponse[]
 }
 
-type AddCompanyResponse = {
-  company: Company
+export type AddCompanyResponse = {
+  company: EmploymentRecordCompatibilityResponse
+}
+
+export type UpdateCompanyPayload = { id: string } & EmploymentRecordInput
+
+export type UpdateCompanyResponse = {
+  company: EmploymentRecordCompatibilityResponse
 }
 
 type MutationContext = {
-  previousCompanies: Company[]
+  previousCompanies: EmploymentRecordCompatibilityResponse[]
   optimisticCompanyId: string
 }
 
@@ -78,7 +72,7 @@ export function useUpdateProfile(): UseMutationResult<
   })
 }
 
-export function useCompanies(): UseQueryResult<Company[], Error> {
+export function useCompanies(): UseQueryResult<EmploymentRecordCompatibilityResponse[], Error> {
   return useQuery({
     queryKey: accountCompaniesQueryKey,
     queryFn: function getCompaniesQuery({ signal }) {
@@ -90,7 +84,7 @@ export function useCompanies(): UseQueryResult<Company[], Error> {
 export function useAddCompany(): UseMutationResult<
   AddCompanyResponse,
   Error,
-  AddCompanyPayload,
+  EmploymentRecordInput,
   MutationContext
 > {
   const queryClient = useQueryClient()
@@ -103,10 +97,12 @@ export function useAddCompany(): UseMutationResult<
       await queryClient.cancelQueries({ queryKey: accountCompaniesQueryKey })
 
       const previousCompanies =
-        queryClient.getQueryData<Company[]>(accountCompaniesQueryKey) ?? []
+        queryClient.getQueryData<EmploymentRecordCompatibilityResponse[]>(
+          accountCompaniesQueryKey,
+        ) ?? []
       const optimisticCompany = createOptimisticCompany(nextCompanyPayload)
 
-      queryClient.setQueryData<Company[]>(
+      queryClient.setQueryData<EmploymentRecordCompatibilityResponse[]>(
         accountCompaniesQueryKey,
         function setData(companies) {
           return [optimisticCompany, ...(companies ?? [])]
@@ -126,7 +122,7 @@ export function useAddCompany(): UseMutationResult<
       queryClient.setQueryData(accountCompaniesQueryKey, context.previousCompanies)
     },
     onSuccess: function onSuccess(response, _variables, context) {
-      queryClient.setQueryData<Company[]>(
+      queryClient.setQueryData<EmploymentRecordCompatibilityResponse[]>(
         accountCompaniesQueryKey,
         function setData(companies) {
           if (!companies) {
@@ -152,6 +148,109 @@ export function useAddCompany(): UseMutationResult<
           })
         },
       )
+    },
+    onSettled: async function onSettled() {
+      await queryClient.invalidateQueries({ queryKey: accountCompaniesQueryKey })
+    },
+  })
+}
+
+export function useUpdateCompany(): UseMutationResult<
+  UpdateCompanyResponse,
+  Error,
+  UpdateCompanyPayload,
+  MutationContext
+> {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: function updateCompanyMutation(payload) {
+      return patchCompany(payload)
+    },
+    onMutate: async function onMutate(payload) {
+      await queryClient.cancelQueries({ queryKey: accountCompaniesQueryKey })
+
+      const previousCompanies =
+        queryClient.getQueryData<EmploymentRecordCompatibilityResponse[]>(
+          accountCompaniesQueryKey,
+        ) ?? []
+
+      queryClient.setQueryData<EmploymentRecordCompatibilityResponse[]>(
+        accountCompaniesQueryKey,
+        function setData(companies) {
+          return (companies ?? []).map(function updateOptimistic(company) {
+            if (company.id === payload.id) {
+              return {
+                ...company,
+                company: payload.company,
+                role: payload.role,
+                start: payload.start,
+                end: payload.end,
+                isComplete: true,
+                updatedAt: new Date().toISOString(),
+              }
+            }
+
+            return company
+          })
+        },
+      )
+
+      return {
+        previousCompanies,
+        optimisticCompanyId: payload.id,
+      }
+    },
+    onError: function onError(_error, _variables, context) {
+      if (!context) {
+        return
+      }
+
+      queryClient.setQueryData(accountCompaniesQueryKey, context.previousCompanies)
+    },
+    onSettled: async function onSettled() {
+      await queryClient.invalidateQueries({ queryKey: accountCompaniesQueryKey })
+    },
+  })
+}
+
+export function useDeleteCompany(): UseMutationResult<
+  { success: true },
+  Error,
+  string,
+  { previousCompanies: EmploymentRecordCompatibilityResponse[] }
+> {
+  const queryClient = useQueryClient()
+
+  return useMutation({
+    mutationFn: function deleteCompanyMutation(companyId) {
+      return deleteCompanyRecord(companyId)
+    },
+    onMutate: async function onMutate(companyId) {
+      await queryClient.cancelQueries({ queryKey: accountCompaniesQueryKey })
+
+      const previousCompanies =
+        queryClient.getQueryData<EmploymentRecordCompatibilityResponse[]>(
+          accountCompaniesQueryKey,
+        ) ?? []
+
+      queryClient.setQueryData<EmploymentRecordCompatibilityResponse[]>(
+        accountCompaniesQueryKey,
+        function setData(companies) {
+          return (companies ?? []).filter(function removeDeleted(company) {
+            return company.id !== companyId
+          })
+        },
+      )
+
+      return { previousCompanies }
+    },
+    onError: function onError(_error, _variables, context) {
+      if (!context) {
+        return
+      }
+
+      queryClient.setQueryData(accountCompaniesQueryKey, context.previousCompanies)
     },
     onSettled: async function onSettled() {
       await queryClient.invalidateQueries({ queryKey: accountCompaniesQueryKey })
@@ -209,7 +308,7 @@ export async function updateAccountProfile(
 export async function fetchCompanies(
   fetchImpl: typeof fetch = fetch,
   signal?: AbortSignal,
-): Promise<Company[]> {
+): Promise<EmploymentRecordCompatibilityResponse[]> {
   const response = await fetchImpl(
     createApiUrl('/api/companies'),
     createApiRequestInit({
@@ -229,7 +328,7 @@ export async function fetchCompanies(
 }
 
 export async function postCompany(
-  payload: AddCompanyPayload,
+  payload: EmploymentRecordInput,
   fetchImpl: typeof fetch = fetch,
 ): Promise<AddCompanyResponse> {
   const response = await fetchImpl(
@@ -242,7 +341,9 @@ export async function postCompany(
       },
       body: JSON.stringify({
         company: payload.company,
-        joined: payload.joined,
+        role: payload.role,
+        start: payload.start,
+        end: payload.end,
       }),
     }),
   )
@@ -256,17 +357,70 @@ export async function postCompany(
   return responsePayload as AddCompanyResponse
 }
 
-export function createOptimisticCompany(payload: AddCompanyPayload): Company {
-  const normalizedCompany = payload.company.trim().toLowerCase()
-  const normalizedJoined = new Date(payload.joined).toISOString()
+export async function patchCompany(
+  payload: UpdateCompanyPayload,
+  fetchImpl: typeof fetch = fetch,
+): Promise<UpdateCompanyResponse> {
+  const { id, ...body } = payload
+
+  const response = await fetchImpl(
+    createApiUrl(`/api/companies/${id}`),
+    createApiRequestInit({
+      method: 'PATCH',
+      headers: {
+        'content-type': 'application/json',
+        ...demoSessionHeaders,
+      },
+      body: JSON.stringify(body),
+    }),
+  )
+
+  const responsePayload = await parseResponse(response)
+
+  if (!response.ok) {
+    throw new Error(readErrorMessage(responsePayload, 'Failed to update company'))
+  }
+
+  return responsePayload as UpdateCompanyResponse
+}
+
+export async function deleteCompanyRecord(
+  companyId: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ success: true }> {
+  const response = await fetchImpl(
+    createApiUrl(`/api/companies/${companyId}`),
+    createApiRequestInit({
+      method: 'DELETE',
+      headers: demoSessionHeaders,
+    }),
+  )
+
+  const responsePayload = await parseResponse(response)
+
+  if (!response.ok) {
+    throw new Error(readErrorMessage(responsePayload, 'Failed to delete company'))
+  }
+
+  return responsePayload as { success: true }
+}
+
+export function createOptimisticCompany(
+  payload: EmploymentRecordInput,
+): EmploymentRecordCompatibilityResponse {
+  const now = new Date().toISOString()
 
   return {
     id: `optimistic-${crypto.randomUUID()}`,
     userId: 'optimistic-user',
-    company: normalizedCompany,
-    joined: normalizedJoined,
-    createdAt: normalizedJoined,
-    updatedAt: normalizedJoined,
+    company: payload.company,
+    role: payload.role,
+    start: payload.start,
+    end: payload.end,
+    isComplete: true,
+    createdAt: now,
+    updatedAt: now,
+    joined: new Date(`${payload.start}T00:00:00.000Z`).toISOString(),
   }
 }
 

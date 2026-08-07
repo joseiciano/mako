@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createOptimisticCompany,
+  deleteCompanyRecord,
   fetchAccount,
   fetchCompanies,
+  patchCompany,
   postCompany,
   updateAccountProfile,
 } from './use-account'
@@ -16,6 +18,19 @@ const accountFixture = {
   freeStandardInterviews: 1,
   freeAiInterviews: 1,
   createdAt: '2026-01-01T00:00:00.000Z',
+}
+
+const companyRecordFixture = {
+  id: 'company-id',
+  userId: 'user-id',
+  company: 'mako',
+  role: 'Software Engineer',
+  start: '2022-01-15',
+  end: '2024-03-01',
+  isComplete: true,
+  createdAt: '2024-01-01T00:00:00.000Z',
+  updatedAt: '2024-01-01T00:00:00.000Z',
+  joined: '2022-01-15T00:00:00.000Z',
 }
 
 describe('use-account hooks', function useAccountHooksSuite() {
@@ -95,22 +110,13 @@ describe('use-account hooks', function useAccountHooksSuite() {
     ).rejects.toThrow('Unauthorized')
   })
 
-  it('fetchCompanies returns companies payload', async function shouldFetchCompanies() {
+  it('fetchCompanies returns the employment record shape', async function shouldFetchCompanies() {
     vi.stubGlobal(
       'fetch',
       vi.fn(async function fetchMock() {
         return new Response(
           JSON.stringify({
-            companies: [
-              {
-                id: 'company-id',
-                userId: 'user-id',
-                company: 'mako',
-                joined: '2024-01-01T00:00:00.000Z',
-                createdAt: '2024-01-01T00:00:00.000Z',
-                updatedAt: '2024-01-01T00:00:00.000Z',
-              },
-            ],
+            companies: [companyRecordFixture],
           }),
           { status: 200 },
         )
@@ -120,7 +126,54 @@ describe('use-account hooks', function useAccountHooksSuite() {
     const companies = await fetchCompanies()
 
     expect(companies).toHaveLength(1)
-    expect(companies[0]?.company).toBe('mako')
+    expect(companies[0]).toMatchObject({
+      company: 'mako',
+      role: 'Software Engineer',
+      start: '2022-01-15',
+      end: '2024-03-01',
+      isComplete: true,
+      joined: '2022-01-15T00:00:00.000Z',
+    })
+  })
+
+  it('postCompany sends the canonical payload', async function shouldSendCanonicalPayload() {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async function fetchMock(input, init) {
+        expect(input).toBe('/api/companies')
+        expect(init?.method).toBe('POST')
+        expect(readHeader(init?.headers, 'content-type')).toBe('application/json')
+
+        const body = JSON.parse(String(init?.body))
+        expect(body).toEqual({
+          company: 'Mako',
+          role: 'Engineer',
+          start: '2023-02-10',
+          end: null,
+        })
+        expect(body.joined).toBeUndefined()
+
+        return new Response(
+          JSON.stringify({
+            company: {
+              ...companyRecordFixture,
+              company: 'mako',
+            },
+          }),
+          { status: 200 },
+        )
+      }),
+    )
+
+    const result = await postCompany({
+      company: 'Mako',
+      role: 'Engineer',
+      start: '2023-02-10',
+      end: null,
+    })
+
+    expect(result.company.company).toBe('mako')
+    expect(result.company.role).toBe('Software Engineer')
   })
 
   it('postCompany throws when request fails', async function shouldThrowOnFailedPost() {
@@ -134,9 +187,68 @@ describe('use-account hooks', function useAccountHooksSuite() {
     await expect(
       postCompany({
         company: 'Mako',
-        joined: '2023-02-10',
+        role: 'Engineer',
+        start: '2023-02-10',
+        end: null,
       }),
     ).rejects.toThrow('boom')
+  })
+
+  it('patchCompany sends the canonical payload to the record id', async function shouldSendPatchPayload() {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async function fetchMock(input, init) {
+        expect(input).toBe('/api/companies/company-id')
+        expect(init?.method).toBe('PATCH')
+        expect(readHeader(init?.headers, 'content-type')).toBe('application/json')
+
+        const body = JSON.parse(String(init?.body))
+        expect(body).toEqual({
+          company: 'Mako',
+          role: 'Engineer',
+          start: '2023-02-10',
+          end: '2024-01-01',
+        })
+        expect(body.id).toBeUndefined()
+
+        return new Response(
+          JSON.stringify({
+            company: {
+              ...companyRecordFixture,
+              company: 'mako',
+            },
+          }),
+          { status: 200 },
+        )
+      }),
+    )
+
+    const result = await patchCompany({
+      id: 'company-id',
+      company: 'Mako',
+      role: 'Engineer',
+      start: '2023-02-10',
+      end: '2024-01-01',
+    })
+
+    expect(result.company.id).toBe('company-id')
+    expect(result.company.company).toBe('mako')
+  })
+
+  it('deleteCompanyRecord sends a DELETE request for the record id', async function shouldSendDeleteRequest() {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async function fetchMock(input, init) {
+        expect(input).toBe('/api/companies/company-id')
+        expect(init?.method).toBe('DELETE')
+
+        return new Response(JSON.stringify({ success: true }), { status: 200 })
+      }),
+    )
+
+    const result = await deleteCompanyRecord('company-id')
+
+    expect(result).toEqual({ success: true })
   })
 
   it('fetchAccount forwards abort signal into fetch init', async function run() {
@@ -175,14 +287,20 @@ describe('use-account hooks', function useAccountHooksSuite() {
     )
   })
 
-  it('creates an optimistic company record', function shouldCreateOptimisticRecord() {
+  it('creates an optimistic employment record', function shouldCreateOptimisticRecord() {
     const optimisticCompany = createOptimisticCompany({
-      company: ' Stripe ',
-      joined: '2022-06-01',
+      company: 'Stripe',
+      role: 'Engineer',
+      start: '2022-06-01',
+      end: null,
     })
 
     expect(optimisticCompany.id.startsWith('optimistic-')).toBe(true)
-    expect(optimisticCompany.company).toBe('stripe')
+    expect(optimisticCompany.company).toBe('Stripe')
+    expect(optimisticCompany.role).toBe('Engineer')
+    expect(optimisticCompany.start).toBe('2022-06-01')
+    expect(optimisticCompany.end).toBeNull()
+    expect(optimisticCompany.isComplete).toBe(true)
     expect(optimisticCompany.joined).toBe('2022-06-01T00:00:00.000Z')
   })
 })
