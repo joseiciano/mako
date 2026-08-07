@@ -345,10 +345,17 @@ describe('AccountRepository', function accountRepositorySuite() {
     expect(executedQueries).toHaveLength(1)
     expect(executedQueries[0]).toEqual(
       expect.objectContaining({
-        text: expect.stringContaining('SET deleted_at = NOW()'),
-        values: [companyId, userId],
+        text: expect.stringContaining('SET deleted_at = $3'),
+        values: [
+          companyId,
+          userId,
+          expect.any(String),
+          expect.any(String),
+        ],
       }),
     )
+    const [, , deletedAt, updatedAt] = executedQueries[0].values
+    expect(deletedAt).toBe(updatedAt)
   })
 
   it('returns false when soft deleting a missing company record', async function shouldReturnFalseWhenMissing() {

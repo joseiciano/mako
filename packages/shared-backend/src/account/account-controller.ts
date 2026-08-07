@@ -3,7 +3,7 @@ import {
   updateAccountProfileInputSchema,
 } from '@mako/shared'
 import type { Context, Hono } from 'hono'
-import { ZodError } from 'zod'
+import { z, ZodError } from 'zod'
 import { AccountService } from './account-service'
 import {
   AccountForbiddenError,
@@ -15,6 +15,8 @@ import {
 } from './types'
 
 type ControllerBindings = Record<string, unknown>
+
+const routeParamIdSchema = z.string().uuid()
 
 export type AccountControllerOptions<Bindings extends ControllerBindings> = {
   createService: (context: { bindings: Bindings }) => AccountService
@@ -88,6 +90,7 @@ export function registerAccountController<Bindings extends ControllerBindings>(
     const jsonBody = await readRequestBody(c)
 
     if (jsonBody === null) {
+      c.header('Cache-Control', 'private, no-store')
       return c.json({ error: 'Request body must be valid JSON.' }, 400)
     }
 
@@ -103,16 +106,25 @@ export function registerAccountController<Bindings extends ControllerBindings>(
   app.patch('/api/companies/:id', async function updateCompanyHandler(c) {
     const accountService = options.createService({ bindings: c.env })
     const session = await options.resolveSession(c)
+    const idParam = c.req.param('id')
+    const idValidation = routeParamIdSchema.safeParse(idParam)
+
+    if (!idValidation.success) {
+      c.header('Cache-Control', 'private, no-store')
+      return c.json({ error: 'Invalid record ID.' }, 400)
+    }
+
     const jsonBody = await readRequestBody(c)
 
     if (jsonBody === null) {
+      c.header('Cache-Control', 'private, no-store')
       return c.json({ error: 'Request body must be valid JSON.' }, 400)
     }
 
     try {
       const company = await accountService.updateCompanyRecord(
         session,
-        c.req.param('id'),
+        idValidation.data,
         jsonBody,
       )
       c.header('Cache-Control', 'private, no-store')
@@ -125,9 +137,16 @@ export function registerAccountController<Bindings extends ControllerBindings>(
   app.delete('/api/companies/:id', async function deleteCompanyHandler(c) {
     const accountService = options.createService({ bindings: c.env })
     const session = await options.resolveSession(c)
+    const idParam = c.req.param('id')
+    const idValidation = routeParamIdSchema.safeParse(idParam)
+
+    if (!idValidation.success) {
+      c.header('Cache-Control', 'private, no-store')
+      return c.json({ error: 'Invalid record ID.' }, 400)
+    }
 
     try {
-      await accountService.deleteCompanyRecord(session, c.req.param('id'))
+      await accountService.deleteCompanyRecord(session, idValidation.data)
       c.header('Cache-Control', 'private, no-store')
       return c.json({ success: true }, 200)
     } catch (error) {
@@ -145,6 +164,8 @@ async function readRequestBody(context: Context): Promise<unknown | null> {
 }
 
 function toErrorResponse(context: Context, error: unknown) {
+  context.header('Cache-Control', 'private, no-store')
+
   if (isZodError(error)) {
     return context.json(
       {

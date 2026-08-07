@@ -528,6 +528,58 @@ describe('AccountController', function accountControllerSuite() {
 
     expect(response.status).toBe(403)
   })
+
+  it('returns 400 for invalid UUID on PATCH /api/companies/:id', async function shouldRejectBadUuidPatch() {
+    const app = createCompaniesApp()
+
+    const response = await app.request('/api/companies/not-a-uuid', {
+      method: 'PATCH',
+      headers: {
+        'content-type': 'application/json',
+        'x-user-id': authenticatedUserId,
+        'x-user-email': 'user@mako.dev',
+      },
+      body: JSON.stringify({
+        company: 'Stripe',
+        role: 'Senior Engineer',
+        start: '2020-01-15',
+        end: null,
+      }),
+    })
+
+    expect(response.status).toBe(400)
+    expect(response.headers.get('cache-control')).toBe('private, no-store')
+    await expect(response.json()).resolves.toEqual({
+      error: 'Invalid record ID.',
+    })
+  })
+
+  it('returns 400 for invalid UUID on DELETE /api/companies/:id', async function shouldRejectBadUuidDelete() {
+    const app = createCompaniesApp()
+
+    const response = await app.request('/api/companies/not-a-uuid', {
+      method: 'DELETE',
+      headers: {
+        'x-user-id': authenticatedUserId,
+        'x-user-email': 'user@mako.dev',
+      },
+    })
+
+    expect(response.status).toBe(400)
+    expect(response.headers.get('cache-control')).toBe('private, no-store')
+    await expect(response.json()).resolves.toEqual({
+      error: 'Invalid record ID.',
+    })
+  })
+
+  it('sets Cache-Control on 401 error responses for companies', async function shouldSetCacheControlOnErrors() {
+    const app = createCompaniesApp()
+
+    const response = await app.request('/api/companies')
+
+    expect(response.status).toBe(401)
+    expect(response.headers.get('cache-control')).toBe('private, no-store')
+  })
 })
 
 function createAccountApp() {

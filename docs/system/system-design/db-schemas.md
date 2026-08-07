@@ -121,6 +121,7 @@ Behavior:
 Indexes:
 
 - `idx_user_companies_user_id` on (`user_id`)
+- `idx_user_companies_user_active_ordered` on (`user_id`, `joined DESC`, `created_at DESC`, `id ASC`) WHERE `deleted_at IS NULL` — supports the `getCompaniesByUserId` ordering for active records.
 
 ### User_Interviewer_Applications
 
@@ -132,7 +133,7 @@ Used to track the verification flow for users wanting to become interviewers.
 - **`employment_history`**: `jsonb` - Immutable submission-time snapshots shaped as `{ sourceCompanyId: uuid | null, company: string, role: string, start: YYYY-MM-DD, end: YYYY-MM-DD | null }[]`; persisted/admin read contracts permit null only for legacy applications, while every new submission requires a non-null source record UUID.
 - **`status`**: `text` with CHECK (`pending`, `approved`, `rejected`) - Current state of the application.
 - **`reviewed_by`**: `uuid` (Optional, Foreign Key -> `"user".id`) - Admin who reviewed the application.
-- **`reviewed_at`**: `timestamptz` (Optional) - Decision timestamp; null while pending.
+- **`reviewed_at`**: `timestamptz` (Optional) - Decision timestamp; null while pending. Added in Story 7.8, not yet present in the current schema.
 - **`created_at`**: `timestamptz`
 - **`updated_at`**: `timestamptz`
 

@@ -324,17 +324,19 @@ export class AccountRepository {
     id: string
     userId: string
   }): Promise<boolean> {
+    const now = new Date().toISOString()
+
     const query: SqlQuery = {
       text: `
         UPDATE user_companies
-        SET deleted_at = NOW(),
-            updated_at = NOW()
+        SET deleted_at = $3,
+            updated_at = $4
         WHERE id = $1
           AND user_id = $2
           AND deleted_at IS NULL
         RETURNING id;
       `,
-      values: [input.id, input.userId],
+      values: [input.id, input.userId, now, now],
     }
 
     const result = await this.getQueryExecutor().query<{ id: string }>(query)

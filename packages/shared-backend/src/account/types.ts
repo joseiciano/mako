@@ -43,6 +43,11 @@ export class AccountForbiddenError extends Error {
   }
 }
 
+export type AccountServiceLogger = {
+  info(event: string, context: Record<string, unknown>): void
+  error(event: string, context: Record<string, unknown>): void
+}
+
 export type AccountProfileRecord = AccountProfile
 
 export function parseProfileUpdateInput(
@@ -79,11 +84,6 @@ export const joinedDateInputSchema = z
   .transform(function normalizeJoinedDate(value) {
     return new Date(value).toISOString()
   })
-
-export const addCompanyRequestSchema = z.object({
-  company: companyNameSchema,
-  joined: joinedDateInputSchema,
-})
 
 export const legacyAddCompanyRequestSchema = z
   .object({

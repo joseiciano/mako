@@ -9,17 +9,24 @@ import {
   authenticatedUserIdSchema,
   parseCompanyRequest,
   parseProfileUpdateInput,
+  type AccountServiceLogger,
   type AccountSession,
   type UserCompany,
 } from './types'
 
 export type AccountCleanupWorkflow = (userId: string) => Promise<void>
 
+const noOpLogger: AccountServiceLogger = {
+  info: function noOpInfo() {},
+  error: function noOpError() {},
+}
+
 export class AccountService {
   constructor(
     private readonly accountRepository: AccountRepository,
     private readonly runAccountCleanupWorkflow: AccountCleanupWorkflow =
       async function noopCleanupWorkflow() {},
+    private readonly logger: AccountServiceLogger = noOpLogger,
   ) {}
 
   async getAccount(session: AccountSession | null): Promise<AccountProfile> {
@@ -109,6 +116,8 @@ export class AccountService {
     }
 
     // Legacy: role = null, joined from payload
+    this.logger.info('company.legacy_create_deprecated', { userId })
+
     return this.accountRepository.addCompanyRecord({
       userId,
       company: parsed.data.company,
