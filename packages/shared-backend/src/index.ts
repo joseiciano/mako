@@ -34,6 +34,7 @@ export {
   type PostgresQueryResult,
 } from './database/postgres-connection-pool'
 export * from './account'
+export * from './interviewer-application'
 export * from './auth'
 export * from './interview'
 export * from './interviews'
