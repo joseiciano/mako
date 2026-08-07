@@ -64,6 +64,8 @@ import {
   type RealtimeProvider,
   type SqlQuery,
   type SqlQueryExecutor,
+  type AccountServiceLogger,
+  type InterviewerApplicationServiceLogger,
   type PaymentServiceLogger,
   type StripeClient,
 } from '@mako/shared-backend'
@@ -139,6 +141,24 @@ const consolePaymentLogger: PaymentServiceLogger = {
   },
 }
 
+const consoleAccountServiceLogger: AccountServiceLogger = {
+  info(event, context) {
+    console.info({ event, component: 'AccountService', ...context })
+  },
+  error(event, context) {
+    console.error({ event, component: 'AccountService', ...context })
+  },
+}
+
+const consoleInterviewerApplicationServiceLogger: InterviewerApplicationServiceLogger = {
+  info(event, context) {
+    console.info({ event, component: 'InterviewerApplicationService', ...context })
+  },
+  error(event, context) {
+    console.error({ event, component: 'InterviewerApplicationService', ...context })
+  },
+}
+
 export function createApp(): Hono<{ Bindings: WorkerBindings }> {
   const app = new Hono<{ Bindings: WorkerBindings }>()
   const demoDataSources = createDemoDataSources(seededDemoAccounts)
@@ -181,6 +201,8 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
                 queryExecutor: createDatabaseQueryExecutor(context.bindings),
               },
         ),
+        async function noopCleanupWorkflow() {},
+        consoleAccountServiceLogger,
       )
     },
     resolveSession: function resolveSession(context) {
@@ -288,6 +310,7 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
             ? { queryExecutor }
             : { dataSource: demoDataSources.interviewerApplication },
         ),
+        consoleInterviewerApplicationServiceLogger,
       )
     },
     resolveSession: function resolveSession(context) {

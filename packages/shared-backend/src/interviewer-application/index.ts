@@ -15,9 +15,9 @@ export {
   InterviewerApplicationForbiddenError,
   InterviewerApplicationUnauthorizedError,
   InterviewerApplicationValidationError,
-  employmentRecordIdsSchema,
   snapshotEntryWriteSchema,
   toInterviewerApplication,
+  type InterviewerApplicationServiceLogger,
   type InterviewerApplicationSession,
   type SnapshotEntryWrite,
 } from './types'

@@ -16,7 +16,7 @@ export type QueryResult<Row> = {
   rowCount?: number
 }
 
-export interface InterviewerApplicationRepositoryDataSource {
+export type InterviewerApplicationRepositoryDataSource = {
   isUserActive(userId: string): Promise<boolean>
   hasActiveApplication(userId: string): Promise<boolean>
   getLatestApplication(userId: string): Promise<InterviewerApplicationRow | null>
@@ -379,7 +379,9 @@ function isQueryExecutor(
 async function rollbackTransactionSafely(queryExecutor: SqlQueryExecutor): Promise<void> {
   try {
     await queryExecutor.query(createSqlQuery('ROLLBACK;'))
-  } catch {}
+  } catch (error) {
+    console.error('Transaction rollback failed', error)
+  }
 }
 
 function isUniqueViolationError(error: unknown): boolean {

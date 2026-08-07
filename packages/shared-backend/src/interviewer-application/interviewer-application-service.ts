@@ -2,16 +2,25 @@ import type { InterviewerApplication } from '@mako/shared'
 import { interviewerApplicationRequestSchema } from '@mako/shared'
 import { InterviewerApplicationRepository } from './interviewer-application-repository'
 import {
+  InterviewerApplicationConflictError,
   InterviewerApplicationForbiddenError,
   InterviewerApplicationUnauthorizedError,
+  InterviewerApplicationValidationError,
   authenticatedUserIdSchema,
   toInterviewerApplication,
+  type InterviewerApplicationServiceLogger,
   type InterviewerApplicationSession,
 } from './types'
+
+const noOpLogger: InterviewerApplicationServiceLogger = {
+  info: function noOpInfo() {},
+  error: function noOpError() {},
+}
 
 export class InterviewerApplicationService {
   constructor(
     private readonly repository: InterviewerApplicationRepository,
+    private readonly logger: InterviewerApplicationServiceLogger = noOpLogger,
   ) {}
 
   async submitApplication(
@@ -20,15 +29,51 @@ export class InterviewerApplicationService {
   ): Promise<InterviewerApplication> {
     const userSession = this.requireSession(session)
     const userId = authenticatedUserIdSchema.parse(userSession.userId)
+
+    const isActive = await this.repository.isUserActive(userId)
+    if (!isActive) {
+      throw new InterviewerApplicationForbiddenError()
+    }
+
     const payload = interviewerApplicationRequestSchema.parse(requestBody)
 
-    const row = await this.repository.submitApplication({
+    const selectedRecordCount = payload.employmentRecordIds.length
+
+    this.logger.info('interviewer_application.requested', {
       userId,
-      email: payload.email,
-      employmentRecordIds: payload.employmentRecordIds,
+      selectedRecordCount,
     })
 
-    return toInterviewerApplication(row)
+    try {
+      const row = await this.repository.submitApplication({
+        userId,
+        email: payload.email,
+        employmentRecordIds: payload.employmentRecordIds,
+      })
+
+      this.logger.info('interviewer_application.succeeded', {
+        applicationId: row.id,
+        userId,
+        selectedRecordCount,
+      })
+
+      return toInterviewerApplication(row)
+    } catch (error) {
+      if (error instanceof InterviewerApplicationConflictError) {
+        this.logger.info('interviewer_application.conflicted', {
+          userId,
+          selectedRecordCount,
+        })
+      } else if (!(error instanceof InterviewerApplicationValidationError)) {
+        this.logger.error('interviewer_application.failed', {
+          userId,
+          selectedRecordCount,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+
+      throw error
+    }
   }
 
   async getApplicationStatus(

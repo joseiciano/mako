@@ -36,11 +36,13 @@ export class InterviewerApplicationConflictError extends Error {
   }
 }
 
+export type InterviewerApplicationServiceLogger = {
+  info(event: string, context: Record<string, unknown>): void
+  error(event: string, context: Record<string, unknown>): void
+}
+
 // UUID validation
 export const authenticatedUserIdSchema = z.string().uuid()
-
-// Employment record IDs from request
-export const employmentRecordIdsSchema = z.array(z.string().uuid()).min(1).max(10)
 
 // Snapshot entry built from locked user_companies rows (write schema: non-null sourceCompanyId)
 export const snapshotEntryWriteSchema = z.object({
