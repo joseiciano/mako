@@ -48,4 +48,4 @@ Key account flows include:
 
 2. **Profile Management:** Standard RESTful operations (GET/PATCH/DELETE) handled by Hono workers with soft-deletion support.
 3. **Credit System:** A "pay-per-credit" model using **Stripe Elements** for checkout. Fulfillment is handled asynchronously via Stripe Webhooks (`payment_intent.succeeded`) to update user balances in Postgres.
-4. **Interviewer Onboarding:** A registration flow where users submit employment history, leading to a "Pending" state until an internal review (manual or AI-assisted) updates their interviewer status and triggers a notification via an email service (e.g., Resend).
+4. **Interviewer Onboarding:** A user selects complete profile employment records; the backend stores an immutable application snapshot in a `pending` state. A human admin manually approves or rejects the application. Approval atomically records review metadata and grants account-level interviewer eligibility through `"user".companies = true`. Automated/third-party employment verification and decision notifications are outside the MVP contract.

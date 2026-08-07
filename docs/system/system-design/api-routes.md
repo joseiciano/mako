@@ -1,6 +1,6 @@
 # API Routes
 
-> **Note**: All routes defined below, and any future routes added to the system, must support an OpenAPI specification (Swagger) to ensure consistent documentation, ease of reference, and readability for all developers.
+> **Note**: All routes defined below (and any future routes) must be backed by shared, validated schemas in `@mako/shared`, documented exactly here with request/response shapes and error states, and locked down by contract tests. Generated OpenAPI/Swagger tooling is deferred to a separate repository-wide initiative; individual feature tickets must not introduce partial annotation conventions.
 
 ### Authentication (Better Auth)
 - **`POST /api/auth/sign-up`**
@@ -57,15 +57,26 @@
 ### Interviewer Onboarding
 - **`POST /api/interviewer/apply`**
   - **Description**: Submits an application to become a verified interviewer.
-  - **Request Body**: `{ email: string, employment_history: Array<{ company: string, role: string, start: string, end: string }> }`
-  - **Response Body**: `{ application: User_Interviewer_Application }`
+  - **Request Body**: `{ email: string, employmentRecordIds: UUID[] }` with 1–10 unique IDs.
+  - **Response Body**: `{ application: InterviewerApplication }`
   - **Query Params**: None
+  - **Status Codes**: `201` success; `400` malformed JSON, invalid fields, or invalid employment selection; `401` unauthenticated; `403` authenticated inactive/deleted account; `409` pending/approved eligibility or concurrent active-state conflict.
+  - **Behavior Rules**:
+    - `email` is a validated, user-supplied contact email and may differ from the authenticated account email. It is stored as immutable submission data.
+    - Every selected record must be active, complete, and owned by the authenticated applicant.
+    - The server reads the records and atomically persists an immutable `employmentHistory` snapshot shaped as `{ sourceCompanyId, company, role, start, end }[]`; clients do not submit trusted snapshot fields.
+    - `start`/`end` are date-only strings and `end` is null for a current role.
+    - Profile edits after submission do not rewrite the application snapshot or automatically revoke eligibility.
 
 - **`GET /api/interviewer/status`**
   - **Description**: Retrieves the status of the current user's interviewer application.
   - **Request Body**: None
-  - **Response Body**: `{ application: User_Interviewer_Application | null }`
+  - **Response Body**: `{ application: InterviewerApplication | null }`
   - **Query Params**: None
+  - **Status Codes**: `200` success; `401` unauthenticated; `403` authenticated inactive/deleted account.
+  - **Behavior Rules**: Returns the current user's latest application using deterministic `created_at DESC, id DESC` ordering. This returns the latest rejected row when no newer reapplication exists and the newer pending/decided row after reapplication.
+
+`InterviewerApplication` is exactly `{ applicationId: UUID, email: string, employmentHistory: { sourceCompanyId: UUID | null, company: string, role: string, start: YYYY-MM-DD, end: YYYY-MM-DD | null }[], status: 'pending' | 'approved' | 'rejected', createdAt: ISO-8601, updatedAt: ISO-8601 }`. Applicant routes do not expose reviewer identity. New submissions always populate a non-null `sourceCompanyId`; null remains read-compatible only for controlled pre-contract data. Both routes set `Cache-Control: private, no-store`.
 
 ### Payments & Credits
 - **`GET /api/payments/packages`**
@@ -413,13 +424,31 @@
 
 ### Companies
 - **`POST /api/companies`**
-  - **Description**: Adds a new company experience to the user's profile.
-  - **Request Body**: `{ company: string, joined: string }`
-  - **Response Body**: `{ company: User_Company }`
+  - **Description**: Adds a complete employment record to the authenticated user's profile.
+  - **Request Body**: A **strict request union** — either the canonical `{ company: string, role: string, start: YYYY-MM-DD, end: YYYY-MM-DD | null }` **or** the legacy `{ company: string, joined: ISO-8601 }`. Fields from the two shapes must not be mixed: a request containing both canonical (`start`/`end`/`role`) and legacy (`joined`) fields returns `400`.
+  - **Response Body**: `{ company: EmploymentRecordCompatibilityResponse }` — the exact Milestone 7 response shape, `joined` required/non-null on every record including canonical (see GET below).
   - **Query Params**: None
+  - **Milestone 7 Compatibility**: During the Milestone 7 rollout, legacy `{ company, joined }` is accepted as an incomplete record and emits a PII-safe deprecation log. The persisted `joined` ISO-8601 timestamp is exposed on the returned/listed record as a **deprecated** field so legacy clients can render preserved rows. Acceptance of the legacy shape is removed in a **separate, dedicated breaking-change rollout** after Milestone 7; this ticket does not remove it.
 
 - **GET /api/companies**
-  - **Description**: Retrieves the list of companies associated with the user.
+  - **Description**: Retrieves active employment records owned by the authenticated user.
   - **Request Body**: None
-  - **Response Body**: `{ companies: User_Company[] }`
+  - **Response Body**: `{ companies: EmploymentRecordCompatibilityResponse[] }`, where the Milestone 7 response shape is the exact **`EmploymentRecordCompatibilityResponse`** = `{ id, userId, company, role: string | null, start: YYYY-MM-DD, end: YYYY-MM-DD | null, isComplete, createdAt, updatedAt, joined: ISO-8601 }`. In this shape `joined` is a **required (non-null) deprecated ISO-8601 timestamp present on every record throughout Milestone 7 — including canonical records** (derived from the persisted `joined` column, which stores `start` at UTC midnight), not merely on legacy compatibility rows. `start` remains canonical; the alias is temporary and must not be used by new frontend code.
+  - **Breaking-change note**: the required `joined` alias exists only for the duration of Milestone 7; both legacy `{ company, joined }` acceptance and the deprecated `joined` alias require a separate, explicitly approved breaking-change ticket before removal and are never removed inline with another story.
   - **Query Params**: None
+
+- **`PATCH /api/companies/:id`**
+  - **Description**: Replaces editable fields on one active employment record owned by the authenticated user.
+  - **Request Body**: `{ company: string, role: string, start: YYYY-MM-DD, end: YYYY-MM-DD | null }`
+  - **Response Body**: `{ company: EmploymentRecordCompatibilityResponse }` — the exact Milestone 7 response shape, `joined` required/non-null on every record including canonical (see GET below).
+
+- **`DELETE /api/companies/:id`**
+  - **Description**: Soft-deletes one active employment record owned by the authenticated user.
+  - **Request Body**: None
+  - **Response Body**: `{ success: true }`
+
+Company route behavior:
+
+- Invalid JSON, fields, or IDs return `400`; unauthenticated requests return `401`; an authenticated inactive/deleted account returns `403`; missing, deleted, or non-owned records return `404`.
+- Responses use `Cache-Control: private, no-store`.
+- Changes do not rewrite application snapshots and do not mutate the account-level `"user".companies` eligibility flag.
