@@ -50,6 +50,8 @@ import {
   NotificationRepository,
   NotificationService,
   NotificationDispatchService,
+  createArtifactStorage,
+  createR2BucketPort,
   type NotificationDispatchServiceLogger,
   type AccountProfileRecord,
   type AccountRepositoryDataSource,
@@ -84,6 +86,8 @@ export { SessionTimerWorkflow }
 export type WorkerBindings = {
   DB?: DatabaseBinding
   HYPERDRIVE?: HyperdriveBinding
+  RECORDINGS_BUCKET?: R2Bucket
+  SCREENSHOTS_BUCKET?: R2Bucket
   BETTER_AUTH_SECRET?: string
   BETTER_AUTH_URL?: string
   BETTER_AUTH_TRUSTED_ORIGINS?: string

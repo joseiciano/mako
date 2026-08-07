@@ -10,6 +10,10 @@
       "id": "__HYPERDRIVE_ID__"
     }
   ],
+  "r2_buckets": [
+    { "binding": "RECORDINGS_BUCKET", "bucket_name": "mako-recordings" },
+    { "binding": "SCREENSHOTS_BUCKET", "bucket_name": "mako-screenshots" }
+  ],
   "queues": {
     "producers": [
       {

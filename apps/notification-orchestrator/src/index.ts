@@ -18,6 +18,8 @@ export type WorkerBindings = {
   HYPERDRIVE: {
     connectionString: string
   }
+  RECORDINGS_BUCKET?: R2Bucket
+  SCREENSHOTS_BUCKET?: R2Bucket
   NOTIFICATION_QUEUE: Queue<NotificationTransportMessage>
 }
 
