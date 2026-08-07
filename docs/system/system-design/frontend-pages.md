@@ -11,7 +11,9 @@
     - **Data**: `GET /api/account`, `GET /api/payments/packages`, `POST /api/payments/create-intent`
     - **Scope Note**: Payment amounts are never derived client-side; the backend package config is authoritative. Selected package and create-intent state are owned by the billing smart component and persisted to `sessionStorage` (`mako.billing.purchase`) so the checkout can be restored after a Stripe 3DS redirect.
 - **Settings & Profile (`/settings`)**: Manage profile, employment history, and interviewer verification.
-    - **Data**: `GET /api/account`, `PATCH /api/account`, `GET /api/interviewer/status`, `GET /api/companies`
+    - **Data**: `GET /api/account`, `PATCH /api/account`, `GET /api/interviewer/status`, `GET /api/companies`, `POST /api/companies`, `PATCH /api/companies/:id`, `DELETE /api/companies/:id`
+    - **Employment History**: Users manage company, role, start, and optional end dates. Migrated records missing a role remain visible as incomplete and cannot be selected for an interviewer application until updated.
+    - **Verification Boundary**: Applications select complete employment record IDs, while the server stores an immutable snapshot. Profile edits do not alter submitted evidence or automatically revoke account-level interviewer eligibility.
 
 ### Interview Lifecycle
 - **Schedule Interview (`/interviews/new`)**: Configuration flow for type (System Design), mode (AI / P2P via availability), and timing/availability details.

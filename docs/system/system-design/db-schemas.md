@@ -94,12 +94,14 @@ Indexes:
 
 ### user_companies
 
-This schema is to store company information. This allows them to be filtered based on company if needed
+Canonical mutable employment-history records owned by a user. Complete active records may be selected when submitting an interviewer application; the application stores a separate immutable JSON snapshot.
 
 - **`id`**: `uuid` (Primary Key)
 - **`user_id`**: `uuid` (Foreign Key -> `"user".id`, On Delete Cascade)
 - **`company`**: `string` (lowercase) - name of company
-- **`joined`**: `timestamptz` - time joined company
+- **`role`**: `text` (Nullable for migrated legacy rows) - employment role/title. New canonical creates require a non-blank role.
+- **`joined`**: `timestamptz` - employment start value; API contracts expose its UTC date as `start` (`YYYY-MM-DD`).
+- **`ended_at`**: `timestamptz` (Optional) - employment end value stored at UTC midnight and exposed as date-only `end`; null means the role is current.
 - **`created_at`**: `timestamptz`
 - **`updated_at`**: `timestamptz`
 - **`deleted_at`**: `timestamptz`
@@ -107,6 +109,14 @@ This schema is to store company information. This allows them to be filtered bas
 Constraints:
 
 - `company = lower(company)`
+- `role IS NULL OR btrim(role) <> ''`
+- `ended_at IS NULL OR (ended_at AT TIME ZONE 'UTC')::date >= (joined AT TIME ZONE 'UTC')::date` — compare `ended_at` and `joined` as UTC calendar dates using the exact UTC-date expression `(ended_at AT TIME ZONE 'UTC')::date >= (joined AT TIME ZONE 'UTC')::date`: extract both timestamps in UTC and compare their date-only `YYYY-MM-DD` values, never their local-time components, so a valid same-day start/end or an end on the UTC date equal to the join date is accepted regardless of the timezone the app/user is in.
+
+Behavior:
+
+- A row with `role IS NULL` is a preserved legacy record and is incomplete for new interviewer applications until updated.
+- Updating or soft-deleting a row never rewrites an existing application snapshot and never grants or revokes `"user".companies` eligibility.
+- Individual employment rows do not carry verification status in the MVP.
 
 Indexes:
 
@@ -119,11 +129,27 @@ Used to track the verification flow for users wanting to become interviewers.
 - **`id`**: `uuid` (Primary Key)
 - **`user_id`**: `uuid` (Foreign Key -> `"user".id`) - The applicant.
 - **`email`**: `text` - Contact email for the application.
-- **`employment_history`**: `jsonb` - Structured history of previous roles and companies.
-- **`status`**: `enum` ('pending', 'approved', 'rejected') - Current state of the application.
+- **`employment_history`**: `jsonb` - Immutable submission-time snapshots shaped as `{ sourceCompanyId: uuid | null, company: string, role: string, start: YYYY-MM-DD, end: YYYY-MM-DD | null }[]`; persisted/admin read contracts permit null only for legacy applications, while every new submission requires a non-null source record UUID.
+- **`status`**: `text` with CHECK (`pending`, `approved`, `rejected`) - Current state of the application.
 - **`reviewed_by`**: `uuid` (Optional, Foreign Key -> `"user".id`) - Admin who reviewed the application.
+- **`reviewed_at`**: `timestamptz` (Optional) - Decision timestamp; null while pending.
 - **`created_at`**: `timestamptz`
 - **`updated_at`**: `timestamptz`
+
+Constraints and indexes:
+
+- At most one pending-or-approved application exists per user (one partial unique index on `user_id` where `status IN ('pending', 'approved')`). This also prevents a pending and approved row from coexisting during an approval/submission race. Rejected users may reapply with a new row.
+- `employment_history` must be a top-level JSON array. Field-level snapshot validation remains an application-layer responsibility.
+- `idx_user_interviewer_applications_active_user` is the unique partial lifecycle index on `user_id WHERE status IN ('pending', 'approved')`.
+- `idx_user_interviewer_applications_user_latest` on `(user_id, created_at DESC, id DESC)` supports deterministic applicant status lookup.
+- `idx_user_interviewer_applications_status_created` on `(status, created_at ASC, id ASC)` supports status-filtered admin review lists.
+
+Verification behavior:
+
+- Manual admin review of this immutable snapshot is the MVP employment-verification mechanism.
+- Approval sets `"user".companies = true` in the same guarded decision transaction. Individual employment rows are not marked verified.
+- Subsequent profile edits do not mutate this snapshot and do not automatically revoke eligibility.
+- The stored application email is a user-supplied contact snapshot that may differ from the account email; later account-email changes do not rewrite it.
 
 ### Interviews
 

@@ -62,10 +62,12 @@ This document outlines the high-level milestones for the Mako platform, breaking
 ## Milestone 7: Interviewer Verification & Premium Matching
 **Objective**: Enable the "Premium" tier with verified professional interviewers.
 
-- **Interviewer Application**: Build the onboarding flow for users to apply as verified interviewers.
-- **Admin Review**: Internal tools or status management for approving/rejecting applications.
-- **Premium Scheduling**: Logic to match schedulers with verified premium interviewers.
-- **Employment Verification**: Integration of company history and verification metadata.
+- **Interviewer Application**: Build the onboarding flow for users to apply as verified interviewers; delivered first, before admin review.
+- **Admin Review**: Internal status management for approving/rejecting applications, via a single server-owned admin boolean; delivered after the interviewer application flow.
+- **Employment Verification**: Use canonical profile employment records to create immutable application snapshots; manual application review remains the account-level verification decision, with no per-company or external verification flow in the MVP.
+- **Premium Scheduling**: Match schedulers with verified premium interviewers through a first-to-claim marketplace of exact 60-minute slots, delivered in ordered phases from availability publishing through discovery/claim to the scheduler booking UI.
+- **Booking Channel**: Introduce `booking_channel = 'verified_interviewer'` safely via additive expansion and later contraction, leaving existing channels unchanged.
+- **Cancellation Scope**: Premium cancellation/refund applies only to participant-initiated cancellation and participant account deletion. Of these, only interviewer cancellation or interviewer account deletion refunds exactly one credit; scheduler cancellation and scheduler account deletion both consume the paid credit with no refund.
 
 ---
 

@@ -11,9 +11,9 @@ sequenceDiagram
     participant Auth as Better Auth
     participant DB as Neon Postgres (via Hyperdrive)
     participant Stripe as Stripe API
-    participant Email as Email Service (Resend/SES)
+    actor Admin
 
-    Note over User, Email: 1. Create Account
+    Note over User, DB: 1. Create Account
     User->>FE: Click Sign Up
     FE->>BE: Submit Credentials
     BE->>Auth: Request Registration
@@ -21,7 +21,7 @@ sequenceDiagram
     Auth-->>BE: Success (JWT/Session)
     BE-->>FE: Account Created
 
-    Note over User, Email: 2. Update/Delete Account
+    Note over User, DB: 2. Update/Delete Account
     User->>FE: Edit Profile / Delete Request
     FE->>BE: PATCH/DELETE /api/account
     BE->>Auth: Validate Session
@@ -29,7 +29,7 @@ sequenceDiagram
     DB-->>BE: Ack
     BE-->>FE: Success
 
-    Note over User, Email: 3. Pay for Credits (Stripe Elements)
+    Note over User, Stripe: 3. Pay for Credits (Stripe Elements)
     User->>FE: Select Credit Package
     FE->>BE: POST /api/payments/create-intent
     BE->>Stripe: Create Payment Intent
@@ -43,19 +43,19 @@ sequenceDiagram
     BE->>DB: Increment User Credits
     BE-->>User: (UI) Credits Updated
 
-    Note over User, Email: 4. Register as Interviewer (Verification Flow)
-    User->>FE: Apply (Email, Employment History)
-    FE->>BE: POST /api/interviewer/apply
-    BE->>DB: Save Application (Status: Pending Review)
-    Note over BE: Internal Review Process (Admin/AI)
+    Note over User, Admin: 4. Register as Interviewer (Verification Flow)
+    User->>FE: Apply (Email, Select Complete Employment Records)
+    FE->>BE: POST /api/interviewer/apply (Employment Record IDs)
+    BE->>DB: Validate Ownership and Save Immutable Snapshot (Pending)
+    Admin->>BE: Review Application and Submit Decision
     alt Approved
-        BE->>DB: Set status: Interviewer (Flag: True)
-        BE->>Email: Send "Welcome Interviewer" Email
+        BE->>DB: Set Application Approved + Reviewer Metadata + companies=True
     else Rejected
-        BE->>DB: Set status: Rejected
-        BE->>Email: Send "Rejection" Email
+        BE->>DB: Set Application Rejected + Reviewer Metadata
     end
-    Email-->>User: Receives Final Status Update
+    User->>FE: View Current Application Status
+    FE->>BE: GET /api/interviewer/status
+    BE-->>FE: Return Status + Immutable Employment Snapshot
 ```
 
 ## Flow Descriptions
@@ -63,4 +63,4 @@ sequenceDiagram
 1.  **Account Creation:** Authentication is done via **Better Auth**. Data is stored in **Neon** instance. 
 2.  **Account Management:** Standard Hono REST endpoints protected by Auth middleware. Deletions are  "soft-deletes".
 3.  **Credit Purchase:** Uses **Stripe Elements** (embedded Payment Element) for a seamless in-app checkout experience while maintaining PCI compliance. Fulfillment is handled asynchronously via **Stripe Webhooks** (`payment_intent.succeeded`) to ensure credits are granted even if the client-side confirmation is interrupted.
-4.  **Interviewer Onboarding:** A multi-step process involving manual or semi-automated review. The user's application (including employment history) is held in a "Pending" state until an approval decision triggers the "Interviewer" flag update and a confirmation email.
+4.  **Interviewer Onboarding:** The user selects complete canonical employment records. The backend validates ownership and stores an immutable snapshot before a human admin manually approves or rejects the pending application. Approval sets the account-level interviewer eligibility flag in the same decision transaction. Profile edits do not rewrite submitted evidence, and automated verification/decision email is outside the MVP contract.

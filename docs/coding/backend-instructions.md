@@ -5,9 +5,9 @@ The following is useful information when working specifically in the backend.
 
 ### API Documentation
 
-1. All routes must support an OpenAPI specification. 
-2. Use tools like `zod-to-openapi` (if using Hono) or built-in decorators to ensure types and schemas are automatically synchronized with the documentation.
-3. Every endpoint should have a clear description, request/response schemas, and possible error states documented.
+1. Every route must be backed by shared, validated Zod schemas (`@mako/shared`) that are used for both request validation and response typing, and every route must have exact, current API documentation (request/response shapes, error states, cache/ordering semantics) in `docs/system/system-design/api-routes.md` plus contract tests that lock those schemas down.
+2. Generated OpenAPI/Swagger annotation tooling is deferred to a separate repository-wide initiative. Individual feature tickets must not invent partial annotation conventions (for example ad-hoc `zod-to-openapi` decorators or bespoke OpenAPI metadata) on their routes; when such tooling lands it will be adopted uniformly across the codebase.
+3. Every endpoint's exact request/response schemas, possible error states, and behavior rules must be documented and enforced by contract tests, independent of any generated-spec tooling.
 
 ### Controller-Service-Repository Pattern
 
@@ -37,31 +37,25 @@ We structure the controller in this way, and then insert the controller in our r
 
   ```typescript
   // inside foo/foo-controller.ts
-  export interface InviteControllerOptions {
-    supabaseFactory: (bindings: WorkerBindings) => SupabaseClient;
-    createService: (context: { supabase: SupabaseClient; env: WorkerBindings }) => InviteService;
+  type FooControllerOptions<Bindings extends Record<string, unknown>> = {
+    createService: (context: { bindings: Bindings }) => FooService
   }
 
-  export const registerInviteController = (
-    app: Hono<{ Bindings: WorkerBindings }>,
-    options: FooControllerOptions,
-  ): void => {
+  export function registerFooController<Bindings extends Record<string, unknown>>(
+    app: Hono<{ Bindings: Bindings }>,
+    options: FooControllerOptions<Bindings>,
+  ): void {
     app.post('/foo/:userId', async (c) => {
-      // Handle path param validation
-      const pathMatch = c.req.path.match(/^\/foo\/([^/]+)\/userId/);
-      if (!pathMatch) {
-        return c.notFound();
-      }
+      // Parse and validate path params
+      const userIdParam = c.req.param('userId')
 
-      const wishlistIdParam = pathMatch[1];
+      // Call service with parsed params
+      const fooService = options.createService({ bindings: c.env })
+      const foo = await fooService.foo(userIdParam)
 
-      // Call service
-      const fooService = options.createService({ supabase, env: c.env });
-      await fooService.foo();
-
-      return c.json(invite, 201);
-    });
-  };
+      return c.json(foo, 201)
+    })
+  }
   ```
 
 - **Service**: Handles high level business logic. Auth validation as well as data shaping are to exist here.
@@ -69,10 +63,12 @@ We structure the controller in this way, and then insert the controller in our r
 
   ```typescript
   // inside foo/foo-service.ts
-  export class FooService() {
-    constructor(
-      private readonly fooRepository: FooRepository
-    ){}
+  type FooServiceDependencies = {
+    fooRepository: FooRepository
+  }
+
+  export class FooService {
+    constructor(private readonly fooRepository: FooRepository) {}
 
     async foo() {
       await this.fooRepository.foo()
@@ -80,17 +76,30 @@ We structure the controller in this way, and then insert the controller in our r
   }
   ```
 
-- **Repository**: Handles low-level data manipulation. API calls and DB queries are to exist here.
+- **Repository**: Handles low-level data manipulation. API calls and DB queries are to exist here, executed as raw SQL through a `SqlQueryExecutor` (the Hyperdrive-backed executor from `apps/backend-rest/src/database.ts`).
   Example:
 
   ```typescript
-  export class FooRepository() {
-    constructor(
-      private readonly supabase: SupabaseClient
-    ){}
+  // inside foo/foo-repository.ts
+  type FooRepositoryDependencies = {
+    queryExecutor: SqlQueryExecutor
+  }
 
-    async foo() {
-      this.supabase.query(<insert query here>)
+  export class FooRepository {
+    constructor(private readonly queryExecutor: SqlQueryExecutor) {}
+
+    async getFooById(fooId: string): Promise<FooRow | null> {
+      const result = await this.queryExecutor.query<FooRow>(
+        createSqlQuery(
+          `
+          SELECT id, name
+          FROM foo
+          WHERE id = $1;
+          `,
+          [fooId],
+        ),
+      )
+      return result.rows[0] ?? null
     }
   }
   ```
@@ -113,7 +122,8 @@ For backend code you always follow the following conventions:
 
 - You favor explicit `function x()` over arrow functions. 
 - You prefer to keep files small, preferably 1-2 functions per file. If more are needed, that's what extra files are for.
-- Following the above code structure of Controller Service Repo, you organize your code in packages that are barrel imported. 
+- Following the above code structure of Controller Service Repo, you organize your code in packages that are barrel imported.
+- Prefer `type` over `interface` for shared data shapes, options, and dependencies; use `interface` only for class contracts where unavoidable.
 
 ### Tools
 
@@ -122,8 +132,7 @@ These are the main tools you prefer to use when developing backend services.
 Reference `../infrastructure/backend.md`. Only use technologies mentioned in the doc. If we need more get buy in and confirmation from the user. 
 
 
-### Dependency Injection
+### Wiring
 
-Favor dependency injection when possible. This allows for loose coupling of resources and easy modularity of the codebase.
-Unless it is a service provided by a library (i.e. `supabaseClient` comes from the supabase library, so we would not create our own), you prefer to use D.I. when creating new classes.
+Repositories are constructed with a `SqlQueryExecutor` (typically the Hyperdrive-backed executor created in `apps/backend-rest/src/database.ts`) and injected into the service through a factory that resolves the executor from `c.env`. Prefer constructor injection for repository and service classes so the data source can be swapped for tests and transactions. When creating new classes, inject their dependencies rather than reaching for globals.
 
