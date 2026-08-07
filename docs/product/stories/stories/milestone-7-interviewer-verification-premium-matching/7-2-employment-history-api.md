@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 7: Interviewer Verification & Premium Matching
 **Description**: Complete authenticated employment-history CRUD using the Story 7.1 contracts so users can create, correct, and soft-delete the canonical records later selected by interviewer applications.
-**Status**: Todo
+**Status**: done
 
 ## What Needs to Be Done
 
