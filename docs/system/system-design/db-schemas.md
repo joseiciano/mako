@@ -364,6 +364,7 @@ Indexes:
 
 - `idx_interview_artifacts_interview_kind` on (`interview_id`, `artifact_kind`)
 - `idx_interview_artifacts_expiry` on (`expires_at`) WHERE `deleted_at` IS NULL
+- `idx_interview_artifacts_object_key` on (`object_key`)
 
 Retention notes:
 

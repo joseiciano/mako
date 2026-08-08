@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 5: Post-Interview Feedback & AI Analysis
 **Description**: Implement participant consent and server-controlled RealtimeKit recording start/stop behavior for eligible live interviews.
-**Status**: Todo
+**Status**: In-Progress
 **Prerequisites**:
 - `docs/system/system-design/api-routes.md`
 - `docs/system/system-design/state-management-lifecycle.md`

@@ -2,7 +2,7 @@
 
 This document goes over all the tools we will be using for our backend services
 
-**Last reconciled**: 2026-03-30 (Documentation Drift Resolution Plan)
+**Last reconciled**: 2026-08-07
 
 - **Cloudflare Workers**: Cloudflare workers for the main hosting environment of the backend service. Routes are defined via a singular API worker. [Docs](https://developers.cloudflare.com/api/resources/workers/)
 - **Cloudflare Hyperdrive**: We use hyperdrive to speak to our Postgres database instance from Cloudflare Workers. [Docs](https://developers.cloudflare.com/api/resources/hyperdrive/)
@@ -10,12 +10,23 @@ This document goes over all the tools we will be using for our backend services
 **Note**: We will **ALWAYS** be using **Cloudflare RealtimeKit,** **NEVER** use Cloudflare Calls. It is outdated. 
   - Backend room provisioning requires `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and `CLOUDFLARE_REALTIMEKIT_APP_ID` for the `POST /api/interviews/:id/provision` route.
 - **Cloudflare Workflows**: We use Workflows to orchestrate the interview lifecycle. This handles the 60-minute interview timer, emits structured `timer_warning`/`timer_completed` logs, and converges on a guarded lifecycle transition upon completion. Realtime warning delivery, session locking, and AI feedback generation are future scope. [Docs](https://developers.cloudflare.com/api/resources/workflows/)
-- **Feedback Workflow (InterviewFeedbackWorkflow)**: A dedicated Cloudflare Workflow for post-interview feedback processing that runs in the notification-orchestrator Worker alongside the existing `InterviewLifecycleWorkflow`. It is triggered idempotently from `interview.completed` queue events with a deterministic instance ID `feedback-v1-{interview_id}`, so duplicate events never spawn duplicate feedback runs. The workflow uses the Workers AI binding and Cloudflare AI Gateway for transcription and analysis; AI Gateway provider/BYOK authorization is configured as a notification-orchestrator secret.
+- **Feedback Workflow (InterviewFeedbackWorkflow)**: A dedicated Cloudflare Workflow for post-interview feedback processing that runs in the notification-orchestrator Worker alongside the existing `InterviewLifecycleWorkflow`. It is triggered idempotently from `interview.completed` queue events with a deterministic instance ID `feedback-v1-{interview_id}`, so duplicate events never spawn duplicate feedback runs. It is provisioned for future transcription/analysis steps (Stories 5.16/5.17); the Workers AI binding is configured but not yet invoked; the AI Gateway will be wired in a future story.
 - **Cloudflare Queues**: We use Queues for post-commit hand-off between workers (for example: matcher/API emitted orchestration events consumed by downstream notification/orchestration workers). Realtime session provisioning remains join-time route behavior (`POST /api/interviews/:id/provision`) rather than queue-triggered behavior. [Docs](https://developers.cloudflare.com/queues/)
 - **Cron Triggers (Workers Schedules)**: We use cron-triggered workers for background scheduling jobs (for example: the Greedy Matcher worker). [Docs](https://developers.cloudflare.com/workers/configuration/cron-triggers/)
-- **Notification Orchestrator Worker**: A dedicated queue consumer worker that processes `interview.created`, `interview.cancelled`, `interview.match.created`, and `reminder.due` events with durable idempotency via Postgres-backed checkpoints. It also runs on a scheduled cron to dispatch pending outbox events and enqueue due reminders.
+- **Notification Orchestrator Worker**: A dedicated queue consumer worker that processes `interview.created`, `interview.cancelled`, `interview.match.created`, `interview.completed`, and `reminder.due` events with durable idempotency via Postgres-backed checkpoints. It also runs on a scheduled cron to dispatch pending outbox events and enqueue due reminders.
 - **Durable Outbox Pattern**: Interview lifecycle events are persisted to a `notification_outbox_events` table within the same database transaction as the source write (interview create/cancel/match). A separate dispatch step (post-commit or scheduled sweep) publishes these events to the queue, ensuring committed events are never silently lost even if the queue is temporarily unavailable.
 - **Cloudflare R2**: These will save the recording/any screenshots we take. [Docs](https://developers.cloudflare.com/api/resources/r2/)
+  - **Bucket bindings**: `RECORDINGS_BUCKET` (bucket: `mako-recordings`) and `SCREENSHOTS_BUCKET` (bucket: `mako-screenshots`).
+  - Both buckets are configured in `wrangler.jsonc` for both `apps/backend-rest` and `apps/notification-orchestrator`.
+  - All artifact buckets have a 30-day lifecycle expiration.
+  - Buckets are private by default — public URL access must stay disabled.
+  - **Key prefix conventions**: `interviews/{interviewId}/recording/{recordingId}` and `interviews/{interviewId}/screenshots/{screenshotId}`.
+- **Local Workflow Development**: Cloudflare Workflows (`SessionTimerWorkflow` in `backend-rest`, `InterviewFeedbackWorkflow` in `notification-orchestrator`) can be tested locally via `wrangler dev`. Required bindings for local workflow runs:
+  - `HYPERDRIVE` — local Postgres connection string (set in `.dev.vars` or via `wrangler.jsonc` local config)
+  - `NOTIFICATION_QUEUE` — local queue binding (configured in `wrangler.jsonc`)
+  - `RECORDINGS_BUCKET` / `SCREENSHOTS_BUCKET` — local R2 buckets (configured via `wrangler r2 bucket create` for local dev)
+  - `AI` — Workers AI binding (for feedback workflow; configured in `notification-orchestrator/wrangler.jsonc`)
+  See `docs/system/local-testing.md` for the general local test stack setup.
 - **Cloudflare AI Gateway**: We will interact with our AI providers through Cloudflare's AI Gateway service [Docs](https://developers.cloudflare.com/api/resources/ai_gateway/)
 - **Stripe**: We use Stripe to handle payments and the pay-per-credit system for scheduling interviews. We will use Stripe Checkout for purchases and webhooks to fulfill credits in our database. [Docs](https://docs.stripe.com/api)
 

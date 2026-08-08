@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 5: Post-Interview Feedback & AI Analysis
 **Description**: Add reusable private R2 storage behavior and wire recording/screenshot buckets to the Workers that own artifact and feedback processing.
-**Status**: Todo
+**Status**: Completed
 **Prerequisites**:
 - `docs/infrastructure/backend.md`
 - `docs/infrastructure/management.md`

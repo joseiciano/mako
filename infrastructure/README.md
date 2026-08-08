@@ -12,9 +12,9 @@ Terraform in this directory provisions Cloudflare and Neon resources required fo
 - Cloudflare Workers Cron trigger for Greedy Matcher
 - Cloudflare Queue: `notification-orchestration`
 - Cloudflare Queue consumer for Notification Orchestrator worker
-- Cloudflare R2 buckets for recordings and screenshots
+- Cloudflare R2 buckets for recordings and screenshots (with 30-day lifecycle rules)
 - Cloudflare Hyperdrive configs for development and production Neon projects
-- Cloudflare Workflow (`interview-lifecycle`) and workflow binding
+- Cloudflare Workflows (`interview-lifecycle` and `feedback-workflow`) and workflow bindings
 - Cloudflare Realtime app credentials (externally managed) wired into worker bindings
 - Neon Postgres development and production projects (plus app role/database)
 
@@ -58,5 +58,5 @@ terraform init -reconfigure -backend-config=backend-r2.hcl
 
 - AI Gateway has no first-class Terraform resource in the Cloudflare provider. When `ai_gateway_name` is set, Terraform exposes `AI_GATEWAY_BASE_URL` as a `plain_text` binding. The backend worker extracts the gateway ID from this URL at runtime and sends it via the `cf-aig-gateway-id` header on the Cloudflare REST `/accounts/{id}/ai/v1/chat/completions` endpoint for observability and routing. The responder intentionally disables cache for mutable interview context.
 - Worker scripts under `./workers` are bootstrap placeholders to establish Terraform-managed worker resources. Application deployments can later replace script content via CI/Wrangler.
-- `cloudflare_workers_script.notification_orchestrator` intentionally ignores script content/runtime binding drift so Wrangler remains the source of truth for that worker's deployed config.
+- `cloudflare_workers_script.notification_orchestrator` intentionally ignores script content drift (`content_file`, `content_sha256`, `main_module`, `compatibility_date`) so Wrangler remains the source of truth for deployed script content. Bindings are Terraform-managed.
 - Migration note: this stack no longer provisions a Realtime app. If you previously managed `cloudflare_calls_sfu_app.realtime` in state and want to keep that app, run `terraform state rm cloudflare_calls_sfu_app.realtime` before `terraform apply`, then set `realtime_app_id` in your tfvars.
