@@ -1,6 +1,5 @@
 import type { R2Bucket } from '@cloudflare/workers-types'
 import {
-  ArtifactNotFoundError,
   ArtifactValidationError,
   buildRecordingKey,
   buildScreenshotKey,
@@ -13,6 +12,9 @@ import {
 } from './types'
 
 type R2PutValue = Parameters<R2Bucket['put']>[1]
+
+const RECORDING_KEY_PATTERN = /^interviews\/[a-f0-9-]+\/recording\/[a-f0-9-]+$/
+const SCREENSHOT_KEY_PATTERN = /^interviews\/[a-f0-9-]+\/screenshots\/[a-f0-9-]+$/
 
 export function createArtifactStorage(
   recordingsBucket: R2BucketPort | null,
@@ -114,13 +116,13 @@ export function createArtifactStorage(
     },
 
     async deleteArtifact(key) {
-      if (key.startsWith('interviews/') && key.includes('/recording/')) {
+      if (RECORDING_KEY_PATTERN.test(key)) {
         const bucket = getRecordingsBucket(recordingsBucket)
         await bucket.delete(key)
         return
       }
 
-      if (key.startsWith('interviews/') && key.includes('/screenshots/')) {
+      if (SCREENSHOT_KEY_PATTERN.test(key)) {
         await screenshotsBucket.delete(key)
         return
       }
@@ -131,13 +133,13 @@ export function createArtifactStorage(
     },
 
     async headArtifact(key) {
-      if (key.startsWith('interviews/') && key.includes('/recording/')) {
+      if (RECORDING_KEY_PATTERN.test(key)) {
         const bucket = getRecordingsBucket(recordingsBucket)
         const result = await bucket.head(key)
         return result ? { size: result.size, contentType: result.contentType } : null
       }
 
-      if (key.startsWith('interviews/') && key.includes('/screenshots/')) {
+      if (SCREENSHOT_KEY_PATTERN.test(key)) {
         const result = await screenshotsBucket.head(key)
         return result ? { size: result.size, contentType: result.contentType } : null
       }

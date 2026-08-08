@@ -74,6 +74,9 @@ describe('ScreenshotRepository', function screenshotRepositorySuite() {
       content_type: 'image/png',
       content_size_bytes: 1024,
       capture_timestamp: '2026-04-13T10:00:00.000Z',
+      created_at: '2026-04-13T10:00:00.000Z',
+      updated_at: '2026-04-13T10:00:00.000Z',
+      max_screenshots: 10,
     })
 
     expect(result.outcome).toBe('inserted')
@@ -103,6 +106,9 @@ describe('ScreenshotRepository', function screenshotRepositorySuite() {
       content_type: 'image/png',
       content_size_bytes: 1024,
       capture_timestamp: '2026-04-13T10:00:00.000Z',
+      created_at: '2026-04-13T10:00:00.000Z',
+      updated_at: '2026-04-13T10:00:00.000Z',
+      max_screenshots: 10,
     })
 
     expect(result.outcome).toBe('duplicate')

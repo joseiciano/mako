@@ -313,6 +313,17 @@ describe('deleteArtifact', function deleteArtifactSuite() {
     expect(recordingsBucket.delete).not.toHaveBeenCalled()
     expect(screenshotsBucket.delete).not.toHaveBeenCalled()
   })
+
+  it('rejects path traversal keys', async function run() {
+    const { storage, recordingsBucket, screenshotsBucket } = createStorage()
+
+    await expect(storage.deleteArtifact('interviews/foo/screenshots/../../recording/bar')).rejects.toThrow(
+      'Cannot delete artifact with unrecognized key prefix',
+    )
+
+    expect(recordingsBucket.delete).not.toHaveBeenCalled()
+    expect(screenshotsBucket.delete).not.toHaveBeenCalled()
+  })
 })
 
 describe('headArtifact', function headArtifactSuite() {
@@ -364,6 +375,14 @@ describe('headArtifact', function headArtifactSuite() {
     const { storage } = createStorage()
 
     await expect(storage.headArtifact('unexpected/prefix/key')).rejects.toThrow(
+      'Cannot head artifact with unrecognized key prefix',
+    )
+  })
+
+  it('rejects path traversal keys', async function run() {
+    const { storage } = createStorage()
+
+    await expect(storage.headArtifact('interviews/foo/screenshots/../../recording/bar')).rejects.toThrow(
       'Cannot head artifact with unrecognized key prefix',
     )
   })

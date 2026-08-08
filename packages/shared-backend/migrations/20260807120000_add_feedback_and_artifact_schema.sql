@@ -128,6 +128,8 @@ CREATE INDEX IF NOT EXISTS idx_interview_artifacts_interview_kind
 CREATE INDEX IF NOT EXISTS idx_interview_artifacts_expiry
   ON interview_artifacts (expires_at)
   WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_interview_artifacts_object_key
+  ON interview_artifacts (object_key);
 
 -- ============================================================================
 -- 3. Normalized provider recording jobs

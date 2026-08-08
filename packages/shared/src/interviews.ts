@@ -212,6 +212,7 @@ export const screenshotUploadRequestSchema = z
     idempotency_key: z.string().uuid(),
     content_type: z.literal('image/png'),
     capture_timestamp: z.string().datetime({ offset: true }),
+    data: z.string().min(1),
   })
   .strict()
 

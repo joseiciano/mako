@@ -28,6 +28,9 @@ export type InsertScreenshotInput = {
   content_type: string
   content_size_bytes: number
   capture_timestamp: string
+  created_at: string
+  updated_at: string
+  max_screenshots: number
 }
 
 export type ScreenshotRepositoryDependencies = {
@@ -68,7 +71,18 @@ export class ScreenshotRepository {
             created_at,
             updated_at
           )
-          VALUES ($1, $2, 'screenshot', $3, $4, $5, $6, $7, NOW(), NOW())
+          SELECT $1, $2, 'screenshot', $3, $4, $5, $6, $7, $8, $8
+          WHERE EXISTS (
+            SELECT 1 FROM interviews
+            WHERE id = $2
+              AND screenshots_finalized_at IS NULL
+          )
+          AND (
+            SELECT COUNT(*) FROM interview_artifacts
+            WHERE interview_id = $2
+              AND artifact_kind = 'screenshot'
+              AND deleted_at IS NULL
+          ) < $9
           ON CONFLICT (interview_id, idempotency_key) DO NOTHING
           RETURNING
             id,
@@ -93,6 +107,8 @@ export class ScreenshotRepository {
           input.content_type,
           input.content_size_bytes,
           input.capture_timestamp,
+          input.created_at,
+          input.max_screenshots,
         ],
       ),
     )
@@ -173,6 +189,8 @@ export class ScreenshotRepository {
     return Boolean(row?.screenshots_finalized_at)
   }
 
+  // Scaffolding for future screenshot finalization stories (5.16/5.17).
+  // Not currently called by any production code path.
   async finalizeScreenshots(interviewId: string, timestamp: string): Promise<boolean> {
     const result = await this.getQueryExecutor().query<{ id: string }>(
       createSqlQuery(
@@ -190,6 +208,8 @@ export class ScreenshotRepository {
     return hasRows(result)
   }
 
+  // Scaffolding for future artifact cleanup stories (5.16/5.17).
+  // Not currently called by any production code path.
   async deleteByKey(key: string): Promise<void> {
     await this.getQueryExecutor().query<{ id: string }>(
       createSqlQuery(

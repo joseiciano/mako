@@ -57,7 +57,7 @@ export class ScreenshotService {
       )
     }
 
-    if (await this.screenshotRepository.isFinalized(input.interview_id)) {
+    if (interview.screenshots_finalized_at !== null) {
       throw new InterviewConflictError(
         'Screenshot uploads are disabled for this interview.',
       )
@@ -88,6 +88,7 @@ export class ScreenshotService {
       )
     }
 
+    const now = this.now()
     const captureId = this.createId()
 
     const stored = await this.storagePort.storeScreenshot({
@@ -107,6 +108,9 @@ export class ScreenshotService {
         content_type: input.content_type,
         content_size_bytes: input.body.byteLength,
         capture_timestamp: input.capture_timestamp,
+        created_at: now,
+        updated_at: now,
+        max_screenshots: this.config.maxScreenshotsPerInterview,
       })
 
       if (insertResult.outcome === 'duplicate') {
@@ -114,7 +118,19 @@ export class ScreenshotService {
         // object is not referenced by any artifact row, so remove it and
         // resolve to the original stable capture id.
         await this.deleteArtifactSafely(stored.key)
-        return { capture_id: insertResult.row?.id ?? captureId }
+
+        if (!insertResult.row) {
+          // The insert's WHERE EXISTS guard failed (interview was finalized
+          // between the check and the insert) and no existing artifact
+          // matched the idempotency key. The screenshot was never persisted
+          // and its R2 object has been cleaned up. Surface the conflict
+          // rather than fabricating a capture id that resolves to nothing.
+          throw new InterviewConflictError(
+            'Screenshot uploads are disabled for this interview.',
+          )
+        }
+
+        return { capture_id: insertResult.row.id }
       }
 
       return { capture_id: captureId }
@@ -137,8 +153,12 @@ export class ScreenshotService {
   private async deleteArtifactSafely(key: string): Promise<void> {
     try {
       await this.storagePort.deleteArtifact(key)
-    } catch {
-      // Cleanup must never mask the original failure.
+    } catch (error) {
+      // Cleanup must never mask the original failure, but log for observability.
+      console.warn('screenshot_cleanup_failed', {
+        key,
+        error_message: error instanceof Error ? error.message : String(error),
+      })
     }
   }
 }

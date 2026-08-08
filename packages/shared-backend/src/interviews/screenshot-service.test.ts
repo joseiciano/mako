@@ -63,6 +63,9 @@ describe('ScreenshotService', function screenshotServiceSuite() {
       content_type: 'image/png',
       content_size_bytes: pngBody.byteLength,
       capture_timestamp: '2026-04-13T10:00:00.000Z',
+      created_at: '2026-04-13T10:00:00.000Z',
+      updated_at: '2026-04-13T10:00:00.000Z',
+      max_screenshots: 10,
     })
     expect(storagePort.storeScreenshot).toHaveBeenCalledTimes(1)
   })
@@ -109,11 +112,14 @@ describe('ScreenshotService', function screenshotServiceSuite() {
 
   it('rejects uploads for finalized interviews', async function run() {
     const screenshotRepository = createMockScreenshotRepository()
-    screenshotRepository.isFinalized.mockResolvedValue(true)
     const storagePort = createMockStoragePort()
 
     const { service } = createScreenshotService(screenshotRepository, storagePort, [
-      createInterviewRecord({ id: interviewId, status: 'ongoing' }),
+      createInterviewRecord({
+        id: interviewId,
+        status: 'ongoing',
+        screenshots_finalized_at: '2026-04-13T10:30:00.000Z',
+      }),
     ])
 
     await expect(
@@ -221,6 +227,33 @@ describe('ScreenshotService', function screenshotServiceSuite() {
     )
   })
 
+  it('throws a conflict error when the interview is finalized between check and insert', async function run() {
+    const screenshotRepository = createMockScreenshotRepository()
+    screenshotRepository.insertScreenshot.mockResolvedValue({
+      outcome: 'duplicate',
+      row: undefined,
+    })
+    const storagePort = createMockStoragePort()
+    storagePort.storeScreenshot.mockResolvedValue(createStoredArtifact())
+
+    const { service } = createScreenshotService(screenshotRepository, storagePort, [
+      createInterviewRecord({ id: interviewId, status: 'ongoing' }),
+    ])
+
+    await expect(
+      service.uploadScreenshot(schedulerSession, {
+        interview_id: interviewId,
+        idempotency_key: 'idem-key-1',
+        content_type: 'image/png',
+        capture_timestamp: '2026-04-13T10:00:00.000Z',
+        body: pngBody,
+      }),
+    ).rejects.toBeInstanceOf(InterviewConflictError)
+    expect(storagePort.deleteArtifact).toHaveBeenCalledWith(
+      `interviews/${interviewId}/screenshots/44444444-4444-4444-8444-444444444444`,
+    )
+  })
+
   it('removes the stored object when the artifact row cannot be persisted', async function run() {
     const screenshotRepository = createMockScreenshotRepository()
     screenshotRepository.insertScreenshot.mockRejectedValue(
@@ -297,6 +330,9 @@ type MockInsertScreenshot = (
     content_type: string
     content_size_bytes: number
     capture_timestamp: string
+    created_at: string
+    updated_at: string
+    max_screenshots: number
   },
 ) => Promise<{ outcome: 'inserted' | 'duplicate'; row?: unknown }>
 

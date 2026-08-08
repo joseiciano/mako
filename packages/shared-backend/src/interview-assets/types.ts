@@ -61,6 +61,8 @@ export class ArtifactValidationError extends Error {
   }
 }
 
+// Scaffolding for future artifact retrieval stories (5.16/5.17).
+// Not currently thrown by any production code path.
 export class ArtifactNotFoundError extends Error {
   constructor(message: string) {
     super(message)

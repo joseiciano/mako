@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
-import type { Interview, InterviewDetail } from '@mako/shared'
-import { describe, expect, it } from 'vitest'
+import type { Interview, InterviewDetail, RecordingConsentResponse } from '@mako/shared'
+import { describe, expect, it, vi } from 'vitest'
 import {
   InterviewRepository,
   createInMemoryInterviewDataSource,
@@ -10,12 +10,19 @@ import { InterviewService } from './interview-service'
 import { createDemoRealtimeProvider } from './realtime-provider'
 import { AiChatRepository, AiChatUnavailableError } from './ai-chat-repository'
 import { AiChatProviderError } from './ai-gateway-responder'
-import type { AiChatServicePort, InterviewSession } from './types'
+import {
+  InterviewUnauthorizedError,
+  type AiChatServicePort,
+  type InterviewSession,
+} from './types'
 import type {
   InterviewPostCommitEvent,
   InterviewPostCommitEventPublisher,
 } from './interview-post-commit-event'
 import { TierPolicyService } from '../tier-policy'
+import type { RecordingConsentService } from './recording-consent-service'
+import type { ScreenshotService } from './screenshot-service'
+import { ArtifactValidationError } from '../interview-assets'
 
 type TestBindings = Record<string, unknown>
 
@@ -1787,6 +1794,413 @@ describe('InterviewController', function interviewControllerSuite() {
 
     expect(response.status).toBe(401)
   })
+
+  it('returns 503 when recording consent service is not configured', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/recording-consent',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          decision: 'consented',
+          consent_copy_version: 'v1',
+        }),
+      },
+    )
+
+    expect(response.status).toBe(503)
+  })
+
+  it('returns 401 for recording-consent POST without authentication', async function run() {
+    const app = createInterviewApp({
+      session: null,
+      freeAiInterviews: 0,
+      credits: 0,
+      consentService: createStubConsentService(),
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/recording-consent',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          decision: 'consented',
+          consent_copy_version: 'v1',
+        }),
+      },
+    )
+
+    expect(response.status).toBe(401)
+  })
+
+  it('returns 400 for invalid recording-consent route params', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      consentService: createStubConsentService(),
+    })
+
+    const response = await app.request(
+      '/api/interviews/not-a-uuid/recording-consent',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          decision: 'consented',
+          consent_copy_version: 'v1',
+        }),
+      },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'Invalid request payload',
+    })
+  })
+
+  it('returns 400 for invalid recording-consent body', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      consentService: createStubConsentService(),
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/recording-consent',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          decision: 'invalid',
+          consent_copy_version: 'v1',
+        }),
+      },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'Invalid request payload',
+    })
+  })
+
+  it('returns 200 for valid recording-consent POST', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      consentService: createStubConsentService(),
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/recording-consent',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          decision: 'consented',
+          consent_copy_version: 'v1',
+        }),
+      },
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      interview_id: '33333333-3333-4333-8333-333333333333',
+      decision: 'consented',
+    })
+  })
+
+  it('returns 401 for recording-consent DELETE without authentication', async function run() {
+    const app = createInterviewApp({
+      session: null,
+      freeAiInterviews: 0,
+      credits: 0,
+      consentService: createStubConsentService(),
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/recording-consent',
+      { method: 'DELETE' },
+    )
+
+    expect(response.status).toBe(401)
+  })
+
+  it('returns 400 for invalid recording-consent DELETE route params', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      consentService: createStubConsentService(),
+    })
+
+    const response = await app.request(
+      '/api/interviews/not-a-uuid/recording-consent',
+      { method: 'DELETE' },
+    )
+
+    expect(response.status).toBe(400)
+  })
+
+  it('returns 200 for valid recording-consent DELETE', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      consentService: createStubConsentService(),
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/recording-consent',
+      { method: 'DELETE' },
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      interview_id: '33333333-3333-4333-8333-333333333333',
+    })
+  })
+
+  it('returns 503 when screenshot service is not configured', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/artifacts/screenshots',
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'image/png',
+          'x-idempotency-key': '55555555-5555-4555-8555-555555555555',
+          'x-capture-timestamp': '2026-04-13T10:00:00.000Z',
+        },
+        body: createPngBytes(),
+      },
+    )
+
+    expect(response.status).toBe(503)
+  })
+
+  it('returns 401 for screenshot POST without authentication', async function run() {
+    const app = createInterviewApp({
+      session: null,
+      freeAiInterviews: 0,
+      credits: 0,
+      screenshotService: createStubScreenshotService(),
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/artifacts/screenshots',
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'image/png',
+          'x-idempotency-key': '55555555-5555-4555-8555-555555555555',
+          'x-capture-timestamp': '2026-04-13T10:00:00.000Z',
+        },
+        body: createPngBytes(),
+      },
+    )
+
+    expect(response.status).toBe(401)
+  })
+
+  it('returns 400 for invalid screenshot route params', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      screenshotService: createStubScreenshotService(),
+    })
+
+    const response = await app.request(
+      '/api/interviews/not-a-uuid/artifacts/screenshots',
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'image/png',
+          'x-idempotency-key': '55555555-5555-4555-8555-555555555555',
+          'x-capture-timestamp': '2026-04-13T10:00:00.000Z',
+        },
+        body: createPngBytes(),
+      },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'Invalid request payload',
+    })
+  })
+
+  it('returns 415 for non-PNG content type', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      screenshotService: createStubScreenshotService(),
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/artifacts/screenshots',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ hello: 'world' }),
+      },
+    )
+
+    expect(response.status).toBe(415)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Content-Type must be image/png.',
+    })
+  })
+
+  it('returns 400 for non-PNG screenshot data', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      screenshotService: createStubScreenshotService(),
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/artifacts/screenshots',
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'image/png',
+          'x-idempotency-key': '55555555-5555-4555-8555-555555555555',
+          'x-capture-timestamp': '2026-04-13T10:00:00.000Z',
+        },
+        body: new TextEncoder().encode('not a png image').buffer,
+      },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Screenshot data must be a valid PNG image.',
+    })
+  })
+
+  it('returns 200 for valid screenshot upload', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      screenshotService: createStubScreenshotService(),
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/artifacts/screenshots',
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'image/png',
+          'x-idempotency-key': '55555555-5555-4555-8555-555555555555',
+          'x-capture-timestamp': '2026-04-13T10:00:00.000Z',
+        },
+        body: createPngBytes(),
+      },
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      capture_id: '44444444-4444-4444-8444-444444444444',
+    })
+  })
+
+  it('returns 400 when idempotency key header is missing', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      screenshotService: createStubScreenshotService(),
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/artifacts/screenshots',
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'image/png',
+          'x-capture-timestamp': '2026-04-13T10:00:00.000Z',
+        },
+        body: createPngBytes(),
+      },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: 'X-Idempotency-Key header is required.',
+    })
+  })
+
+  it('returns 400 when capture timestamp header is missing', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      screenshotService: createStubScreenshotService(),
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/artifacts/screenshots',
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'image/png',
+          'x-idempotency-key': '55555555-5555-4555-8555-555555555555',
+        },
+        body: createPngBytes(),
+      },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: 'X-Capture-Timestamp header is required.',
+    })
+  })
+
+  it('maps ArtifactValidationError to 400 from screenshot service', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      screenshotService: createStubScreenshotService({
+        uploadError: new ArtifactValidationError('Screenshot body must not be empty.'),
+      }),
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/artifacts/screenshots',
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'image/png',
+          'x-idempotency-key': '55555555-5555-4555-8555-555555555555',
+          'x-capture-timestamp': '2026-04-13T10:00:00.000Z',
+        },
+        body: createPngBytes(),
+      },
+    )
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Screenshot body must not be empty.',
+    })
+  })
 })
 
 function createInterviewApp(options: {
@@ -1797,6 +2211,8 @@ function createInterviewApp(options: {
   seedInterviews?: readonly Interview[]
   postCommitEventPublisher?: InterviewPostCommitEventPublisher
   aiChatResponder?: AiChatServicePort
+  consentService?: RecordingConsentService
+  screenshotService?: ScreenshotService
 }) {
   const app = new Hono<{ Bindings: TestBindings }>()
   const aiChatRepository = options.aiChatResponder
@@ -1837,6 +2253,12 @@ function createInterviewApp(options: {
     resolveSession: function resolveSession() {
       return options.session
     },
+    createConsentService: options.consentService
+      ? function createConsentService() { return options.consentService! }
+      : undefined,
+    createScreenshotService: options.screenshotService
+      ? function createScreenshotService() { return options.screenshotService! }
+      : undefined,
   })
 
   return app
@@ -1902,4 +2324,60 @@ function createStubAiChatResponder(
   }
 
   return responder
+}
+
+function createStubConsentService(overrides?: {
+  setConsentResult?: RecordingConsentResponse
+  revokeConsentResult?: RecordingConsentResponse
+  setConsentError?: Error
+  revokeConsentError?: Error
+}): RecordingConsentService {
+  const defaultResult: RecordingConsentResponse = {
+    interview_id: '33333333-3333-4333-8333-333333333333',
+    user_id: '11111111-1111-4111-8111-111111111111',
+    decision: 'consented',
+    consent_copy_version: 'v1',
+    recording_status: 'not_started',
+    revoked_at: null,
+  }
+
+  return {
+    setConsent: vi.fn(async function setConsent(session: InterviewSession | null) {
+      if (!session) throw new InterviewUnauthorizedError()
+      if (overrides?.setConsentError) throw overrides.setConsentError
+      return overrides?.setConsentResult ?? defaultResult
+    }),
+    revokeConsent: vi.fn(async function revokeConsent(session: InterviewSession | null) {
+      if (!session) throw new InterviewUnauthorizedError()
+      if (overrides?.revokeConsentError) throw overrides.revokeConsentError
+      return overrides?.revokeConsentResult ?? defaultResult
+    }),
+  } as unknown as RecordingConsentService
+}
+
+function createStubScreenshotService(overrides?: {
+  uploadResult?: { capture_id: string }
+  uploadError?: Error
+}): ScreenshotService {
+  return {
+    uploadScreenshot: vi.fn(async function uploadScreenshot() {
+      if (overrides?.uploadError) throw overrides.uploadError
+      return overrides?.uploadResult ?? { capture_id: '44444444-4444-4444-8444-444444444444' }
+    }),
+  } as unknown as ScreenshotService
+}
+
+function createPngBytes(): ArrayBuffer {
+  const png = new Uint8Array([
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+    0x00, 0x00, 0x00, 0x0d,
+    0x49, 0x48, 0x44, 0x52,
+    0x00, 0x00, 0x00, 0x01,
+    0x00, 0x00, 0x00, 0x01,
+    0x08, 0x06, 0x00, 0x00,
+    0x00, 0x1f, 0x15, 0xc4,
+    0x89,
+  ])
+
+  return png.buffer
 }

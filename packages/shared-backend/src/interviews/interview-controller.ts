@@ -11,18 +11,22 @@ import {
   interviewLifecycleResponseSchema,
   interviewListQuerySchema,
   interviewListResponseSchema,
+  interviewIdParamsSchema,
   provisionInterviewParamsSchema,
   provisionInterviewResponseSchema,
   recordingConsentRequestSchema,
   recordingConsentResponseSchema,
-  screenshotUploadRequestSchema,
   screenshotUploadResponseSchema,
   startInterviewParamsSchema,
 } from '@mako/shared'
+import { z } from 'zod'
 import type { Context, Hono } from 'hono'
 import { AiChatUnavailableError } from './ai-chat-repository'
 import { AiChatProviderError } from './ai-gateway-responder'
-import { ArtifactValidationError } from '../interview-assets'
+import {
+  ArtifactValidationError,
+  DEFAULT_ARTIFACT_STORAGE_CONFIG,
+} from '../interview-assets'
 import { InterviewService } from './interview-service'
 import { RecordingConsentService } from './recording-consent-service'
 import { ScreenshotService } from './screenshot-service'
@@ -238,6 +242,14 @@ export function registerInterviewController<Bindings extends ControllerBindings>
 
   app.post('/api/interviews/:id/recording-consent', async function postRecordingConsentHandler(c) {
     const session = await options.resolveSession(c)
+
+    if (session === null) {
+      return c.json(
+        { error: 'You must be authenticated to access this resource.' },
+        401,
+      )
+    }
+
     const jsonBody = await readRequestBody(c)
 
     if (jsonBody === null) {
@@ -246,7 +258,7 @@ export function registerInterviewController<Bindings extends ControllerBindings>
 
     let parsedParams: { id: string }
     try {
-      parsedParams = cancelInterviewParamsSchema.parse({
+      parsedParams = interviewIdParamsSchema.parse({
         id: c.req.param('id'),
       })
     } catch (error) {
@@ -284,7 +296,7 @@ export function registerInterviewController<Bindings extends ControllerBindings>
 
     let parsedParams: { id: string }
     try {
-      parsedParams = cancelInterviewParamsSchema.parse({
+      parsedParams = interviewIdParamsSchema.parse({
         id: c.req.param('id'),
       })
     } catch (error) {
@@ -309,12 +321,6 @@ export function registerInterviewController<Bindings extends ControllerBindings>
   })
 
   app.post('/api/interviews/:id/artifacts/screenshots', async function postScreenshotHandler(c) {
-    const screenshotService = options.createScreenshotService?.({ bindings: c.env })
-
-    if (!screenshotService) {
-      return c.json({ error: 'Screenshot uploads are not configured.' }, 503)
-    }
-
     const session = await options.resolveSession(c)
 
     if (session === null) {
@@ -324,25 +330,56 @@ export function registerInterviewController<Bindings extends ControllerBindings>
       )
     }
 
-    // Read the raw request body once so Hono can derive the JSON metadata from
-    // the same bytes without a second body read.
+    const screenshotService = options.createScreenshotService?.({ bindings: c.env })
+
+    if (!screenshotService) {
+      return c.json({ error: 'Screenshot uploads are not configured.' }, 503)
+    }
+
+    const contentLength = parseContentLength(c.req.header('content-length'))
+    if (contentLength !== null && contentLength > MAX_SCREENSHOT_REQUEST_BYTES) {
+      return c.json({ error: 'Request body exceeds maximum allowed size.' }, 413)
+    }
+
+    const contentType = c.req.header('content-type')
+    if (contentType !== 'image/png') {
+      return c.json({ error: 'Content-Type must be image/png.' }, 415)
+    }
+
     const body = await c.req.arrayBuffer()
 
-    let jsonBody: unknown
-    try {
-      jsonBody = JSON.parse(new TextDecoder().decode(body))
-    } catch {
-      return c.json({ error: 'Request body must be valid JSON.' }, 400)
+    if (body.byteLength > MAX_SCREENSHOT_REQUEST_BYTES) {
+      return c.json({ error: 'Request body exceeds maximum allowed size.' }, 413)
     }
 
     try {
-      const parsedParams = { id: c.req.param('id') }
-      const parsedBody = screenshotUploadRequestSchema.parse(jsonBody)
+      const parsedParams = interviewIdParamsSchema.parse({
+        id: c.req.param('id'),
+      })
+
+      const idempotencyKey = c.req.header('x-idempotency-key')
+      const captureTimestamp = c.req.header('x-capture-timestamp')
+
+      if (!idempotencyKey) {
+        return c.json({ error: 'X-Idempotency-Key header is required.' }, 400)
+      }
+
+      if (!captureTimestamp) {
+        return c.json({ error: 'X-Capture-Timestamp header is required.' }, 400)
+      }
+
+      const parsedIdempotencyKey = z.string().uuid().parse(idempotencyKey)
+      const parsedCaptureTimestamp = z.string().datetime({ offset: true }).parse(captureTimestamp)
+
+      if (!isPngSignature(body)) {
+        throw new ArtifactValidationError('Screenshot data must be a valid PNG image.')
+      }
+
       const result = await screenshotService.uploadScreenshot(session, {
         interview_id: parsedParams.id,
-        idempotency_key: parsedBody.idempotency_key,
-        content_type: parsedBody.content_type,
-        capture_timestamp: parsedBody.capture_timestamp,
+        idempotency_key: parsedIdempotencyKey,
+        content_type: 'image/png',
+        capture_timestamp: parsedCaptureTimestamp,
         body,
       })
 
@@ -378,6 +415,10 @@ function toErrorResponse(context: Context, error: unknown) {
 
   if (error instanceof InterviewNotFoundError) {
     return context.json({ error: error.message }, 404)
+  }
+
+  if (error instanceof ArtifactValidationError) {
+    return context.json({ error: error.message }, 400)
   }
 
   if (error instanceof InterviewValidationError) {
@@ -430,4 +471,39 @@ function assertNoUnsupportedDirectCreateFields(input: unknown): void {
 
 function isRecord(input: unknown): input is Record<string, unknown> {
   return typeof input === 'object' && input !== null
+}
+
+const MAX_SCREENSHOT_REQUEST_BYTES = DEFAULT_ARTIFACT_STORAGE_CONFIG.maxScreenshotBytes
+
+const PNG_MAGIC_BYTES = new Uint8Array([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+])
+
+function isPngSignature(data: ArrayBuffer): boolean {
+  if (data.byteLength < 8) {
+    return false
+  }
+
+  const view = new Uint8Array(data, 0, 8)
+  for (let i = 0; i < 8; i += 1) {
+    if (view[i] !== PNG_MAGIC_BYTES[i]) {
+      return false
+    }
+  }
+
+  return true
+}
+
+function parseContentLength(header: string | undefined): number | null {
+  if (header === undefined) {
+    return null
+  }
+
+  const value = Number(header)
+
+  if (!Number.isFinite(value) || value < 0) {
+    return null
+  }
+
+  return value
 }
