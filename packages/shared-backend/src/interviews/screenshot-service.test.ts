@@ -1,4 +1,4 @@
-import type { Interview } from '@mako/shared'
+import type { Interview, InterviewDetail } from '@mako/shared'
 import { describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_ARTIFACT_STORAGE_CONFIG,
@@ -412,7 +412,9 @@ function createScreenshotService(
   }
 }
 
-function createInterviewRecord(overrides: Partial<Interview> = {}): Interview {
+function createInterviewRecord(
+  overrides: Partial<Interview & InterviewDetail> = {},
+): Interview & InterviewDetail {
   return {
     id: '11111111-1111-4111-8111-111111111111',
     scheduler_id: schedulerSession.userId,

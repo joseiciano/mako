@@ -334,6 +334,7 @@ describe('interviewDetailSchema feedback boundary enforcement', function feedbac
     feedback_error_code: null,
     feedback_prompt_version: null,
     feedback_generated_at: null,
+    screenshots_finalized_at: null,
   }
 
   const validV1Feedback = {

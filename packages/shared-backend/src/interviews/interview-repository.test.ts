@@ -864,6 +864,7 @@ describe('InterviewRepository', function interviewRepositorySuite() {
               feedback_error_code: null,
               feedback_prompt_version: null,
               feedback_generated_at: null,
+              screenshots_finalized_at: null,
               started_at: null,
               expires_at: null,
               warning_at: null,
@@ -1359,6 +1360,7 @@ describe('InterviewRepository', function interviewRepositorySuite() {
               feedback_error_code: null,
               feedback_prompt_version: null,
               feedback_generated_at: null,
+              screenshots_finalized_at: null,
               started_at: null,
               expires_at: null,
               warning_at: null,
@@ -2594,8 +2596,9 @@ describe('InterviewRepository', function interviewRepositorySuite() {
       if (result.outcome !== 'completed') {
         throw new Error('Expected completed outcome')
       }
-      expect(result.interview.feedback_status).toBe('pending')
-      expect(result.interview.feedback_unavailable_reason).toBeNull()
+      const completedInterview = result.interview as Interview & InterviewDetail
+      expect(completedInterview.feedback_status).toBe('pending')
+      expect(completedInterview.feedback_unavailable_reason).toBeNull()
     })
 
     it('transitionInterviewLifecycle end sets feedback_status to not_started when not all participants consented', async function run() {
@@ -2626,8 +2629,9 @@ describe('InterviewRepository', function interviewRepositorySuite() {
       if (result.outcome !== 'completed') {
         throw new Error('Expected completed outcome')
       }
-      expect(result.interview.feedback_status).toBe('not_started')
-      expect(result.interview.feedback_unavailable_reason).toBe('no_consent')
+      const completedInterview = result.interview as Interview & InterviewDetail
+      expect(completedInterview.feedback_status).toBe('not_started')
+      expect(completedInterview.feedback_unavailable_reason).toBe('no_consent')
     })
 
     it('transitionInterviewLifecycle end consent_check CTE queries interview_recording_consents', async function run() {
@@ -2747,6 +2751,7 @@ function createInterviewRecord(
     feedback_error_code: null,
     feedback_prompt_version: null,
     feedback_generated_at: null,
+    screenshots_finalized_at: null,
     started_at: null,
     expires_at: null,
     warning_at: null,

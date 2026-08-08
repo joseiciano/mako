@@ -178,17 +178,6 @@ export const interviewDetailResponseSchema = z.object({
   interview: interviewDetailSchema,
 })
 
-export const interviewFeedbackStatusResponseSchema = z
-  .object({
-    status: feedbackStatusSchema,
-    unavailable_reason: feedbackUnavailableReasonSchema.nullable(),
-    error_code: feedbackErrorCodeSchema.nullable(),
-    schema_version: z.number().int().nullable(),
-    prompt_version: z.string().nullable(),
-    updated_at: z.string().datetime({ offset: true }),
-  })
-  .strict()
-
 export const recordingConsentRequestSchema = z
   .object({
     decision: consentDecisionSchema,
