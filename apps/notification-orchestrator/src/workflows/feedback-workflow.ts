@@ -8,6 +8,7 @@ import {
   createPostgresConnectionPool,
   createSqlQuery,
   InterviewRepository,
+  type PostgresConnectionClient,
   type SqlQueryExecutor,
 } from '@mako/shared-backend'
 import type { WorkerBindings } from '../index'
@@ -37,61 +38,65 @@ export class InterviewFeedbackWorkflow extends WorkflowEntrypoint<
   async run(event: Readonly<WorkflowEvent<FeedbackWorkflowPayload>>, step: WorkflowStep) {
     const payload = feedbackWorkflowPayloadSchema.parse(event.payload)
     const env = this.env
+    const { queryExecutor, cleanup } = createWorkflowQueryExecutor(env)
 
-    // Step 1: Load canonical interview state from Postgres
-    const eligibility = await step.do(STEP_ELIGIBILITY_LOAD, async function loadEligibility() {
-      const queryExecutor = createWorkflowQueryExecutor(env)
-      const repository = new InterviewRepository({ queryExecutor })
+    try {
+      // Step 1: Load canonical interview state from Postgres
+      const eligibility = await step.do(STEP_ELIGIBILITY_LOAD, async function loadEligibility() {
+        const repository = new InterviewRepository({ queryExecutor })
 
-      const interview = await repository.getInterviewById(payload.interview_id)
+        const interview = await repository.getInterviewFeedbackState(payload.interview_id)
 
-      if (!interview) {
-        return { eligible: false, reason: 'not_found' }
+        if (!interview) {
+          return { eligible: false, reason: 'not_found' }
+        }
+
+        // Check if feedback is already ready, processing, or ineligible
+        if (interview.feedback_status === 'ready') {
+          return { eligible: false, reason: 'already_ready' }
+        }
+
+        if (interview.feedback_status === 'processing') {
+          return { eligible: false, reason: 'already_processing' }
+        }
+
+        if (interview.feedback_status === 'failed') {
+          return { eligible: false, reason: 'previously_failed' }
+        }
+
+        if (interview.feedback_status === 'not_started') {
+          return { eligible: false, reason: 'not_pending' }
+        }
+
+        // Only 'pending' is eligible for processing
+        return {
+          eligible: true,
+          interview: {
+            id: interview.id,
+            status: interview.status,
+            recording_status: interview.recording_status,
+            feedback_status: interview.feedback_status,
+            screenshots_finalized_at: interview.screenshots_finalized_at,
+            type: interview.type,
+            mode: interview.mode,
+            tier: interview.tier,
+            scheduler_alias: interview.scheduler_alias,
+          },
+        }
+      })
+
+      if (!eligibility.eligible) {
+        return { status: 'skipped', reason: eligibility.reason }
       }
 
-      // Check if feedback is already ready, processing, or ineligible
-      if (interview.feedback_status === 'ready') {
-        return { eligible: false, reason: 'already_ready' }
-      }
+      // Step 2: Claim work with conditional pending -> processing update
+      const claim = await step.do(STEP_PROCESSING_CLAIM, async function claimWork() {
+        const attemptId = crypto.randomUUID()
+        const now = new Date().toISOString()
 
-      if (interview.feedback_status === 'processing') {
-        return { eligible: false, reason: 'already_processing' }
-      }
-
-      if (interview.feedback_status === 'not_started' && interview.feedback_unavailable_reason) {
-        return { eligible: false, reason: 'ineligible' }
-      }
-
-      return {
-        eligible: true,
-        interview: {
-          id: interview.id,
-          status: interview.status,
-          recording_status: interview.recording_status,
-          feedback_status: interview.feedback_status,
-          screenshots_finalized_at: interview.screenshots_finalized_at,
-          type: interview.type,
-          mode: interview.mode,
-          tier: interview.tier,
-          scheduler_alias: interview.scheduler_alias,
-        },
-      }
-    })
-
-    if (!eligibility.eligible) {
-      return { status: 'skipped', reason: eligibility.reason }
-    }
-
-    // Step 2: Claim work with conditional pending -> processing update
-    const claim = await step.do(STEP_PROCESSING_CLAIM, async function claimWork() {
-      const queryExecutor = createWorkflowQueryExecutor(env)
-
-      const attemptId = crypto.randomUUID()
-      const now = new Date().toISOString()
-
-      const result = await queryExecutor.query<{ id: string }>(
-        createSqlQuery(
-          `
+        const result = await queryExecutor.query<{ id: string }>(
+          createSqlQuery(
+            `
             UPDATE interviews
             SET feedback_status = 'processing',
                 feedback_attempt_id = $2,
@@ -103,60 +108,76 @@ export class InterviewFeedbackWorkflow extends WorkflowEntrypoint<
               AND feedback_status = 'pending'
             RETURNING id;
           `,
-          [payload.interview_id, attemptId, now],
-        ),
-      )
+            [payload.interview_id, attemptId, now],
+          ),
+        )
 
-      const claimed = result.rowCount !== undefined ? result.rowCount > 0 : result.rows.length > 0
+        const claimed = result.rowCount !== undefined ? result.rowCount > 0 : result.rows.length > 0
 
-      return { claimed, attempt_id: claimed ? attemptId : null }
-    })
+        return { claimed, attempt_id: claimed ? attemptId : null }
+      })
 
-    if (!claim.claimed) {
-      return { status: 'skipped', reason: 'already_claimed' }
-    }
+      if (!claim.claimed) {
+        return { status: 'skipped', reason: 'already_claimed' }
+      }
 
-    // Steps 3-6 are stubs for future stories (5.16, 5.17)
-    // The workflow shell provides stable orchestration boundaries
+      // Steps 3-6 are stubs for future stories (5.16, 5.17)
+      // The workflow shell provides stable orchestration boundaries
 
-    await step.do(STEP_ARTIFACT_READINESS, async function artifactReadiness() {
-      // Future: wait for recording finalization webhook
-      // For now, just log
-      console.log('[feedback-workflow] artifact_readiness_step', {
+      await step.do(STEP_ARTIFACT_READINESS, async function artifactReadiness() {
+        // Future: wait for recording finalization webhook
+        // For now, just log
+        console.info({
+          event: 'feedback_artifact_readiness_step',
+          interview_id: payload.interview_id,
+          attempt_id: claim.attempt_id,
+          source: 'workflow',
+        })
+        return { artifacts_ready: false, reason: 'awaiting_implementation' }
+      })
+
+      // Return early - future steps will be implemented in 5.16/5.17
+      return {
+        status: 'processing',
         interview_id: payload.interview_id,
         attempt_id: claim.attempt_id,
-      })
-      return { artifacts_ready: false, reason: 'awaiting_implementation' }
-    })
-
-    // Return early - future steps will be implemented in 5.16/5.17
-    return {
-      status: 'processing',
-      interview_id: payload.interview_id,
-      attempt_id: claim.attempt_id,
-      next_step: 'artifact_readiness',
+        next_step: 'artifact_readiness',
+      }
+    } finally {
+      await cleanup()
     }
   }
 }
 
-function createWorkflowQueryExecutor(env: WorkerBindings): SqlQueryExecutor {
+function createWorkflowQueryExecutor(env: WorkerBindings): {
+  queryExecutor: SqlQueryExecutor
+  cleanup: () => Promise<void>
+} {
   const connectionString = env.HYPERDRIVE?.connectionString
   if (!connectionString) {
     throw new Error('HYPERDRIVE binding is not configured')
   }
 
   const pool = createPostgresConnectionPool(connectionString)
+  let clientPromise: Promise<PostgresConnectionClient> | null = null
 
   return {
-    async query<Row>(queryInput: { text: string; values: readonly unknown[] }) {
-      const client = await pool.connect()
-      try {
+    queryExecutor: {
+      async query<Row>(queryInput: { text: string; values: readonly unknown[] }) {
+        if (!clientPromise) {
+          clientPromise = pool.connect()
+        }
+        const client = await clientPromise
         const result = await client.query(queryInput.text, [...queryInput.values])
         return {
           rows: result.rows as Row[],
           rowCount: result.rowCount ?? undefined,
         }
-      } finally {
+      },
+    },
+    async cleanup() {
+      if (clientPromise) {
+        const client = await clientPromise
         await client.release()
       }
     },

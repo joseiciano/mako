@@ -146,6 +146,7 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
                   interview_id: event.interview.id,
                 })
               }
+
             } else if (parsedBody.message_type === 'reminder.due') {
               const reminderMessage = reminderDueTransportMessageSchema.parse(parsedBody)
               await consumerService.processReminderDue(reminderMessage)
