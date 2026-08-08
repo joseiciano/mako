@@ -260,6 +260,115 @@ describe('SessionTimerWorkflow', function () {
       expect(log).not.toHaveProperty('token')
     }
   })
+
+  describe('interview.completed outbox dispatch', function dispatchSuite() {
+    it('dispatches interview.completed outbox event on successful completion', async function run() {
+      const consoleInfoSpy = vi
+        .spyOn(console, 'info')
+        .mockImplementation(() => {})
+      const consoleErrorSpy = vi
+        .spyOn(console, 'error')
+        .mockImplementation(() => {})
+
+      const interviewId = '22222222-2222-4222-8222-222222222222'
+      const { queue, sentMessages } = createMockQueueWithSpy()
+      const workflow = new SessionTimerWorkflow(createMockContext(), {
+        DB: createOngoingInterviewDbBinding(interviewId),
+        NOTIFICATION_QUEUE: queue,
+      })
+      const step = createTrackingStep()
+
+      await workflow.run(
+        {
+          payload: {
+            interview_id: interviewId,
+            started_at: '2026-07-09T10:00:00.000Z',
+            expires_at: '2026-07-09T11:00:00.000Z',
+            warning_at: '2026-07-09T10:55:00.000Z',
+          },
+          timestamp: new Date(),
+          instanceId: 'instance-1',
+          workflowName: 'session-timer',
+        },
+        step,
+      )
+
+      expect(queue.send).toHaveBeenCalledTimes(1)
+      expect(sentMessages).toHaveLength(1)
+      expect(consoleErrorSpy).not.toHaveBeenCalled()
+
+      const completedLog = consoleInfoSpy.mock.calls.find(
+        (call) => (call[0] as { event: string }).event === 'timer_completed',
+      )
+      expect(completedLog).toBeDefined()
+      expect(completedLog![0]).toEqual(
+        expect.objectContaining({
+          event: 'timer_completed',
+          interview_id: interviewId,
+          outcome: 'completed',
+          reason: 'timer_expired',
+          source: 'workflow',
+        }),
+      )
+    })
+
+    it('logs timer_dispatch_failure when notification dispatch fails', async function run() {
+      const consoleInfoSpy = vi
+        .spyOn(console, 'info')
+        .mockImplementation(() => {})
+      const consoleErrorSpy = vi
+        .spyOn(console, 'error')
+        .mockImplementation(() => {})
+
+      const interviewId = '22222222-2222-4222-8222-222222222222'
+      const workflow = new SessionTimerWorkflow(createMockContext(), {
+        DB: createOngoingInterviewDbBinding(interviewId, {
+          throwOnDispatchFailureUpdate: true,
+        }),
+        NOTIFICATION_QUEUE: createFailingQueue(),
+      })
+      const step = createTrackingStep()
+
+      // Workflow still completes (does not throw) despite dispatch failure
+      await workflow.run(
+        {
+          payload: {
+            interview_id: interviewId,
+            started_at: '2026-07-09T10:00:00.000Z',
+            expires_at: '2026-07-09T11:00:00.000Z',
+            warning_at: '2026-07-09T10:55:00.000Z',
+          },
+          timestamp: new Date(),
+          instanceId: 'instance-1',
+          workflowName: 'session-timer',
+        },
+        step,
+      )
+
+      const dispatchFailureLog = consoleErrorSpy.mock.calls.find(
+        (call) => (call[0] as { event?: string })?.event === 'timer_dispatch_failure',
+      )
+      expect(dispatchFailureLog).toBeDefined()
+      expect(dispatchFailureLog![0]).toEqual(
+        expect.objectContaining({
+          event: 'timer_dispatch_failure',
+          interview_id: interviewId,
+        }),
+      )
+
+      const completedLog = consoleInfoSpy.mock.calls.find(
+        (call) => (call[0] as { event: string }).event === 'timer_completed',
+      )
+      expect(completedLog).toBeDefined()
+      expect(completedLog![0]).toEqual(
+        expect.objectContaining({
+          event: 'timer_completed',
+          interview_id: interviewId,
+          outcome: 'completed',
+        }),
+      )
+    })
+  })
 })
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -353,4 +462,132 @@ function createAlreadyCompletedDbBinding(interviewId: string) {
       return { rows: [] }
     },
   }
+}
+
+function createOngoingInterviewDbBinding(
+  interviewId: string,
+  options?: { throwOnDispatchFailureUpdate?: boolean },
+) {
+  const ongoingInterview = {
+    id: interviewId,
+    scheduler_id: '11111111-1111-4111-8111-111111111111',
+    scheduler_alias: 'Scheduler',
+    interviewer_id: null,
+    interviewer_alias: 'Interviewer',
+    type: 'system_design',
+    mode: 'ai_led',
+    tier: 'standard',
+    status: 'ongoing',
+    scheduled_at: '2026-07-09T10:00:00.000Z',
+    realtime_session_id: null,
+    excalidraw_room_id: null,
+    excalidraw_key: null,
+    recording_url: null,
+    screenshot_urls: null,
+    feedback: null,
+    recording_status: 'not_started',
+    feedback_status: 'not_started',
+    feedback_unavailable_reason: null,
+    feedback_error_code: null,
+    feedback_prompt_version: null,
+    feedback_generated_at: null,
+    transcript: null,
+    screenshots_finalized_at: null,
+    started_at: '2026-07-09T10:00:00.000Z',
+    expires_at: '2026-07-09T11:00:00.000Z',
+    warning_at: '2026-07-09T10:55:00.000Z',
+    created_at: '2026-07-09T09:00:00.000Z',
+    updated_at: '2026-07-09T10:00:00.000Z',
+  }
+
+  const outboxEventRow = {
+    idempotency_key: `interview.completed:${interviewId}`,
+    event_type: 'interview.completed',
+    event_payload: {
+      event_type: 'interview.completed',
+      event_id: '11111111-1111-4111-8111-111111111111',
+      idempotency_key: `interview.completed:${interviewId}`,
+      occurred_at: '2026-07-09T11:00:00.000Z',
+      interview: {
+        id: interviewId,
+        scheduler_id: '11111111-1111-4111-8111-111111111111',
+        interviewer_id: null,
+        type: 'system_design',
+        mode: 'ai_led',
+        tier: 'standard',
+        status: 'completed',
+        scheduled_at: '2026-07-09T10:00:00.000Z',
+      },
+      participants: {
+        scheduler_user_id: '11111111-1111-4111-8111-111111111111',
+        interviewer_user_id: null,
+      },
+    },
+    status: 'pending',
+    dispatch_attempts: 0,
+    last_dispatch_attempted_at: null,
+    created_at: '2026-07-09T09:00:00.000Z',
+    updated_at: '2026-07-09T10:00:00.000Z',
+  }
+
+  return {
+    async query(statementText: string, ...statementValues: readonly unknown[]) {
+      // Transaction control
+      if (statementText.includes('BEGIN;') || statementText.includes('COMMIT;') || statementText.includes('ROLLBACK;')) {
+        return { rows: [] }
+      }
+
+      // The UPDATE for end transition - return the interview as completed
+      if (statementText.includes("UPDATE interviews") && statementText.includes("status = 'completed'")) {
+        return { rows: [{ ...ongoingInterview, status: 'completed', feedback_status: 'not_started', feedback_unavailable_reason: 'no_consent' }] }
+      }
+
+      // recordDispatchFailure - surface the error so the workflow logs timer_dispatch_failure
+      if (
+        options?.throwOnDispatchFailureUpdate &&
+        statementText.includes('UPDATE notification_outbox_events') &&
+        statementText.includes("status = 'failed'")
+      ) {
+        throw new Error('outbox failure update failed')
+      }
+
+      // SELECT FROM interviews
+      if (statementText.includes('FROM interviews') && statementText.includes('WHERE id')) {
+        return { rows: [ongoingInterview] }
+      }
+
+      // SELECT FROM notification_outbox_events (dispatch fetch)
+      if (statementText.includes('FROM notification_outbox_events')) {
+        return { rows: [outboxEventRow] }
+      }
+
+      // INSERT INTO notification_outbox_events (for persistOutboxEvent)
+      if (statementText.includes('INSERT INTO notification_outbox_events')) {
+        return { rows: [] }
+      }
+
+      return { rows: [] }
+    },
+  }
+}
+
+function createMockQueueWithSpy() {
+  const sentMessages: unknown[] = []
+  const send = vi.fn(async (message: unknown) => {
+    sentMessages.push(message)
+  })
+  return {
+    queue: {
+      send,
+    } as unknown as Queue<unknown>,
+    sentMessages,
+  }
+}
+
+function createFailingQueue() {
+  return {
+    async send(_message: unknown) {
+      throw new Error('queue send failed')
+    },
+  } as unknown as Queue<unknown>
 }

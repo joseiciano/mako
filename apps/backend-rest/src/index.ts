@@ -246,9 +246,7 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
           ? {
               queryExecutor,
               persistOutboxEvent: async function persistOutboxEvent(event) {
-                await notificationService!.persistOutboxEvent(
-                  event as Parameters<NotificationService['persistOutboxEvent']>[0],
-                )
+                await notificationService!.persistOutboxEvent(event)
               },
             }
           : demoDataSources.interview,

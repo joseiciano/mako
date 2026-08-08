@@ -6,6 +6,7 @@ import {
 import {
   InterviewRepository,
   buildInterviewCompletedEvent,
+  NotificationDispatchService,
   NotificationRepository,
   NotificationService,
 } from '@mako/shared-backend'
@@ -67,6 +68,7 @@ export class SessionTimerWorkflow extends WorkflowEntrypoint<
   async run(event: Readonly<WorkflowEvent<TimerStartParams>>, step: WorkflowStep) {
     const params = event.payload
     const env = this.env
+    const queryExecutor = createDatabaseQueryExecutor(env)
 
     await step.sleepUntil('wait_for_warning', new Date(params.warning_at))
 
@@ -83,15 +85,13 @@ export class SessionTimerWorkflow extends WorkflowEntrypoint<
     await step.sleepUntil('wait_for_expiration', new Date(params.expires_at))
 
     await step.do('complete_interview', async function completeInterview() {
-      const queryExecutor = createDatabaseQueryExecutor(env)
       const notificationRepository = new NotificationRepository({ queryExecutor })
       const notificationService = new NotificationService(notificationRepository)
+      const notificationDispatchService = new NotificationDispatchService(notificationService)
       const repository = new InterviewRepository({
         queryExecutor,
         persistOutboxEvent: async function persistOutboxEvent(event) {
-          await notificationService.persistOutboxEvent(
-            event as Parameters<NotificationService['persistOutboxEvent']>[0],
-          )
+          await notificationService.persistOutboxEvent(event)
         },
       })
 
@@ -123,6 +123,26 @@ export class SessionTimerWorkflow extends WorkflowEntrypoint<
         transitionResult.outcome === 'completed' ||
         transitionResult.outcome === 'already_completed'
       ) {
+        if (transitionResult.outcome === 'completed' && env.NOTIFICATION_QUEUE) {
+          const transport = {
+            send: async function send(message: unknown) {
+              await env.NOTIFICATION_QUEUE!.send(message)
+            },
+          }
+          try {
+            await notificationDispatchService.dispatchOutboxEventByIdempotencyKey(
+              outboxEvent.idempotency_key,
+              transport,
+            )
+          } catch (error) {
+            console.error({
+              event: 'timer_dispatch_failure',
+              interview_id: params.interview_id,
+              error_message: error instanceof Error ? error.message : String(error),
+            })
+          }
+        }
+
         console.info(buildTimerCompletedLog({
           interview_id: params.interview_id,
           expires_at: params.expires_at,
