@@ -33,6 +33,7 @@ export {
   type PostgresConnectionPool,
   type PostgresQueryResult,
 } from './database/postgres-connection-pool'
+export { rollbackTransactionSafely } from './database/transaction-utils'
 export * from './account'
 export * from './interviewer-application'
 export * from './auth'
