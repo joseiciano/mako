@@ -151,6 +151,8 @@ export const feedbackErrorCodeSchema = z.enum([
   'internal_error',
 ])
 
+export const consentDecisionSchema = z.enum(['consented', 'declined'])
+
 export const interviewDetailSchema = interviewSchema.omit({
   realtime_session_id: true,
   excalidraw_room_id: true,
@@ -164,6 +166,7 @@ export const interviewDetailSchema = interviewSchema.omit({
   feedback_error_code: feedbackErrorCodeSchema.nullable(),
   feedback_prompt_version: z.string().nullable(),
   feedback_generated_at: z.string().datetime({ offset: true }).nullable(),
+  screenshots_finalized_at: z.string().datetime({ offset: true }).nullable(),
   feedback: interviewFeedbackV1Schema.nullable().catch(null),
 })
 
@@ -174,6 +177,49 @@ export const interviewListResponseSchema = z.object({
 export const interviewDetailResponseSchema = z.object({
   interview: interviewDetailSchema,
 })
+
+export const interviewFeedbackStatusResponseSchema = z
+  .object({
+    status: feedbackStatusSchema,
+    unavailable_reason: feedbackUnavailableReasonSchema.nullable(),
+    error_code: feedbackErrorCodeSchema.nullable(),
+    schema_version: z.number().int().nullable(),
+    prompt_version: z.string().nullable(),
+    updated_at: z.string().datetime({ offset: true }),
+  })
+  .strict()
+
+export const recordingConsentRequestSchema = z
+  .object({
+    decision: consentDecisionSchema,
+    consent_copy_version: z.string().min(1).max(100),
+  })
+  .strict()
+
+export const recordingConsentResponseSchema = z
+  .object({
+    interview_id: z.string().uuid(),
+    user_id: z.string().uuid(),
+    decision: consentDecisionSchema,
+    consent_copy_version: z.string(),
+    recording_status: recordingStatusSchema,
+    revoked_at: z.string().datetime({ offset: true }).nullable(),
+  })
+  .strict()
+
+export const screenshotUploadRequestSchema = z
+  .object({
+    idempotency_key: z.string().uuid(),
+    content_type: z.literal('image/png'),
+    capture_timestamp: z.string().datetime({ offset: true }),
+  })
+  .strict()
+
+export const screenshotUploadResponseSchema = z
+  .object({
+    capture_id: z.string().uuid(),
+  })
+  .strict()
 
 export const interviewListQuerySchema = z
   .object({
@@ -212,6 +258,10 @@ export const startInterviewParamsSchema = z.object({
 })
 
 export const endInterviewParamsSchema = z.object({
+  id: z.string().uuid(),
+})
+
+export const interviewIdParamsSchema = z.object({
   id: z.string().uuid(),
 })
 
@@ -326,6 +376,7 @@ export type CancelInterviewParams = z.infer<typeof cancelInterviewParamsSchema>
 export type CancelInterviewResponse = z.infer<typeof cancelInterviewResponseSchema>
 export type StartInterviewParams = z.infer<typeof startInterviewParamsSchema>
 export type EndInterviewParams = z.infer<typeof endInterviewParamsSchema>
+export type InterviewIdParams = z.infer<typeof interviewIdParamsSchema>
 export type InterviewLifecycleResponse = z.infer<typeof interviewLifecycleResponseSchema>
 export type ProvisionInterviewParams = z.infer<typeof provisionInterviewParamsSchema>
 export type ProvisionInterviewResponse = z.infer<typeof provisionInterviewResponseSchema>
@@ -345,6 +396,11 @@ export type FeedbackErrorCode = z.infer<typeof feedbackErrorCodeSchema>
 export type ArtifactKind = z.infer<typeof artifactKindSchema>
 export type ArtifactAvailability = z.infer<typeof artifactAvailabilitySchema>
 export type InterviewFeedbackStatusResponse = z.infer<typeof interviewFeedbackStatusResponseSchema>
+export type ConsentDecision = z.infer<typeof consentDecisionSchema>
+export type RecordingConsentRequest = z.infer<typeof recordingConsentRequestSchema>
+export type RecordingConsentResponse = z.infer<typeof recordingConsentResponseSchema>
+export type ScreenshotUploadRequest = z.infer<typeof screenshotUploadRequestSchema>
+export type ScreenshotUploadResponse = z.infer<typeof screenshotUploadResponseSchema>
 
 function isSceneWithinByteLimit(scene: Record<string, unknown>): boolean {
   const serialized = JSON.stringify(scene)

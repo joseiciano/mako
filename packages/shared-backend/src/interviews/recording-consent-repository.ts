@@ -4,7 +4,7 @@ import {
   type Interview,
   type RecordingStatus,
 } from '@mako/shared'
-import { createSqlQuery, type SqlQueryExecutor } from '../index'
+import { createSqlQuery, rollbackTransactionSafely, type SqlQueryExecutor } from '../index'
 
 export type RecordingConsentRecord = {
   interview_id: string
@@ -18,7 +18,13 @@ export type RecordingConsentRecord = {
 }
 
 export type RecordingConsentResult = {
-  outcome: 'recorded' | 'already_recorded' | 'invalid_status' | 'not_found'
+  outcome:
+    | 'recorded'
+    | 'already_recorded'
+    | 'already_revoked'
+    | 'invalid_status'
+    | 'not_found'
+    | 'no_consent'
   consent?: RecordingConsentRecord
   recording_status?: RecordingStatus
 }
@@ -226,6 +232,14 @@ export class RecordingConsentRepository {
         return { outcome: 'not_found' }
       }
 
+      if (!isConsentEligibleInterviewStatus(existingInterview.status)) {
+        await queryExecutor.query(createSqlQuery('COMMIT;'))
+        return {
+          outcome: 'invalid_status',
+          recording_status: existingInterview.recording_status,
+        }
+      }
+
       if (existingInterview.recording_status !== 'not_started') {
         await queryExecutor.query(createSqlQuery('COMMIT;'))
         return {
@@ -259,7 +273,7 @@ export class RecordingConsentRepository {
       if (!existingConsent) {
         await queryExecutor.query(createSqlQuery('COMMIT;'))
         return {
-          outcome: 'already_recorded',
+          outcome: 'no_consent',
           recording_status: existingInterview.recording_status,
         }
       }
@@ -267,7 +281,7 @@ export class RecordingConsentRepository {
       if (existingConsent.revoked_at !== null) {
         await queryExecutor.query(createSqlQuery('COMMIT;'))
         return {
-          outcome: 'already_recorded',
+          outcome: 'already_revoked',
           consent: existingConsent,
           recording_status: existingInterview.recording_status,
         }
@@ -315,6 +329,8 @@ export class RecordingConsentRepository {
     }
   }
 
+  // Scaffolding for future consent visibility stories (5.16/5.17).
+  // Not currently called by any production code path.
   async getConsentForUser(
     interviewId: string,
     userId: string,
@@ -343,34 +359,10 @@ export class RecordingConsentRepository {
     return row ? parseConsentRecord(row) : null
   }
 
-  async getAllConsents(interviewId: string): Promise<RecordingConsentRecord[]> {
-    const result = await this.getQueryExecutor().query<RecordingConsentRecord>(
-      createSqlQuery(
-        `
-          SELECT
-            interview_id,
-            user_id,
-            decision,
-            consent_copy_version,
-            decided_at,
-            revoked_at,
-            created_at,
-            updated_at
-          FROM interview_recording_consents
-          WHERE interview_id = $1
-          ORDER BY decided_at ASC, created_at ASC;
-        `,
-        [interviewId],
-      ),
-    )
-
-    return result.rows.map(function parseConsentRow(row) {
-      return parseConsentRecord(row)
-    })
-  }
-
-  async getRecordingStatus(interviewId: string): Promise<string | null> {
-    const result = await this.getQueryExecutor().query<{ recording_status: string }>(
+  // Scaffolding for future recording status stories (5.16/5.17).
+  // Not currently called by any production code path.
+  async getRecordingStatus(interviewId: string): Promise<RecordingStatus | null> {
+    const result = await this.getQueryExecutor().query<{ recording_status: RecordingStatus }>(
       createSqlQuery(
         `
           SELECT recording_status
@@ -422,12 +414,4 @@ function isConsentEligibleInterviewStatus(status: Interview['status']): boolean 
 
 function defaultNow(): string {
   return new Date().toISOString()
-}
-
-async function rollbackTransactionSafely(
-  queryExecutor: SqlQueryExecutor,
-): Promise<void> {
-  try {
-    await queryExecutor.query(createSqlQuery('ROLLBACK;'))
-  } catch {}
 }

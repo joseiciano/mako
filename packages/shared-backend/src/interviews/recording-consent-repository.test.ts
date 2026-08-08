@@ -237,7 +237,7 @@ describe('RecordingConsentRepository', function recordingConsentRepositorySuite(
       user_id: userId,
     })
 
-    expect(result.outcome).toBe('already_recorded')
+    expect(result.outcome).toBe('already_revoked')
     expect(result.consent?.revoked_at).toBe('2026-04-13T11:00:00.000Z')
   })
 
@@ -254,7 +254,7 @@ describe('RecordingConsentRepository', function recordingConsentRepositorySuite(
       user_id: userId,
     })
 
-    expect(result.outcome).toBe('already_recorded')
+    expect(result.outcome).toBe('no_consent')
     expect(result.consent).toBeUndefined()
   })
 
@@ -321,25 +321,6 @@ describe('RecordingConsentRepository', function recordingConsentRepositorySuite(
       user_id: userId,
       decision: 'consented',
     })
-  })
-
-  it('getAllConsents returns all consent records for an interview', async function run() {
-    const mockQueryExecutor = createMockQueryExecutor({
-      'FROM interview_recording_consents': () => ({
-        rows: [
-          createConsentRecord(),
-          createConsentRecord({ user_id: '22222222-2222-4222-8222-222222222222' }),
-        ],
-        rowCount: 2,
-      }),
-    })
-
-    const repository = new RecordingConsentRepository({ queryExecutor: mockQueryExecutor })
-
-    const result = await repository.getAllConsents(interviewId)
-
-    expect(result).toHaveLength(2)
-    expect(result[1]?.user_id).toBe('22222222-2222-4222-8222-222222222222')
   })
 
   it('getRecordingStatus returns the interview recording status', async function run() {

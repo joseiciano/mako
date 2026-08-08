@@ -2555,6 +2555,110 @@ describe('InterviewRepository', function interviewRepositorySuite() {
 
       expect(result.outcome).toBe('not_found')
     })
+
+    it('transitionInterviewLifecycle end sets feedback_status to pending when all participants consented', async function run() {
+      const mockQueryExecutor = createMockQueryExecutor({
+        "SET status = 'completed'": () => ({
+          rows: [
+            createInterviewRecord({
+              id: '11111111-1111-4111-8111-111111111111',
+              scheduler_id: '22222222-2222-4222-8222-222222222222',
+              status: 'completed',
+              feedback_status: 'pending',
+              feedback_unavailable_reason: null,
+            }),
+          ],
+          rowCount: 1,
+        }),
+      })
+      const repository = new InterviewRepository({ queryExecutor: mockQueryExecutor })
+
+      const result = await repository.transitionInterviewLifecycle({
+        interview_id: '11111111-1111-4111-8111-111111111111',
+        participant_user_id: '22222222-2222-4222-8222-222222222222',
+        action: 'end',
+        updated_at: '2026-05-22T09:00:00.000Z',
+      })
+
+      const updateQuery = mockQueryExecutor.queries.find((query) =>
+        query.text.includes("SET status = 'completed'"),
+      )
+      expect(updateQuery).toBeDefined()
+      expect(updateQuery!.text).toContain('consent_check')
+      expect(updateQuery!.text).toContain('feedback_status = CASE')
+      expect(updateQuery!.text).toContain("THEN 'pending'")
+      expect(updateQuery!.text).toContain("ELSE 'not_started'")
+      expect(updateQuery!.text).toContain('feedback_unavailable_reason = CASE')
+      expect(updateQuery!.text).toContain("'no_consent'")
+      expect(result.outcome).toBe('completed')
+      if (result.outcome !== 'completed') {
+        throw new Error('Expected completed outcome')
+      }
+      expect(result.interview.feedback_status).toBe('pending')
+      expect(result.interview.feedback_unavailable_reason).toBeNull()
+    })
+
+    it('transitionInterviewLifecycle end sets feedback_status to not_started when not all participants consented', async function run() {
+      const mockQueryExecutor = createMockQueryExecutor({
+        "SET status = 'completed'": () => ({
+          rows: [
+            createInterviewRecord({
+              id: '11111111-1111-4111-8111-111111111111',
+              scheduler_id: '22222222-2222-4222-8222-222222222222',
+              status: 'completed',
+              feedback_status: 'not_started',
+              feedback_unavailable_reason: 'no_consent',
+            }),
+          ],
+          rowCount: 1,
+        }),
+      })
+      const repository = new InterviewRepository({ queryExecutor: mockQueryExecutor })
+
+      const result = await repository.transitionInterviewLifecycle({
+        interview_id: '11111111-1111-4111-8111-111111111111',
+        participant_user_id: '22222222-2222-4222-8222-222222222222',
+        action: 'end',
+        updated_at: '2026-05-22T09:00:00.000Z',
+      })
+
+      expect(result.outcome).toBe('completed')
+      if (result.outcome !== 'completed') {
+        throw new Error('Expected completed outcome')
+      }
+      expect(result.interview.feedback_status).toBe('not_started')
+      expect(result.interview.feedback_unavailable_reason).toBe('no_consent')
+    })
+
+    it('transitionInterviewLifecycle end consent_check CTE queries interview_recording_consents', async function run() {
+      const mockQueryExecutor = createMockQueryExecutor({
+        "SET status = 'completed'": () => ({
+          rows: [
+            createInterviewRecord({
+              status: 'completed',
+              feedback_status: 'pending',
+            }),
+          ],
+          rowCount: 1,
+        }),
+      })
+      const repository = new InterviewRepository({ queryExecutor: mockQueryExecutor })
+
+      await repository.transitionInterviewLifecycle({
+        interview_id: '11111111-1111-4111-8111-111111111111',
+        participant_user_id: '22222222-2222-4222-8222-222222222222',
+        action: 'end',
+        updated_at: '2026-05-22T09:00:00.000Z',
+      })
+
+      const updateQuery = mockQueryExecutor.queries.find((query) =>
+        query.text.includes("SET status = 'completed'"),
+      )
+      expect(updateQuery).toBeDefined()
+      expect(updateQuery!.text).toContain('interview_recording_consents')
+      expect(updateQuery!.text).toContain("decision = 'consented'")
+      expect(updateQuery!.text).toContain('revoked_at IS NULL')
+    })
   })
 
   describe('in-memory started_at_precondition', function preconditionSuite() {

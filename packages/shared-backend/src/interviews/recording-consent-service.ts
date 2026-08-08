@@ -1,5 +1,4 @@
 import {
-  consentDecisionSchema,
   recordingConsentResponseSchema,
   type ConsentDecision,
   type RecordingConsentResponse,
@@ -38,7 +37,7 @@ export class RecordingConsentService {
     const result = await this.consentRepository.upsertConsent({
       interview_id: input.interview_id,
       user_id: participantUserId,
-      decision: consentDecisionSchema.parse(input.decision),
+      decision: input.decision,
       consent_copy_version: input.consent_copy_version,
     })
 
@@ -81,22 +80,25 @@ export class RecordingConsentService {
     switch (result.outcome) {
       case 'recorded':
       case 'already_recorded':
-        if (!result.consent) {
-          throw new InterviewConflictError(
-            'Recording consent cannot be revoked before it has been recorded.',
-          )
-        }
-
+      case 'already_revoked': {
+        // The repository always provides consent for these outcomes.
+        const consent = result.consent!
         return recordingConsentResponseSchema.parse({
-          interview_id: result.consent.interview_id,
-          user_id: result.consent.user_id,
-          decision: result.consent.decision,
-          consent_copy_version: result.consent.consent_copy_version,
+          interview_id: consent.interview_id,
+          user_id: consent.user_id,
+          decision: consent.decision,
+          consent_copy_version: consent.consent_copy_version,
           recording_status: result.recording_status ?? 'not_started',
+          revoked_at: consent.revoked_at,
         })
+      }
       case 'invalid_status':
         throw new InterviewConflictError(
           'Recording consent can only be changed before recording has started.',
+        )
+      case 'no_consent':
+        throw new InterviewConflictError(
+          'No recording consent found to revoke.',
         )
       case 'not_found':
         throw new InterviewNotFoundError(

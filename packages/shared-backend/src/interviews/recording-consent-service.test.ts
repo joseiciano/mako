@@ -59,6 +59,7 @@ describe('RecordingConsentService', function recordingConsentServiceSuite() {
       decision: 'consented',
       consent_copy_version: 'consent-copy-v1',
       recording_status: 'not_started',
+      revoked_at: null,
     })
     expect(consentRepository.upsertConsent).toHaveBeenCalledWith({
       interview_id: interviewId,
@@ -230,6 +231,7 @@ describe('RecordingConsentService', function recordingConsentServiceSuite() {
       decision: 'declined',
       consent_copy_version: 'consent-copy-v1',
       recording_status: 'not_started',
+      revoked_at: null,
     })
     expect(interviewerResponse).not.toHaveProperty('all_consented')
     expect(interviewerResponse.decision).not.toBe('consented')
@@ -281,7 +283,7 @@ describe('RecordingConsentService', function recordingConsentServiceSuite() {
     })
     consentRepository.revokeConsent
       .mockResolvedValueOnce({ outcome: 'recorded', consent: revoked, recording_status: 'not_started' })
-      .mockResolvedValueOnce({ outcome: 'already_recorded', consent: revoked, recording_status: 'not_started' })
+      .mockResolvedValueOnce({ outcome: 'already_revoked', consent: revoked, recording_status: 'not_started' })
 
     const { service } = createRecordingConsentService(consentRepository, [
       createInterviewRecord({ id: interviewId, scheduler_id: schedulerSession.userId }),
@@ -331,14 +333,12 @@ function createMockConsentRepository() {
   const upsertConsent = vi.fn<MockUpsertConsent>()
   const revokeConsent = vi.fn<MockRevokeConsent>()
   const getConsentForUser = vi.fn<MockGetConsentForUser>()
-  const getAllConsents = vi.fn<MockGetAllConsents>()
   const getRecordingStatus = vi.fn<MockGetRecordingStatus>()
 
   return {
     upsertConsent,
     revokeConsent,
     getConsentForUser,
-    getAllConsents,
     getRecordingStatus,
   }
 }
@@ -355,8 +355,6 @@ type MockGetConsentForUser = (
   interviewId: string,
   userId: string,
 ) => Promise<RecordingConsentRecord | null>
-
-type MockGetAllConsents = (interviewId: string) => Promise<RecordingConsentRecord[]>
 
 type MockGetRecordingStatus = (interviewId: string) => Promise<string | null>
 
