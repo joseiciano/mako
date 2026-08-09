@@ -1,10 +1,29 @@
 import { describe, expect, it, vi } from 'vitest'
+import { renderHook, waitFor } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import type { ReactNode } from 'react'
 import {
   cancelPremiumSlot,
   fetchPremiumSlots,
   premiumSlotsQueryKey,
   publishPremiumSlot,
+  usePremiumSlots,
+  usePublishPremiumSlot,
+  useCancelPremiumSlot,
 } from './use-premium-availability'
+
+function createWrapper() {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  })
+
+  return function Wrapper({ children }: { children: ReactNode }) {
+    return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  }
+}
 
 describe('premium availability hooks', function suite() {
   describe('fetchPremiumSlots', function fetchSlotsSuite() {
@@ -132,5 +151,113 @@ describe('premium availability hooks', function suite() {
 
   it('exports the premium slots query key', function run() {
     expect(premiumSlotsQueryKey).toEqual(['premium', 'interviewer-slots', 'system_design'])
+  })
+
+  describe('usePremiumSlots', function useSlotsSuite() {
+    it('does not fetch when enabled is false', async function run() {
+      const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async function mockFetch() {
+        return new Response(
+          JSON.stringify({
+            slots: [],
+            pagination: { limit: 25, offset: 0, hasMore: false },
+            policy: { leadTimeMinutes: 60, horizonDays: 90, priceCredits: 1 },
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      })
+
+      renderHook(() => usePremiumSlots({ enabled: false }), {
+        wrapper: createWrapper(),
+      })
+
+      await new Promise(function resolve(r) {
+        setTimeout(r, 50)
+      })
+
+      expect(fetchSpy).not.toHaveBeenCalled()
+      fetchSpy.mockRestore()
+    })
+  })
+
+  describe('usePublishPremiumSlot', function usePublishSuite() {
+    it('invalidates slots query key on success', async function run() {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async function mockFetch() {
+        return new Response(
+          JSON.stringify({
+            slot: {
+              id: '11111111-1111-4111-8111-111111111111',
+              interviewerId: '22222222-2222-4222-8222-222222222222',
+              interviewType: 'system_design',
+              startTime: '2026-08-08T10:00:00.000Z',
+              endTime: '2026-08-08T11:00:00.000Z',
+              status: 'available',
+              createdAt: '2026-08-07T20:00:00.000Z',
+              updatedAt: '2026-08-07T20:00:00.000Z',
+            },
+          }),
+          { status: 201, headers: { 'content-type': 'application/json' } },
+        )
+      })
+
+      const queryClient = new QueryClient({
+        defaultOptions: {
+          queries: { retry: false },
+          mutations: { retry: false },
+        },
+      })
+
+      function Wrapper({ children }: { children: ReactNode }) {
+        return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      }
+
+      const { result } = renderHook(() => usePublishPremiumSlot(), {
+        wrapper: Wrapper,
+      })
+
+      const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+      await result.current.mutateAsync({
+        interviewType: 'system_design',
+        startTime: '2026-08-08T10:00:00.000Z',
+      })
+
+      await waitFor(function () {
+        expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: premiumSlotsQueryKey })
+      })
+    })
+  })
+
+  describe('useCancelPremiumSlot', function useCancelSuite() {
+    it('invalidates slots query key on success', async function run() {
+      vi.spyOn(globalThis, 'fetch').mockImplementation(async function mockFetch() {
+        return new Response(
+          JSON.stringify({ success: true }),
+          { status: 200, headers: { 'content-type': 'application/json' } },
+        )
+      })
+
+      const queryClient = new QueryClient({
+        defaultOptions: {
+          queries: { retry: false },
+          mutations: { retry: false },
+        },
+      })
+
+      function Wrapper({ children }: { children: ReactNode }) {
+        return <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+      }
+
+      const { result } = renderHook(() => useCancelPremiumSlot(), {
+        wrapper: Wrapper,
+      })
+
+      const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+      await result.current.mutateAsync('11111111-1111-4111-8111-111111111111')
+
+      await waitFor(function () {
+        expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: premiumSlotsQueryKey })
+      })
+    })
   })
 })

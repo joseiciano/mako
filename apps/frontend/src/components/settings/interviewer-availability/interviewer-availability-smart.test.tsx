@@ -82,6 +82,30 @@ describe('InterviewerAvailabilitySmart', function suite() {
     expect(screen.getByText('Loading...')).toBeTruthy()
   })
 
+  it('does not fetch owner slots before eligibility resolves', function run() {
+    useAccountMock.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      isError: false,
+      error: null,
+    })
+
+    renderWithQueryClient(<InterviewerAvailabilitySmart />)
+    expect(usePremiumSlotsMock).toHaveBeenCalledWith({ enabled: false })
+  })
+
+  it('renders account error when account query fails', function run() {
+    useAccountMock.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: new Error('Account fetch failed'),
+    })
+
+    renderWithQueryClient(<InterviewerAvailabilitySmart />)
+    expect(screen.getByRole('alert').textContent).toContain('Account fetch failed')
+  })
+
   it('redirects non-verified interviewers to settings', function run() {
     useAccountMock.mockReturnValue({
       data: { isVerifiedInterviewer: false },
@@ -203,5 +227,106 @@ describe('InterviewerAvailabilitySmart', function suite() {
     })
 
     expect(screen.getByRole('alert')).toHaveFocus()
+  })
+
+  it('clears publish error after successful publish', async function run() {
+    useAccountMock.mockReturnValue({
+      data: { isVerifiedInterviewer: true },
+      isLoading: false,
+      isError: false,
+      error: null,
+    })
+
+    usePremiumSlotsMock.mockReturnValue({
+      data: { slots: [], policy: { leadTimeMinutes: 60, horizonDays: 90 } },
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+
+    const mutateAsyncMock = vi.fn().mockResolvedValueOnce(undefined)
+    usePublishPremiumSlotMock.mockReturnValue({
+      mutateAsync: mutateAsyncMock,
+      isPending: false,
+      variables: undefined,
+    })
+
+    useCancelPremiumSlotMock.mockReturnValue({
+      mutateAsync: vi.fn(),
+      isPending: false,
+      variables: undefined,
+    })
+
+    renderWithQueryClient(<InterviewerAvailabilitySmart />)
+
+    const input = screen.getByLabelText('Start Time') as HTMLInputElement
+    fireEvent.change(input, { target: { value: '2026-08-08T10:00' } })
+    const form = screen.getByRole('button', { name: 'Publish Slot' }).closest('form')!
+    form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }))
+
+    await waitFor(function () {
+      expect(mutateAsyncMock).toHaveBeenCalled()
+    })
+
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
+  it('reconciles cancel 409 by refetching slots and showing claimed message', async function run() {
+    useAccountMock.mockReturnValue({
+      data: { isVerifiedInterviewer: true },
+      isLoading: false,
+      isError: false,
+      error: null,
+    })
+
+    const refetchMock = vi.fn().mockResolvedValue(undefined)
+    usePremiumSlotsMock.mockReturnValue({
+      data: {
+        slots: [
+          {
+            id: 'slot-1',
+            interviewerId: 'user-1',
+            interviewType: 'system_design',
+            startTime: '2026-08-08T10:00:00.000Z',
+            endTime: '2026-08-08T11:00:00.000Z',
+            status: 'available',
+            createdAt: '2026-08-07T20:00:00.000Z',
+            updatedAt: '2026-08-07T20:00:00.000Z',
+          },
+        ],
+        policy: { leadTimeMinutes: 60, horizonDays: 90 },
+      },
+      isLoading: false,
+      isError: false,
+      error: null,
+      refetch: refetchMock,
+    })
+
+    usePublishPremiumSlotMock.mockReturnValue({
+      mutateAsync: vi.fn(),
+      isPending: false,
+      variables: undefined,
+    })
+
+    const mutateAsyncMock = vi.fn().mockRejectedValue(
+      new Error('A claimed premium slot cannot be cancelled.'),
+    )
+    useCancelPremiumSlotMock.mockReturnValue({
+      mutateAsync: mutateAsyncMock,
+      isPending: false,
+      variables: undefined,
+    })
+
+    renderWithQueryClient(<InterviewerAvailabilitySmart />)
+
+    const cancelButton = screen.getByRole('button', { name: /Cancel slot/ })
+    cancelButton.click()
+
+    await waitFor(function () {
+      expect(refetchMock).toHaveBeenCalled()
+    })
+
+    expect(screen.getByRole('alert').textContent).toContain('claimed by another user')
   })
 })

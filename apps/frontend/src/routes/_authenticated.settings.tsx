@@ -5,7 +5,7 @@ export const Route = createFileRoute('/_authenticated/settings')({
   component: SettingsPage,
 })
 
-function SettingsPage() {
+export default function SettingsPage() {
   const accountQuery = useAccount()
   const isVerifiedInterviewer = accountQuery.data?.isVerifiedInterviewer ?? false
 

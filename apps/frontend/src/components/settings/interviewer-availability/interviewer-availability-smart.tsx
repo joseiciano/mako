@@ -11,7 +11,10 @@ import { SlotListDumb } from './slot-list-dumb'
 
 export function InterviewerAvailabilitySmart() {
   const accountQuery = useAccount()
-  const slotsQuery = usePremiumSlots()
+  const isEligible = Boolean(
+    accountQuery.isSuccess && accountQuery.data?.isVerifiedInterviewer,
+  )
+  const slotsQuery = usePremiumSlots({ enabled: isEligible })
   const publishMutation = usePublishPremiumSlot()
   const cancelMutation = useCancelPremiumSlot()
   const [publishError, setPublishError] = useState<string | null>(null)
@@ -21,6 +24,16 @@ export function InterviewerAvailabilitySmart() {
     return (
       <main className="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-8 px-6 py-14">
         <p className="text-slate-400">Loading...</p>
+      </main>
+    )
+  }
+
+  if (accountQuery.isError) {
+    return (
+      <main className="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-8 px-6 py-14">
+        <p role="alert" className="text-red-300">
+          {accountQuery.error.message}
+        </p>
       </main>
     )
   }
@@ -41,6 +54,7 @@ export function InterviewerAvailabilitySmart() {
         interviewType: 'system_design',
         startTime: isoStartTime,
       })
+      setPublishError(null)
     } catch (error) {
       setPublishError(error instanceof Error ? error.message : 'Unable to publish premium slot.')
     }
@@ -50,10 +64,15 @@ export function InterviewerAvailabilitySmart() {
     setCancelError(null)
     try {
       await cancelMutation.mutateAsync(slotId)
+      setCancelError(null)
     } catch (error) {
-      setCancelError(
-        error instanceof Error ? error.message : 'Unable to cancel premium slot.',
-      )
+      const message = error instanceof Error ? error.message : 'Unable to cancel premium slot.'
+      if (message.toLowerCase().includes('claimed')) {
+        await slotsQuery.refetch()
+        setCancelError('Slot was claimed by another user and can no longer be cancelled.')
+      } else {
+        setCancelError(message)
+      }
     }
   }
 

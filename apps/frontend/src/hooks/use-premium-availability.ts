@@ -24,12 +24,15 @@ import {
 
 export const premiumSlotsQueryKey = ['premium', 'interviewer-slots', 'system_design'] as const
 
-export function usePremiumSlots(): UseQueryResult<PremiumOwnerListResponse, Error> {
+export function usePremiumSlots(
+  options: { enabled?: boolean } = {},
+): UseQueryResult<PremiumOwnerListResponse, Error> {
   return useQuery({
     queryKey: premiumSlotsQueryKey,
     queryFn: function getPremiumSlotsQuery({ signal }) {
       return fetchPremiumSlots(fetch, signal)
     },
+    enabled: options.enabled,
   })
 }
 
