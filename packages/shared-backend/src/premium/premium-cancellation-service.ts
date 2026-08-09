@@ -101,6 +101,7 @@ export class PremiumCancellationService {
             source,
             attempt: attempt + 1,
             max_attempts: maxAttempts,
+            ...(isParticipantChangedError(error) ? { participant_ids: error.participantIds } : {}),
           })
           continue
         }
@@ -109,6 +110,7 @@ export class PremiumCancellationService {
           await this.logSafely('error', 'premium.cancellation_conflict_exhausted', {
             interview_id: interviewId,
             source,
+            ...(isParticipantChangedError(error) ? { participant_ids: error.participantIds } : {}),
           })
           throw new PremiumConflictError(
             'Cancellation transaction conflicts exhausted after retries. Please retry.',
@@ -193,7 +195,7 @@ export class PremiumCancellationService {
       .sort()
 
     if (!arraysEqual(initialParticipantUserIds, lockedParticipantUserIds)) {
-      throw new ParticipantChangedError()
+      throw new ParticipantChangedError(initialParticipantUserIds)
     }
 
     if (source === 'interviewer' && lockedInterview.interviewer_id !== initiatedByUserId) {
@@ -312,6 +314,7 @@ export class PremiumCancellationService {
             user_id: input.userId,
             attempt: attempt + 1,
             max_attempts: maxAttempts,
+            participant_ids: error.union,
           })
           continue
         }
@@ -319,6 +322,7 @@ export class PremiumCancellationService {
         if (isParticipantUnionExpansionError(error)) {
           await this.logSafely('error', 'premium.cancellation_union_conflict_exhausted', {
             user_id: input.userId,
+            participant_ids: error.union,
           })
         }
 
@@ -434,27 +438,45 @@ export class PremiumCancellationService {
       )
 
       if (cancelledRow.booking_channel === 'verified_interviewer' && source === 'interviewer') {
-        const refundRow = await this.repository.insertRefundRow(this.queryExecutor, {
-          id: this.createId(),
-          interviewId: cancelledRow.id,
-          schedulerId: cancelledRow.scheduler_id,
-          reason: 'interviewer_account_deleted',
-          initiatedByUserId: userId,
-          createdAt: timestamp,
-        })
+        try {
+          const refundRow = await this.repository.insertRefundRow(this.queryExecutor, {
+            id: this.createId(),
+            interviewId: cancelledRow.id,
+            schedulerId: cancelledRow.scheduler_id,
+            reason: 'interviewer_account_deleted',
+            initiatedByUserId: userId,
+            createdAt: timestamp,
+          })
 
-        if (!refundRow) {
-          throw new Error('Refund row already exists for this interview.')
-        }
+          if (!refundRow) {
+            throw new Error('Refund row already exists for this interview.')
+          }
 
-        const creditedScheduler = await this.repository.incrementSchedulerCredits(
-          this.queryExecutor,
-          cancelledRow.scheduler_id,
-          timestamp,
-        )
+          const creditedScheduler = await this.repository.incrementSchedulerCredits(
+            this.queryExecutor,
+            cancelledRow.scheduler_id,
+            timestamp,
+          )
 
-        if (!creditedScheduler) {
-          throw new Error('Failed to increment scheduler credits.')
+          if (!creditedScheduler) {
+            throw new Error('Failed to increment scheduler credits.')
+          }
+
+          await this.logSafely('info', 'premium.booking_refund_succeeded', {
+            interview_id: cancelledRow.id,
+            scheduler_id: cancelledRow.scheduler_id,
+            source,
+            refund_row_id: refundRow.id,
+            outcome: 'refunded',
+          })
+        } catch (error) {
+          await this.logSafely('error', 'premium.booking_refund_failed', {
+            interview_id: cancelledRow.id,
+            scheduler_id: cancelledRow.scheduler_id,
+            source,
+            error_message: toErrorMessage(error),
+          })
+          throw error
         }
       }
     }
@@ -468,18 +490,22 @@ export class PremiumCancellationService {
 }
 
 class ParticipantChangedError extends Error {
-  constructor() {
+  participantIds: string[]
+  constructor(participantIds: string[]) {
     super('Interview participants changed during cancellation.')
     this.name = 'ParticipantChangedError'
+    this.participantIds = participantIds
   }
 }
 
 class ParticipantUnionExpansionError extends Error {
+  union: string[]
   constructor(union: string[]) {
     super(
       `Interview participant set expanded beyond the snapshot union during account cancellation: ${union.join(', ')}`,
     )
     this.name = 'ParticipantUnionExpansionError'
+    this.union = union
   }
 }
 
@@ -524,11 +550,11 @@ function toCancelledInterviewEventInput(
   }
 }
 
-function isParticipantUnionExpansionError(error: unknown): boolean {
+function isParticipantUnionExpansionError(error: unknown): error is ParticipantUnionExpansionError {
   return error instanceof ParticipantUnionExpansionError
 }
 
-function isParticipantChangedError(error: unknown): boolean {
+function isParticipantChangedError(error: unknown): error is ParticipantChangedError {
   return error instanceof ParticipantChangedError
 }
 

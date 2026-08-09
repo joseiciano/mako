@@ -60,6 +60,7 @@ type MockExecutorOptions = {
   userRows?: { id: string }[]
   serializationConflict?: boolean
   refundInsertReturnsNull?: boolean
+  creditIncrementReturnsNull?: boolean
 }
 
 function createService(options: MockExecutorOptions = {}) {
@@ -67,6 +68,16 @@ function createService(options: MockExecutorOptions = {}) {
   const persistOutboxEvent = vi.fn(async () => {})
   const softDeleteAccount = vi.fn(async (_queryExecutor?: unknown) => {})
   let listAllUpcomingCallCount = 0
+  const logs: { level: 'info' | 'error'; event: string; context: Record<string, unknown> }[] = []
+
+  const logger = {
+    info: vi.fn(async (event: string, context: Record<string, unknown>) => {
+      logs.push({ level: 'info', event, context })
+    }),
+    error: vi.fn(async (event: string, context: Record<string, unknown>) => {
+      logs.push({ level: 'error', event, context })
+    }),
+  }
 
   const executor = {
     queries,
@@ -98,6 +109,9 @@ function createService(options: MockExecutorOptions = {}) {
       }
 
       if (text.includes('credits = credits + 1')) {
+        if (options.creditIncrementReturnsNull) {
+          return { rows: [] as Row[] }
+        }
         const [schedulerId] = queryInput.values
         return { rows: [{ id: schedulerId as string }] as Row[] }
       }
@@ -189,9 +203,10 @@ function createService(options: MockExecutorOptions = {}) {
     function now() {
       return fixedNow
     },
+    logger,
   )
 
-  return { executor, queries, persistOutboxEvent, service, softDeleteAccount }
+  return { executor, queries, persistOutboxEvent, service, softDeleteAccount, logs }
 }
 
 describe('PremiumCancellationService', function premiumCancellationServiceSuite() {
@@ -490,6 +505,48 @@ describe('PremiumCancellationService', function premiumCancellationServiceSuite(
         'Cancellation transaction conflicts exhausted after retries. Please retry.',
       )
     })
+
+    it('includes participant_ids in cancellation retry and conflict logs when participants change', async function run() {
+      const { persistOutboxEvent, service, logs } = createService({
+        interviewRow: buildInterviewRow({
+          interviewer_id: interviewerUserId,
+        }),
+        lockedInterviewRow: buildInterviewRow({
+          interviewer_id: '77777777-7777-4777-8777-777777777777',
+        }),
+        cancelledRow: buildInterviewRow({ status: 'cancelled' }),
+        userRows: [
+          { id: schedulerUserId },
+          { id: interviewerUserId },
+          { id: '77777777-7777-4777-8777-777777777777' },
+        ],
+      })
+
+      await expect(
+        service.cancelInterview({
+          interviewId,
+          source: 'scheduler',
+          initiatedByUserId: schedulerUserId,
+          persistOutboxEvent,
+        }),
+      ).rejects.toThrow(PremiumConflictError)
+
+      const retryLogs = logs.filter(function isRetry(log) {
+        return log.event === 'premium.cancellation_retry'
+      })
+      expect(retryLogs.length).toBeGreaterThanOrEqual(1)
+      for (const retryLog of retryLogs) {
+        expect(retryLog.context).toHaveProperty('participant_ids')
+        expect(Array.isArray(retryLog.context.participant_ids)).toBe(true)
+      }
+
+      const conflictLog = logs.find(function isConflict(log) {
+        return log.event === 'premium.cancellation_conflict_exhausted'
+      })
+      expect(conflictLog).toBeDefined()
+      expect(conflictLog!.context).toHaveProperty('participant_ids')
+      expect(Array.isArray(conflictLog!.context.participant_ids)).toBe(true)
+    })
   })
 
   describe('cancelUpcomingInterviewsForUser', function cancelUpcomingSuite() {
@@ -575,6 +632,86 @@ describe('PremiumCancellationService', function premiumCancellationServiceSuite(
 
       expect(result).toEqual({ outcome: 'cancelled', count: 1 })
       expect(softDeleteAccount).toHaveBeenCalledTimes(1)
+    })
+
+    it('logs premium.booking_refund_succeeded with safe keys when interviewer account deletion triggers refund', async function run() {
+      const verifiedRow = buildInterviewRow({
+        id: interviewId,
+        scheduler_id: schedulerUserId,
+        interviewer_id: deletingUserId,
+        booking_channel: 'verified_interviewer',
+      })
+
+      const { persistOutboxEvent, service, logs } = createService({
+        upcomingRows: [verifiedRow],
+        lockedRows: [verifiedRow],
+        userRows: [{ id: deletingUserId }, { id: schedulerUserId }],
+      })
+
+      await service.cancelUpcomingInterviewsForUser({
+        userId: deletingUserId,
+        persistOutboxEvent,
+      })
+
+      const successLog = logs.find(function isRefundSuccess(log) {
+        return log.event === 'premium.booking_refund_succeeded'
+      })
+      expect(successLog).toBeDefined()
+      expect(successLog!.context).toMatchObject({
+        interview_id: interviewId,
+        scheduler_id: schedulerUserId,
+        source: 'interviewer',
+        refund_row_id: fixedRefundId,
+        outcome: 'refunded',
+      })
+      expect(successLog!.context).not.toHaveProperty('balance')
+      expect(successLog!.context).not.toHaveProperty('name')
+      expect(successLog!.context).not.toHaveProperty('cookie')
+    })
+
+    it('logs premium.booking_refund_failed with safe keys and rolls back when credit increment fails during account deletion', async function run() {
+      const verifiedRow = buildInterviewRow({
+        id: interviewId,
+        scheduler_id: schedulerUserId,
+        interviewer_id: deletingUserId,
+        booking_channel: 'verified_interviewer',
+      })
+
+      const { queries, persistOutboxEvent, service, softDeleteAccount, logs } = createService({
+        upcomingRows: [verifiedRow],
+        lockedRows: [verifiedRow],
+        userRows: [{ id: deletingUserId }, { id: schedulerUserId }],
+        creditIncrementReturnsNull: true,
+      })
+
+      await expect(
+        service.cancelUpcomingInterviewsForUser({
+          userId: deletingUserId,
+          persistOutboxEvent,
+          softDeleteAccount,
+        }),
+      ).rejects.toThrow('Failed to increment scheduler credits.')
+
+      const failLog = logs.find(function isRefundFailed(log) {
+        return log.event === 'premium.booking_refund_failed'
+      })
+      expect(failLog).toBeDefined()
+      expect(failLog!.context).toMatchObject({
+        interview_id: interviewId,
+        scheduler_id: schedulerUserId,
+        source: 'interviewer',
+      })
+      expect(failLog!.context).toHaveProperty('error_message')
+      expect(failLog!.context).not.toHaveProperty('balance')
+      expect(failLog!.context).not.toHaveProperty('name')
+      expect(failLog!.context).not.toHaveProperty('cookie')
+
+      const normalizedTexts = queries.map(function normalize(query) {
+        return query.text.trim().toUpperCase()
+      })
+      expect(normalizedTexts).toContain('ROLLBACK;')
+      expect(normalizedTexts).not.toContain('COMMIT;')
+      expect(softDeleteAccount).not.toHaveBeenCalled()
     })
 
     it('passes the transaction query executor to softDeleteAccount', async function run() {
@@ -712,6 +849,58 @@ describe('PremiumCancellationService', function premiumCancellationServiceSuite(
         return query.text.trim().toUpperCase() === 'BEGIN;'
       })
       expect(beginCount).toHaveLength(3)
+    })
+
+    it('includes participant_ids in cancellation union retry and conflict logs', async function run() {
+      const verifiedRow = buildInterviewRow({
+        id: interviewId,
+        scheduler_id: schedulerUserId,
+        interviewer_id: deletingUserId,
+      })
+      const expansionRow = buildInterviewRow({
+        id: extraInterviewId,
+        scheduler_id: fourthUserId,
+        interviewer_id: null,
+        booking_channel: 'standard_match',
+      })
+
+      const { persistOutboxEvent, service, logs } = createService({
+        upcomingRows: [verifiedRow],
+        requeriedRows: [verifiedRow, expansionRow],
+        lockedRows: [verifiedRow, expansionRow],
+        userRows: [
+          { id: deletingUserId },
+          { id: schedulerUserId },
+          { id: fourthUserId },
+        ],
+      })
+
+      await expect(
+        service.cancelUpcomingInterviewsForUser({
+          userId: deletingUserId,
+          persistOutboxEvent,
+        }),
+      ).rejects.toThrow(/participant set expanded/i)
+
+      const retryLogs = logs.filter(function isRetry(log) {
+        return log.event === 'premium.cancellation_union_retry'
+      })
+      expect(retryLogs.length).toBeGreaterThanOrEqual(1)
+      for (const retryLog of retryLogs) {
+        expect(retryLog.context).toHaveProperty('participant_ids')
+        expect(Array.isArray(retryLog.context.participant_ids)).toBe(true)
+        expect(retryLog.context.participant_ids).toContain(deletingUserId)
+        expect(retryLog.context.participant_ids).toContain(schedulerUserId)
+      }
+
+      const conflictLog = logs.find(function isConflict(log) {
+        return log.event === 'premium.cancellation_union_conflict_exhausted'
+      })
+      expect(conflictLog).toBeDefined()
+      expect(conflictLog!.context).toHaveProperty('participant_ids')
+      expect(Array.isArray(conflictLog!.context.participant_ids)).toBe(true)
+      expect(conflictLog!.context.participant_ids).toContain(deletingUserId)
+      expect(conflictLog!.context.participant_ids).toContain(schedulerUserId)
     })
 
     it('locks interviews before detecting expansion from requeried rows', async function run() {
