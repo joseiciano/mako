@@ -34,6 +34,7 @@ import {
 } from './realtime-provider'
 import type { TimerOrchestrationPort, TimerStartParams } from './timer-orchestration'
 import {
+  NotificationRepository,
   NotificationService,
   NotificationDispatchService,
   type NotificationTransport,
@@ -298,8 +299,24 @@ export class InterviewService {
           interviewId: input.id,
           source,
           initiatedByUserId: participantUserId,
-          persistOutboxEvent: async (event) => {
-            await this.notificationService?.persistOutboxEvent(
+          persistOutboxEvent: async (event, queryExecutor) => {
+            if (!this.notificationService) {
+              return
+            }
+
+            // Persist the outbox event atomically within the same cancellation
+            // transaction by creating a repository bound to the transaction
+            // query executor.
+            const txNotificationRepository = new NotificationRepository(
+              queryExecutor,
+            )
+            const txNotificationService = new NotificationService(
+              txNotificationRepository,
+              this.createId,
+              this.now,
+            )
+
+            await txNotificationService.persistOutboxEvent(
               event as Parameters<NotificationService['persistOutboxEvent']>[0],
             )
           },
@@ -321,8 +338,9 @@ export class InterviewService {
       }
 
       switch (premiumResult.outcome) {
-        case 'cancelled':
-        case 'already_cancelled': {
+        case 'cancelled': {
+          // The outbox event was written atomically inside the cancellation
+          // transaction. Dispatch or publish it after the commit.
           const outboxEvent = this.notificationService
             ? buildInterviewCancelledEvent({
                 interview: { ...existingInterview, status: 'cancelled' },
@@ -359,6 +377,10 @@ export class InterviewService {
           }
           return toCancelInterviewResponse()
         }
+        case 'already_cancelled':
+          // Idempotent retry: no new outbox event, no refund. Nothing to
+          // dispatch or publish.
+          return toCancelInterviewResponse()
         case 'invalid_status':
           throw new InterviewConflictError(
             'Only scheduled interviews can be cancelled.',

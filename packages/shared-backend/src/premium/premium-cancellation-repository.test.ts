@@ -203,6 +203,32 @@ describe('PremiumCancellationRepository', function repositorySuite() {
     expect(result).toEqual({ id: 'refund-id' })
   })
 
+  it('insertRefundRow returns null when ON CONFLICT DO NOTHING suppresses duplicate interview_id', async function shouldReturnNullOnConflict() {
+    const executedQueries: SqlQuery[] = []
+
+    const repository = new PremiumCancellationRepository()
+    const result = await repository.insertRefundRow(
+      {
+        query: async function query<Row>(queryInput: SqlQuery) {
+          executedQueries.push(queryInput)
+          return { rows: [] as Row[] }
+        },
+      },
+      {
+        id: 'refund-id',
+        interviewId,
+        schedulerId,
+        reason: 'interviewer_cancelled',
+        initiatedByUserId: interviewerId,
+        createdAt: '2026-05-22T09:00:00.000Z',
+      },
+    )
+
+    expect(executedQueries).toHaveLength(1)
+    expect(executedQueries[0]!.text).toContain('ON CONFLICT (interview_id) DO NOTHING')
+    expect(result).toBeNull()
+  })
+
   it('incrementSchedulerCredits updates credits for active user', async function shouldIncrementCredits() {
     const executedQueries: SqlQuery[] = []
     const updatedAt = '2026-05-22T09:00:00.000Z'

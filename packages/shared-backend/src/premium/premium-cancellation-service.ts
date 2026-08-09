@@ -1,5 +1,9 @@
 import { createSqlQuery, type SqlQueryExecutor } from '../index'
 import { buildInterviewCancelledEvent } from '../notification-queue-event-contract'
+
+// Ledger distinction: Credit_Transactions is the Stripe fulfillment ledger.
+// premium_booking_credit_refunds is the separate internal audit/idempotency ledger.
+// No stripe_payment_intent_id is recorded in premium_booking_credit_refunds.
 import {
   PremiumConflictError,
   PremiumForbiddenError,
@@ -34,7 +38,7 @@ type CancelUpcomingInterviewsResult = {
   count: number
 }
 
-type PersistOutboxEvent = (event: unknown) => Promise<void>
+type PersistOutboxEvent = (event: unknown, queryExecutor: SqlQueryExecutor) => Promise<void>
 
 type PremiumIdFactory = () => string
 type PremiumNowFactory = () => string
@@ -281,6 +285,7 @@ export class PremiumCancellationService {
       buildInterviewCancelledEvent({
         interview: toCancelledInterviewEventInput(cancelledRow),
       }),
+      this.queryExecutor,
     )
 
     await this.logSafely('info', 'premium.cancellation_succeeded', {
@@ -299,30 +304,50 @@ export class PremiumCancellationService {
     softDeleteAccount?: (queryExecutor: SqlQueryExecutor) => Promise<void>
   }): Promise<CancelUpcomingInterviewsResult> {
     const maxAttempts = 3
+    const attemptContext = { participantUnion: [] as string[] }
 
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
       try {
         await this.queryExecutor.query(createSqlQuery('BEGIN;'))
-        const result = await this.cancelUpcomingInterviewsAttempt(input)
+        const result = await this.cancelUpcomingInterviewsAttempt(input, attemptContext)
         await this.queryExecutor.query(createSqlQuery('COMMIT;'))
         return result
       } catch (error) {
         await rollbackTransactionSafely(this.queryExecutor)
 
-        if (attempt < maxAttempts - 1 && isParticipantUnionExpansionError(error)) {
-          await this.logSafely('info', 'premium.cancellation_union_retry', {
+        const participantUnion = attemptContext.participantUnion
+
+        if (attempt < maxAttempts - 1 && isSerializationConflict(error)) {
+          await this.logSafely('info', 'premium.cancellation_retry', {
             user_id: input.userId,
             attempt: attempt + 1,
             max_attempts: maxAttempts,
-            participant_ids: error.union,
+          })
+          continue
+        }
+
+        if (isSerializationConflict(error)) {
+          await this.logSafely('error', 'premium.cancellation_conflict_exhausted', {
+            user_id: input.userId,
+          })
+          throw new PremiumConflictError(
+            'Cancellation transaction conflicts exhausted after retries. Please retry.',
+          )
+        }
+
+        if (attempt < maxAttempts - 1 && isParticipantUnionExpansionError(error)) {
+          await this.logSafely('info', 'premium.cancellation_union_retry', {
+            attempt: attempt + 1,
+            max_attempts: maxAttempts,
+            participant_ids: participantUnion,
           })
           continue
         }
 
         if (isParticipantUnionExpansionError(error)) {
           await this.logSafely('error', 'premium.cancellation_union_conflict_exhausted', {
-            user_id: input.userId,
-            participant_ids: error.union,
+            attempt: attempt + 1,
+            participant_ids: participantUnion,
           })
         }
 
@@ -337,7 +362,7 @@ export class PremiumCancellationService {
     userId: string
     persistOutboxEvent: PersistOutboxEvent
     softDeleteAccount?: (queryExecutor: SqlQueryExecutor) => Promise<void>
-  }): Promise<CancelUpcomingInterviewsResult> {
+  }, context: { participantUnion: string[] }): Promise<CancelUpcomingInterviewsResult> {
     const { userId, persistOutboxEvent, softDeleteAccount } = input
 
     const initialRows = await this.repository.listAllUpcomingInterviewsForUser(
@@ -358,6 +383,7 @@ export class PremiumCancellationService {
       }
     }
     const sortedParticipantUnion = Array.from(participantUnion).sort()
+    context.participantUnion = sortedParticipantUnion
 
     await this.repository.lockUsersForUpdate(
       this.queryExecutor,
@@ -435,6 +461,7 @@ export class PremiumCancellationService {
         buildInterviewCancelledEvent({
           interview: toCancelledInterviewEventInput(cancelledRow),
         }),
+        this.queryExecutor,
       )
 
       if (cancelledRow.booking_channel === 'verified_interviewer' && source === 'interviewer') {

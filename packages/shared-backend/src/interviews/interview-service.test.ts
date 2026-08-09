@@ -1193,6 +1193,124 @@ describe('InterviewService', function interviewServiceSuite() {
     })
   })
 
+  it('does not dispatch or publish for an idempotent already_cancelled premium retry', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const publishedEvents: InterviewPostCommitEvent[] = []
+    const dispatchedIdempotencyKeys: string[] = []
+    const premiumCancellationService = {
+      cancelInterview: vi.fn(async () => ({ outcome: 'already_cancelled' })),
+    } as unknown as PremiumCancellationService
+
+    const mockNotificationDispatchService = {
+      async dispatchOutboxEventByIdempotencyKey(idempotencyKey: string): Promise<void> {
+        dispatchedIdempotencyKeys.push(idempotencyKey)
+      },
+    } as unknown as import('../notifications').NotificationDispatchService
+
+    const mockNotificationTransport = {
+      async send(): Promise<void> {},
+    } as unknown as import('../notifications').NotificationTransport
+
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          interviewer_id: '88888888-8888-4888-8888-888888888888',
+          mode: 'peer_to_peer',
+          booking_channel: 'verified_interviewer',
+        }),
+      ],
+      {
+        async publish(event) {
+          publishedEvents.push(event)
+        },
+      },
+      undefined,
+      {
+        async persistOutboxEvent(): Promise<void> {},
+      } as unknown as import('../notifications').NotificationService,
+      mockNotificationDispatchService,
+      mockNotificationTransport,
+      undefined,
+      createDemoRealtimeProvider(),
+      undefined,
+      undefined,
+      premiumCancellationService,
+    )
+
+    const response = await service.cancelInterview(activeSession, { id: interviewId })
+
+    expect(response).toEqual({ success: true })
+    expect(dispatchedIdempotencyKeys).toHaveLength(0)
+    expect(publishedEvents).toHaveLength(0)
+  })
+
+  it('persists the premium cancelled outbox event through the transaction query executor', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const txQueries: import('../index').SqlQuery[] = []
+    const txExecutor = {
+      async query<Row>(queryInput: import('../index').SqlQuery): Promise<{ rows: Row[] }> {
+        txQueries.push(queryInput)
+        return { rows: [] as Row[] }
+      },
+    }
+
+    let capturedPersistOutboxEvent:
+      | ((event: unknown, queryExecutor: unknown) => Promise<void>)
+      | undefined
+    const premiumCancellationService = {
+      cancelInterview: vi.fn(async function cancel(input: {
+        persistOutboxEvent: (event: unknown, queryExecutor: unknown) => Promise<void>
+      }) {
+        capturedPersistOutboxEvent = input.persistOutboxEvent
+        return { outcome: 'cancelled' }
+      }),
+    } as unknown as PremiumCancellationService
+
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          interviewer_id: '88888888-8888-4888-8888-888888888888',
+          mode: 'peer_to_peer',
+          booking_channel: 'verified_interviewer',
+        }),
+      ],
+      undefined,
+      undefined,
+      {
+        async persistOutboxEvent(): Promise<void> {},
+      } as unknown as import('../notifications').NotificationService,
+      undefined,
+      undefined,
+      undefined,
+      createDemoRealtimeProvider(),
+      undefined,
+      undefined,
+      premiumCancellationService,
+    )
+
+    await service.cancelInterview(activeSession, { id: interviewId })
+
+    expect(capturedPersistOutboxEvent).toBeDefined()
+    await capturedPersistOutboxEvent!(
+      { event_type: 'interview.cancelled', idempotency_key: `interview.cancelled:${interviewId}` },
+      txExecutor,
+    )
+
+    const outboxInsert = txQueries.find(function isOutboxInsert(query) {
+      return query.text.includes('INSERT INTO notification_outbox_events')
+    })
+    expect(outboxInsert).toBeDefined()
+    expect(outboxInsert!.values).toContain(`interview.cancelled:${interviewId}`)
+  })
+
   it('prefers notificationDispatchService+transport over legacy postCommitEventPublisher for create and does not double-send', async function run() {
     const dispatchedIdempotencyKeys: string[] = []
     const publishedEvents: InterviewPostCommitEvent[] = []

@@ -1,6 +1,7 @@
 import type { AccountProfile, UpdateAccountProfileInput } from '@mako/shared'
 import { employmentRecordInputSchema } from '@mako/shared'
 import type { PremiumCancellationService } from '../premium'
+import type { SqlQueryExecutor } from '../index'
 import type { DeleteAccountResponse } from './types'
 import { AccountRepository } from './account-repository'
 import {
@@ -29,7 +30,10 @@ export class AccountService {
       async function noopCleanupWorkflow() {},
     private readonly logger: AccountServiceLogger = noOpLogger,
     private readonly premiumCancellationService?: PremiumCancellationService,
-    private readonly persistOutboxEvent?: (event: unknown) => Promise<void>,
+    private readonly persistOutboxEvent?: (
+      event: unknown,
+      queryExecutor: SqlQueryExecutor,
+    ) => Promise<void>,
   ) {}
 
   async getAccount(session: AccountSession | null): Promise<AccountProfile> {

@@ -234,20 +234,27 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
         ? createDatabaseQueryExecutor(context.bindings)
         : undefined
 
-      let notificationService: NotificationService | undefined
       let premiumCancellationService: PremiumCancellationService | undefined
-      let persistOutboxEvent: ((event: unknown) => Promise<void>) | undefined
+      let persistOutboxEvent:
+        | ((event: unknown, queryExecutor: SqlQueryExecutor) => Promise<void>)
+        | undefined
 
       if (queryExecutor) {
-        notificationService = new NotificationService(
-          new NotificationRepository({ queryExecutor }),
-        )
         premiumCancellationService = new PremiumCancellationService(
           new PremiumCancellationRepository(),
           queryExecutor,
         )
-        persistOutboxEvent = async function persistOutboxEvent(event) {
-          await notificationService!.persistOutboxEvent(
+        persistOutboxEvent = async function persistOutboxEvent(
+          event,
+          txQueryExecutor,
+        ) {
+          // Persist the outbox event atomically within the same cancellation
+          // transaction by binding the notification repository to the
+          // transaction's query executor.
+          const txNotificationService = new NotificationService(
+            new NotificationRepository({ queryExecutor: txQueryExecutor }),
+          )
+          await txNotificationService.persistOutboxEvent(
             event as Parameters<NotificationService['persistOutboxEvent']>[0],
           )
         }
