@@ -37,6 +37,96 @@ describe('notification-orchestrator queue handler', function queueHandlerSuite()
     expect(batch.retried).toHaveLength(0)
   })
 
+  it('acks valid interview.premium_booked messages after processing', async function run() {
+    const { worker } = createTestWorker()
+    const batch = createMockBatch([
+      createMockMessage('msg-1', {
+        event_type: 'interview.premium_booked',
+        event_id: '11111111-1111-4111-8111-111111111111',
+        idempotency_key: 'premium-booking:22222222-2222-4222-8222-222222222222',
+        occurred_at: '2026-05-22T10:00:00.000Z',
+        interview: {
+          id: '22222222-2222-4222-8222-222222222222',
+          scheduler_id: '33333333-3333-4333-8333-333333333333',
+          interviewer_id: '44444444-4444-4444-8444-444444444444',
+          type: 'behavioral',
+          mode: 'peer_to_peer',
+          booking_channel: 'verified_interviewer',
+          tier: 'premium',
+          status: 'scheduled',
+          scheduled_at: '2026-05-22T14:00:00.000Z',
+        },
+        participants: {
+          scheduler_user_id: '33333333-3333-4333-8333-333333333333',
+          interviewer_user_id: '44444444-4444-4444-8444-444444444444',
+        },
+      }),
+    ])
+
+    const env = createMockEnv()
+
+    await worker.queue(batch, env)
+
+    expect(batch.acked).toContain('msg-1')
+    expect(batch.retried).toHaveLength(0)
+  })
+
+  it('acks legacy interview.created messages that omit booking_channel by deriving it from mode', async function run() {
+    const { worker, logs } = createTestWorker()
+
+    const batch = createMockBatch([
+      createMockMessage('msg-1', {
+        event_type: 'interview.created',
+        event_id: '11111111-1111-4111-8111-111111111111',
+        idempotency_key: 'interview.created:22222222-2222-4222-8222-222222222222',
+        occurred_at: '2026-05-22T10:00:00.000Z',
+        interview: {
+          id: '22222222-2222-4222-8222-222222222222',
+          scheduler_id: '33333333-3333-4333-8333-333333333333',
+          interviewer_id: null,
+          type: 'system_design',
+          mode: 'ai_led',
+          tier: 'standard',
+          status: 'scheduled',
+          scheduled_at: '2026-05-22T14:00:00.000Z',
+        },
+        participants: {
+          scheduler_user_id: '33333333-3333-4333-8333-333333333333',
+          interviewer_user_id: null,
+        },
+      }),
+      createMockMessage('msg-2', {
+        event_type: 'interview.match.created',
+        event_id: '22222222-2222-4222-8222-222222222222',
+        idempotency_key: 'interview.match.created:44444444-4444-4444-8444-444444444444',
+        occurred_at: '2026-05-22T10:00:00.000Z',
+        interview: {
+          id: '44444444-4444-4444-8444-444444444444',
+          scheduler_id: '55555555-5555-4555-8555-555555555555',
+          interviewer_id: '66666666-6666-4666-8666-666666666666',
+          type: 'behavioral',
+          mode: 'peer_to_peer',
+          tier: 'standard',
+          status: 'scheduled',
+          scheduled_at: '2026-05-22T14:00:00.000Z',
+        },
+        participants: {
+          scheduler_user_id: '55555555-5555-4555-8555-555555555555',
+          interviewer_user_id: '66666666-6666-4666-8666-666666666666',
+        },
+      }),
+    ])
+
+    const env = createMockEnv()
+
+    await worker.queue(batch, env)
+
+    expect(batch.acked).toContain('msg-1')
+    expect(batch.acked).toContain('msg-2')
+    expect(batch.retried).toHaveLength(0)
+    expect(logs.errors).toHaveLength(0)
+  })
+
   it('acks invalid schema messages after structured logging with redacted metadata', async function run() {
     const { worker, logs } = createTestWorker()
 
@@ -460,6 +550,7 @@ describe('notification-orchestrator scheduled handler', function scheduledHandle
         interviewer_id: '33333333-3333-4333-8333-333333333333',
         type: 'behavioral',
         mode: 'peer_to_peer',
+        booking_channel: 'standard_match',
         tier: 'standard',
         status: 'scheduled',
         scheduled_at: '2026-05-22T14:00:00.000Z',

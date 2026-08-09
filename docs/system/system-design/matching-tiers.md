@@ -1,4 +1,4 @@
-The system supports two scheduling channels, with account-level quota/credit policies controlling usage:
+The system supports three scheduling channels, with account-level quota/credit policies controlling usage:
 
 - **Standard (Availability Matching)**: Peer-to-peer matching between users.
     - **Logic**: Users provide availability in 60-minute "slots."
@@ -16,6 +16,12 @@ The system supports two scheduling channels, with account-level quota/credit pol
         - `free_ai_interviews = 0` and `credits > 0` accepts direct create and consumes one credit.
         - `free_ai_interviews = 0` and `credits = 0` rejects direct create.
         - Direct `peer_to_peer` creation and direct `interviewer_id` selection remain unsupported for Milestone 2 create-path behavior.
+
+- **Verified Interviewer (Premium First-to-Claim)**: First-to-claim marketplace of exact 60-minute premium slots published by verified interviewers.
+    - **Creation Path**: Verified interviewers publish exact 60-minute slots as free inventory; schedulers browse a public marketplace and atomically claim one slot.
+    - **Payment**: Claiming a slot pays exactly one credit; there is no free-Standard quota fallback for premium slot claims.
+    - **Channel Discriminator**: `booking_channel = 'verified_interviewer'` is the channel discriminator, while `tier` remains the payment-policy outcome (`'premium'`). `tier` is not a channel value.
+    - **Concurrency**: Deterministic user-row locking (`SELECT ... FOR UPDATE` in UUID order) plus Postgres advisory locks serialize conflict-sensitive writes (publish overlap checks and claim contention); claimed slots never reopen.
 
 - **Account Policy (Free vs Subscribed, quotas, credits)**:
     - Policy determines how many interviews an account can run (for example using `free_standard_interviews`, `free_ai_interviews`, and credit balance).

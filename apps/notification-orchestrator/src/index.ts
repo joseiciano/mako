@@ -11,6 +11,7 @@ import {
   interviewCancelledEventSchema,
   interviewMatchCreatedEventSchema,
   interviewCompletedEventSchema,
+  interviewPremiumBookedEventSchema,
   reminderDueTransportMessageSchema,
 } from '@mako/shared-backend'
 import { createPostgresConnectionPool } from '@mako/shared-backend'
@@ -112,17 +113,19 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
               continue
             }
 
-            if (parsedBody.event_type === 'interview.created') {
-              const event = interviewCreatedEventSchema.parse(parsedBody)
+            const normalizedBody = normalizeInterviewBookingChannel(parsedBody)
+
+            if (normalizedBody.event_type === 'interview.created') {
+              const event = interviewCreatedEventSchema.parse(normalizedBody)
               await consumerService.processInterviewCreated(event)
-            } else if (parsedBody.event_type === 'interview.cancelled') {
-              const event = interviewCancelledEventSchema.parse(parsedBody)
+            } else if (normalizedBody.event_type === 'interview.cancelled') {
+              const event = interviewCancelledEventSchema.parse(normalizedBody)
               await consumerService.processInterviewCancelled(event)
-            } else if (parsedBody.event_type === 'interview.match.created') {
-              const event = interviewMatchCreatedEventSchema.parse(parsedBody)
+            } else if (normalizedBody.event_type === 'interview.match.created') {
+              const event = interviewMatchCreatedEventSchema.parse(normalizedBody)
               await consumerService.processInterviewMatchCreated(event)
-            } else if (parsedBody.event_type === 'interview.completed') {
-              const event = interviewCompletedEventSchema.parse(parsedBody)
+            } else if (normalizedBody.event_type === 'interview.completed') {
+              const event = interviewCompletedEventSchema.parse(normalizedBody)
 
               // Trigger feedback workflow idempotently. createBatch is
               // idempotent, so duplicate interview.completed events are safe.
@@ -147,8 +150,11 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
                 })
               }
 
-            } else if (parsedBody.message_type === 'reminder.due') {
-              const reminderMessage = reminderDueTransportMessageSchema.parse(parsedBody)
+            } else if (normalizedBody.event_type === 'interview.premium_booked') {
+              const event = interviewPremiumBookedEventSchema.parse(normalizedBody)
+              await consumerService.processInterviewPremiumBooked(event)
+            } else if (normalizedBody.message_type === 'reminder.due') {
+              const reminderMessage = reminderDueTransportMessageSchema.parse(normalizedBody)
               await consumerService.processReminderDue(reminderMessage)
             } else {
               consoleLike.error('notification_orchestrator.invalid_message', {
@@ -275,6 +281,40 @@ function parseQueueMessageBody(body: unknown): Record<string, unknown> | null {
     return null
   }
   return body as Record<string, unknown>
+}
+
+// Ingress fallback for legacy events: mixed-fleet producers and already-persisted
+// outbox payloads may omit interview.booking_channel. Derive it from `mode`
+// (ai_led → ai_direct, peer_to_peer → standard_match) so a missing channel
+// never invalidates, acks-without-processing, or drops an event. Retained
+// until old producers that omit booking_channel are drained and all
+// pending/failed legacy outbox/queue payloads are drained or replayed through
+// normalization; the persisted-row parser removed its equivalent fallback after
+// the NOT NULL contraction (Story 7.11).
+function normalizeInterviewBookingChannel(
+  parsedBody: Record<string, unknown>,
+): Record<string, unknown> {
+  const interview = parsedBody.interview
+
+  if (typeof interview !== 'object' || interview === null) {
+    return parsedBody
+  }
+
+  const interviewRecord = interview as Record<string, unknown>
+  const currentBookingChannel = interviewRecord.booking_channel
+
+  if (currentBookingChannel === null || currentBookingChannel === undefined) {
+    return {
+      ...parsedBody,
+      interview: {
+        ...interviewRecord,
+        booking_channel:
+          interviewRecord.mode === 'ai_led' ? 'ai_direct' : 'standard_match',
+      },
+    }
+  }
+
+  return parsedBody
 }
 
 function extractSafeMessageMetadata(body: unknown): Record<string, unknown> {

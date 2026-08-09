@@ -13,13 +13,16 @@
 ## What Needs to Be Done
 
 ### 1. Confirmation trigger behavior
-- [x] On `interview.created` or `interview.match.created`, send confirmation notifications only after successful commit.
+- [x] On `interview.created`, `interview.match.created`, or `interview.premium_booked`, send confirmation notifications only after successful commit.
 - [x] Keep confirmation orchestration out of transaction scope.
+- [x] Gate confirmations with per-effect checkpoints: `interview.created:confirmation`, `interview.match.created:confirmation`, and `interview.premium_booked:confirmation`.
+- [x] `interview.premium_booked` is owned by the Notification Orchestrator Worker and uses the deterministic idempotency key `premium-booking:{interview_id}`.
 
 ### 2. Reminder scheduling behavior
 - [x] Schedule reminder notifications for 30 minutes before `interview.scheduled_at` when `interview.status = 'scheduled'`.
 - [x] If processing-time window is less than 30 minutes before `scheduled_at`, suppress reminder scheduling.
 - [x] If `scheduled_at` is in the past, suppress reminder scheduling.
+- [x] Gate reminder scheduling with per-effect checkpoints: `interview.created:reminder`, `interview.match.created:reminder`, and `interview.premium_booked:reminder`.
 
 ### 3. Timing edge-case rules
 - [x] Treat AI immediate sessions (`scheduled_at` effectively now/near-now) as confirmation-only unless a valid future reminder window exists.
@@ -29,20 +32,25 @@
 - [x] Define recipient behavior by event mode:
   - AI-led created sessions: scheduler participant notification path
   - Matcher-created peer-to-peer sessions: both participants according to `scheduler_id` and `interviewer_id`
+  - Premium first-to-claim sessions (`interview.premium_booked`): both participants according to `scheduler_id` and `interviewer_id`
 - [x] Keep recipient semantics aligned with participant role ownership in:
   - `docs/system/system-design/db-schemas.md`
   - `docs/system/system-design/matching-tiers.md`
 
 ### 5. Workflow validation coverage
 - [x] Add/update tests for:
-  - confirmation on create/match
+  - confirmation on create/match/premium-booked
   - reminder scheduling exactly at valid 30-minute lead windows
   - suppression for late/past windows
   - AI immediate session reminder suppression behavior
   - reminder.due revalidation against current interview state before delivery
   - reminder.due suppression when `scheduled_at` is in the past at delivery time
   - reminder.due suppression when current `scheduled_at` no longer matches the message `reminder_due_at`
+  - cancelled premium booking reminder suppression via the existing `interview.cancelled:suppression` path
 
+### 6. Cancellation suppression
+- [x] On `interview.cancelled`, suppress any pending reminder for the interview via the `interview.cancelled:suppression` checkpoint.
+- [x] This suppression applies to all booking channels including premium verified-interviewer bookings; no separate suppression mechanism is required for `interview.premium_booked`.
 
 ## End Goal
 Create/match confirmations and 30-minute reminders are specified with deterministic timing and recipient rules, including clear suppression behavior for immediate or past-due windows.

@@ -36,10 +36,11 @@
       "credits": 8,
       "freeStandardInterviews": 1,
       "freeAiInterviews": 1,
+      "isVerifiedInterviewer": false,
       "createdAt": "2026-01-01T00:00:00.000Z"
     }
     ```
-  - **Field Mapping**: API response uses camelCase JSON fields mapped from DB columns `name`, `credits`, `free_standard_interviews`, `free_ai_interviews`, `created_at`.
+  - **Field Mapping**: API response uses camelCase JSON fields mapped from DB columns `name`, `credits`, `free_standard_interviews`, `free_ai_interviews`, `created_at`. `isVerifiedInterviewer` is sourced from the authenticated user's `"user".companies` flag (the Story 7.8 eligibility flag); it supports the verified-only frontend navigation gate but is **never** an authorization source for backend premium routes.
   - **Query Params**: None
 
 - **`PATCH /api/account`**
@@ -171,6 +172,7 @@
       - `mode: 'peer_to_peer'`
       - any request containing `interviewer_id`
       - any request containing client-selected `tier`
+    - **Cross-Channel Overlap Rejection**: Direct creation rejects with `InterviewPolicyConflictError` (409) if the requesting user already has a scheduled or ongoing interview whose window overlaps the requested time. This prevents double-booking across booking channels (AI-direct, standard match, and verified-interviewer premium claims). The greedy matcher also skips `scheduling_conflict` availability slots that overlap existing interviews.
   - **Workflow**:
     - **Scheduled Sessions**: After successful validation and policy reservation, persists the interview record. Confirmation/reminder orchestration is not part of the current create-route runtime behavior.
     - **Immediate AI Sessions**: If `mode: 'ai_led'` and `scheduled_at` is set to `'now'`, the interview is created with immediate timing semantics, but realtime/whiteboard provisioning remains join-time via `POST /api/interviews/:id/provision` (not in create-route transaction scope).
@@ -194,6 +196,7 @@
           "type": "system_design",
           "mode": "peer_to_peer",
           "tier": "standard",
+          "booking_channel": "standard_match",
           "status": "scheduled",
           "scheduled_at": "2026-01-01T12:00:00.000Z",
           "created_at": "2026-01-01T00:00:00.000Z",
@@ -261,6 +264,7 @@
         "type": "system_design",
         "mode": "peer_to_peer",
         "tier": "standard",
+        "booking_channel": "standard_match",
         "status": "ongoing",
         "scheduled_at": "2026-04-10T10:30:00.000Z",
         "recording_url": null,
@@ -309,6 +313,7 @@
         "type": "system_design",
         "mode": "peer_to_peer",
         "tier": "standard",
+        "booking_channel": "standard_match",
         "status": "completed",
         "scheduled_at": "2026-04-10T10:30:00.000Z",
         "recording_url": null,
@@ -405,6 +410,7 @@
         "type": "system_design",
         "mode": "peer_to_peer",
         "tier": "standard",
+        "booking_channel": "standard_match",
         "status": "completed",
         "scheduled_at": "2026-01-01T12:00:00.000Z",
         "recording_url": null,
@@ -428,51 +434,62 @@
   - **Participant Scope**: Only the interview scheduler or interviewer can access this route. Non-participants receive a 404.
   - **Query Params**: None
 
-- **`POST /api/interviews/:id/recording-consent`**
-  - **Description**: Sets the authenticated participant's recording consent decision for an interview.
-  - **Request Body**: `{ decision: 'consented' | 'declined', consent_copy_version: string }`
-  - **Response Body**:
-    ```json
-    {
-      "interview_id": "uuid",
-      "user_id": "uuid",
-      "decision": "consented",
-      "consent_copy_version": "v1",
-      "recording_status": "not_started",
-      "revoked_at": null
-    }
-    ```
-  - **Behavior Rules**:
-    - Route is participant-only; unauthenticated requests receive 401; non-participants receive 404.
-    - Consent can only be set while `recording_status` is `not_started` and the interview is `scheduled` or `ongoing`; otherwise 409.
-    - Idempotent: re-submitting the same decision and consent copy version returns the existing record.
-  - **Query Params**: None
+### Premium Scheduling (Milestone 7)
 
-- **`DELETE /api/interviews/:id/recording-consent`**
-  - **Description**: Revokes the authenticated participant's recording consent for an interview.
-  - **Request Body**: None
-  - **Response Body**: Same shape as `POST /api/interviews/:id/recording-consent`.
-  - **Behavior Rules**:
-    - Route is participant-only; unauthenticated requests receive 401; non-participants receive 404.
-    - Consent can only be revoked while `recording_status` is `not_started`; otherwise 409.
-    - Returns the revoked consent record with the original decision.
-  - **Query Params**: None
+First-to-claim premium marketplace for verified-interviewer slots. These routes and their exact schemas/envelopes are locked by Story 7.11; implementation is owned by Story 7.12 (publish/list/cancel), Story 7.14 (cancellation/refunds), and Story 7.15 (discovery/claim). `POST /api/interviews` stays AI-only and never creates a premium booking; all interview responses (list, detail, start/end) carry a `booking_channel` field, and every premium-created interview has `booking_channel = 'verified_interviewer'` with `tier = 'premium'`. Error responses use the existing shared `{ error: string }` shape on all premium routes.
 
-- **`POST /api/interviews/:id/artifacts/screenshots`**
-  - **Description**: Uploads a screenshot artifact for an ongoing interview.
-  - **Request Body**: Raw binary PNG image data (not JSON, not base64).
-  - **Required Headers**:
-    - `Content-Type: image/png` — must be exactly `image/png`.
-    - `X-Idempotency-Key` — UUID for idempotent retry handling.
-    - `X-Capture-Timestamp` — ISO 8601 datetime with offset (e.g., `2026-04-13T10:00:00.000Z`).
-  - **Response Body**: `{ "capture_id": "uuid" }`
-  - **Behavior Rules**:
-    - Route is participant-only; unauthenticated requests receive 401; non-participants receive 404.
-    - Screenshots can only be uploaded while the interview is `ongoing` and not yet finalized; otherwise 409.
-    - `Content-Type` must be `image/png`; the request body must contain valid PNG magic bytes.
-    - Maximum screenshot size is 5MB; maximum 10 screenshots per interview.
-    - Idempotent: retried uploads with the same `X-Idempotency-Key` return the original `capture_id`.
-  - **Query Params**: None
+Shared premium contracts: `BookingChannel = 'ai_direct' | 'standard_match' | 'verified_interviewer'`; `PremiumSlotStatus = 'available' | 'claimed' | 'cancelled'`; `PremiumInterviewerSlot = { id: UUID, interviewerId: UUID, interviewType: 'system_design' | 'coding' | 'behavioral', startTime: ISO-8601, endTime: ISO-8601, status: PremiumSlotStatus, createdAt: ISO-8601, updatedAt: ISO-8601 }`; `PremiumPolicyMetadata = { leadTimeMinutes: positive integer, horizonDays: positive integer, priceCredits: 1 }` — `priceCredits` is the literal `1` and is not configurable in this milestone.
+
+- **`POST /api/premium/interviewer/slots`**
+  - **Description**: Publishes a new exact 60-minute premium slot as free inventory for the public marketplace. Owned by Story 7.12.
+  - **Request Body**: `{ interviewType: 'system_design' | 'coding' | 'behavioral', startTime: ISO-8601 }`; the server derives the exact 60-minute window — clients never submit `endTime`, `status`, or `interviewerId`.
+  - **Response Body**: Exactly `{ slot: PremiumInterviewerSlot }` with `201`.
+  - **Query Params**: None.
+  - **Status Codes**: `201` success; `400` invalid body, interview type, or time window; `401` unauthenticated; `403` authenticated inactive/deleted (`{ error: 'ACCOUNT_INACTIVE' }`) or non-eligible interviewer; `409` overlap with an existing active slot or conflict with an existing interview (`listInterviewConflicts`).
+  - **Cache-Control**: `private, no-store`.
+
+- **`GET /api/premium/interviewer/slots`**
+  - **Description**: Owner-list of the authenticated interviewer's published slots. Owned by Story 7.12.
+  - **Request Body**: None.
+  - **Response Body**: Exactly `{ slots: PremiumInterviewerSlot[], pagination: { limit, offset, hasMore }, policy: PremiumPolicyMetadata }`.
+  - **Query Params**: `status?: 'available' | 'claimed' | 'cancelled'`, `interviewType?: 'system_design' | 'coding' | 'behavioral'`, `limit?: number` (default 25, max 100), `offset?: number` (default 0). `limit` must be a positive integer in `[1, 100]`; `offset` a non-negative integer. Malformed, fractional, non-numeric, or out-of-range values return `400`.
+  - **Ordering**: deterministic `start_time ASC, id ASC` via the `(interviewer_id, start_time, id)` owner index.
+  - **Status Codes**: `200`; `401` unauthenticated; `403` authenticated inactive/deleted (`{ error: 'ACCOUNT_INACTIVE' }`) or non-eligible interviewer.
+  - **Cache-Control**: `private, no-store`.
+
+- **`DELETE /api/premium/interviewer/slots/:id`**
+  - **Description**: Cancels an available slot. Initial cancellation and already-cancelled idempotent retries both return `200 { success: true }`. Owned by Story 7.12.
+  - **Request Body**: None.
+  - **Response Body**: Exactly `{ success: true }`.
+  - **Query Params**: None.
+  - **Status Codes**: `200`; `401` unauthenticated; `403` authenticated inactive/deleted (`{ error: 'ACCOUNT_INACTIVE' }`) or non-eligible interviewer; `404` unknown/non-owner slot without leaking existence; `409` slot already claimed.
+  - **Cache-Control**: `private, no-store`.
+
+- **`GET /api/premium/marketplace`**
+  - **Description**: Public discovery of available premium slots. Unauthenticated/public. Owned by Story 7.15. The exact route is `GET /api/premium/marketplace` (no `/slots` suffix); `GET /api/premium/marketplace/slots` is **not** a listing route and returns `404`.
+  - **Request Body**: None.
+  - **Response Body**: Exactly `{ slots: PremiumMarketplaceSlot[], pagination: { limit, offset, hasMore }, policy: PremiumPolicyMetadata }`. `PremiumMarketplaceSlot` exposes only the safe public fields `slotId`, `interviewType`, `startTime`, `endTime`, and `interviewer: { displayName, image: string | null, isVerified: true }` — no application/employment/history/reviewer/contact/company-role fields.
+  - **Query Params**: `interviewType?: 'system_design' | 'coding' | 'behavioral'`, `limit?: number` (default 25, max 100), `offset?: number` (default 0). Same exact integer validation as the owner list.
+  - **Ordering**: deterministic `start_time ASC, id ASC` via the `(status, start_time, id)` marketplace index.
+  - **Status Codes**: `200`; `400` invalid query parameters (`{ error: string }`); rate-limited requests receive `429 { error: 'RATE_LIMITED' }`.
+  - **Cache-Control**: `no-store`.
+
+- **`POST /api/premium/marketplace/slots/:id/claim`**
+  - **Description**: Atomically claims an available premium slot, deducting exactly one scheduler credit and creating the interview in one transaction. Owned by Story 7.15.
+  - **Request Headers**: `Idempotency-Key: <UUID>` (required).
+  - **Request Body**: None.
+  - **Response Body**: Exactly `{ interview: InterviewDetail }` — the credential-safe interview detail schema excluding provision-only `realtime_session_id`, `excalidraw_room_id`, and `excalidraw_key` fields, matching the existing `GET /api/interviews/:id` / start / end detail contract.
+  - **Query Params**: None.
+  - **Status Codes**:
+    - `201` initial claim with the created interview.
+    - `200` same-key replay returning the same existing interview, only when the scheduler account is verified active (the replay locks the scheduler `"user"` row and verifies the account before returning).
+    - `400` missing/invalid `Idempotency-Key` **or** a route `:id` that is not a well-formed UUID (`{ error: string }`).
+    - `401` unauthenticated.
+    - `403` self-claim (scheduler claims own slot) or authenticated inactive/deleted (`{ error: 'ACCOUNT_INACTIVE' }`, including on same-key replay).
+    - `404` unknown/cancelled slot.
+    - `409` with exact machine-readable literals: `PREMIUM_SLOT_ALREADY_CLAIMED`, `PREMIUM_SCHEDULING_CONFLICT`, `PREMIUM_INTERVIEWER_INELIGIBLE`, `INSUFFICIENT_CREDITS`, or `IDEMPOTENCY_KEY_CONFLICT`. These conditions are disjoint so clients do not treat every conflict as lost inventory.
+  - **Cancellation/Refund Semantics**: Scheduler-initiated cancellation or scheduler account deletion consumes the paid credit with no refund and no `premium_booking_credit_refunds` row; interviewer cancellation or interviewer account deletion refunds exactly one scheduler credit with exactly one `premium_booking_credit_refunds` row. Claimed slots never reopen.
+  - **Cache-Control**: `private, no-store`.
 
 ### Availability
 - **`POST /api/availability`**

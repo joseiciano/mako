@@ -18,6 +18,12 @@ import {
   type MatchAttemptWriteResult,
 } from './types'
 
+import {
+  computeInterviewEndTime,
+  findInterviewOverlap,
+  findPremiumSlotOverlap,
+} from '../premium/premium-overlap-helper'
+
 export type MatcherQueryResult<Row> = {
   rows: Row[]
 }
@@ -258,6 +264,33 @@ export class MatcherRepository {
         return { status: 'skipped', reason: 'insufficient_credits' }
       }
 
+      const overlapStartTime = scheduledAt
+      const overlapEndTime = computeInterviewEndTime(overlapStartTime)
+
+      for (const payment of [{ userId: userPolicies.userA.userId }, { userId: userPolicies.userB.userId }]) {
+        const interviewOverlap = await findInterviewOverlap(
+          queryExecutor,
+          payment.userId,
+          overlapStartTime,
+          overlapEndTime,
+        )
+        if (interviewOverlap) {
+          await this.queryExecutor.query(createSqlQuery('COMMIT;'))
+          return { status: 'skipped', reason: 'scheduling_conflict' }
+        }
+
+        const premiumSlotOverlap = await findPremiumSlotOverlap(
+          queryExecutor,
+          payment.userId,
+          overlapStartTime,
+          overlapEndTime,
+        )
+        if (premiumSlotOverlap) {
+          await this.queryExecutor.query(createSqlQuery('COMMIT;'))
+          return { status: 'skipped', reason: 'scheduling_conflict' }
+        }
+      }
+
       let paymentResolution: PeerToPeerPaymentResolution
       try {
         paymentResolution = this.tierPolicyService.resolvePeerToPeerPayments(
@@ -285,6 +318,7 @@ export class MatcherRepository {
         interviewer_id: roleAssignment.interviewerId,
         type: roleAssignment.interviewType,
         mode: 'peer_to_peer',
+        booking_channel: 'standard_match',
         tier: resolvedTier,
         status: 'scheduled',
         scheduled_at: scheduledAt,
@@ -305,9 +339,10 @@ export class MatcherRepository {
               status,
               scheduled_at,
               created_at,
-              updated_at
+              updated_at,
+              booking_channel
             )
-            VALUES ($1, $2, $3, $4, $5, $6, 'peer_to_peer', $7, 'scheduled', $8, $9, $9);
+            VALUES ($1, $2, $3, $4, $5, $6, 'peer_to_peer', $7, 'scheduled', $8, $9, $9, 'standard_match');
           `,
           [
             interviewId,

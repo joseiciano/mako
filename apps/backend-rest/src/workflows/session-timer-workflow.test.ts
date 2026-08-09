@@ -418,6 +418,7 @@ function createAlreadyCompletedDbBinding(interviewId: string) {
     interviewer_alias: 'Interviewer',
     type: 'system_design',
     mode: 'ai_led',
+    booking_channel: 'ai_direct',
     tier: 'standard',
     status: 'completed',
     scheduled_at: '2026-07-09T10:00:00.000Z',

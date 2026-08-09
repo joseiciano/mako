@@ -11,9 +11,12 @@ export {
   parseAvailabilityRequestRow,
   parseAvailabilitySlotRow,
   parseInterviewerApplicationRow,
+  parsePremiumInterviewerSlotRow,
   parseUserCompanyRow,
   parseUserRow,
   persistedEmploymentSnapshotEntrySchema,
+  premiumInterviewerSlotRowSchema,
+  premiumInterviewerSlotStatusSchema,
   userCompanyRowSchema,
   userRowSchema,
   type AvailabilityRequestStatus,
@@ -24,6 +27,8 @@ export {
   type InterviewerApplicationRow,
   type InterviewerApplicationStatus,
   type PersistedEmploymentSnapshotEntry,
+  type PremiumInterviewerSlotRow,
+  type PremiumInterviewerSlotStatus,
   type UserCompanyRow,
   type UserRow,
 } from './database/foundation-schemas'
@@ -46,15 +51,20 @@ export * from './credit'
 export * from './tier-policy'
 export * from './payment'
 export * from './interview-assets'
+export * from './premium'
 export {
   interviewCreatedEventSchema,
   interviewCancelledEventSchema,
   interviewCompletedEventSchema,
   interviewMatchCreatedEventSchema,
+  interviewPremiumBookedEventSchema,
+  buildInterviewPremiumBookedEvent,
+  buildInterviewPremiumBookedIdempotencyKey,
   type InterviewCreatedEvent,
   type InterviewCancelledEvent,
   type InterviewCompletedEvent,
   type InterviewMatchCreatedEvent,
+  type InterviewPremiumBookedEvent,
   type NotificationQueueEvent,
   type NotificationQueueEventPublisher,
   type NotificationQueueTransport,

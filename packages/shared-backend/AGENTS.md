@@ -20,3 +20,7 @@ The `src/interview-assets` module is the canonical abstraction for R2 artifact s
 - 30-day R2 lifecycle expiration on all artifact buckets
 
 Future stories (5.16/5.17) that need artifact retrieval or new upload endpoints should reuse this module rather than writing ad-hoc R2 code.
+
+## Booking Channel Scripts
+
+`scripts/backfill-booking-channel.mjs` and `scripts/check-booking-channel-readiness.mjs` require a `DATABASE_URL` environment variable. See `migrations/AGENTS.md` for the full three-step deployment workflow.

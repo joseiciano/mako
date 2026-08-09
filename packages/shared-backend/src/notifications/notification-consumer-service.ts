@@ -2,6 +2,7 @@ import type {
   InterviewCancelledEvent,
   InterviewCreatedEvent,
   InterviewMatchCreatedEvent,
+  InterviewPremiumBookedEvent,
 } from '../notification-queue-event-contract'
 import type { ReminderDueTransportMessage } from './notification-transport-message'
 import type { NotificationService } from './notification-service'
@@ -158,6 +159,67 @@ export class NotificationConsumerService {
     if (!interviewState || interviewState.status !== 'scheduled') {
       await this.logger.warn('notification.consumer.reminder_suppressed', {
         event_type: 'interview.match.created',
+        interview_id: event.interview.id,
+        interview_status: interviewState?.status ?? 'not_found',
+        reason: 'interview_not_scheduled',
+      })
+      await this.notificationService.recordCheckpoint(event.idempotency_key, reminderKey)
+      return
+    }
+
+    await this.notificationService.createReminderSchedule({
+      interviewId: event.interview.id,
+      idempotencyKey: event.idempotency_key,
+      reminderDueAt: new Date(reminderDueAt).toISOString(),
+    })
+    await this.notificationService.recordCheckpoint(event.idempotency_key, reminderKey)
+  }
+
+  async processInterviewPremiumBooked(event: InterviewPremiumBookedEvent): Promise<void> {
+    const confirmationKey = 'interview.premium_booked:confirmation'
+    const reminderKey = 'interview.premium_booked:reminder'
+
+    const confirmationAlreadyExisted = await this.notificationService.hasCheckpoint(
+      event.idempotency_key,
+      confirmationKey,
+    )
+    if (!confirmationAlreadyExisted) {
+      const recipientUserIds = [event.interview.scheduler_id]
+      if (event.interview.interviewer_id) {
+        recipientUserIds.push(event.interview.interviewer_id)
+      }
+      await this.deliveryPort.send({
+        kind: 'confirmation',
+        interviewId: event.interview.id,
+        scheduledAt: event.interview.scheduled_at,
+        recipientUserIds,
+        idempotencyKey: `${event.idempotency_key}/confirmation`,
+      })
+      await this.notificationService.recordCheckpoint(event.idempotency_key, confirmationKey)
+    }
+
+    if (await this.notificationService.hasCheckpoint(event.idempotency_key, reminderKey)) {
+      await this.logger.warn('notification.consumer.dedupe', {
+        event_type: 'interview.premium_booked',
+        interview_id: event.interview.id,
+        checkpoint: reminderKey,
+      })
+      return
+    }
+
+    const scheduledAt = new Date(event.interview.scheduled_at).getTime()
+    const now = new Date(this.now()).getTime()
+    const reminderDueAt = scheduledAt - THIRTY_MINUTES_MS
+
+    if (reminderDueAt < now) {
+      await this.notificationService.recordCheckpoint(event.idempotency_key, reminderKey)
+      return
+    }
+
+    const interviewState = await this.notificationService.getInterviewState(event.interview.id)
+    if (!interviewState || interviewState.status !== 'scheduled') {
+      await this.logger.warn('notification.consumer.reminder_suppressed', {
+        event_type: 'interview.premium_booked',
         interview_id: event.interview.id,
         interview_status: interviewState?.status ?? 'not_found',
         reason: 'interview_not_scheduled',

@@ -3,6 +3,7 @@ import type {
   InterviewCancelledEvent,
   InterviewCreatedEvent,
   InterviewMatchCreatedEvent,
+  InterviewPremiumBookedEvent,
 } from '../notification-queue-event-contract'
 
 export const reminderDueTransportMessageSchema = z.object({
@@ -19,6 +20,7 @@ export type NotificationTransportMessage =
   | InterviewCreatedEvent
   | InterviewCancelledEvent
   | InterviewMatchCreatedEvent
+  | InterviewPremiumBookedEvent
   | ReminderDueTransportMessage
 
 export type NotificationTransport = {

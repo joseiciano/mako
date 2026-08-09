@@ -21,6 +21,16 @@ import {
   InterviewerApplicationRepository,
   InterviewerApplicationService,
   PaymentService,
+  PremiumAvailabilityRepository,
+  PremiumAvailabilityService,
+  type PremiumAvailabilityServiceLogger,
+  PremiumCancellationRepository,
+  PremiumCancellationService,
+  PremiumClaimRepository,
+  PremiumClaimService,
+  PremiumMarketplaceRepository,
+  PremiumMarketplaceService,
+  type PremiumMarketplaceLogger,
   backendRuntime,
   createAiGatewayResponder,
   createInMemoryAvailabilityDataSource,
@@ -31,6 +41,7 @@ import {
   createRealtimeKitProvider,
   createHeaderSessionResolver,
   createStripeClient,
+  defaultPremiumPolicyConfig,
   getAccountSessionFromAuthContext,
   isAuthConfigured,
   listParticipantInterviewsInputSchema,
@@ -45,6 +56,9 @@ import {
   registerInterviewController,
   registerInterviewerApplicationController,
   registerPaymentController,
+  registerPremiumAvailabilityController,
+  registerPremiumClaimController,
+  registerPremiumMarketplaceController,
   createInterviewQueuePostCommitEventPublisher,
   createWorkflowTimerOrchestration,
   NotificationRepository,
@@ -68,6 +82,7 @@ import {
   type LifecycleInterviewRecordResult,
   type ProvisionInterviewRecordInput,
   type ProvisionInterviewRecordResult,
+  type RateLimiter,
   type RealtimeProvider,
   type SqlQuery,
   type SqlQueryExecutor,
@@ -103,6 +118,7 @@ export type WorkerBindings = {
   SESSION_TIMER_WORKFLOW?: Workflow
   STRIPE_SECRET_KEY?: string
   STRIPE_WEBHOOK_SECRET?: string
+  PREMIUM_MARKETPLACE_RATE_LIMITER?: RateLimiter
 }
 
 const demoSession = {
@@ -118,6 +134,7 @@ const seededDemoAccounts: readonly AccountProfileRecord[] = [
     credits: 8,
     freeStandardInterviews: 1,
     freeAiInterviews: 1,
+    isVerifiedInterviewer: false,
     createdAt: new Date('2026-01-01T00:00:00.000Z').toISOString(),
   },
 ]
@@ -168,6 +185,18 @@ const consoleInterviewerApplicationServiceLogger: InterviewerApplicationServiceL
   },
 }
 
+const consolePremiumAvailabilityLogger: PremiumAvailabilityServiceLogger = {
+  info(event, context) {
+    console.info({ event, component: 'PremiumAvailabilityService', ...context })
+  },
+}
+
+const consolePremiumMarketplaceLogger: PremiumMarketplaceLogger = {
+  info(event, context) {
+    console.info({ event, component: 'PremiumMarketplace', ...context })
+  },
+}
+
 export function createApp(): Hono<{ Bindings: WorkerBindings }> {
   const app = new Hono<{ Bindings: WorkerBindings }>()
   const demoDataSources = createDemoDataSources(seededDemoAccounts)
@@ -201,10 +230,33 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
 
   registerAccountController(app, {
     createService: function createService(context) {
+      const queryExecutor = hasDatabaseAccess(context.bindings)
+        ? createDatabaseQueryExecutor(context.bindings)
+        : undefined
+
+      let notificationService: NotificationService | undefined
+      let premiumCancellationService: PremiumCancellationService | undefined
+      let persistOutboxEvent: ((event: unknown) => Promise<void>) | undefined
+
+      if (queryExecutor) {
+        notificationService = new NotificationService(
+          new NotificationRepository({ queryExecutor }),
+        )
+        premiumCancellationService = new PremiumCancellationService(
+          new PremiumCancellationRepository(),
+          queryExecutor,
+        )
+        persistOutboxEvent = async function persistOutboxEvent(event) {
+          await notificationService!.persistOutboxEvent(
+            event as Parameters<NotificationService['persistOutboxEvent']>[0],
+          )
+        }
+      }
+
       return new AccountService(
         new AccountRepository(
           hasDatabaseAccess(context.bindings)
-            ? { queryExecutor: createDatabaseQueryExecutor(context.bindings) }
+            ? { queryExecutor }
             : {
                 dataSource: demoDataSources.account,
                 queryExecutor: createDatabaseQueryExecutor(context.bindings),
@@ -212,6 +264,8 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
         ),
         async function noopCleanupWorkflow() {},
         consoleAccountServiceLogger,
+        premiumCancellationService,
+        persistOutboxEvent,
       )
     },
     resolveSession: function resolveSession(context) {
@@ -266,6 +320,13 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
         ? createWorkflowTimerOrchestration(context.bindings.SESSION_TIMER_WORKFLOW)
         : undefined
 
+      const premiumCancellationService = queryExecutor
+        ? new PremiumCancellationService(
+            new PremiumCancellationRepository(),
+            queryExecutor,
+          )
+        : undefined
+
       return new InterviewService(
         repository,
         undefined,
@@ -279,6 +340,7 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
         realtimeProvider,
         timerOrchestration,
         new AiChatRepository(createWorkerAiChatResponder(context.bindings)),
+        premiumCancellationService,
       )
     },
     createConsentService: function createConsentService(context) {
@@ -389,6 +451,63 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
     },
     resolveSession: function resolveSession(context) {
       return resolveAppSession(context, demoSessionResolver)
+    },
+  })
+
+  registerPremiumAvailabilityController(app, {
+    createService: function createService(context) {
+      const queryExecutor = createDatabaseQueryExecutor(context.bindings)
+      return new PremiumAvailabilityService(
+        new PremiumAvailabilityRepository(),
+        defaultPremiumPolicyConfig,
+        queryExecutor,
+        undefined,
+        undefined,
+        consolePremiumAvailabilityLogger,
+      )
+    },
+    resolveSession: function resolveSession(context) {
+      return resolveAppSession(context, demoSessionResolver)
+    },
+  })
+
+  registerPremiumMarketplaceController(app, {
+    createService: function createService(context) {
+      const queryExecutor = createDatabaseQueryExecutor(context.bindings)
+      return new PremiumMarketplaceService(
+        new PremiumMarketplaceRepository(),
+        defaultPremiumPolicyConfig,
+        queryExecutor,
+      )
+    },
+    rateLimiter: function rateLimiter(context) {
+      return context.bindings.PREMIUM_MARKETPLACE_RATE_LIMITER
+    },
+    logger: consolePremiumMarketplaceLogger,
+  })
+
+  registerPremiumClaimController(app, {
+    createService: function createService(context) {
+      const queryExecutor = createDatabaseQueryExecutor(context.bindings)
+      return new PremiumClaimService(
+        new PremiumClaimRepository(),
+        new CreditRepository(queryExecutor),
+        defaultPremiumPolicyConfig,
+        queryExecutor,
+      )
+    },
+    resolveSession: function resolveSession(context) {
+      return resolveAppSession(context, demoSessionResolver)
+    },
+    createPersistOutboxEvent: function createPersistOutboxEvent(context, queryExecutor) {
+      const notificationService = new NotificationService(
+        new NotificationRepository({ queryExecutor }),
+      )
+      return async function persistOutboxEvent(event) {
+        await notificationService.persistOutboxEvent(
+          event as Parameters<NotificationService['persistOutboxEvent']>[0],
+        )
+      }
     },
   })
 
@@ -562,6 +681,7 @@ function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {
         const interview = mergeDetailProcessingState(
           parseInterview({
             ...input,
+            booking_channel: 'ai_direct',
             realtime_session_id: null,
             excalidraw_room_id: null,
             excalidraw_key: null,

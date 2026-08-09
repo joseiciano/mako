@@ -13,8 +13,14 @@ This document goes over all the tools we will be using for our backend services
 - **Feedback Workflow (InterviewFeedbackWorkflow)**: A dedicated Cloudflare Workflow for post-interview feedback processing that runs in the notification-orchestrator Worker alongside the existing `InterviewLifecycleWorkflow`. It is triggered idempotently from `interview.completed` queue events with a deterministic instance ID `feedback-v1-{interview_id}`, so duplicate events never spawn duplicate feedback runs. It is provisioned for future transcription/analysis steps (Stories 5.16/5.17); the Workers AI binding is configured but not yet invoked; the AI Gateway will be wired in a future story.
 - **Cloudflare Queues**: We use Queues for post-commit hand-off between workers (for example: matcher/API emitted orchestration events consumed by downstream notification/orchestration workers). Realtime session provisioning remains join-time route behavior (`POST /api/interviews/:id/provision`) rather than queue-triggered behavior. [Docs](https://developers.cloudflare.com/queues/)
 - **Cron Triggers (Workers Schedules)**: We use cron-triggered workers for background scheduling jobs (for example: the Greedy Matcher worker). [Docs](https://developers.cloudflare.com/workers/configuration/cron-triggers/)
-- **Notification Orchestrator Worker**: A dedicated queue consumer worker that processes `interview.created`, `interview.cancelled`, `interview.match.created`, `interview.completed`, and `reminder.due` events with durable idempotency via Postgres-backed checkpoints. It also runs on a scheduled cron to dispatch pending outbox events and enqueue due reminders.
-- **Durable Outbox Pattern**: Interview lifecycle events are persisted to a `notification_outbox_events` table within the same database transaction as the source write (interview create/cancel/match). A separate dispatch step (post-commit or scheduled sweep) publishes these events to the queue, ensuring committed events are never silently lost even if the queue is temporarily unavailable.
+- **Durable Outbox Pattern**: Interview lifecycle events are persisted to a `notification_outbox_events` table within the same database transaction as the source write (interview create/cancel/match/completed/premium-booked). A separate dispatch step (post-commit or scheduled sweep) publishes these events to the queue, ensuring committed events are never silently lost even if the queue is temporarily unavailable.
+- **Notification Orchestrator Worker**: A dedicated queue consumer worker that processes `interview.created`, `interview.cancelled`, `interview.match.created`, `interview.completed`, `interview.premium_booked`, and `reminder.due` events with durable idempotency via Postgres-backed checkpoints. It also runs on a scheduled cron to dispatch pending outbox events and enqueue due reminders. Per-effect checkpoints:
+  - `interview.created` — `interview.created:confirmation` and `interview.created:reminder`
+  - `interview.match.created` — `interview.match.created:confirmation` and `interview.match.created:reminder`
+  - `interview.premium_booked` — `interview.premium_booked:confirmation` (to both participants) and `interview.premium_booked:reminder` (30-minute lead before `scheduled_at`, only when `status = 'scheduled'`)
+  - `interview.cancelled` — `interview.cancelled:suppression` (applies to all booking channels including premium verified-interviewer bookings)
+  - `reminder.due` — `reminder.due:{idempotency_key}`
+  The `interview.premium_booked` outbox event uses the deterministic idempotency key `premium-booking:{interview_id}`.
 - **Cloudflare R2**: These will save the recording/any screenshots we take. [Docs](https://developers.cloudflare.com/api/resources/r2/)
   - **Bucket bindings**: `RECORDINGS_BUCKET` (bucket: `mako-recordings`) and `SCREENSHOTS_BUCKET` (bucket: `mako-screenshots`).
   - Both buckets are configured in `wrangler.jsonc` for both `apps/backend-rest` and `apps/notification-orchestrator`.
@@ -54,6 +60,14 @@ The backend worker reads the following secrets from Cloudflare Workers bindings 
 **Local development**: add both values to `apps/backend-rest/.dev.vars`.
 
 **Webhook endpoint**: register `https://api.mako.example.com/api/payments/webhook` in the Stripe Dashboard. For local testing, use the Stripe CLI to forward events (see `docs/system/local-testing.md`).
+
+### Rate Limiters
+
+Cloudflare Rate Limiting bindings configured in `apps/backend-rest/wrangler.jsonc` under `ratelimits`.
+
+| Binding | Limit | Period (seconds) | Used by |
+|---|---|---|---|
+| `PREMIUM_MARKETPLACE_RATE_LIMITER` | 60 | 60 | `GET /api/premium/marketplace` public listing (Story 7.15). Requests over the limit receive `429 { error: 'RATE_LIMITED' }`. The limiter key is the raw `CF-Connecting-IP` plus a route key; the raw IP is **never** written to logs. When the binding is missing or the limiter rejects, the route passes through and emits a PII-safe `premium.marketplace.rate_limiter_fallback` log containing only a derived location hash, route key, and outcome. |
 
 ### AI Gateway
 

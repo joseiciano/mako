@@ -7,6 +7,7 @@ export const accountProfileSchema = z.object({
   credits: z.number().int().nonnegative(),
   freeStandardInterviews: z.number().int().nonnegative(),
   freeAiInterviews: z.number().int().nonnegative(),
+  isVerifiedInterviewer: z.boolean(),
   createdAt: z.string().datetime(),
 })
 

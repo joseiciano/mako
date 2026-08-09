@@ -14,6 +14,14 @@ const interviewTypeSchema = z.enum([
 
 const interviewModeSchema = z.enum(['peer_to_peer', 'ai_led'])
 
+export const bookingChannelSchema = z.enum([
+  'ai_direct',
+  'standard_match',
+  'verified_interviewer',
+])
+
+export type BookingChannel = z.infer<typeof bookingChannelSchema>
+
 const interviewTierSchema = z.enum(['standard', 'premium'])
 
 const interviewStatusSchema = z.enum([
@@ -29,6 +37,7 @@ export const queueEventInterviewSchema = z.object({
   interviewer_id: z.string().uuid().nullable(),
   type: interviewTypeSchema,
   mode: interviewModeSchema,
+  booking_channel: bookingChannelSchema,
   tier: interviewTierSchema,
   status: interviewStatusSchema,
   scheduled_at: z.string().datetime({ offset: true }),
@@ -56,6 +65,7 @@ export const matchedQueueEventInterviewSchema = z.object({
   interviewer_id: z.string().uuid(),
   type: interviewTypeSchema,
   mode: z.literal('peer_to_peer'),
+  booking_channel: z.literal('standard_match'),
   tier: interviewTierSchema,
   status: z.literal('scheduled'),
   scheduled_at: z.string().datetime({ offset: true }),
@@ -74,6 +84,11 @@ export const matchedQueueEventParticipantsSchema = z.object({
   scheduler_user_id: z.string().uuid(),
   interviewer_user_id: z.string().uuid(),
 })
+
+export const premiumBookedQueueEventInterviewSchema =
+  matchedQueueEventInterviewSchema.extend({
+    booking_channel: z.literal('verified_interviewer'),
+  })
 
 const peerToPeerCancelledQueueEventParticipantsSchema = z.object({
   scheduler_user_id: z.string().uuid(),
@@ -181,11 +196,28 @@ export type InterviewCompletedEvent = z.infer<
   typeof interviewCompletedEventSchema
 >
 
+export const interviewPremiumBookedEventSchema =
+  createParticipantMirrorRefinement(
+    z.object({
+      event_type: z.literal('interview.premium_booked'),
+      event_id: z.string().uuid(),
+      idempotency_key: z.string().min(1),
+      occurred_at: eventTimestampSchema,
+      interview: premiumBookedQueueEventInterviewSchema,
+      participants: matchedQueueEventParticipantsSchema,
+    }),
+  )
+
+export type InterviewPremiumBookedEvent = z.infer<
+  typeof interviewPremiumBookedEventSchema
+>
+
 export type NotificationQueueEvent =
   | InterviewCreatedEvent
   | InterviewCancelledEvent
   | InterviewMatchCreatedEvent
   | InterviewCompletedEvent
+  | InterviewPremiumBookedEvent
 
 export type NotificationQueueEventPublisher = {
   publish(event: NotificationQueueEvent): Promise<void>
@@ -200,15 +232,39 @@ type BuildEventDependencies = {
   now?: () => string
 }
 
+// Ingress fallback for legacy events: already-persisted outbox payloads and
+// older producers may omit interview.booking_channel. Derive it deterministically
+// from `mode` so the normalized canonical event always carries a non-null channel.
+// This fallback is retained until old producers that omit booking_channel are
+// drained and all pending/failed legacy outbox/queue payloads are drained or
+// replayed through normalization. The persisted-row parser removed its equivalent
+// fallback after the NOT NULL contraction (Story 7.11); persisted rows must
+// always carry an explicit booking_channel and never rely on derivation.
+type QueueEventInterviewBuilderInput = Omit<
+  z.input<typeof queueEventInterviewSchema>,
+  'booking_channel'
+> & {
+  booking_channel?: BookingChannel | null
+}
+
+type MatchedQueueEventInterviewBuilderInput = Omit<
+  z.input<typeof matchedQueueEventInterviewSchema>,
+  'booking_channel'
+> & {
+  booking_channel?: BookingChannel | null
+}
+
 export function buildInterviewCreatedEvent(
   input: {
-    interview: z.input<typeof queueEventInterviewSchema>
+    interview: QueueEventInterviewBuilderInput
   },
   dependencies: BuildEventDependencies = {},
 ): InterviewCreatedEvent {
   const createEventId = dependencies.createEventId ?? createDefaultEventId
   const now = dependencies.now ?? createDefaultNow
-  const interview = aiLedCreatedQueueEventInterviewSchema.parse(input.interview)
+  const interview = aiLedCreatedQueueEventInterviewSchema.parse(
+    normalizeQueueEventInterviewInput(input.interview),
+  )
 
   return interviewCreatedEventSchema.parse({
     event_type: 'interview.created',
@@ -231,7 +287,7 @@ export function buildInterviewCreatedIdempotencyKey(
 
 export function buildInterviewCancelledEvent(
   input: {
-    interview: z.input<typeof queueEventInterviewSchema>
+    interview: QueueEventInterviewBuilderInput
   },
   dependencies: BuildEventDependencies = {},
 ): InterviewCancelledEvent {
@@ -242,7 +298,7 @@ export function buildInterviewCancelledEvent(
       aiLedCancelledQueueEventInterviewSchema,
       peerToPeerCancelledQueueEventInterviewSchema,
     ])
-    .parse(input.interview)
+    .parse(normalizeQueueEventInterviewInput(input.interview))
 
   return interviewCancelledEventSchema.parse({
     event_type: 'interview.cancelled',
@@ -265,13 +321,15 @@ export function buildInterviewCancelledIdempotencyKey(
 
 export function buildInterviewMatchCreatedEvent(
   input: {
-    interview: z.input<typeof matchedQueueEventInterviewSchema>
+    interview: MatchedQueueEventInterviewBuilderInput
   },
   dependencies: BuildEventDependencies = {},
 ): InterviewMatchCreatedEvent {
   const createEventId = dependencies.createEventId ?? createDefaultEventId
   const now = dependencies.now ?? createDefaultNow
-  const interview = matchedQueueEventInterviewSchema.parse(input.interview)
+  const interview = matchedQueueEventInterviewSchema.parse(
+    normalizeQueueEventInterviewInput(input.interview),
+  )
 
   return interviewMatchCreatedEventSchema.parse({
     event_type: 'interview.match.created',
@@ -321,6 +379,35 @@ export function buildInterviewCompletedIdempotencyKey(
   return `interview.completed:${interviewId}`
 }
 
+export function buildInterviewPremiumBookedEvent(
+  input: {
+    interview: z.input<typeof premiumBookedQueueEventInterviewSchema>
+  },
+  dependencies: BuildEventDependencies = {},
+): InterviewPremiumBookedEvent {
+  const createEventId = dependencies.createEventId ?? createDefaultEventId
+  const now = dependencies.now ?? createDefaultNow
+  const interview = premiumBookedQueueEventInterviewSchema.parse(input.interview)
+
+  return interviewPremiumBookedEventSchema.parse({
+    event_type: 'interview.premium_booked',
+    event_id: createEventId(),
+    idempotency_key: buildInterviewPremiumBookedIdempotencyKey(interview.id),
+    occurred_at: now(),
+    interview,
+    participants: {
+      scheduler_user_id: interview.scheduler_id,
+      interviewer_user_id: interview.interviewer_id,
+    },
+  })
+}
+
+export function buildInterviewPremiumBookedIdempotencyKey(
+  interviewId: string,
+): string {
+  return `premium-booking:${interviewId}`
+}
+
 export function createNotificationQueueEventPublisher(
   queueTransport: NotificationQueueTransport,
 ): NotificationQueueEventPublisher {
@@ -333,7 +420,9 @@ export function createNotificationQueueEventPublisher(
             ? interviewCancelledEventSchema.parse(event)
             : event.event_type === 'interview.completed'
               ? interviewCompletedEventSchema.parse(event)
-              : interviewMatchCreatedEventSchema.parse(event)
+              : event.event_type === 'interview.premium_booked'
+                ? interviewPremiumBookedEventSchema.parse(event)
+                : interviewMatchCreatedEventSchema.parse(event)
       await queueTransport.send(payload)
     },
   }
@@ -345,4 +434,24 @@ function createDefaultEventId(): string {
 
 function createDefaultNow(): string {
   return new Date().toISOString()
+}
+
+function normalizeQueueEventInterviewInput(
+  input: QueueEventInterviewBuilderInput | MatchedQueueEventInterviewBuilderInput,
+): QueueEventInterviewBuilderInput | MatchedQueueEventInterviewBuilderInput {
+  if (
+    input.booking_channel === null ||
+    input.booking_channel === undefined
+  ) {
+    return {
+      ...input,
+      booking_channel: deriveBookingChannelFromMode(input.mode),
+    }
+  }
+
+  return input
+}
+
+function deriveBookingChannelFromMode(mode: unknown): BookingChannel {
+  return mode === 'ai_led' ? 'ai_direct' : 'standard_match'
 }

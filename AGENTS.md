@@ -72,6 +72,10 @@ Reference `./docs/system/system-design/ci-cd.md` on how to use Git and create Pu
 
 **ALWAYS REFERENCE THIS GIT FILE WHEN CREATING COMMITS OR PULL REQUESTS**
 
+## Premium Domain
+
+The premium scheduling domain lives in `packages/shared-backend/src/premium/`. It owns verified-interviewer slot publishing, the first-to-claim marketplace, premium cancellation/refunds, and the `booking_channel` policy. The `PREMIUM_MARKETPLACE_RATE_LIMITER` Cloudflare binding is required for the marketplace rate limiter. See `packages/shared-backend/migrations/AGENTS.md` for the booking-channel backfill workflow.
+
 ## Commands
 
 Runnable commands for this repository (run from repo root):

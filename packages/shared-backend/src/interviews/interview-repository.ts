@@ -1,3 +1,4 @@
+import { bookingChannelSelect } from '../premium/booking-channel-sql'
 import type { Interview, InterviewDetail, InterviewListItem } from '@mako/shared'
 import { createSqlQuery, type SqlQuery, type SqlQueryExecutor, type QueryResult } from '../index'
 import type { NotificationQueueEvent } from '../notification-queue-event-contract'
@@ -28,6 +29,11 @@ import {
   type ProvisionInterviewRecordResult,
 } from './types'
 import { TierPolicyService, InsufficientCreditsError } from '../tier-policy'
+import {
+  computeInterviewEndTime,
+  findInterviewOverlap,
+  findPremiumSlotOverlap,
+} from '../premium/premium-overlap-helper'
 
 
 export interface InterviewRepositoryDataSource {
@@ -184,6 +190,31 @@ export class InterviewRepository {
         throw new InterviewPolicyConflictError('Account state is unavailable.')
       }
 
+      // Cross-channel overlap protocol: reject overlapping interviews or premium slots
+      const overlapEndTime = computeInterviewEndTime(parsedInput.scheduled_at)
+      const interviewOverlap = await findInterviewOverlap(
+        queryExecutor,
+        parsedInput.scheduler_id,
+        parsedInput.scheduled_at,
+        overlapEndTime,
+      )
+      if (interviewOverlap) {
+        throw new InterviewPolicyConflictError(
+          'The requested time conflicts with an existing scheduled interview.',
+        )
+      }
+      const premiumSlotOverlap = await findPremiumSlotOverlap(
+        queryExecutor,
+        parsedInput.scheduler_id,
+        parsedInput.scheduled_at,
+        overlapEndTime,
+      )
+      if (premiumSlotOverlap) {
+        throw new InterviewPolicyConflictError(
+          'The requested time conflicts with an existing premium availability slot.',
+        )
+      }
+
       // Re-resolve policy inside the locked transaction if tierPolicyService provided
       if (tierPolicyService) {
         const [lockedAccount] = lockResult.rows
@@ -243,13 +274,14 @@ export class InterviewRepository {
               interviewer_alias,
               type,
               mode,
+              booking_channel,
               tier,
               status,
               scheduled_at,
               created_at,
               updated_at
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
             RETURNING
               id,
               scheduler_id,
@@ -258,6 +290,7 @@ export class InterviewRepository {
               interviewer_alias,
               type,
               mode,
+              booking_channel,
               tier,
               status,
               scheduled_at,
@@ -288,6 +321,7 @@ export class InterviewRepository {
             parsedInput.interviewer_alias,
             parsedInput.type,
             parsedInput.mode,
+            'ai_direct',
             parsedInput.tier,
             parsedInput.status,
             parsedInput.scheduled_at,
@@ -355,6 +389,7 @@ export class InterviewRepository {
             interviewer_alias,
             type,
             mode,
+            ${bookingChannelSelect},
             tier,
             status,
             scheduled_at,
@@ -435,6 +470,7 @@ export class InterviewRepository {
             interviewer_alias,
             type,
             mode,
+            ${bookingChannelSelect},
             tier,
             status,
             scheduled_at,
@@ -497,6 +533,7 @@ export class InterviewRepository {
               interviewer_alias,
               type,
               mode,
+              ${bookingChannelSelect},
               tier,
               status,
               scheduled_at,
@@ -568,6 +605,7 @@ export class InterviewRepository {
               interviewer_alias,
               type,
               mode,
+              ${bookingChannelSelect},
               tier,
               status,
               scheduled_at,
@@ -662,6 +700,7 @@ export class InterviewRepository {
                   interviewer_alias,
                   type,
                   mode,
+                  ${bookingChannelSelect},
                   tier,
                   status,
                   scheduled_at,
@@ -718,6 +757,7 @@ export class InterviewRepository {
                   interviewer_alias,
                   type,
                   mode,
+                  ${bookingChannelSelect},
                   tier,
                   status,
                   scheduled_at,
@@ -1031,6 +1071,7 @@ export class InterviewRepository {
               interviewer_alias,
               type,
               mode,
+              ${bookingChannelSelect},
               tier,
               status,
               scheduled_at,
@@ -1111,6 +1152,7 @@ export class InterviewRepository {
               interviewer_alias,
               type,
               mode,
+              ${bookingChannelSelect},
               tier,
               status,
               scheduled_at,
@@ -1183,6 +1225,7 @@ export class InterviewRepository {
             interviewer_alias,
             type,
             mode,
+            ${bookingChannelSelect},
             tier,
             status,
             scheduled_at,
@@ -1364,6 +1407,7 @@ export function createInMemoryInterviewDataSource(
       const interview = mergeDetailProcessingState(
         parseInterview({
           ...parsedInput,
+          booking_channel: 'ai_direct',
           realtime_session_id: null,
           excalidraw_room_id: null,
           excalidraw_key: null,
@@ -1750,6 +1794,7 @@ function buildListParticipantInterviewsQuery(
         interviewer_alias,
         type,
         mode,
+        booking_channel,
         tier,
         status,
         scheduled_at,
@@ -1764,6 +1809,7 @@ function buildListParticipantInterviewsQuery(
           interviewer_alias,
           type,
           mode,
+          ${bookingChannelSelect},
           tier,
           status,
           scheduled_at,
@@ -1781,6 +1827,7 @@ function buildListParticipantInterviewsQuery(
           interviewer_alias,
           type,
           mode,
+          ${bookingChannelSelect},
           tier,
           status,
           scheduled_at,
