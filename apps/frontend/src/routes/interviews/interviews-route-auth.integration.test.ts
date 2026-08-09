@@ -36,9 +36,10 @@ describe('interviews auth route integration', function () {
       router.routesById['/_authenticated/interviews/$id/session']
 
     expect(interviewsSessionRoute.id).toBe('/_authenticated/interviews/$id/session')
-    expect(interviewsSessionRoute.parentRoute.id).toBe('/_authenticated/interviews')
-    expect(interviewsSessionRoute.parentRoute.parentRoute.id).toBe('/_authenticated')
-    expect(typeof interviewsSessionRoute.parentRoute.parentRoute.options.beforeLoad).toBe(
+    expect(interviewsSessionRoute.parentRoute.id).toBe('/_authenticated/interviews/$id')
+    expect(interviewsSessionRoute.parentRoute.parentRoute.id).toBe('/_authenticated/interviews')
+    expect(interviewsSessionRoute.parentRoute.parentRoute.parentRoute.id).toBe('/_authenticated')
+    expect(typeof interviewsSessionRoute.parentRoute.parentRoute.parentRoute.options.beforeLoad).toBe(
       'function',
     )
   })
@@ -61,9 +62,10 @@ describe('interviews auth route integration', function () {
       router.routesById['/_authenticated/interviews/$id/feedback']
 
     expect(interviewsFeedbackRoute.id).toBe('/_authenticated/interviews/$id/feedback')
-    expect(interviewsFeedbackRoute.parentRoute.id).toBe('/_authenticated/interviews')
-    expect(interviewsFeedbackRoute.parentRoute.parentRoute.id).toBe('/_authenticated')
-    expect(typeof interviewsFeedbackRoute.parentRoute.parentRoute.options.beforeLoad).toBe(
+    expect(interviewsFeedbackRoute.parentRoute.id).toBe('/_authenticated/interviews/$id')
+    expect(interviewsFeedbackRoute.parentRoute.parentRoute.id).toBe('/_authenticated/interviews')
+    expect(interviewsFeedbackRoute.parentRoute.parentRoute.parentRoute.id).toBe('/_authenticated')
+    expect(typeof interviewsFeedbackRoute.parentRoute.parentRoute.parentRoute.options.beforeLoad).toBe(
       'function',
     )
   })
@@ -105,17 +107,19 @@ describe('interviews auth route integration', function () {
 
     expect(InterviewsFeedbackIdRoute.options.beforeLoad).toBeUndefined()
     expect(interviewsFeedbackRoute.options.beforeLoad).toBeUndefined()
-    expect(interviewsFeedbackRoute.parentRoute.id).toBe(interviewsRoute.id)
-    expect(interviewsFeedbackRoute.parentRoute.parentRoute.id).toBe(authenticatedRoute.id)
-    expect(interviewsFeedbackRoute.parentRoute.parentRoute.options.beforeLoad).toBe(
+    expect(interviewsFeedbackRoute.parentRoute.id).toBe(interviewsIdRoute.id)
+    expect(interviewsFeedbackRoute.parentRoute.parentRoute.id).toBe(interviewsRoute.id)
+    expect(interviewsFeedbackRoute.parentRoute.parentRoute.parentRoute.id).toBe(authenticatedRoute.id)
+    expect(interviewsFeedbackRoute.parentRoute.parentRoute.parentRoute.options.beforeLoad).toBe(
       authenticatedRoute.options.beforeLoad,
     )
 
     expect(InterviewsSessionIdRoute.options.beforeLoad).toBeUndefined()
     expect(interviewsSessionRoute.options.beforeLoad).toBeUndefined()
-    expect(interviewsSessionRoute.parentRoute.id).toBe(interviewsRoute.id)
-    expect(interviewsSessionRoute.parentRoute.parentRoute.id).toBe(authenticatedRoute.id)
-    expect(interviewsSessionRoute.parentRoute.parentRoute.options.beforeLoad).toBe(
+    expect(interviewsSessionRoute.parentRoute.id).toBe(interviewsIdRoute.id)
+    expect(interviewsSessionRoute.parentRoute.parentRoute.id).toBe(interviewsRoute.id)
+    expect(interviewsSessionRoute.parentRoute.parentRoute.parentRoute.id).toBe(authenticatedRoute.id)
+    expect(interviewsSessionRoute.parentRoute.parentRoute.parentRoute.options.beforeLoad).toBe(
       authenticatedRoute.options.beforeLoad,
     )
 

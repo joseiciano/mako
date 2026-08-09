@@ -9,6 +9,7 @@ export function makeInterview(overrides?: Partial<InterviewDetail>): InterviewDe
     interviewer_alias: 'Alice',
     type: 'behavioral',
     mode: 'ai_led',
+    booking_channel: 'ai_direct',
     tier: 'standard',
     status: 'scheduled',
     scheduled_at: '2026-06-20T10:00:00Z',
