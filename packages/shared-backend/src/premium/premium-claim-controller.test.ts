@@ -373,7 +373,7 @@ describe('PremiumClaimController', function suite() {
       expect(body).not.toHaveProperty('details')
     })
 
-    it('maps PremiumSchedulingConflictError to 409', async function run() {
+    it('maps PremiumSchedulingConflictError to 409 with PREMIUM_SCHEDULING_CONFLICT', async function run() {
       const app = createClaimApp({
         service: createFailingService(new PremiumSchedulingConflictError()),
       })
@@ -388,7 +388,7 @@ describe('PremiumClaimController', function suite() {
 
       expect(response.status).toBe(409)
       const body = await response.json()
-      expect(body).toHaveProperty('error')
+      expect(body).toEqual({ error: 'PREMIUM_SCHEDULING_CONFLICT' })
       expect(body).not.toHaveProperty('details')
     })
 

@@ -22,7 +22,6 @@ import {
   PremiumSelfClaimError,
   PremiumSlotAlreadyClaimedError,
   PremiumUnauthorizedError,
-  PremiumValidationError,
   type PremiumSession,
 } from './premium-errors'
 import {
@@ -91,6 +90,7 @@ export class PremiumClaimService {
           slotId,
           idempotencyKey,
           persistOutboxEvent,
+          attempt,
         })
 
         return result
@@ -110,6 +110,13 @@ export class PremiumClaimService {
             idempotency_key: idempotencyKey,
             slot_id: slotId,
           })
+          await this.logSafely('error', 'premium.claim_failed', {
+            idempotency_key: idempotencyKey,
+            slot_id: slotId,
+            scheduler_id: schedulerId,
+            retry_count: attempt,
+            outcome: 'Claim transaction conflicts exhausted after retries. Please retry.',
+          })
           throw new PremiumConflictError(
             'Claim transaction conflicts exhausted after retries. Please retry.',
           )
@@ -127,15 +134,27 @@ export class PremiumClaimService {
     slotId: string
     idempotencyKey: string
     persistOutboxEvent: PersistOutboxEvent
+    attempt: number
   }): Promise<ClaimSlotResult> {
-    const { schedulerId, slotId, idempotencyKey, persistOutboxEvent } = input
+    const { schedulerId, slotId, idempotencyKey, persistOutboxEvent, attempt } = input
+
+    await this.logSafely('info', 'premium.claim_requested', {
+      idempotency_key: idempotencyKey,
+      slot_id: slotId,
+      scheduler_id: schedulerId,
+      retry_count: attempt,
+    })
 
     await this.queryExecutor.query(createSqlQuery('BEGIN;'))
+
+    let slotRowForLog: PremiumSlotRow | null = null
+    let existingClaim: PremiumClaimRow | null = null
+    let interviewIdForLog: string | undefined
 
     try {
       await this.repository.acquireIdempotencyLock(this.queryExecutor, idempotencyKey)
 
-      const existingClaim = await this.repository.findClaimByIdempotencyKey(
+      existingClaim = await this.repository.findClaimByIdempotencyKey(
         this.queryExecutor,
         idempotencyKey,
       )
@@ -191,6 +210,8 @@ export class PremiumClaimService {
       if (!slotRow) {
         throw new PremiumNotFoundError()
       }
+
+      slotRowForLog = slotRow
 
       const existingSlotClaim = await this.repository.findClaimBySlotId(
         this.queryExecutor,
@@ -297,6 +318,7 @@ export class PremiumClaimService {
       }
 
       const interviewId = this.createId()
+      interviewIdForLog = interviewId
       const timestamp = this.now()
       const aliases = buildInterviewAliases('peer_to_peer')
 
@@ -368,6 +390,16 @@ export class PremiumClaimService {
         replayed: false,
       }
     } catch (error) {
+      if (!isSerializationConflict(error)) {
+        await this.logClaimError(error, {
+          idempotencyKey,
+          slotId,
+          schedulerId,
+          attempt,
+          interviewerId: slotRowForLog?.interviewer_id,
+          interviewId: interviewIdForLog ?? existingClaim?.interview_id,
+        })
+      }
       await rollbackTransactionSafely(this.queryExecutor)
       throw error
     }
@@ -388,15 +420,11 @@ export class PremiumClaimService {
     }
 
     if (startMs < nowMs + leadTimeMs) {
-      throw new PremiumValidationError(
-        `startTime must be at least ${this.policyConfig.leadTimeMinutes} minutes in the future.`,
-      )
+      throw new PremiumSchedulingConflictError()
     }
 
     if (startMs > nowMs + horizonMs) {
-      throw new PremiumValidationError(
-        `startTime must be within ${this.policyConfig.horizonDays} days of the current time.`,
-      )
+      throw new PremiumSchedulingConflictError()
     }
   }
 
@@ -413,6 +441,48 @@ export class PremiumClaimService {
       }
     } catch {
       // Observability must never block the claim.
+    }
+  }
+
+  private async logClaimError(
+    error: unknown,
+    context: {
+      idempotencyKey: string
+      slotId: string
+      schedulerId: string
+      attempt: number
+      interviewerId?: string
+      interviewId?: string
+    },
+  ): Promise<void> {
+    const isBusinessConflict =
+      error instanceof PremiumSlotAlreadyClaimedError ||
+      error instanceof PremiumSchedulingConflictError ||
+      error instanceof PremiumInterviewerIneligibleError ||
+      error instanceof PremiumInsufficientCreditsError ||
+      error instanceof PremiumIdempotencyKeyConflictError ||
+      error instanceof PremiumSelfClaimError
+
+    const logContext: Record<string, unknown> = {
+      idempotency_key: context.idempotencyKey,
+      slot_id: context.slotId,
+      scheduler_id: context.schedulerId,
+      retry_count: context.attempt,
+      outcome: error instanceof Error ? error.message : 'Unknown error',
+    }
+
+    if (context.interviewerId) {
+      logContext.interviewer_id = context.interviewerId
+    }
+
+    if (context.interviewId) {
+      logContext.interview_id = context.interviewId
+    }
+
+    if (isBusinessConflict) {
+      await this.logSafely('info', 'premium.claim_conflicted', logContext)
+    } else {
+      await this.logSafely('error', 'premium.claim_failed', logContext)
     }
   }
 }

@@ -105,6 +105,10 @@ type MockExecutorOptions = {
 function createService(options: MockExecutorOptions = {}) {
   const queries: SqlQuery[] = []
   const persistOutboxEvent = vi.fn(async () => {})
+  const logger = {
+    info: vi.fn(),
+    error: vi.fn(),
+  }
 
   const executor = {
     queries,
@@ -222,9 +226,10 @@ function createService(options: MockExecutorOptions = {}) {
     function now() {
       return fixedNow
     },
+    logger,
   )
 
-  return { executor, queries, persistOutboxEvent, service }
+  return { executor, queries, persistOutboxEvent, service, logger }
 }
 
 describe('PremiumClaimService', function premiumClaimServiceSuite() {
@@ -615,5 +620,319 @@ describe('PremiumClaimService', function premiumClaimServiceSuite() {
     expect(userLockQuery).toBeDefined()
     const ids = userLockQuery!.values[0] as string[]
     expect(ids).toEqual(['11111111-1111-4111-8111-111111111111', schedulerId])
+  })
+
+  it('throws scheduling conflict when slot start time violates lead time policy', async function run() {
+    const { service } = createService({
+      slotRow: buildSlotRow({ start_time: '2026-08-07T20:30:00.000Z' }),
+    })
+
+    await expect(
+      service.claimSlot({
+        session: { userId: schedulerId, email: 'scheduler@test.com' },
+        slotId,
+        idempotencyKey,
+        persistOutboxEvent: vi.fn(async () => {}),
+      }),
+    ).rejects.toThrow(PremiumSchedulingConflictError)
+  })
+
+  it('throws scheduling conflict when slot start time exceeds horizon policy', async function run() {
+    const { service } = createService({
+      slotRow: buildSlotRow({ start_time: '2026-11-07T22:00:00.000Z' }),
+    })
+
+    await expect(
+      service.claimSlot({
+        session: { userId: schedulerId, email: 'scheduler@test.com' },
+        slotId,
+        idempotencyKey,
+        persistOutboxEvent: vi.fn(async () => {}),
+      }),
+    ).rejects.toThrow(PremiumSchedulingConflictError)
+  })
+
+  it('emits premium.claim_requested before transaction', async function run() {
+    const { logger, service } = createService()
+
+    await service.claimSlot({
+      session: { userId: schedulerId, email: 'scheduler@test.com' },
+      slotId,
+      idempotencyKey,
+      persistOutboxEvent: vi.fn(async () => {}),
+    })
+
+    const requestedLog = logger.info.mock.calls.find(function isRequested(call) {
+      return call[0] === 'premium.claim_requested'
+    })
+    expect(requestedLog).toBeDefined()
+    expect(requestedLog![1]).toMatchObject({
+      idempotency_key: idempotencyKey,
+      slot_id: slotId,
+      scheduler_id: schedulerId,
+    })
+    expect(requestedLog![1]).not.toHaveProperty('credits')
+    expect(requestedLog![1]).not.toHaveProperty('email')
+  })
+
+  it('emits premium.claim_conflicted for expected business conflicts', async function run() {
+    const { logger, service } = createService({
+      existingClaim: null,
+      existingSlotClaim: buildClaimRow(),
+      slotRow: buildSlotRow(),
+    })
+
+    await expect(
+      service.claimSlot({
+        session: { userId: schedulerId, email: 'scheduler@test.com' },
+        slotId,
+        idempotencyKey,
+        persistOutboxEvent: vi.fn(async () => {}),
+      }),
+    ).rejects.toThrow(PremiumSlotAlreadyClaimedError)
+
+    const conflictedLog = logger.info.mock.calls.find(function isConflicted(call) {
+      return call[0] === 'premium.claim_conflicted'
+    })
+    expect(conflictedLog).toBeDefined()
+    expect(conflictedLog![1]).toMatchObject({
+      idempotency_key: idempotencyKey,
+      slot_id: slotId,
+      scheduler_id: schedulerId,
+      outcome: 'PREMIUM_SLOT_ALREADY_CLAIMED',
+    })
+    expect(conflictedLog![1]).not.toHaveProperty('credits')
+    expect(conflictedLog![1]).not.toHaveProperty('email')
+  })
+
+  it('emits premium.claim_failed for non-conflict failures', async function run() {
+    const { logger, service } = createService({
+      existingClaim: null,
+      slotRow: null,
+    })
+
+    await expect(
+      service.claimSlot({
+        session: { userId: schedulerId, email: 'scheduler@test.com' },
+        slotId,
+        idempotencyKey,
+        persistOutboxEvent: vi.fn(async () => {}),
+      }),
+    ).rejects.toThrow(PremiumNotFoundError)
+
+    const failedLog = logger.error.mock.calls.find(function isFailed(call) {
+      return call[0] === 'premium.claim_failed'
+    })
+    expect(failedLog).toBeDefined()
+    expect(failedLog![1]).toMatchObject({
+      idempotency_key: idempotencyKey,
+      slot_id: slotId,
+      scheduler_id: schedulerId,
+      outcome: expect.any(String),
+    })
+    expect(failedLog![1]).not.toHaveProperty('credits')
+    expect(failedLog![1]).not.toHaveProperty('email')
+  })
+
+  it('never logs credit balance or PII in lifecycle events', async function run() {
+    const { logger, service } = createService({
+      creditRowCount: 0,
+    })
+
+    await expect(
+      service.claimSlot({
+        session: { userId: schedulerId, email: 'scheduler@test.com' },
+        slotId,
+        idempotencyKey,
+        persistOutboxEvent: vi.fn(async () => {}),
+      }),
+    ).rejects.toThrow(PremiumInsufficientCreditsError)
+
+    const allLogs = [...logger.info.mock.calls, ...logger.error.mock.calls]
+    for (const [, context] of allLogs) {
+      const ctx = context as Record<string, unknown>
+      expect(ctx).not.toHaveProperty('credits')
+      expect(ctx).not.toHaveProperty('email')
+      expect(ctx).not.toHaveProperty('name')
+      expect(ctx).not.toHaveProperty('balance')
+    }
+  })
+
+  it('includes interview_id in claim_failed when known from replay path', async function run() {
+    const { logger, service } = createService({
+      existingClaim: buildClaimRow(),
+      schedulerRow: { id: schedulerId, deleted_at: '2026-08-01T00:00:00.000Z', companies: false },
+    })
+
+    await expect(
+      service.claimSlot({
+        session: { userId: schedulerId, email: 'scheduler@test.com' },
+        slotId,
+        idempotencyKey,
+        persistOutboxEvent: vi.fn(async () => {}),
+      }),
+    ).rejects.toThrow(PremiumForbiddenError)
+
+    const failedLog = logger.error.mock.calls.find(function isFailed(call) {
+      return call[0] === 'premium.claim_failed'
+    })
+    expect(failedLog).toBeDefined()
+    expect(failedLog![1]).toMatchObject({
+      idempotency_key: idempotencyKey,
+      slot_id: slotId,
+      scheduler_id: schedulerId,
+      interview_id: interviewId,
+    })
+  })
+
+  it('emits premium.claim_conflicted for lead time policy violation', async function run() {
+    const { logger, service } = createService({
+      slotRow: buildSlotRow({ start_time: '2026-08-07T20:30:00.000Z' }),
+    })
+
+    await expect(
+      service.claimSlot({
+        session: { userId: schedulerId, email: 'scheduler@test.com' },
+        slotId,
+        idempotencyKey,
+        persistOutboxEvent: vi.fn(async () => {}),
+      }),
+    ).rejects.toThrow(PremiumSchedulingConflictError)
+
+    const conflictedLog = logger.info.mock.calls.find(function isConflicted(call) {
+      return call[0] === 'premium.claim_conflicted'
+    })
+    expect(conflictedLog).toBeDefined()
+    expect(conflictedLog![1]).toMatchObject({
+      idempotency_key: idempotencyKey,
+      slot_id: slotId,
+      scheduler_id: schedulerId,
+      interviewer_id: interviewerId,
+      outcome: 'PREMIUM_SCHEDULING_CONFLICT',
+      retry_count: 0,
+    })
+  })
+
+  it('emits premium.claim_conflicted for horizon policy violation', async function run() {
+    const { logger, service } = createService({
+      slotRow: buildSlotRow({ start_time: '2026-11-07T22:00:00.000Z' }),
+    })
+
+    await expect(
+      service.claimSlot({
+        session: { userId: schedulerId, email: 'scheduler@test.com' },
+        slotId,
+        idempotencyKey,
+        persistOutboxEvent: vi.fn(async () => {}),
+      }),
+    ).rejects.toThrow(PremiumSchedulingConflictError)
+
+    const conflictedLog = logger.info.mock.calls.find(function isConflicted(call) {
+      return call[0] === 'premium.claim_conflicted'
+    })
+    expect(conflictedLog).toBeDefined()
+    expect(conflictedLog![1]).toMatchObject({
+      idempotency_key: idempotencyKey,
+      slot_id: slotId,
+      scheduler_id: schedulerId,
+      interviewer_id: interviewerId,
+      outcome: 'PREMIUM_SCHEDULING_CONFLICT',
+      retry_count: 0,
+    })
+  })
+
+  it('premium.claim_requested contains only allowed fields', async function run() {
+    const { logger, service } = createService()
+
+    await service.claimSlot({
+      session: { userId: schedulerId, email: 'scheduler@test.com' },
+      slotId,
+      idempotencyKey,
+      persistOutboxEvent: vi.fn(async () => {}),
+    })
+
+    const requestedLog = logger.info.mock.calls.find(function isRequested(call) {
+      return call[0] === 'premium.claim_requested'
+    })
+    expect(requestedLog).toBeDefined()
+    const allowed = new Set([
+      'idempotency_key',
+      'slot_id',
+      'interview_id',
+      'scheduler_id',
+      'interviewer_id',
+      'outcome',
+      'retry_count',
+    ])
+    for (const key of Object.keys(requestedLog![1] as Record<string, unknown>)) {
+      expect(allowed.has(key)).toBe(true)
+    }
+  })
+
+  it('premium.claim_conflicted contains only allowed fields', async function run() {
+    const { logger, service } = createService({
+      existingClaim: null,
+      existingSlotClaim: buildClaimRow(),
+      slotRow: buildSlotRow(),
+    })
+
+    await expect(
+      service.claimSlot({
+        session: { userId: schedulerId, email: 'scheduler@test.com' },
+        slotId,
+        idempotencyKey,
+        persistOutboxEvent: vi.fn(async () => {}),
+      }),
+    ).rejects.toThrow(PremiumSlotAlreadyClaimedError)
+
+    const conflictedLog = logger.info.mock.calls.find(function isConflicted(call) {
+      return call[0] === 'premium.claim_conflicted'
+    })
+    expect(conflictedLog).toBeDefined()
+    const allowed = new Set([
+      'idempotency_key',
+      'slot_id',
+      'interview_id',
+      'scheduler_id',
+      'interviewer_id',
+      'outcome',
+      'retry_count',
+    ])
+    for (const key of Object.keys(conflictedLog![1] as Record<string, unknown>)) {
+      expect(allowed.has(key)).toBe(true)
+    }
+  })
+
+  it('premium.claim_failed contains only allowed fields', async function run() {
+    const { logger, service } = createService({
+      existingClaim: null,
+      slotRow: null,
+    })
+
+    await expect(
+      service.claimSlot({
+        session: { userId: schedulerId, email: 'scheduler@test.com' },
+        slotId,
+        idempotencyKey,
+        persistOutboxEvent: vi.fn(async () => {}),
+      }),
+    ).rejects.toThrow(PremiumNotFoundError)
+
+    const failedLog = logger.error.mock.calls.find(function isFailed(call) {
+      return call[0] === 'premium.claim_failed'
+    })
+    expect(failedLog).toBeDefined()
+    const allowed = new Set([
+      'idempotency_key',
+      'slot_id',
+      'interview_id',
+      'scheduler_id',
+      'interviewer_id',
+      'outcome',
+      'retry_count',
+    ])
+    for (const key of Object.keys(failedLog![1] as Record<string, unknown>)) {
+      expect(allowed.has(key)).toBe(true)
+    }
   })
 })

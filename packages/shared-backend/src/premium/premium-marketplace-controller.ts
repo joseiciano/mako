@@ -36,11 +36,11 @@ export function registerPremiumMarketplaceController<Bindings extends Controller
         try {
           const { success } = await limiter.limit({ key: rateLimitKey })
           if (!success) {
-            emitRateLimiterRejectionLog(options.logger, 'premium:marketplace')
+            await emitRateLimiterRejectionLog(options.logger, 'premium:marketplace', clientIp)
             return c.json({ error: 'RATE_LIMITED' }, 429)
           }
         } catch {
-          emitRateLimiterFallbackLog(options.logger, 'premium:marketplace')
+          await emitRateLimiterFallbackLog(options.logger, 'premium:marketplace', clientIp)
         }
       }
     }
@@ -81,12 +81,13 @@ function toErrorResponse(context: Context, error: unknown) {
   return context.json({ error: 'Unexpected marketplace error.' }, 500)
 }
 
-function emitRateLimiterRejectionLog(
+async function emitRateLimiterRejectionLog(
   logger: PremiumMarketplaceLogger | undefined,
   routeKey: string,
-): void {
+  clientIp: string | null | undefined,
+): Promise<void> {
   const outcome = 'rate_limited'
-  const locationHash = deriveLocationHash('premium-marketplace-controller', routeKey, outcome)
+  const locationHash = await deriveLocationHash('premium-marketplace-controller', routeKey, outcome, clientIp)
   const safeContext = {
     routeKey,
     outcome,
@@ -99,12 +100,13 @@ function emitRateLimiterRejectionLog(
   }
 }
 
-function emitRateLimiterFallbackLog(
+async function emitRateLimiterFallbackLog(
   logger: PremiumMarketplaceLogger | undefined,
   routeKey: string,
-): void {
+  clientIp: string | null | undefined,
+): Promise<void> {
   const outcome = 'binding_rejected'
-  const locationHash = deriveLocationHash('premium-marketplace-controller', routeKey, outcome)
+  const locationHash = await deriveLocationHash('premium-marketplace-controller', routeKey, outcome, clientIp)
   const safeContext = {
     routeKey,
     outcome,
@@ -117,13 +119,16 @@ function emitRateLimiterFallbackLog(
   }
 }
 
-function deriveLocationHash(sourceLocation: string, routeKey: string, outcome: string): string {
-  const data = `${sourceLocation}:${routeKey}:${outcome}`
-  let hash = 0
-  for (let i = 0; i < data.length; i++) {
-    const char = data.charCodeAt(i)
-    hash = ((hash << 5) - hash) + char
-    hash = hash & hash
-  }
-  return Math.abs(hash).toString(16).padStart(8, '0')
+async function deriveLocationHash(
+  sourceLocation: string,
+  routeKey: string,
+  outcome: string,
+  clientIp: string | null | undefined,
+): Promise<string> {
+  const ip = clientIp ?? 'unknown'
+  const data = `${sourceLocation}:${routeKey}:${outcome}:${ip}`
+  const encoder = new TextEncoder()
+  const buffer = await crypto.subtle.digest('SHA-256', encoder.encode(data))
+  const array = Array.from(new Uint8Array(buffer))
+  return array.map((b) => b.toString(16).padStart(2, '0')).join('').slice(0, 16)
 }

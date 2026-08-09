@@ -252,6 +252,43 @@ describe('PremiumMarketplaceController', function suite() {
     expect(response.status).toBe(404)
   })
 
+  it('produces different location hashes for distinct IPs and never logs raw IP', async function run() {
+    const logs: Array<{ event: string; context: Record<string, unknown> }> = []
+    const logger = {
+      info: function info(event: string, context: Record<string, unknown>) {
+        logs.push({ event, context })
+      },
+    }
+
+    const rateLimiter: RateLimiter = {
+      limit: vi.fn(async function limit() {
+        return { success: false }
+      }),
+    }
+    const app = createMarketplaceApp({ rateLimiter, logger })
+
+    await app.request('/api/premium/marketplace', {
+      headers: { 'CF-Connecting-IP': '1.2.3.4' },
+    })
+    await app.request('/api/premium/marketplace', {
+      headers: { 'CF-Connecting-IP': '5.6.7.8' },
+    })
+
+    const matchingLogs = logs.filter(function findLog(l) {
+      return l.event === 'premium.marketplace.rate_limited'
+    })
+    expect(matchingLogs).toHaveLength(2)
+    const firstHash = matchingLogs[0]!.context.locationHash
+    const secondHash = matchingLogs[1]!.context.locationHash
+    expect(firstHash).not.toBe(secondHash)
+    expect(typeof firstHash).toBe('string')
+    expect(typeof secondHash).toBe('string')
+    for (const log of matchingLogs) {
+      expect(JSON.stringify(log.context)).not.toContain('1.2.3.4')
+      expect(JSON.stringify(log.context)).not.toContain('5.6.7.8')
+    }
+  })
+
   it('never logs raw CF-Connecting-IP in any rate limiter outcome', async function run() {
     const logs: Array<{ event: string; context: Record<string, unknown> }> = []
     const logger = {
