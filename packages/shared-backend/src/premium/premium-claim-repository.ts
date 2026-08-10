@@ -50,6 +50,7 @@ export type ClaimInterviewRow = {
   feedback_prompt_version: string | null
   feedback_generated_at: string | null
   started_at: string | null
+  screenshots_finalized_at: string | null
   expires_at: string | null
   warning_at: string | null
   created_at: string
@@ -334,6 +335,7 @@ export class PremiumClaimRepository {
             feedback_prompt_version,
             feedback_generated_at,
             started_at,
+            screenshots_finalized_at,
             expires_at,
             warning_at,
             created_at,
@@ -399,6 +401,7 @@ export class PremiumClaimRepository {
             feedback_prompt_version,
             feedback_generated_at,
             started_at,
+            screenshots_finalized_at,
             expires_at,
             warning_at,
             created_at,

@@ -109,6 +109,7 @@ export const premiumClaimInterviewRowSchema = z.object({
   feedback_prompt_version: z.string().nullable(),
   feedback_generated_at: z.string().nullable(),
   started_at: z.string().nullable(),
+  screenshots_finalized_at: z.string().nullable(),
   expires_at: z.string().nullable(),
   warning_at: z.string().nullable(),
   created_at: timestampSchema,

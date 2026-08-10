@@ -111,4 +111,5 @@ const interviewDetailRowFixture = {
   feedback_error_code: null,
   feedback_prompt_version: null,
   feedback_generated_at: null,
+  screenshots_finalized_at: null,
 }

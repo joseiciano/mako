@@ -81,6 +81,7 @@ function buildInterviewRow(overrides: Partial<ClaimInterviewRow> = {}): ClaimInt
     feedback_prompt_version: null,
     feedback_generated_at: null,
     started_at: null,
+    screenshots_finalized_at: null,
     expires_at: null,
     warning_at: null,
     created_at: fixedNow,

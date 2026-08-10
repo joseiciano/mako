@@ -417,6 +417,7 @@ function createInterviewRecord(
     interviewer_alias: 'Interviewer-Red',
     type: 'system_design',
     mode: 'ai_led',
+    booking_channel: 'ai_direct',
     tier: 'standard',
     status: 'scheduled',
     scheduled_at: '2026-04-13T10:00:00.000Z',
