@@ -33,6 +33,7 @@ export {
   type PostgresConnectionPool,
   type PostgresQueryResult,
 } from './database/postgres-connection-pool'
+export { rollbackTransactionSafely } from './database/transaction-utils'
 export * from './account'
 export * from './interviewer-application'
 export * from './auth'
@@ -44,12 +45,15 @@ export * from './notifications'
 export * from './credit'
 export * from './tier-policy'
 export * from './payment'
+export * from './interview-assets'
 export {
   interviewCreatedEventSchema,
   interviewCancelledEventSchema,
+  interviewCompletedEventSchema,
   interviewMatchCreatedEventSchema,
   type InterviewCreatedEvent,
   type InterviewCancelledEvent,
+  type InterviewCompletedEvent,
   type InterviewMatchCreatedEvent,
   type NotificationQueueEvent,
   type NotificationQueueEventPublisher,

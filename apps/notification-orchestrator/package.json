@@ -14,7 +14,8 @@
   },
   "dependencies": {
     "@mako/shared": "workspace:*",
-    "@mako/shared-backend": "workspace:*"
+    "@mako/shared-backend": "workspace:*",
+    "zod": "^3.24.2"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "latest",

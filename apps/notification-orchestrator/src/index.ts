@@ -10,15 +10,26 @@ import {
   interviewCreatedEventSchema,
   interviewCancelledEventSchema,
   interviewMatchCreatedEventSchema,
+  interviewCompletedEventSchema,
   reminderDueTransportMessageSchema,
 } from '@mako/shared-backend'
 import { createPostgresConnectionPool } from '@mako/shared-backend'
+import {
+  InterviewFeedbackWorkflow,
+  feedbackWorkflowPayloadSchema,
+} from './workflows/feedback-workflow'
+import type { FeedbackWorkflowPayload } from './workflows/feedback-workflow'
+
+export { InterviewFeedbackWorkflow, feedbackWorkflowPayloadSchema }
 
 export type WorkerBindings = {
   HYPERDRIVE: {
     connectionString: string
   }
+  RECORDINGS_BUCKET?: R2Bucket
+  SCREENSHOTS_BUCKET?: R2Bucket
   NOTIFICATION_QUEUE: Queue<NotificationTransportMessage>
+  FEEDBACK_WORKFLOW?: Workflow<FeedbackWorkflowPayload>
 }
 
 export type NotificationWorkerDependencies = {
@@ -110,6 +121,32 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
             } else if (parsedBody.event_type === 'interview.match.created') {
               const event = interviewMatchCreatedEventSchema.parse(parsedBody)
               await consumerService.processInterviewMatchCreated(event)
+            } else if (parsedBody.event_type === 'interview.completed') {
+              const event = interviewCompletedEventSchema.parse(parsedBody)
+
+              // Trigger feedback workflow idempotently. createBatch is
+              // idempotent, so duplicate interview.completed events are safe.
+              if (env.FEEDBACK_WORKFLOW) {
+                const instanceId = `feedback-v1-${event.interview.id}`
+                await env.FEEDBACK_WORKFLOW.createBatch([
+                  {
+                    id: instanceId,
+                    params: {
+                      interview_id: event.interview.id,
+                      schema_version: 1,
+                    },
+                  },
+                ])
+                consoleLike.log('[notification-consumer] feedback_workflow_triggered', {
+                  interview_id: event.interview.id,
+                  instance_id: instanceId,
+                })
+              } else {
+                consoleLike.log('[notification-consumer] feedback_workflow_not_configured', {
+                  interview_id: event.interview.id,
+                })
+              }
+
             } else if (parsedBody.message_type === 'reminder.due') {
               const reminderMessage = reminderDueTransportMessageSchema.parse(parsedBody)
               await consumerService.processReminderDue(reminderMessage)

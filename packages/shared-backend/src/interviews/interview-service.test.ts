@@ -23,6 +23,7 @@ import type {
   InterviewPostCommitEventPublisher,
 } from './interview-post-commit-event'
 import { TierPolicyService } from '../tier-policy'
+import { buildInterviewCompletedEvent, interviewCompletedEventSchema } from '../notification-queue-event-contract'
 
 const activeSession: InterviewSession = {
   userId: '11111111-1111-4111-8111-111111111111',
@@ -486,6 +487,7 @@ describe('InterviewService', function interviewServiceSuite() {
             feedback_error_code: null,
             feedback_prompt_version: null,
             feedback_generated_at: null,
+            screenshots_finalized_at: null,
           }
         },
       },
@@ -2068,6 +2070,114 @@ describe('InterviewService', function interviewServiceSuite() {
     })
   })
 
+  it('buildInterviewCompletedEvent produces a valid completed event with correct fields', async function run() {
+    const interview = createInterviewRecord({
+      id: '33333333-3333-4333-8333-333333333333',
+      scheduler_id: activeSession.userId,
+      status: 'completed',
+    })
+
+    const event = buildInterviewCompletedEvent({ interview })
+
+    expect(event.event_type).toBe('interview.completed')
+    expect(event.idempotency_key).toBe('interview.completed:33333333-3333-4333-8333-333333333333')
+    expect(event.interview.id).toBe(interview.id)
+    expect(event.interview.status).toBe('completed')
+    expect(event.participants.scheduler_user_id).toBe(interview.scheduler_id)
+    expect(event.participants.interviewer_user_id).toBe(interview.interviewer_id)
+
+    expect(() => interviewCompletedEventSchema.parse(event)).not.toThrow()
+  })
+
+  it('end interview persists completed outbox event when persistOutboxEvent is configured', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const persistedEvents: Array<{ idempotency_key: string; event_type: string }> = []
+
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          status: 'ongoing',
+        }),
+      ],
+      undefined,
+      undefined,
+      {} as unknown as import('../notifications').NotificationService,
+      undefined,
+      undefined,
+      async function persistOutboxEvent(event) {
+        persistedEvents.push({
+          idempotency_key: event.idempotency_key,
+          event_type: event.event_type,
+        })
+      },
+    )
+
+    await service.endInterview(activeSession, { id: interviewId })
+
+    expect(persistedEvents).toHaveLength(1)
+    expect(persistedEvents[0].event_type).toBe('interview.completed')
+    expect(persistedEvents[0].idempotency_key).toBe(`interview.completed:${interviewId}`)
+  })
+
+  it('end interview falls back to post-commit publisher when dispatch service is not configured', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const publishedEvents: InterviewPostCommitEvent[] = []
+
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          status: 'ongoing',
+        }),
+      ],
+      {
+        async publish(event) {
+          publishedEvents.push(event)
+        },
+      },
+    )
+
+    await service.endInterview(activeSession, { id: interviewId })
+
+    expect(publishedEvents).toHaveLength(1)
+    expect(publishedEvents[0]).toMatchObject({
+      event_type: 'interview.completed',
+    })
+  })
+
+  it('end interview does not publish completed event on already_completed outcome', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const publishedEvents: InterviewPostCommitEvent[] = []
+
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          status: 'completed',
+        }),
+      ],
+      {
+        async publish(event) {
+          publishedEvents.push(event)
+        },
+      },
+    )
+
+    await service.endInterview(activeSession, { id: interviewId })
+
+    expect(publishedEvents).toHaveLength(0)
+  })
+
   it('delegates aiChat to the repository and returns validated result', async function run() {
     let repositoryCallCount = 0
     const stubResponder: AiChatServicePort = {
@@ -2727,6 +2837,7 @@ function createInterviewRecord(
     feedback_error_code: null,
     feedback_prompt_version: null,
     feedback_generated_at: null,
+    screenshots_finalized_at: null,
     started_at: null,
     expires_at: null,
     warning_at: null,

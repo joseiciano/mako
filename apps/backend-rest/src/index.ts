@@ -50,6 +50,12 @@ import {
   NotificationRepository,
   NotificationService,
   NotificationDispatchService,
+  RecordingConsentRepository,
+  RecordingConsentService,
+  ScreenshotRepository,
+  ScreenshotService,
+  createArtifactStorage,
+  createR2BucketPort,
   type NotificationDispatchServiceLogger,
   type AccountProfileRecord,
   type AccountRepositoryDataSource,
@@ -84,6 +90,8 @@ export { SessionTimerWorkflow }
 export type WorkerBindings = {
   DB?: DatabaseBinding
   HYPERDRIVE?: HyperdriveBinding
+  RECORDINGS_BUCKET?: R2Bucket
+  SCREENSHOTS_BUCKET?: R2Bucket
   BETTER_AUTH_SECRET?: string
   BETTER_AUTH_URL?: string
   BETTER_AUTH_TRUSTED_ORIGINS?: string
@@ -238,9 +246,7 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
           ? {
               queryExecutor,
               persistOutboxEvent: async function persistOutboxEvent(event) {
-                await notificationService!.persistOutboxEvent(
-                  event as Parameters<NotificationService['persistOutboxEvent']>[0],
-                )
+                await notificationService!.persistOutboxEvent(event)
               },
             }
           : demoDataSources.interview,
@@ -273,6 +279,45 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
         realtimeProvider,
         timerOrchestration,
         new AiChatRepository(createWorkerAiChatResponder(context.bindings)),
+      )
+    },
+    createConsentService: function createConsentService(context) {
+      if (!hasDatabaseAccess(context.bindings)) {
+        return undefined
+      }
+
+      const queryExecutor = createDatabaseQueryExecutor(context.bindings)
+
+      return new RecordingConsentService(
+        new RecordingConsentRepository({ queryExecutor }),
+        new InterviewRepository({ queryExecutor }),
+      )
+    },
+    createScreenshotService: function createScreenshotService(context) {
+      if (!hasDatabaseAccess(context.bindings)) {
+        return undefined
+      }
+
+      const queryExecutor = createDatabaseQueryExecutor(context.bindings)
+      const screenshotRepository = new ScreenshotRepository({ queryExecutor })
+      const interviewRepository = new InterviewRepository({ queryExecutor })
+
+      const recordingsBucket = context.bindings.RECORDINGS_BUCKET
+      const screenshotsBucket = context.bindings.SCREENSHOTS_BUCKET
+
+      if (!screenshotsBucket) {
+        return undefined
+      }
+
+      const storagePort = createArtifactStorage(
+        recordingsBucket ? createR2BucketPort(recordingsBucket) : null,
+        createR2BucketPort(screenshotsBucket),
+      )
+
+      return new ScreenshotService(
+        screenshotRepository,
+        interviewRepository,
+        storagePort,
       )
     },
     resolveSession: function resolveSession(context) {

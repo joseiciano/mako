@@ -41,6 +41,9 @@ The platform manages interview state across frontend and backend with explicit r
 - **Completion**
   - Triggered by participant `POST /api/interviews/:id/end` or workflow timer timeout; both converge to `completed` via atomic guarded transitions.
   - Interview status is updated to `completed`.
+  - `feedback_status` is set to `pending` when all participants have consented to recording, or `not_started` with `feedback_unavailable_reason = 'no_consent'` otherwise.
+  - `screenshots_finalized_at` is set to `COALESCE(screenshots_finalized_at, NOW())` to freeze the screenshot upload window.
+  - An `interview.completed` outbox event is emitted for notification orchestration and feedback workflow triggering.
 
 - **Cancelled**
   - Triggered by `POST /api/interviews/:id/cancel` when transition rules permit.

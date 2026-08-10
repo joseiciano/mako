@@ -1,5 +1,5 @@
 import type { AvailabilityRequest, AvailabilitySlot } from '@mako/shared'
-import { createSqlQuery } from '../index'
+import { createSqlQuery, rollbackTransactionSafely } from '../index'
 import {
   parseAvailabilityRequestRow,
   parseAvailabilitySlotRow,
@@ -232,10 +232,4 @@ function isQueryExecutor(
     'query' in input &&
     typeof input.query === 'function'
   )
-}
-
-async function rollbackTransactionSafely(queryExecutor: SqlQueryExecutor): Promise<void> {
-  try {
-    await queryExecutor.query(createSqlQuery('ROLLBACK;'))
-  } catch {}
 }

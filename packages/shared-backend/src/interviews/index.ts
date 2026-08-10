@@ -37,6 +37,7 @@ export {
   createInMemoryInterviewDataSource,
   mergeDetailProcessingState,
   type InMemoryInterviewAccountRecord,
+  type InterviewFeedbackState,
   type InterviewRepositoryDataSource,
 } from './interview-repository'
 export {
@@ -44,19 +45,40 @@ export {
   type InterviewServiceLogger,
 } from './interview-service'
 export {
+  RecordingConsentRepository,
+  type RecordingConsentRecord,
+  type RecordingConsentResult,
+  type RevokeConsentInput,
+  type UpsertConsentInput,
+} from './recording-consent-repository'
+export { RecordingConsentService } from './recording-consent-service'
+export {
+  ScreenshotRepository,
+  type ScreenshotArtifactRow,
+  type InsertScreenshotInput,
+  type ScreenshotRepositoryDependencies,
+} from './screenshot-repository'
+export {
+  ScreenshotService,
+} from './screenshot-service'
+export {
   registerInterviewController,
   type InterviewControllerOptions,
 } from './interview-controller'
 export {
   buildInterviewCancelledEvent,
   buildInterviewCancelledIdempotencyKey,
+  buildInterviewCompletedEvent,
+  buildInterviewCompletedIdempotencyKey,
   buildInterviewCreatedEvent,
   buildInterviewCreatedIdempotencyKey,
   createInterviewQueuePostCommitEventPublisher,
   interviewCancelledEventSchema,
+  interviewCompletedEventSchema,
   interviewCreatedEventSchema,
   interviewParticipantsSchema,
   type InterviewCancelledEvent,
+  type InterviewCompletedEvent,
   type InterviewCreatedEvent,
   type InterviewPostCommitEvent,
   type InterviewPostCommitEventPublisher,

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { createNotificationWorker, type NotificationWorkerDependencies } from './index'
 import type { NotificationTransportMessage } from '@mako/shared-backend'
+import type { FeedbackWorkflowPayload } from './workflows/feedback-workflow'
 
 describe('notification-orchestrator queue handler', function queueHandlerSuite() {
   it('acks valid interview.created messages after processing', async function run() {
@@ -322,6 +323,128 @@ describe('notification-orchestrator queue handler', function queueHandlerSuite()
       event: 'notification_orchestrator.processing_error',
     })
   })
+
+  describe('interview.completed feedback workflow triggering', function completedSuite() {
+    const completedEventBody = {
+      event_type: 'interview.completed',
+      event_id: '11111111-1111-4111-8111-111111111111',
+      idempotency_key: 'interview.completed:22222222-2222-4222-8222-222222222222',
+      occurred_at: '2026-05-22T10:00:00.000Z',
+      interview: {
+        id: '22222222-2222-4222-8222-222222222222',
+        scheduler_id: '33333333-3333-4333-8333-333333333333',
+        interviewer_id: null,
+        type: 'system_design',
+        mode: 'ai_led',
+        tier: 'standard',
+        status: 'completed',
+        scheduled_at: '2026-05-22T14:00:00.000Z',
+      },
+      participants: {
+        scheduler_user_id: '33333333-3333-4333-8333-333333333333',
+        interviewer_user_id: null,
+      },
+    }
+
+    it('triggers feedback workflow on interview.completed event', async function run() {
+      const { worker, logs } = createTestWorker()
+      const feedbackWorkflow = createMockFeedbackWorkflow()
+
+      const batch = createMockBatch([
+        createMockMessage('msg-1', completedEventBody),
+      ])
+
+      const env = createMockEnvWithFeedback(feedbackWorkflow)
+
+      await worker.queue(batch, env)
+
+      expect(batch.acked).toContain('msg-1')
+      expect(batch.retried).toHaveLength(0)
+
+      const expectedInstanceId = `feedback-v1-${completedEventBody.interview.id}`
+      expect(feedbackWorkflow.createBatch).toHaveBeenCalledTimes(1)
+      expect(feedbackWorkflow.createBatch).toHaveBeenCalledWith([
+        {
+          id: expectedInstanceId,
+          params: {
+            interview_id: completedEventBody.interview.id,
+            schema_version: 1,
+          },
+        },
+      ])
+
+      const triggerLog = logs.logs.find(
+        (call): call is unknown[] =>
+          Array.isArray(call) && call[0] === '[notification-consumer] feedback_workflow_triggered',
+      )
+      expect(triggerLog).toBeDefined()
+      expect(triggerLog![1]).toMatchObject({
+        interview_id: completedEventBody.interview.id,
+        instance_id: expectedInstanceId,
+      })
+    })
+
+    it('logs when feedback workflow is not configured on interview.completed', async function run() {
+      const { worker, logs } = createTestWorker()
+
+      const batch = createMockBatch([
+        createMockMessage('msg-1', completedEventBody),
+      ])
+
+      const env = createMockEnv()
+
+      await worker.queue(batch, env)
+
+      expect(batch.acked).toContain('msg-1')
+      expect(batch.retried).toHaveLength(0)
+
+      const notConfiguredLog = logs.logs.find(
+        (call): call is unknown[] =>
+          Array.isArray(call) && call[0] === '[notification-consumer] feedback_workflow_not_configured',
+      )
+      expect(notConfiguredLog).toBeDefined()
+      expect(notConfiguredLog![1]).toMatchObject({
+        interview_id: completedEventBody.interview.id,
+      })
+    })
+
+    it('interview.completed idempotency - duplicate events trigger same workflow instance', async function run() {
+      const { worker } = createTestWorker()
+      const feedbackWorkflow = createMockFeedbackWorkflow()
+
+      const batch1 = createMockBatch([
+        createMockMessage('msg-1', completedEventBody),
+      ])
+      const batch2 = createMockBatch([
+        createMockMessage('msg-1', completedEventBody),
+      ])
+
+      const env = createMockEnvWithFeedback(feedbackWorkflow)
+
+      await worker.queue(batch1, env)
+      await worker.queue(batch2, env)
+
+      expect(batch1.acked).toContain('msg-1')
+      expect(batch2.acked).toContain('msg-1')
+      expect(batch1.retried).toHaveLength(0)
+      expect(batch2.retried).toHaveLength(0)
+
+      const expectedInstanceId = `feedback-v1-${completedEventBody.interview.id}`
+      const expectedCall = [
+        {
+          id: expectedInstanceId,
+          params: {
+            interview_id: completedEventBody.interview.id,
+            schema_version: 1,
+          },
+        },
+      ]
+
+      expect(feedbackWorkflow.createBatch).toHaveBeenCalledTimes(2)
+      expect(feedbackWorkflow.createBatch).toHaveBeenNthCalledWith(1, expectedCall)
+      expect(feedbackWorkflow.createBatch).toHaveBeenNthCalledWith(2, expectedCall)
+    })
+  })
 })
 
 describe('notification-orchestrator scheduled handler', function scheduledHandlerSuite() {
@@ -550,5 +673,22 @@ function createMockEnv(queue: Queue<NotificationTransportMessage> = createMockQu
       connectionString: 'postgresql://localhost:5432/test',
     },
     NOTIFICATION_QUEUE: queue,
+  }
+}
+
+function createMockFeedbackWorkflow() {
+  const createBatch = vi.fn(async () => {})
+  return {
+    createBatch,
+  } as unknown as Workflow<FeedbackWorkflowPayload>
+}
+
+function createMockEnvWithFeedback(
+  feedbackWorkflow: ReturnType<typeof createMockFeedbackWorkflow>,
+  queue?: Queue<NotificationTransportMessage>,
+) {
+  return {
+    ...createMockEnv(queue),
+    FEEDBACK_WORKFLOW: feedbackWorkflow,
   }
 }

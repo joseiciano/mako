@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 5: Post-Interview Feedback & AI Analysis
 **Description**: Add participant-authorized, bounded whiteboard PNG upload behavior and finalize the capture set from the canonical completion transition.
-**Status**: Todo
+**Status**: Completed
 **Prerequisites**:
 - `docs/system/system-design/api-routes.md`
 - `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-1-whiteboard-scope-and-contract-boundaries.md`

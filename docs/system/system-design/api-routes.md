@@ -428,6 +428,52 @@
   - **Participant Scope**: Only the interview scheduler or interviewer can access this route. Non-participants receive a 404.
   - **Query Params**: None
 
+- **`POST /api/interviews/:id/recording-consent`**
+  - **Description**: Sets the authenticated participant's recording consent decision for an interview.
+  - **Request Body**: `{ decision: 'consented' | 'declined', consent_copy_version: string }`
+  - **Response Body**:
+    ```json
+    {
+      "interview_id": "uuid",
+      "user_id": "uuid",
+      "decision": "consented",
+      "consent_copy_version": "v1",
+      "recording_status": "not_started",
+      "revoked_at": null
+    }
+    ```
+  - **Behavior Rules**:
+    - Route is participant-only; unauthenticated requests receive 401; non-participants receive 404.
+    - Consent can only be set while `recording_status` is `not_started` and the interview is `scheduled` or `ongoing`; otherwise 409.
+    - Idempotent: re-submitting the same decision and consent copy version returns the existing record.
+  - **Query Params**: None
+
+- **`DELETE /api/interviews/:id/recording-consent`**
+  - **Description**: Revokes the authenticated participant's recording consent for an interview.
+  - **Request Body**: None
+  - **Response Body**: Same shape as `POST /api/interviews/:id/recording-consent`.
+  - **Behavior Rules**:
+    - Route is participant-only; unauthenticated requests receive 401; non-participants receive 404.
+    - Consent can only be revoked while `recording_status` is `not_started`; otherwise 409.
+    - Returns the revoked consent record with the original decision.
+  - **Query Params**: None
+
+- **`POST /api/interviews/:id/artifacts/screenshots`**
+  - **Description**: Uploads a screenshot artifact for an ongoing interview.
+  - **Request Body**: Raw binary PNG image data (not JSON, not base64).
+  - **Required Headers**:
+    - `Content-Type: image/png` — must be exactly `image/png`.
+    - `X-Idempotency-Key` — UUID for idempotent retry handling.
+    - `X-Capture-Timestamp` — ISO 8601 datetime with offset (e.g., `2026-04-13T10:00:00.000Z`).
+  - **Response Body**: `{ "capture_id": "uuid" }`
+  - **Behavior Rules**:
+    - Route is participant-only; unauthenticated requests receive 401; non-participants receive 404.
+    - Screenshots can only be uploaded while the interview is `ongoing` and not yet finalized; otherwise 409.
+    - `Content-Type` must be `image/png`; the request body must contain valid PNG magic bytes.
+    - Maximum screenshot size is 5MB; maximum 10 screenshots per interview.
+    - Idempotent: retried uploads with the same `X-Idempotency-Key` return the original `capture_id`.
+  - **Query Params**: None
+
 ### Availability
 - **`POST /api/availability`**
   - **Description**: Submits a new availability request with one or more time slots.

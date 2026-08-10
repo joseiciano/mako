@@ -64,6 +64,8 @@ Reference `../docs/infrastructure/frontend.md` for frontend services.
 
 **NOTE**: If we ever need to add a new service that requires a new secret to be added to our github deployment actions, update `./scripts/set-github-env-secrets.sh` to include this new value. This script is to be used to manually setup the secrets, as well as to act as documentation for what is needed. 
 
+**NOTE**: The shared `@mako/shared-backend` `interview-assets` module is the canonical R2 abstraction for recording and screenshot storage. R2 object keys follow the prefix conventions `interviews/{interviewId}/recording/{recordingId}` and `interviews/{interviewId}/screenshots/{screenshotId}` with a 30-day lifecycle expiration.
+
 ## Git
 
 Reference `./docs/system/system-design/ci-cd.md` on how to use Git and create Pull Requests

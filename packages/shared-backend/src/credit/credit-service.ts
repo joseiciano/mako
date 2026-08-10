@@ -1,4 +1,4 @@
-import { createSqlQuery, type SqlQueryExecutor } from '../index'
+import { createSqlQuery, rollbackTransactionSafely, type SqlQueryExecutor } from '../index'
 import { CreditRepository } from './credit-repository'
 import {
   CreditAccountNotFoundError,
@@ -122,10 +122,4 @@ export class CreditService {
 
     return { transactions, total }
   }
-}
-
-async function rollbackTransactionSafely(queryExecutor: SqlQueryExecutor): Promise<void> {
-  try {
-    await queryExecutor.query(createSqlQuery('ROLLBACK;'))
-  } catch {}
 }

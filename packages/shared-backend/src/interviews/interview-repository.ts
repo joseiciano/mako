@@ -34,6 +34,7 @@ export interface InterviewRepositoryDataSource {
   getAccountPolicy(userId: string): Promise<InterviewAccountPolicy | null>
   createDirectInterview(input: CreateInterviewRecordInput, outboxEvent?: NotificationQueueEvent): Promise<Interview>
   getInterviewById?(id: string): Promise<Interview | null>
+  getInterviewFeedbackState?(id: string): Promise<InterviewFeedbackState | null>
   getParticipantInterviewById?(
     input: GetParticipantInterviewByIdInput,
   ): Promise<InterviewDetail | null>
@@ -48,7 +49,21 @@ export interface InterviewRepositoryDataSource {
   ): Promise<ProvisionInterviewRecordResult>
   transitionInterviewLifecycle?(
     input: LifecycleInterviewRecordInput,
+    outboxEvent?: NotificationQueueEvent,
   ): Promise<LifecycleInterviewRecordResult>
+}
+
+export type InterviewFeedbackState = {
+  id: string
+  status: Interview['status']
+  recording_status: InterviewDetail['recording_status']
+  feedback_status: InterviewDetail['feedback_status']
+  feedback_unavailable_reason: InterviewDetail['feedback_unavailable_reason']
+  screenshots_finalized_at: InterviewDetail['screenshots_finalized_at']
+  type: Interview['type']
+  mode: Interview['mode']
+  tier: Interview['tier']
+  scheduler_alias: Interview['scheduler_alias']
 }
 
 export type InMemoryInterviewAccountRecord = {
@@ -366,6 +381,39 @@ export class InterviewRepository {
     return row ? parseInterview(row) : null
   }
 
+  async getInterviewFeedbackState(id: string): Promise<InterviewFeedbackState | null> {
+    const dataSource = this.dependencies.dataSource
+
+    if (dataSource && 'getInterviewFeedbackState' in dataSource) {
+      return dataSource.getInterviewFeedbackState!(id)
+    }
+
+    const result = await this.getQueryExecutor().query<InterviewFeedbackState>(
+      createSqlQuery(
+        `
+          SELECT
+            id,
+            status,
+            recording_status,
+            feedback_status,
+            feedback_unavailable_reason,
+            screenshots_finalized_at,
+            type,
+            mode,
+            tier,
+            scheduler_alias
+          FROM interviews
+          WHERE id = $1
+          LIMIT 1;
+        `,
+        [id],
+      ),
+    )
+
+    const [row] = result.rows
+    return row ?? null
+  }
+
   async getParticipantInterviewById(
     input: GetParticipantInterviewByIdInput,
   ): Promise<InterviewDetail | null> {
@@ -400,6 +448,7 @@ export class InterviewRepository {
             feedback_error_code,
             feedback_prompt_version,
             feedback_generated_at,
+            screenshots_finalized_at,
             started_at,
             expires_at,
             warning_at,
@@ -572,12 +621,17 @@ export class InterviewRepository {
 
   async transitionInterviewLifecycle(
     input: LifecycleInterviewRecordInput,
+    outboxEvent?: NotificationQueueEvent,
   ): Promise<LifecycleInterviewRecordResult> {
     const parsedInput = lifecycleInterviewRecordInputSchema.parse(input)
     const dataSource = this.dependencies.dataSource
 
     if (typeof dataSource?.transitionInterviewLifecycle === 'function') {
-      return dataSource.transitionInterviewLifecycle(parsedInput)
+      const result = await dataSource.transitionInterviewLifecycle(parsedInput, outboxEvent)
+      if (result.outcome === 'completed' && outboxEvent && this.dependencies.persistOutboxEvent) {
+        await this.dependencies.persistOutboxEvent(outboxEvent)
+      }
+      return result
     }
 
     const queryExecutor = this.getQueryExecutor()
@@ -725,8 +779,31 @@ export class InterviewRepository {
         const updateResult = await queryExecutor.query<Interview>(
           createSqlQuery(
             `
+              WITH consent_check AS (
+                SELECT (
+                  SELECT COUNT(*) = CASE WHEN i.interviewer_id IS NULL THEN 1 ELSE 2 END
+                  FROM interview_recording_consents rc
+                  WHERE rc.interview_id = i.id
+                    AND rc.decision = 'consented'
+                    AND rc.revoked_at IS NULL
+                    AND rc.user_id IN (i.scheduler_id, i.interviewer_id)
+                ) AS all_consented
+                FROM interviews i
+                WHERE i.id = $1
+              )
               UPDATE interviews
               SET status = 'completed',
+                  feedback_status = CASE
+                    WHEN (SELECT all_consented FROM consent_check)
+                    THEN 'pending'
+                    ELSE 'not_started'
+                  END,
+                  feedback_unavailable_reason = CASE
+                    WHEN (SELECT all_consented FROM consent_check)
+                    THEN NULL
+                    ELSE 'no_consent'
+                  END,
+                  screenshots_finalized_at = COALESCE(screenshots_finalized_at, NOW()),
                   updated_at = $2
               WHERE id = $1
                 AND (scheduler_id = $3 OR interviewer_id = $3)
@@ -756,6 +833,7 @@ export class InterviewRepository {
                 feedback_error_code,
                 feedback_prompt_version,
                 feedback_generated_at,
+                screenshots_finalized_at,
                 started_at,
                 expires_at,
                 warning_at,
@@ -810,6 +888,7 @@ export class InterviewRepository {
                 feedback_error_code,
                 feedback_prompt_version,
                 feedback_generated_at,
+                screenshots_finalized_at,
                 started_at,
                 expires_at,
                 warning_at,
@@ -1186,6 +1265,7 @@ export const defaultDetailProcessingState = {
   feedback_error_code: null,
   feedback_prompt_version: null,
   feedback_generated_at: null,
+  screenshots_finalized_at: null,
 } as const satisfies Pick<
   InterviewWithDetailState,
   | 'recording_status'
@@ -1195,6 +1275,7 @@ export const defaultDetailProcessingState = {
   | 'feedback_error_code'
   | 'feedback_prompt_version'
   | 'feedback_generated_at'
+  | 'screenshots_finalized_at'
 >
 
 export function mergeDetailProcessingState(
@@ -1213,6 +1294,7 @@ export function mergeDetailProcessingState(
     feedback_error_code: prior.feedback_error_code,
     feedback_prompt_version: prior.feedback_prompt_version,
     feedback_generated_at: prior.feedback_generated_at,
+    screenshots_finalized_at: prior.screenshots_finalized_at ?? null,
   }
 }
 
@@ -1322,6 +1404,24 @@ export function createInMemoryInterviewDataSource(
     async getInterviewById(id: string): Promise<Interview | null> {
       const interview = interviewsById.get(id)
       return interview ? structuredClone(interview) : null
+    },
+    async getInterviewFeedbackState(id: string): Promise<InterviewFeedbackState | null> {
+      const interview = interviewsById.get(id)
+      if (!interview) {
+        return null
+      }
+      return {
+        id: interview.id,
+        status: interview.status,
+        recording_status: interview.recording_status,
+        feedback_status: interview.feedback_status,
+        feedback_unavailable_reason: interview.feedback_unavailable_reason,
+        screenshots_finalized_at: interview.screenshots_finalized_at,
+        type: interview.type,
+        mode: interview.mode,
+        tier: interview.tier,
+        scheduler_alias: interview.scheduler_alias,
+      }
     },
     async getParticipantInterviewById(
       input: GetParticipantInterviewByIdInput,
@@ -1512,13 +1612,24 @@ export function createInMemoryInterviewDataSource(
         }
       }
 
+      // NOTE: This approximates consent using recording_status, diverging from
+      // the SQL CTE that checks per-participant interview_recording_consents rows.
+      // For peer-to-peer interviews, this may incorrectly mark feedback as
+      // pending when only one participant has consented. Acceptable for test
+      // scenarios; production uses the SQL path.
+      const allConsented = existingInterview.recording_status !== 'not_started'
+
       const completedInterview = mergeDetailProcessingState(
         parseInterview({
           ...existingInterview,
           status: 'completed',
           updated_at: parsedInput.updated_at,
         }),
-        existingInterview,
+        {
+          ...existingInterview,
+          feedback_status: allConsented ? 'pending' : 'not_started',
+          feedback_unavailable_reason: allConsented ? null : 'no_consent',
+        },
       )
 
       interviewsById.set(completedInterview.id, structuredClone(completedInterview))

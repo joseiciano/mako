@@ -3,7 +3,13 @@ import {
   type WorkflowEvent,
   type WorkflowStep,
 } from 'cloudflare:workers'
-import { InterviewRepository } from '@mako/shared-backend'
+import {
+  InterviewRepository,
+  buildInterviewCompletedEvent,
+  NotificationDispatchService,
+  NotificationRepository,
+  NotificationService,
+} from '@mako/shared-backend'
 import type { TimerStartParams } from '@mako/shared-backend'
 import type { WorkerBindings } from '../index'
 import { createDatabaseQueryExecutor } from '../database'
@@ -62,6 +68,7 @@ export class SessionTimerWorkflow extends WorkflowEntrypoint<
   async run(event: Readonly<WorkflowEvent<TimerStartParams>>, step: WorkflowStep) {
     const params = event.payload
     const env = this.env
+    const queryExecutor = createDatabaseQueryExecutor(env)
 
     await step.sleepUntil('wait_for_warning', new Date(params.warning_at))
 
@@ -78,8 +85,15 @@ export class SessionTimerWorkflow extends WorkflowEntrypoint<
     await step.sleepUntil('wait_for_expiration', new Date(params.expires_at))
 
     await step.do('complete_interview', async function completeInterview() {
-      const queryExecutor = createDatabaseQueryExecutor(env)
-      const repository = new InterviewRepository({ queryExecutor })
+      const notificationRepository = new NotificationRepository({ queryExecutor })
+      const notificationService = new NotificationService(notificationRepository)
+      const notificationDispatchService = new NotificationDispatchService(notificationService)
+      const repository = new InterviewRepository({
+        queryExecutor,
+        persistOutboxEvent: async function persistOutboxEvent(event) {
+          await notificationService.persistOutboxEvent(event)
+        },
+      })
 
       const interview = await repository.getInterviewById(params.interview_id)
 
@@ -93,18 +107,42 @@ export class SessionTimerWorkflow extends WorkflowEntrypoint<
         return { completed: false, reason: 'not_found' }
       }
 
+      const outboxEvent = buildInterviewCompletedEvent({
+        interview: { ...interview, status: 'completed' },
+      })
+
       const transitionResult = await repository.transitionInterviewLifecycle({
         interview_id: params.interview_id,
         participant_user_id: interview.scheduler_id,
         action: 'end',
         updated_at: new Date().toISOString(),
         started_at_precondition: params.started_at,
-      })
+      }, outboxEvent)
 
       if (
         transitionResult.outcome === 'completed' ||
         transitionResult.outcome === 'already_completed'
       ) {
+        if (transitionResult.outcome === 'completed' && env.NOTIFICATION_QUEUE) {
+          const transport = {
+            send: async function send(message: unknown) {
+              await env.NOTIFICATION_QUEUE!.send(message)
+            },
+          }
+          try {
+            await notificationDispatchService.dispatchOutboxEventByIdempotencyKey(
+              outboxEvent.idempotency_key,
+              transport,
+            )
+          } catch (error) {
+            console.error({
+              event: 'timer_dispatch_failure',
+              interview_id: params.interview_id,
+              error_message: error instanceof Error ? error.message : String(error),
+            })
+          }
+        }
+
         console.info(buildTimerCompletedLog({
           interview_id: params.interview_id,
           expires_at: params.expires_at,

@@ -22,6 +22,7 @@ export function makeInterview(overrides?: Partial<InterviewDetail>): InterviewDe
     feedback_error_code: null,
     feedback_prompt_version: null,
     feedback_generated_at: null,
+    screenshots_finalized_at: null,
     started_at: null,
     expires_at: null,
     warning_at: null,

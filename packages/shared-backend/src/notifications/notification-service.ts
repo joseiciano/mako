@@ -1,5 +1,6 @@
 import type {
   InterviewCancelledEvent,
+  InterviewCompletedEvent,
   InterviewCreatedEvent,
   InterviewMatchCreatedEvent,
 } from '../notification-queue-event-contract'
@@ -26,7 +27,7 @@ export class NotificationService {
   ) {}
 
   async persistOutboxEvent(
-    event: InterviewCreatedEvent | InterviewCancelledEvent | InterviewMatchCreatedEvent,
+    event: InterviewCreatedEvent | InterviewCancelledEvent | InterviewCompletedEvent | InterviewMatchCreatedEvent,
   ): Promise<void> {
     const row: NotificationOutboxEventRow = {
       idempotency_key: event.idempotency_key,

@@ -70,6 +70,42 @@ resource "cloudflare_r2_bucket" "screenshots" {
   location   = var.r2_location
 }
 
+resource "cloudflare_r2_bucket_lifecycle" "recordings_retention" {
+  account_id  = var.cloudflare_account_id
+  bucket_name = cloudflare_r2_bucket.recordings.name
+
+  rule {
+    id      = "30-day-raw-artifact-retention"
+    enabled = true
+
+    abort_incomplete_multipart_uploads {
+      days_after_initiation = 1
+    }
+
+    expiration {
+      days = 30
+    }
+  }
+}
+
+resource "cloudflare_r2_bucket_lifecycle" "screenshots_retention" {
+  account_id  = var.cloudflare_account_id
+  bucket_name = cloudflare_r2_bucket.screenshots.name
+
+  rule {
+    id      = "30-day-raw-artifact-retention"
+    enabled = true
+
+    abort_incomplete_multipart_uploads {
+      days_after_initiation = 1
+    }
+
+    expiration {
+      days = 30
+    }
+  }
+}
+
 resource "cloudflare_queue" "notification_orchestration" {
   account_id = var.cloudflare_account_id
   queue_name = var.notification_orchestration_queue_name
@@ -90,6 +126,16 @@ resource "cloudflare_workers_script" "notification_orchestrator" {
 
   bindings = [
     {
+      type        = "r2_bucket"
+      name        = "RECORDINGS_BUCKET"
+      bucket_name = cloudflare_r2_bucket.recordings.name
+    },
+    {
+      type        = "r2_bucket"
+      name        = "SCREENSHOTS_BUCKET"
+      bucket_name = cloudflare_r2_bucket.screenshots.name
+    },
+    {
       type       = "queue"
       name       = "NOTIFICATION_QUEUE"
       queue_name = cloudflare_queue.notification_orchestration.queue_name
@@ -98,6 +144,16 @@ resource "cloudflare_workers_script" "notification_orchestrator" {
       type = "hyperdrive"
       name = "HYPERDRIVE"
       id   = cloudflare_hyperdrive_config.postgres["production"].id
+    },
+    {
+      type          = "workflow"
+      name          = "FEEDBACK_WORKFLOW"
+      workflow_name = cloudflare_workflow.interview_feedback.workflow_name
+      script_name   = cloudflare_workers_script.notification_orchestrator.script_name
+    },
+    {
+      type = "ai"
+      name = "AI"
     }
   ]
 
@@ -107,9 +163,15 @@ resource "cloudflare_workers_script" "notification_orchestrator" {
       content_sha256,
       main_module,
       compatibility_date,
-      bindings,
     ]
   }
+}
+
+resource "cloudflare_workflow" "interview_feedback" {
+  account_id    = var.cloudflare_account_id
+  workflow_name = var.feedback_workflow_name
+  script_name   = cloudflare_workers_script.notification_orchestrator.script_name
+  class_name    = var.feedback_workflow_class_name
 }
 
 resource "cloudflare_workflow" "interview_lifecycle" {

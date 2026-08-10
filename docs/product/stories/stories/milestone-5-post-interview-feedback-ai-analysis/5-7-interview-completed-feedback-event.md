@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 5: Post-Interview Feedback & AI Analysis
 **Description**: Emit one durable interview-completed event that hands eligible terminal sessions to the feedback workflow.
-**Status**: Todo
+**Status**: Completed
 **Prerequisites**:
 - `docs/system/system-design/state-management-lifecycle.md`
 - `docs/system/system-design/concurrency-data-integrity.md`
