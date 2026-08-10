@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 7: Interviewer Verification & Premium Matching
 **Description**: Implement the authenticated API that lets a verified interviewer publish, list, and cancel their premium availability slots as first-to-claim marketplace inventory, enforcing eligibility (`"user".companies = true`), exact 60-minute future windows, configurable lead/horizon bounds, non-overlap/conflict rules, and concurrent-publication serialization via a deterministic user-row lock.
-**Status**: Todo
+**Status**: Completed
 
 ## What Needs to Be Done
 

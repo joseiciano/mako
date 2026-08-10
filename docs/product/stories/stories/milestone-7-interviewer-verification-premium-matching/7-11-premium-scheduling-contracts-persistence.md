@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 7: Interviewer Verification & Premium Matching
 **Description**: Complete the `booking_channel` contraction by re-backfilling gap rows, verifying zero nulls, and setting `NOT NULL` (requires Story 7.10 deployed and old Workers drained), then add the versioned Postgres persistence and shared contract foundation for the first-to-claim premium scheduling marketplace: the dedicated `premium_interviewer_slots` table, the durable claim-idempotency store (`premium_slot_claims`), the internal booking-credit-refund audit ledger (`premium_booking_credit_refunds`), and the current-user `isVerifiedInterviewer` projection. This ticket owns the backend source-of-truth updates and locks the exact stable routes/schemas/envelopes the later stories implement.
-**Status**: Todo
+**Status**: Completed
 
 ## What Needs to Be Done
 
