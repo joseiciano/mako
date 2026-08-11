@@ -23,7 +23,15 @@ import type {
   InterviewPostCommitEventPublisher,
 } from './interview-post-commit-event'
 import { TierPolicyService } from '../tier-policy'
-import { buildInterviewCompletedEvent, interviewCompletedEventSchema } from '../notification-queue-event-contract'
+import {
+  buildInterviewCompletedEvent,
+  interviewCompletedEventSchema,
+} from '../notification-queue-event-contract'
+import {
+  PremiumConflictError,
+  PremiumNotFoundError,
+  type PremiumCancellationService,
+} from '../premium'
 
 const activeSession: InterviewSession = {
   userId: '11111111-1111-4111-8111-111111111111',
@@ -470,6 +478,7 @@ describe('InterviewService', function interviewServiceSuite() {
           return {
             ...parseInterview({
               ...input,
+              booking_channel: 'ai_direct',
               realtime_session_id: null,
               excalidraw_room_id: null,
               excalidraw_key: null,
@@ -906,6 +915,400 @@ describe('InterviewService', function interviewServiceSuite() {
     ).rejects.toBeInstanceOf(InterviewNotFoundError)
 
     expect(publishedEvents).toHaveLength(0)
+  })
+
+  it('routes verified_interviewer cancellations through premium cancellation service with scheduler source', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const premiumCancellationService = {
+      cancelInterview: vi.fn(async () => ({ outcome: 'cancelled' })),
+    } as unknown as PremiumCancellationService
+
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          interviewer_id: '88888888-8888-4888-8888-888888888888',
+          mode: 'peer_to_peer',
+          booking_channel: 'verified_interviewer',
+        }),
+      ],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      createDemoRealtimeProvider(),
+      undefined,
+      undefined,
+      premiumCancellationService,
+    )
+
+    await expect(
+      service.cancelInterview(activeSession, { id: interviewId }),
+    ).resolves.toEqual({ success: true })
+
+    expect(premiumCancellationService.cancelInterview).toHaveBeenCalledWith({
+      interviewId,
+      source: 'scheduler',
+      initiatedByUserId: activeSession.userId,
+      persistOutboxEvent: expect.any(Function),
+    })
+  })
+
+  it('routes verified_interviewer cancellations through premium cancellation service with interviewer source', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const interviewerSession: InterviewSession = {
+      userId: '99999999-9999-4999-8999-999999999999',
+      email: 'interviewer@mako.dev',
+    }
+    const premiumCancellationService = {
+      cancelInterview: vi.fn(async () => ({ outcome: 'cancelled' })),
+    } as unknown as PremiumCancellationService
+
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          interviewer_id: interviewerSession.userId,
+          mode: 'peer_to_peer',
+          booking_channel: 'verified_interviewer',
+        }),
+      ],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      createDemoRealtimeProvider(),
+      undefined,
+      undefined,
+      premiumCancellationService,
+    )
+
+    await expect(
+      service.cancelInterview(interviewerSession, { id: interviewId }),
+    ).resolves.toEqual({ success: true })
+
+    expect(premiumCancellationService.cancelInterview).toHaveBeenCalledWith({
+      interviewId,
+      source: 'interviewer',
+      initiatedByUserId: interviewerSession.userId,
+      persistOutboxEvent: expect.any(Function),
+    })
+  })
+
+  it('rejects verified_interviewer cancellations with invalid_status outcome as a conflict', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const premiumCancellationService = {
+      cancelInterview: vi.fn(async () => ({ outcome: 'invalid_status' })),
+    } as unknown as PremiumCancellationService
+
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          interviewer_id: '88888888-8888-4888-8888-888888888888',
+          mode: 'peer_to_peer',
+          booking_channel: 'verified_interviewer',
+        }),
+      ],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      createDemoRealtimeProvider(),
+      undefined,
+      undefined,
+      premiumCancellationService,
+    )
+
+    await expect(
+      service.cancelInterview(activeSession, { id: interviewId }),
+    ).rejects.toBeInstanceOf(InterviewConflictError)
+  })
+
+  it('maps premium cancellation not found to a not-found error for verified_interviewer interviews', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const premiumCancellationService = {
+      cancelInterview: vi.fn(async () => {
+        throw new PremiumNotFoundError()
+      }),
+    } as unknown as PremiumCancellationService
+
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          interviewer_id: '88888888-8888-4888-8888-888888888888',
+          mode: 'peer_to_peer',
+          booking_channel: 'verified_interviewer',
+        }),
+      ],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      createDemoRealtimeProvider(),
+      undefined,
+      undefined,
+      premiumCancellationService,
+    )
+
+    await expect(
+      service.cancelInterview(activeSession, { id: interviewId }),
+    ).rejects.toBeInstanceOf(InterviewNotFoundError)
+  })
+
+  it('maps premium cancellation conflicts to a conflict error for verified_interviewer interviews', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const premiumCancellationService = {
+      cancelInterview: vi.fn(async () => {
+        throw new PremiumConflictError(
+          'Cancellation transaction conflicts exhausted after retries. Please retry.',
+        )
+      }),
+    } as unknown as PremiumCancellationService
+
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          interviewer_id: '88888888-8888-4888-8888-888888888888',
+          mode: 'peer_to_peer',
+          booking_channel: 'verified_interviewer',
+        }),
+      ],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      createDemoRealtimeProvider(),
+      undefined,
+      undefined,
+      premiumCancellationService,
+    )
+
+    await expect(
+      service.cancelInterview(activeSession, { id: interviewId }),
+    ).rejects.toBeInstanceOf(InterviewConflictError)
+  })
+
+  it('keeps the repository cancel path for non-verified channels even when premium cancellation is configured', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const premiumCancellationService = {
+      cancelInterview: vi.fn(async () => ({ outcome: 'cancelled' })),
+    } as unknown as PremiumCancellationService
+
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      createDemoRealtimeProvider(),
+      undefined,
+      undefined,
+      premiumCancellationService,
+    )
+
+    await expect(
+      service.cancelInterview(activeSession, { id: interviewId }),
+    ).resolves.toEqual({ success: true })
+
+    expect(premiumCancellationService.cancelInterview).not.toHaveBeenCalled()
+  })
+
+  it('publishes a cancelled event after a successful premium cancellation', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const publishedEvents: InterviewPostCommitEvent[] = []
+    const premiumCancellationService = {
+      cancelInterview: vi.fn(async () => ({ outcome: 'cancelled' })),
+    } as unknown as PremiumCancellationService
+
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          interviewer_id: '88888888-8888-4888-8888-888888888888',
+          mode: 'peer_to_peer',
+          booking_channel: 'verified_interviewer',
+        }),
+      ],
+      {
+        async publish(event) {
+          publishedEvents.push(event)
+        },
+      },
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      createDemoRealtimeProvider(),
+      undefined,
+      undefined,
+      premiumCancellationService,
+    )
+
+    await service.cancelInterview(activeSession, { id: interviewId })
+
+    expect(publishedEvents).toHaveLength(1)
+    expect(publishedEvents[0]).toMatchObject({
+      event_type: 'interview.cancelled',
+    })
+  })
+
+  it('does not dispatch or publish for an idempotent already_cancelled premium retry', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const publishedEvents: InterviewPostCommitEvent[] = []
+    const dispatchedIdempotencyKeys: string[] = []
+    const premiumCancellationService = {
+      cancelInterview: vi.fn(async () => ({ outcome: 'already_cancelled' })),
+    } as unknown as PremiumCancellationService
+
+    const mockNotificationDispatchService = {
+      async dispatchOutboxEventByIdempotencyKey(idempotencyKey: string): Promise<void> {
+        dispatchedIdempotencyKeys.push(idempotencyKey)
+      },
+    } as unknown as import('../notifications').NotificationDispatchService
+
+    const mockNotificationTransport = {
+      async send(): Promise<void> {},
+    } as unknown as import('../notifications').NotificationTransport
+
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          interviewer_id: '88888888-8888-4888-8888-888888888888',
+          mode: 'peer_to_peer',
+          booking_channel: 'verified_interviewer',
+        }),
+      ],
+      {
+        async publish(event) {
+          publishedEvents.push(event)
+        },
+      },
+      undefined,
+      {
+        async persistOutboxEvent(): Promise<void> {},
+      } as unknown as import('../notifications').NotificationService,
+      mockNotificationDispatchService,
+      mockNotificationTransport,
+      undefined,
+      createDemoRealtimeProvider(),
+      undefined,
+      undefined,
+      premiumCancellationService,
+    )
+
+    const response = await service.cancelInterview(activeSession, { id: interviewId })
+
+    expect(response).toEqual({ success: true })
+    expect(dispatchedIdempotencyKeys).toHaveLength(0)
+    expect(publishedEvents).toHaveLength(0)
+  })
+
+  it('persists the premium cancelled outbox event through the transaction query executor', async function run() {
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const txQueries: import('../index').SqlQuery[] = []
+    const txExecutor = {
+      async query<Row>(queryInput: import('../index').SqlQuery): Promise<{ rows: Row[] }> {
+        txQueries.push(queryInput)
+        return { rows: [] as Row[] }
+      },
+    }
+
+    let capturedPersistOutboxEvent:
+      | ((event: unknown, queryExecutor: unknown) => Promise<void>)
+      | undefined
+    const premiumCancellationService = {
+      cancelInterview: vi.fn(async function cancel(input: {
+        persistOutboxEvent: (event: unknown, queryExecutor: unknown) => Promise<void>
+      }) {
+        capturedPersistOutboxEvent = input.persistOutboxEvent
+        return { outcome: 'cancelled' }
+      }),
+    } as unknown as PremiumCancellationService
+
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: interviewId,
+          scheduler_id: activeSession.userId,
+          interviewer_id: '88888888-8888-4888-8888-888888888888',
+          mode: 'peer_to_peer',
+          booking_channel: 'verified_interviewer',
+        }),
+      ],
+      undefined,
+      undefined,
+      {
+        async persistOutboxEvent(): Promise<void> {},
+      } as unknown as import('../notifications').NotificationService,
+      undefined,
+      undefined,
+      undefined,
+      createDemoRealtimeProvider(),
+      undefined,
+      undefined,
+      premiumCancellationService,
+    )
+
+    await service.cancelInterview(activeSession, { id: interviewId })
+
+    expect(capturedPersistOutboxEvent).toBeDefined()
+    await capturedPersistOutboxEvent!(
+      { event_type: 'interview.cancelled', idempotency_key: `interview.cancelled:${interviewId}` },
+      txExecutor,
+    )
+
+    const outboxInsert = txQueries.find(function isOutboxInsert(query) {
+      return query.text.includes('INSERT INTO notification_outbox_events')
+    })
+    expect(outboxInsert).toBeDefined()
+    expect(outboxInsert!.values).toContain(`interview.cancelled:${interviewId}`)
   })
 
   it('prefers notificationDispatchService+transport over legacy postCommitEventPublisher for create and does not double-send', async function run() {
@@ -2773,6 +3176,7 @@ function createInterviewService(
   realtimeProvider: RealtimeProvider = createDemoRealtimeProvider(),
   timerOrchestration?: TimerOrchestrationPort,
   aiChatRepository?: AiChatRepository,
+  premiumCancellationService?: PremiumCancellationService,
 ) {
   const repository = new InterviewRepository({
     dataSource: createInMemoryInterviewDataSource([
@@ -2802,6 +3206,7 @@ function createInterviewService(
     realtimeProvider,
     timerOrchestration,
     aiChatRepository,
+    premiumCancellationService,
   )
 
   return {
@@ -2821,6 +3226,7 @@ function createInterviewRecord(
     interviewer_alias: 'Interviewer-Red',
     type: 'system_design',
     mode: 'ai_led',
+    booking_channel: 'ai_direct',
     tier: 'standard',
     status: 'scheduled',
     scheduled_at: '2026-04-13T10:00:00.000Z',

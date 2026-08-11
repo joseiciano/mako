@@ -15,6 +15,14 @@
     - **Employment History**: Users create, edit, and delete employment records with canonical `company`, `role`, `start` (YYYY-MM-DD), and optional `end` (YYYY-MM-DD, omitted via the "Current role" checkbox) fields via `POST /api/companies`, `PATCH /api/companies/:id`, and `DELETE /api/companies/:id`. The list renders the company, role, and a `start — end` range (`start — Present` when `end` is `null`), formatted directly from the canonical date strings without timezone parsing.
     - **Incomplete Records**: Migrated records missing a `role` render with a "Needs details" state (`isComplete === false`) and an edit action. Incomplete records must be completed before they can be selected for an interviewer application.
     - **Verification Boundary**: Applications select complete employment record IDs, while the server stores an immutable snapshot. Profile edits do not alter submitted evidence or automatically revoke account-level interviewer eligibility. Deleting a record never alters previously submitted applications.
+- **Interviewer Availability (`/settings/interviewer-availability`)**: Verified interviewers publish and manage premium system design interview slots.
+    - **Data**: `GET /api/premium/interviewer/slots?interviewType=system_design`, `POST /api/premium/interviewer/slots`, `DELETE /api/premium/interviewer/slots/:id`
+    - **Eligibility**: Linked from Settings only when `GET /api/account` returns `isVerifiedInterviewer: true`. Non-verified users are redirected away.
+    - **Publish Flow**: Collects a `startTime` and submits `{ interviewType: 'system_design', startTime }`. Interview type is fixed to `system_design` — no coding/behavioral controls. Client-side min/max date bounds from the policy metadata (`leadTimeMinutes`, `horizonDays`).
+    - **Inventory**: Renders published slots with server-owned status badges (`available`/`claimed`/`cancelled`), the `system_design` type label, and the 60-minute window. Cancel is only available for `available` slots; `claimed` slots are non-cancellable.
+    - **Cancel Reconciliation**: A concurrent `409` (slot became claimed) invalidates the slots query and refetches server state rather than leaving stale local assumptions.
+    - **Accessibility**: Publish validation and conflict errors move focus to the first actionable error alert so screen-reader users are notified. Disabled cancel buttons and status badges convey state via text and ARIA, not only color.
+    - **Scope Note**: This UI is for verified interviewers managing the slots they offer; it is distinct from the scheduler-facing marketplace booking UI.
 
 ### Interview Lifecycle
 - **Schedule Interview (`/interviews/new`)**: Configuration flow for type (System Design), mode (AI / P2P via availability), and timing/availability details.

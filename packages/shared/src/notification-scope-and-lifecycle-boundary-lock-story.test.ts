@@ -53,7 +53,7 @@ describe('story 4.1 notification scope and lifecycle boundary lock', function ()
       'Accept only post-commit interview lifecycle signals as notification triggers.',
     )
     expect(storyDocument).toContain(
-      'Disallow in-transaction notification side effects for create/cancel/match paths.',
+      'Disallow in-transaction notification side effects for create/cancel/match/premium-booked paths.',
     )
     expect(storyDocument).toContain('`POST /api/interviews/:id/provision`')
     expect(storyDocument).toContain(

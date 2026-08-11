@@ -8,6 +8,12 @@ export const interviewTypeSchema = z.enum([
 
 export const interviewModeSchema = z.enum(['peer_to_peer', 'ai_led'])
 
+export const bookingChannelSchema = z.enum([
+  'ai_direct',
+  'standard_match',
+  'verified_interviewer',
+])
+
 export const interviewTierSchema = z.enum(['standard', 'premium'])
 
 export const interviewStatusSchema = z.enum([
@@ -55,6 +61,7 @@ export const interviewSchema = z.object({
   interviewer_alias: z.string().min(1),
   type: interviewTypeSchema,
   mode: interviewModeSchema,
+  booking_channel: bookingChannelSchema,
   tier: interviewTierSchema,
   status: interviewStatusSchema,
   scheduled_at: interviewScheduledAtSchema,
@@ -353,6 +360,7 @@ export const provisionInterviewResponseSchema = z.object({
 
 export type InterviewType = z.infer<typeof interviewTypeSchema>
 export type InterviewMode = z.infer<typeof interviewModeSchema>
+export type BookingChannel = z.infer<typeof bookingChannelSchema>
 export type InterviewTier = z.infer<typeof interviewTierSchema>
 export type Interview = z.infer<typeof interviewSchema>
 export type InterviewListItem = z.infer<typeof interviewListItemSchema>

@@ -18,6 +18,7 @@ describe('matcher post-commit event contract', function matcherPostCommitEventSu
           interviewer_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
           type: 'system_design',
           mode: 'peer_to_peer',
+          booking_channel: 'standard_match',
           tier: 'standard',
           status: 'scheduled',
           scheduled_at: '2026-04-10T10:30:00.000Z',
@@ -44,6 +45,7 @@ describe('matcher post-commit event contract', function matcherPostCommitEventSu
         interviewer_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
         type: 'system_design',
         mode: 'peer_to_peer',
+        booking_channel: 'standard_match',
         tier: 'standard',
         status: 'scheduled',
         scheduled_at: '2026-04-10T10:30:00.000Z',
@@ -134,6 +136,7 @@ describe('matcher post-commit event contract', function matcherPostCommitEventSu
         interviewer_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
         type: 'system_design',
         mode: 'peer_to_peer',
+        booking_channel: 'standard_match',
         tier: 'standard',
         status: 'scheduled',
         scheduled_at: '2026-04-10T10:30:00.000Z',
@@ -172,26 +175,27 @@ describe('matcher post-commit event contract', function matcherPostCommitEventSu
     await publisher.publish(
       buildMatcherMatchCreatedEvent(
         {
-          interview: {
-            id: '99999999-9999-4999-8999-999999999999',
-            scheduler_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-            interviewer_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
-            type: 'system_design',
-            mode: 'peer_to_peer',
-            tier: 'standard',
-            status: 'scheduled',
-            scheduled_at: '2026-04-10T10:30:00.000Z',
-          },
+        interview: {
+          id: '99999999-9999-4999-8999-999999999999',
+          scheduler_id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          interviewer_id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          type: 'system_design',
+          mode: 'peer_to_peer',
+          booking_channel: 'standard_match',
+          tier: 'standard',
+          status: 'scheduled',
+          scheduled_at: '2026-04-10T10:30:00.000Z',
         },
-        {
-          createEventId: function createFixedEventId() {
-            return 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
-          },
-          now: function createFixedOccurredAt() {
-            return '2026-04-01T12:00:00.000Z'
-          },
+      },
+      {
+        createEventId: function createFixedEventId() {
+          return 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
         },
-      ),
+        now: function createFixedOccurredAt() {
+          return '2026-04-01T12:00:00.000Z'
+        },
+      },
+    )
     )
 
     expect(sentMessages).toHaveLength(1)

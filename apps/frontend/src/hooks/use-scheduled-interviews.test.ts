@@ -39,6 +39,7 @@ describe('use-scheduled-interviews hook', function useScheduledInterviewsSuite()
                 interviewer_alias: 'Interviewer-Red',
                 type: 'system_design',
                 mode: 'peer_to_peer',
+                booking_channel: 'standard_match',
                 tier: 'standard',
                 status: 'scheduled',
                 scheduled_at: '2026-04-10T10:30:00.000Z',

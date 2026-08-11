@@ -1,5 +1,7 @@
 import type { AccountProfile, UpdateAccountProfileInput } from '@mako/shared'
 import { employmentRecordInputSchema } from '@mako/shared'
+import type { PremiumCancellationService } from '../premium'
+import type { SqlQueryExecutor } from '../index'
 import type { DeleteAccountResponse } from './types'
 import { AccountRepository } from './account-repository'
 import {
@@ -27,6 +29,11 @@ export class AccountService {
     private readonly runAccountCleanupWorkflow: AccountCleanupWorkflow =
       async function noopCleanupWorkflow() {},
     private readonly logger: AccountServiceLogger = noOpLogger,
+    private readonly premiumCancellationService?: PremiumCancellationService,
+    private readonly persistOutboxEvent?: (
+      event: unknown,
+      queryExecutor: SqlQueryExecutor,
+    ) => Promise<void>,
   ) {}
 
   async getAccount(session: AccountSession | null): Promise<AccountProfile> {
@@ -62,21 +69,64 @@ export class AccountService {
     session: AccountSession | null,
   ): Promise<DeleteAccountResponse> {
     const userSession = this.requireSession(session)
-    const didDeleteAccount = await this.accountRepository.deleteAccount(
-      userSession.userId,
-    )
 
-    if (!didDeleteAccount) {
-      throw new AccountNotFoundError(
-        'Unable to delete account because it does not exist or is already deleted.',
+    // All-or-nothing: when the premium cancellation service is configured, the
+    // cancellation + refund + outbox work and the account soft-delete run in
+    // one transaction, so any failure aborts before any of it is committed.
+    // The account stays active if any affected interview cannot be cleanly
+    // cancelled or refunded.
+    if (this.premiumCancellationService) {
+      const persistOutboxEvent = this.persistOutboxEvent
+
+      await this.premiumCancellationService.cancelUpcomingInterviewsForUser({
+        userId: userSession.userId,
+        persistOutboxEvent: persistOutboxEvent
+          ? persistOutboxEvent
+          : async function noOutboxEventPersistence(): Promise<never> {
+              throw new Error(
+                'Outbox event persistence is not configured for account cancellation.',
+              )
+            },
+        softDeleteAccount: async (queryExecutor) => {
+          const didDeleteAccount = await this.accountRepository.deleteAccount(
+            userSession.userId,
+            queryExecutor,
+          )
+
+          if (!didDeleteAccount) {
+            throw new AccountNotFoundError(
+              'Unable to delete account because it does not exist or is already deleted.',
+            )
+          }
+        },
+      })
+
+      // The premium cancellation transaction already handled every upcoming
+      // interview and the soft-delete, so the repository's direct bulk update
+      // is skipped.
+      await Promise.all([
+        this.accountRepository.invalidateSessions(userSession.userId),
+        this.runAccountCleanupWorkflow(userSession.userId),
+      ])
+    } else {
+      // Demo mode fallback: no premium cancellation service, so the
+      // repository's direct bulk update remains the cancellation path.
+      const didDeleteAccount = await this.accountRepository.deleteAccount(
+        userSession.userId,
       )
-    }
 
-    await Promise.all([
-      this.accountRepository.invalidateSessions(userSession.userId),
-      this.accountRepository.cancelUpcomingInterviews(userSession.userId),
-      this.runAccountCleanupWorkflow(userSession.userId),
-    ])
+      if (!didDeleteAccount) {
+        throw new AccountNotFoundError(
+          'Unable to delete account because it does not exist or is already deleted.',
+        )
+      }
+
+      await Promise.all([
+        this.accountRepository.invalidateSessions(userSession.userId),
+        this.accountRepository.cancelUpcomingInterviews(userSession.userId),
+        this.runAccountCleanupWorkflow(userSession.userId),
+      ])
+    }
 
     return {
       success: true,

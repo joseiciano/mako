@@ -34,6 +34,98 @@ export const availabilitySlotStatusSchema = z.enum([
 
 export type AvailabilitySlotStatus = z.infer<typeof availabilitySlotStatusSchema>
 
+export const premiumInterviewerSlotStatusSchema = z.enum([
+  'available',
+  'claimed',
+  'cancelled',
+])
+
+export type PremiumInterviewerSlotStatus = z.infer<
+  typeof premiumInterviewerSlotStatusSchema
+>
+
+export const premiumInterviewerSlotRowSchema = z.object({
+  id: z.string().uuid(),
+  interviewer_id: z.string().uuid(),
+  interview_type: interviewTypeSchema,
+  start_time: timestampSchema,
+  end_time: timestampSchema,
+  status: premiumInterviewerSlotStatusSchema,
+  created_at: timestampSchema,
+  updated_at: timestampSchema,
+})
+
+export type PremiumInterviewerSlotRow = z.infer<
+  typeof premiumInterviewerSlotRowSchema
+>
+
+export function parsePremiumInterviewerSlotRow(
+  row: unknown,
+): PremiumInterviewerSlotRow {
+  return premiumInterviewerSlotRowSchema.parse(row)
+}
+
+export const premiumSlotClaimStatusSchema = z.object({
+  idempotency_key: z.string().uuid(),
+  slot_id: z.string().uuid(),
+  scheduler_id: z.string().uuid(),
+  interview_id: z.string().uuid(),
+  created_at: timestampSchema,
+})
+
+export type PremiumSlotClaimRow = z.infer<typeof premiumSlotClaimStatusSchema>
+
+export function parsePremiumSlotClaimRow(row: unknown): PremiumSlotClaimRow {
+  return premiumSlotClaimStatusSchema.parse(row)
+}
+
+export const premiumClaimInterviewRowSchema = z.object({
+  id: z.string().uuid(),
+  scheduler_id: z.string().uuid(),
+  scheduler_alias: z.string().min(1),
+  interviewer_id: z.string().uuid(),
+  interviewer_alias: z.string().min(1),
+  type: interviewTypeSchema,
+  mode: z.enum(['peer_to_peer', 'ai_led']),
+  booking_channel: z.enum([
+    'ai_direct',
+    'standard_match',
+    'verified_interviewer',
+  ]),
+  tier: z.enum(['standard', 'premium']),
+  status: z.enum(['scheduled', 'ongoing', 'completed', 'cancelled']),
+  scheduled_at: timestampSchema,
+  realtime_session_id: z.string().nullable(),
+  excalidraw_room_id: z.string().nullable(),
+  excalidraw_key: z.string().nullable(),
+  recording_url: z.string().nullable(),
+  screenshot_urls: z.array(z.string()).nullable(),
+  feedback: z.record(z.unknown()).nullable(),
+  recording_status: z.string().nullable(),
+  transcript: z.string().nullable(),
+  feedback_status: z.string().nullable(),
+  feedback_unavailable_reason: z.string().nullable(),
+  feedback_error_code: z.string().nullable(),
+  feedback_prompt_version: z.string().nullable(),
+  feedback_generated_at: z.string().nullable(),
+  started_at: z.string().nullable(),
+  screenshots_finalized_at: z.string().nullable(),
+  expires_at: z.string().nullable(),
+  warning_at: z.string().nullable(),
+  created_at: timestampSchema,
+  updated_at: timestampSchema,
+})
+
+export type PremiumClaimInterviewRow = z.infer<
+  typeof premiumClaimInterviewRowSchema
+>
+
+export function parsePremiumClaimInterviewRow(
+  row: unknown,
+): PremiumClaimInterviewRow {
+  return premiumClaimInterviewRowSchema.parse(row)
+}
+
 export const userRowSchema = z.object({
   id: z.string().uuid(),
   email: z.string().email(),

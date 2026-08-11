@@ -163,7 +163,8 @@ Core entity for tracking mock sessions and AI-led interviews.
 - **`interviewer_alias`**: `text` - Anonymous name for the interviewer during the session.
 - **`type`**: `enum` ('system_design', 'coding', 'behavioral') - Category of the interview.
 - **`mode`**: `enum` ('peer_to_peer', 'ai_led') - Whether it's a mock with another user or AI.
-- **`tier`**: `enum` ('standard', 'premium') - In Milestone 2, this is a policy label/input (quota/limits), not a separate creation flow. Verified-interviewer assignment behavior is future milestone scope.
+- **`tier`**: `enum` ('standard', 'premium') - Payment-policy outcome label. In Milestone 2, this is a policy label/input (quota/limits), not a separate creation flow. Premium slot claims now create interviews with `tier = 'premium'` (see `booking_channel` below and the premium claim flow).
+- **`booking_channel`**: `text` NOT NULL with CHECK (`ai_direct`, `standard_match`, `verified_interviewer`) - Channel discriminator describing which path created the booking: `ai_direct` (direct AI-led create), `standard_match` (matcher-created peer-to-peer), or `verified_interviewer` (premium slot claim). Contracted to `NOT NULL` in Story 7.11 after the bounded re-backfill verified zero nulls and the fleet drain check passed. Intentionally separate from `tier`; `tier` remains the payment-policy outcome label (`standard`/`premium`), not a channel value.
 - **`status`**: `enum` ('scheduled', 'ongoing', 'completed', 'cancelled')
 - **`scheduled_at`**: `timestamptz` - Time the interview is set to start.
 - **`realtime_session_id`**: `text` (Optional) - Cloudflare Realtime session identifier persisted/reused by join-time provisioning (`POST /api/interviews/:id/provision`).
@@ -334,6 +335,67 @@ Indexes:
 
 - `idx_credit_transactions_stripe_payment_intent_id` unique on (`stripe_payment_intent_id`)
 - `idx_credit_transactions_user_id_created_at` on (`user_id`, `created_at DESC`)
+
+### Premium_Interviewer_Slots
+
+Verified-interviewer premium booking inventory: exact 60-minute slots published by verified interviewers as free inventory for the first-to-claim marketplace. **No database defaults** on any column; writers generate the `id` UUID with `crypto.randomUUID()` and supply `status`, `created_at`, and `updated_at` from trusted application code.
+
+- **`id`**: `uuid` (Primary Key) - Application-generated UUID.
+- **`interviewer_id`**: `uuid` (Foreign Key -> `"user".id`) - The verified interviewer publishing the slot. Plain `REFERENCES "user"(id)` with no `ON DELETE CASCADE`, so interviewer account-retention/soft-deletion workflows do not silently drop published slots.
+- **`interview_type`**: `text` with CHECK (`system_design`, `coding`, `behavioral`) - Existing type enum preserved; no new enum type is introduced.
+- **`start_time`**: `timestamptz` - Start of the 60-minute window.
+- **`end_time`**: `timestamptz` - End of the 60-minute window.
+- **`status`**: `text` with CHECK (`available`, `claimed`, `cancelled`) - No DB default.
+- **`created_at`**: `timestamptz`
+- **`updated_at`**: `timestamptz`
+
+Constraints:
+
+- `premium_interviewer_slots_time_window_check`: `start_time < end_time`
+- `premium_interviewer_slots_exact_60_minute_check`: `end_time = start_time + interval '60 minutes'` - mirrors the `availability_slots` exact-60-minute invariant.
+- No exclusion constraint is used; overlap detection for a single interviewer is enforced with a bounded range scan in the repository (raw SQL), because the exact 60-minute invariant plus the active-status predicate does not need a GiST exclusion index.
+
+Indexes:
+
+- `idx_premium_interviewer_slots_interviewer_active` on (`interviewer_id`, `start_time`, `end_time`) WHERE `status <> 'cancelled'` - active-slot overlap detection for one interviewer at publish/claim time.
+- `idx_premium_interviewer_slots_available_start` on (`status`, `start_time`, `id`) - public marketplace listing of `available` slots ordered deterministically by `start_time ASC, id ASC`.
+- `idx_premium_interviewer_slots_interviewer_start` on (`interviewer_id`, `start_time`, `id`) - owner-list API ordering by `start_time ASC, id ASC`.
+- `idx_premium_interviewer_slots_interviewer_status_start` on (`interviewer_id`, `status`, `start_time`, `id`) - owner-list status filtering.
+
+### Premium_Slot_Claims
+
+Durable claim-idempotency store for the premium first-to-claim marketplace. **No database defaults** on any column; `idempotency_key` and `created_at` are supplied by application code. The `idempotency_key` is the primary key; there is no surrogate `id` column (corrected by `20260808120000_correct_premium_slot_claims_primary_key.sql`).
+
+- **`idempotency_key`**: `uuid` (Primary Key) - Claim idempotency key; the durable dedupe key for the claim transaction.
+- **`slot_id`**: `uuid` (Unique, Foreign Key -> `premium_interviewer_slots.id`) - One claim per slot; the unique constraint makes the one-claim-per-slot relationship a database invariant.
+- **`scheduler_id`**: `uuid` (Foreign Key -> `"user".id`) - The scheduler who claimed the slot.
+- **`interview_id`**: `uuid` (Unique, Foreign Key -> `interviews.id`) - One claim per interview; the unique constraint makes the one-claim/one-interview relationship a database invariant.
+- **`created_at`**: `timestamptz`
+
+Behavior:
+
+- The unique `slot_id` constraint/index serves Story 7.15 replay reconciliation; no redundant non-unique slot index is added.
+- Duplicate `idempotency_key`, `slot_id`, or `interview_id` values are rejected by the primary key and unique constraints.
+
+### Premium_Booking_Credit_Refunds
+
+Internal audit/idempotency ledger for premium booking-credit refunds, **distinct from `Credit_Transactions`** (the Stripe fulfillment ledger). `Credit_Transactions` records Stripe payment fulfillment; this ledger records exactly one credit refunded per premium booking. **No database defaults** on any column.
+
+- **`id`**: `uuid` (Primary Key) - Application-generated UUID with `crypto.randomUUID()` (never DB-defaulted).
+- **`interview_id`**: `uuid` (Unique, Foreign Key -> `interviews.id`) - One refund row per premium booking ever; the unique constraint prevents a second refund row for the same interview.
+- **`scheduler_id`**: `uuid` (Foreign Key -> `"user".id`) - The scheduler who paid the credit being refunded.
+- **`reason`**: `text` with CHECK exactly (`interviewer_cancelled`, `interviewer_account_deleted`) - Only these two values exist; there is no `admin_cancelled` or `system_cancelled` reason anywhere in the milestone.
+- **`initiated_by_user_id`**: `uuid` (NOT NULL, Foreign Key -> `"user".id`) - The acting user is always recorded; the deletion workflow that produces `interviewer_account_deleted` supplies the cancelled interviewer's id, never null.
+- **`credits_refunded`**: `integer` with CHECK (`credits_refunded = 1`) - Exactly one scheduler credit per refund.
+- **`created_at`**: `timestamptz`
+
+Behavior:
+
+- Scheduler-initiated cancellation or scheduler account deletion consumes the paid credit and writes **no** `premium_booking_credit_refunds` row; only interviewer cancellation or interviewer account deletion produces a refund row.
+
+Indexes:
+
+- `idx_premium_booking_credit_refunds_scheduler` on (`scheduler_id`, `created_at`) - scheduler refund-history listing.
 
 ### Interview_Artifacts
 

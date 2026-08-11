@@ -317,6 +317,7 @@ describe('interviewDetailSchema feedback boundary enforcement', function feedbac
     interviewer_alias: 'Interviewer-Red',
     type: 'system_design',
     mode: 'ai_led',
+    booking_channel: 'ai_direct',
     tier: 'standard',
     status: 'completed',
     scheduled_at: '2026-01-01T12:00:00.000Z',

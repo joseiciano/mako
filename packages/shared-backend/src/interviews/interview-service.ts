@@ -34,10 +34,17 @@ import {
 } from './realtime-provider'
 import type { TimerOrchestrationPort, TimerStartParams } from './timer-orchestration'
 import {
+  NotificationRepository,
   NotificationService,
   NotificationDispatchService,
   type NotificationTransport,
 } from '../notifications'
+import {
+  PremiumCancellationService,
+  PremiumConflictError,
+  PremiumNotFoundError,
+  type CancelPremiumInterviewResult,
+} from '../premium'
 import {
   TierPolicyService,
   InsufficientCreditsError,
@@ -78,6 +85,7 @@ export class InterviewService {
     private readonly realtimeProvider: RealtimeProvider = createDemoRealtimeProvider(),
     private readonly timerOrchestration?: TimerOrchestrationPort,
     private readonly aiChatRepository?: AiChatRepository,
+    private readonly premiumCancellationService?: PremiumCancellationService,
   ) {}
 
   async createInterview(
@@ -271,6 +279,114 @@ export class InterviewService {
       interview_id: input.id,
       participant_user_id: participantUserId,
     })
+
+    const isVerifiedChannel =
+      existingInterview?.booking_channel === 'verified_interviewer'
+
+    if (
+      isVerifiedChannel &&
+      existingInterview &&
+      this.premiumCancellationService
+    ) {
+      const source =
+        existingInterview.scheduler_id === participantUserId
+          ? 'scheduler'
+          : 'interviewer'
+
+      let premiumResult: CancelPremiumInterviewResult
+      try {
+        premiumResult = await this.premiumCancellationService.cancelInterview({
+          interviewId: input.id,
+          source,
+          initiatedByUserId: participantUserId,
+          persistOutboxEvent: async (event, queryExecutor) => {
+            if (!this.notificationService) {
+              return
+            }
+
+            // Persist the outbox event atomically within the same cancellation
+            // transaction by creating a repository bound to the transaction
+            // query executor.
+            const txNotificationRepository = new NotificationRepository(
+              queryExecutor,
+            )
+            const txNotificationService = new NotificationService(
+              txNotificationRepository,
+              this.createId,
+              this.now,
+            )
+
+            await txNotificationService.persistOutboxEvent(
+              event as Parameters<NotificationService['persistOutboxEvent']>[0],
+            )
+          },
+        })
+      } catch (error) {
+        if (error instanceof PremiumNotFoundError) {
+          throw new InterviewNotFoundError(
+            'Interview was not found for the active participant.',
+          )
+        }
+
+        if (error instanceof PremiumConflictError) {
+          throw new InterviewConflictError(
+            'Cancellation conflicts exhausted after retries. Please retry.',
+          )
+        }
+
+        throw error
+      }
+
+      switch (premiumResult.outcome) {
+        case 'cancelled': {
+          // The outbox event was written atomically inside the cancellation
+          // transaction. Dispatch or publish it after the commit.
+          const outboxEvent = this.notificationService
+            ? buildInterviewCancelledEvent({
+                interview: { ...existingInterview, status: 'cancelled' },
+              })
+            : undefined
+
+          if (this.notificationDispatchService && this.notificationTransport && outboxEvent) {
+            try {
+              await this.notificationDispatchService.dispatchOutboxEventByIdempotencyKey(
+                outboxEvent.idempotency_key,
+                this.notificationTransport,
+              )
+            } catch (error) {
+              this.logSafely('error', 'interview.post_commit_dispatch_failure', {
+                operation: 'cancel',
+                interview_id: existingInterview.id,
+                error_message: toErrorMessage(error),
+              })
+            }
+          } else if (this.postCommitEventPublisher) {
+            try {
+              await this.postCommitEventPublisher.publish(
+                buildInterviewCancelledEvent({
+                  interview: { ...existingInterview, status: 'cancelled' },
+                }),
+              )
+            } catch (error) {
+              this.logSafely('error', 'interview.post_commit_publish_failure', {
+                operation: 'cancel',
+                interview_id: existingInterview.id,
+                error_message: toErrorMessage(error),
+              })
+            }
+          }
+          return toCancelInterviewResponse()
+        }
+        case 'already_cancelled':
+          // Idempotent retry: no new outbox event, no refund. Nothing to
+          // dispatch or publish.
+          return toCancelInterviewResponse()
+        case 'invalid_status':
+          throw new InterviewConflictError(
+            'Only scheduled interviews can be cancelled.',
+          )
+      }
+    }
 
     const outboxEvent =
       existingInterview && this.notificationService

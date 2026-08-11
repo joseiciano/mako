@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   interviewerApplicationRowSchema,
   interviewerApplicationStatusSchema,
+  parsePremiumInterviewerSlotRow,
   persistedEmploymentSnapshotEntrySchema,
 } from './foundation-schemas'
 
@@ -208,5 +209,88 @@ describe('interviewerApplicationRowSchema', function interviewerApplicationRowSc
         updated_at: new Date('2026-08-07T13:00:00.000Z'),
       }).success,
     ).toBe(true)
+  })
+})
+
+describe('premiumInterviewerSlotRowSchema', function premiumInterviewerSlotRowSchemaSuite() {
+  const baseRow = {
+    id: '0f7e2b8a-9c4d-4e1f-a2b3-4c5d6e7f8a9b',
+    interviewer_id: '7d0f0a5e-3c2b-4a1d-9e8f-6b5a4c3d2e1f',
+    interview_type: 'system_design',
+    start_time: '2026-08-07T13:00:00.000Z',
+    end_time: '2026-08-07T14:00:00.000Z',
+    status: 'available',
+    created_at: '2026-08-07T12:00:00.000Z',
+    updated_at: '2026-08-07T12:00:00.000Z',
+  }
+
+  it('accepts a valid row and parses it', function acceptsValidRow() {
+    const parsed = parsePremiumInterviewerSlotRow(baseRow)
+    expect(parsed).toEqual(baseRow)
+    expect(parsed.start_time).toBe('2026-08-07T13:00:00.000Z')
+    expect(parsed.end_time).toBe('2026-08-07T14:00:00.000Z')
+  })
+
+  it('enforces an exact 60-minute window', function enforcesSixtyMinuteWindow() {
+    expect(
+      parsePremiumInterviewerSlotRow({
+        ...baseRow,
+        start_time: '2026-08-07T13:30:00.000Z',
+        end_time: '2026-08-07T14:00:00.000Z',
+      }),
+    ).toEqual({
+      ...baseRow,
+      start_time: '2026-08-07T13:30:00.000Z',
+      end_time: '2026-08-07T14:00:00.000Z',
+    })
+  })
+
+  it('accepts every slot status', function acceptsEveryStatus() {
+    for (const status of ['available', 'claimed', 'cancelled'] as const) {
+      expect(
+        parsePremiumInterviewerSlotRow({ ...baseRow, status }).status,
+      ).toBe(status)
+    }
+  })
+
+  it('rejects an invalid status', function rejectsInvalidStatus() {
+    for (const status of ['matched', 'pending', 'Available', '']) {
+      expect(() =>
+        parsePremiumInterviewerSlotRow({ ...baseRow, status }),
+      ).toThrow()
+    }
+  })
+
+  it('rejects an invalid interview type', function rejectsInvalidInterviewType() {
+    for (const interview_type of ['system-design', 'mixed', ''] as const) {
+      expect(() =>
+        parsePremiumInterviewerSlotRow({ ...baseRow, interview_type }),
+      ).toThrow()
+    }
+  })
+
+  it('rejects invalid timestamps', function rejectsInvalidTimestamps() {
+    for (const start_time of [
+      '2026-08-07',
+      'not-a-timestamp',
+      '2026-13-01T13:00:00.000Z',
+    ]) {
+      expect(() =>
+        parsePremiumInterviewerSlotRow({ ...baseRow, start_time }),
+      ).toThrow()
+    }
+
+    const { start_time: _startTime, ...withoutStartTime } = baseRow
+    expect(() => parsePremiumInterviewerSlotRow(withoutStartTime)).toThrow()
+  })
+
+  it('accepts Date objects for timestamps', function acceptsDateTimestamps() {
+    expect(
+      parsePremiumInterviewerSlotRow({
+        ...baseRow,
+        start_time: new Date('2026-08-07T13:00:00.000Z'),
+        end_time: new Date('2026-08-07T14:00:00.000Z'),
+      }).start_time,
+    ).toBe('2026-08-07T13:00:00.000Z')
   })
 })

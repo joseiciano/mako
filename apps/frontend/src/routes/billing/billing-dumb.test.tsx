@@ -60,6 +60,7 @@ describe('billing-dumb rendering', function billingDumbSuite() {
           credits: 42,
           freeStandardInterviews: 3,
           freeAiInterviews: 2,
+          isVerifiedInterviewer: false,
           createdAt: '2026-01-01T00:00:00.000Z',
         }}
       />,
@@ -84,6 +85,7 @@ describe('billing-dumb rendering', function billingDumbSuite() {
           credits: 10,
           freeStandardInterviews: 1,
           freeAiInterviews: 1,
+          isVerifiedInterviewer: false,
           createdAt: '2026-01-01T00:00:00.000Z',
         }}
       />,
@@ -108,6 +110,7 @@ describe('billing-dumb rendering', function billingDumbSuite() {
           credits: 10,
           freeStandardInterviews: 1,
           freeAiInterviews: 1,
+          isVerifiedInterviewer: false,
           createdAt: '2026-01-01T00:00:00.000Z',
         }}
       />,
@@ -479,6 +482,7 @@ function accountFixture() {
     credits: 10,
     freeStandardInterviews: 1,
     freeAiInterviews: 1,
+    isVerifiedInterviewer: false,
     createdAt: '2026-01-01T00:00:00.000Z',
   }
 }

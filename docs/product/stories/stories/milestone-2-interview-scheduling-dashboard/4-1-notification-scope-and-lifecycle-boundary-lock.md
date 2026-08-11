@@ -20,8 +20,8 @@
 
 ### 2. Trigger boundary lock (post-commit only)
 - [x] Accept only post-commit interview lifecycle signals as notification triggers.
-- [x] Disallow in-transaction notification side effects for create/cancel/match paths.
-- [x] Keep create/cancel/match trigger boundaries aligned with:
+- [x] Disallow in-transaction notification side effects for create/cancel/match/premium-booked paths.
+- [x] Keep create/cancel/match/premium-booked trigger boundaries aligned with:
   - `docs/system/system-design/state-management-lifecycle.md`
   - `docs/system/system-design/diagrams.md`
   - `docs/system/system-design/api-routes.md`
@@ -40,6 +40,7 @@
   - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/3-7-interview-cancel-route-post-api-interviews-id-cancel.md`
   - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/3-8-interview-post-commit-events-and-notification-contract.md`
   - `docs/product/stories/stories/milestone-2-interview-scheduling-dashboard/1-5-post-commit-events-and-lifecycle-boundaries.md`
+  - `docs/product/stories/stories/milestone-7-interviewer-verification-premium-matching/7-15-premium-slot-discovery-claim-api.md`
 
 ## End Goal
 Notification scope and lifecycle boundaries are explicitly locked so only post-commit events trigger orchestration, without leaking provisioning or transaction-owned responsibilities into notification workers.

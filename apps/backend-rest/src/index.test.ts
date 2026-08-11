@@ -1690,9 +1690,10 @@ function createDatabaseBinding(accountState: {
           interviewer_alias: statementValues[4],
           type: statementValues[5],
           mode: statementValues[6],
-          tier: statementValues[7],
-          status: statementValues[8],
-          scheduled_at: statementValues[9],
+          booking_channel: statementValues[7],
+          tier: statementValues[8],
+          status: statementValues[9],
+          scheduled_at: statementValues[10],
           realtime_session_id: null,
           excalidraw_room_id: null,
           excalidraw_key: null,
@@ -1710,8 +1711,8 @@ function createDatabaseBinding(accountState: {
           started_at: null,
           expires_at: null,
           warning_at: null,
-          created_at: statementValues[10],
-          updated_at: statementValues[11],
+          created_at: statementValues[11],
+          updated_at: statementValues[12],
         }
 
         interviewsById.set(String(statementValues[0]), interviewRecord)
@@ -1937,6 +1938,23 @@ function createDatabaseBinding(accountState: {
         return {
           rows: interview ? [interview] : [],
         }
+      }
+
+      if (
+        statementText.includes('FROM interviews') &&
+        statementText.includes('(interviewer_id = $1 OR scheduler_id = $1)') &&
+        statementText.includes('LIMIT 1')
+      ) {
+        // Cross-channel overlap probe: no overlapping scheduled/ongoing interview.
+        return { rows: [] }
+      }
+
+      if (
+        statementText.includes('FROM premium_interviewer_slots') &&
+        statementText.includes('LIMIT 1')
+      ) {
+        // Cross-channel overlap probe: no overlapping premium slot.
+        return { rows: [] }
       }
 
 

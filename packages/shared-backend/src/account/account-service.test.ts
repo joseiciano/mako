@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { SqlQuery } from '../index'
+import type { PremiumCancellationService } from '../premium'
 import {
   AccountRepository,
   createInMemoryAccountDataSource,
@@ -28,6 +29,7 @@ function createProfileService() {
         credits: 10,
         freeStandardInterviews: 1,
         freeAiInterviews: 1,
+        isVerifiedInterviewer: false,
         createdAt: '2026-01-02T00:00:00.000Z',
       },
     ]),
@@ -130,6 +132,239 @@ describe('AccountService', function suite() {
     await expect(service.deleteAccount(activeSession)).rejects.toBeInstanceOf(
       AccountNotFoundError,
     )
+  })
+
+  it('deleteAccount cancels upcoming interviews through the premium service before soft delete', async function run() {
+    const cancelUpcomingInterviewsForUser = vi.fn(async function cancel() {
+      return { outcome: 'cancelled', count: 0 }
+    })
+    const premiumCancellationService = {
+      cancelUpcomingInterviewsForUser,
+    } as unknown as PremiumCancellationService
+    const persistOutboxEvent = vi.fn(async function persist() {})
+
+    const accountRepository = new AccountRepository({
+      dataSource: createInMemoryAccountDataSource([]),
+      queryExecutor: createDeleteQueryExecutor({ didDelete: true }),
+    })
+    const deleteAccountSpy = vi.spyOn(accountRepository, 'deleteAccount')
+
+    const service = new AccountService(
+      accountRepository,
+      async function noopCleanupWorkflow() {},
+      undefined,
+      premiumCancellationService,
+      persistOutboxEvent,
+    )
+
+    const result = await service.deleteAccount(activeSession)
+
+    expect(result).toEqual({ success: true })
+    expect(cancelUpcomingInterviewsForUser).toHaveBeenCalledWith({
+      userId: activeSession.userId,
+      persistOutboxEvent: expect.any(Function),
+      softDeleteAccount: expect.any(Function),
+    })
+    expect(deleteAccountSpy).not.toHaveBeenCalled()
+  })
+
+  it('deleteAccount passes the transaction query executor through to persistOutboxEvent', async function run() {
+    let capturedPersistOutboxEvent:
+      | ((event: unknown, queryExecutor: unknown) => Promise<void>)
+      | undefined
+    const cancelUpcomingInterviewsForUser = vi.fn(async function cancel(input: {
+      userId: string
+      persistOutboxEvent: (event: unknown, queryExecutor: unknown) => Promise<void>
+      softDeleteAccount?: (queryExecutor: SqlQueryExecutor) => Promise<void>
+    }) {
+      capturedPersistOutboxEvent = input.persistOutboxEvent
+      if (input.softDeleteAccount) {
+        await input.softDeleteAccount(createDeleteQueryExecutor({ didDelete: true }))
+      }
+      return { outcome: 'cancelled', count: 0 }
+    })
+    const premiumCancellationService = {
+      cancelUpcomingInterviewsForUser,
+    } as unknown as PremiumCancellationService
+    const persistOutboxEvent = vi.fn(async function persist() {})
+
+    const accountRepository = new AccountRepository({
+      dataSource: createInMemoryAccountDataSource([]),
+      queryExecutor: createDeleteQueryExecutor({ didDelete: true }),
+    })
+    const deleteAccountSpy = vi.spyOn(accountRepository, 'deleteAccount')
+
+    const service = new AccountService(
+      accountRepository,
+      async function noopCleanupWorkflow() {},
+      undefined,
+      premiumCancellationService,
+      persistOutboxEvent,
+    )
+
+    await service.deleteAccount(activeSession)
+
+    expect(capturedPersistOutboxEvent).toBeDefined()
+    const txExecutor = createDeleteQueryExecutor({ didDelete: true })
+    await capturedPersistOutboxEvent!(
+      { event_type: 'interview.cancelled' },
+      txExecutor,
+    )
+    expect(persistOutboxEvent).toHaveBeenCalledTimes(1)
+    expect((persistOutboxEvent.mock.calls as unknown[][])[0]![0]).toMatchObject({
+      event_type: 'interview.cancelled',
+    })
+    expect((persistOutboxEvent.mock.calls as unknown[][])[0]![1]).toBe(txExecutor)
+  })
+
+  it('deleteAccount does not soft delete the account when premium cancellation fails', async function run() {
+    const cancellationError = new Error('Upcoming interview cancellation failed.')
+    const cancelUpcomingInterviewsForUser = vi.fn(async function cancel() {
+      throw cancellationError
+    })
+    const premiumCancellationService = {
+      cancelUpcomingInterviewsForUser,
+    } as unknown as PremiumCancellationService
+
+    const accountRepository = new AccountRepository({
+      dataSource: createInMemoryAccountDataSource([]),
+      queryExecutor: createDeleteQueryExecutor({ didDelete: true }),
+    })
+    const deleteAccountSpy = vi.spyOn(accountRepository, 'deleteAccount')
+
+    const service = new AccountService(
+      accountRepository,
+      async function noopCleanupWorkflow() {},
+      undefined,
+      premiumCancellationService,
+      async function persist() {},
+    )
+
+    await expect(service.deleteAccount(activeSession)).rejects.toBe(
+      cancellationError,
+    )
+    expect(deleteAccountSpy).not.toHaveBeenCalled()
+  })
+
+  it('deleteAccount propagates AccountNotFoundError when softDeleteAccount reports missing account', async function run() {
+    const cancelUpcomingInterviewsForUser = vi.fn(async function cancel(input: {
+      userId: string
+      persistOutboxEvent: () => Promise<void>
+      softDeleteAccount?: (queryExecutor: SqlQueryExecutor) => Promise<void>
+    }) {
+      if (input.softDeleteAccount) {
+        throw new AccountNotFoundError('Unable to delete account because it does not exist or is already deleted.')
+      }
+      return { outcome: 'cancelled', count: 0 }
+    })
+    const premiumCancellationService = {
+      cancelUpcomingInterviewsForUser,
+    } as unknown as PremiumCancellationService
+
+    const accountRepository = new AccountRepository({
+      dataSource: createInMemoryAccountDataSource([]),
+      queryExecutor: createDeleteQueryExecutor({ didDelete: true }),
+    })
+    const deleteAccountSpy = vi.spyOn(accountRepository, 'deleteAccount')
+
+    const service = new AccountService(
+      accountRepository,
+      async function noopCleanupWorkflow() {},
+      undefined,
+      premiumCancellationService,
+      async function persist() {},
+    )
+
+    await expect(service.deleteAccount(activeSession)).rejects.toBeInstanceOf(
+      AccountNotFoundError,
+    )
+    expect(deleteAccountSpy).not.toHaveBeenCalled()
+  })
+
+  it('deleteAccount softDeleteAccount passes query executor to repository deleteAccount', async function run() {
+    const passedExecutors: SqlQueryExecutor[] = []
+    const cancelUpcomingInterviewsForUser = vi.fn(async function cancel(input: {
+      userId: string
+      persistOutboxEvent: () => Promise<void>
+      softDeleteAccount?: (queryExecutor: SqlQueryExecutor) => Promise<void>
+    }) {
+      if (input.softDeleteAccount) {
+        const mockExecutor = createDeleteQueryExecutor({ didDelete: true })
+        passedExecutors.push(mockExecutor)
+        await input.softDeleteAccount(mockExecutor)
+      }
+      return { outcome: 'cancelled', count: 0 }
+    })
+    const premiumCancellationService = {
+      cancelUpcomingInterviewsForUser,
+    } as unknown as PremiumCancellationService
+
+    const accountRepository = new AccountRepository({
+      dataSource: createInMemoryAccountDataSource([]),
+      queryExecutor: createDeleteQueryExecutor({ didDelete: true }),
+    })
+    const deleteAccountSpy = vi.spyOn(accountRepository, 'deleteAccount')
+
+    const service = new AccountService(
+      accountRepository,
+      async function noopCleanupWorkflow() {},
+      undefined,
+      premiumCancellationService,
+      async function persist() {},
+    )
+
+    const result = await service.deleteAccount(activeSession)
+
+    expect(result).toEqual({ success: true })
+    expect(deleteAccountSpy).toHaveBeenCalledTimes(1)
+    expect(deleteAccountSpy).toHaveBeenCalledWith(
+      activeSession.userId,
+      passedExecutors[0],
+    )
+  })
+
+  it('deleteAccount passes persistOutboxEvent that receives the transaction queryExecutor', async function run() {
+    const receivedArgs: { event: unknown; queryExecutor: unknown }[] = []
+    const cancelUpcomingInterviewsForUser = vi.fn(async function cancel(input: {
+      userId: string
+      persistOutboxEvent: (event: unknown, queryExecutor: SqlQueryExecutor) => Promise<void>
+      softDeleteAccount?: (queryExecutor: SqlQueryExecutor) => Promise<void>
+    }) {
+      const mockExecutor = createDeleteQueryExecutor({ didDelete: true })
+      await input.persistOutboxEvent({ event_type: 'interview.cancelled' }, mockExecutor)
+      if (input.softDeleteAccount) {
+        await input.softDeleteAccount(mockExecutor)
+      }
+      return { outcome: 'cancelled', count: 1 }
+    })
+    const premiumCancellationService = {
+      cancelUpcomingInterviewsForUser,
+    } as unknown as PremiumCancellationService
+
+    const accountRepository = new AccountRepository({
+      dataSource: createInMemoryAccountDataSource([]),
+      queryExecutor: createDeleteQueryExecutor({ didDelete: true }),
+    })
+
+    const persistOutboxEvent = vi.fn(async function persist(event: unknown, queryExecutor: SqlQueryExecutor) {
+      receivedArgs.push({ event, queryExecutor })
+    })
+
+    const service = new AccountService(
+      accountRepository,
+      async function noopCleanupWorkflow() {},
+      undefined,
+      premiumCancellationService,
+      persistOutboxEvent,
+    )
+
+    const result = await service.deleteAccount(activeSession)
+
+    expect(result).toEqual({ success: true })
+    expect(persistOutboxEvent).toHaveBeenCalledTimes(1)
+    expect(receivedArgs).toHaveLength(1)
+    expect(receivedArgs[0]!.event).toEqual({ event_type: 'interview.cancelled' })
+    expect(receivedArgs[0]!.queryExecutor).toBeDefined()
   })
 })
 

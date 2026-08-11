@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 7: Interviewer Verification & Premium Matching
 **Description**: Implement the public first-to-claim premium marketplace discovery listing and the atomic scheduler claim transaction that, in one database transaction, revalidates eligibility/conflicts, deducts exactly one scheduler credit, creates the `booking_channel = 'verified_interviewer'` interview, claims the slot, and writes the `interview.premium_booked` notification-outbox event — deduplicated by a UUID `Idempotency-Key`, with the exact deterministic lock order and the cross-channel overlap protocol. Cancellation/refund behavior is referenced but **not** implemented here (it is owned by Story 7.14).
-**Status**: Todo
+**Status**: Completed
 
 ## What Needs to Be Done
 

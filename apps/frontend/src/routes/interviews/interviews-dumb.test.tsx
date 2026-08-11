@@ -14,6 +14,7 @@ function createInterviewFixture(
     interviewer_alias: 'Interviewer-Red',
     type: 'system_design' as const,
     mode: 'peer_to_peer' as const,
+    booking_channel: 'standard_match' as const,
     tier: 'standard' as const,
     status: 'scheduled' as const,
     scheduled_at: '2026-04-10T10:30:00.000Z',

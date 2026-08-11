@@ -51,8 +51,41 @@ describe('AccountRepository', function accountRepositorySuite() {
       credits: 3,
       freeStandardInterviews: 1,
       freeAiInterviews: 2,
+      isVerifiedInterviewer: false,
       createdAt: '2026-01-01T00:00:00.000Z',
     })
+  })
+
+  it('maps companies flag to isVerifiedInterviewer on getProfile', async function shouldMapCompaniesFlag() {
+    const executedQueries: SqlQuery[] = []
+
+    const repository = new AccountRepository({
+      query: async function query<Row>(queryInput: SqlQuery) {
+        executedQueries.push(queryInput)
+
+        return {
+          rows: [
+            {
+              id: userId,
+              email: 'interviewer@mako.dev',
+              name: 'Verified Interviewer',
+              credits: 0,
+              free_standard_interviews: 0,
+              free_ai_interviews: 0,
+              companies: true,
+              created_at: '2026-01-01T00:00:00.000Z',
+              updated_at: '2026-01-01T00:00:00.000Z',
+              deleted_at: null,
+            },
+          ] as Row[],
+        }
+      },
+    })
+
+    const profile = await repository.getProfile(userId)
+
+    expect(executedQueries).toHaveLength(1)
+    expect(profile?.isVerifiedInterviewer).toBe(true)
   })
 
   it('updates account profile display name through the database executor', async function shouldUpdateProfile() {
@@ -113,6 +146,38 @@ describe('AccountRepository', function accountRepositorySuite() {
         values: [userId],
       }),
     )
+  })
+
+  it('soft deletes account using provided external query executor', async function shouldUseExternalExecutor() {
+    const externalQueries: SqlQuery[] = []
+    const internalQueries: SqlQuery[] = []
+
+    const externalExecutor = {
+      query: async function query<Row>(queryInput: SqlQuery) {
+        externalQueries.push(queryInput)
+        return { rows: [{ id: userId }] as Row[] }
+      },
+    }
+
+    const internalExecutor = {
+      query: async function query<Row>(queryInput: SqlQuery) {
+        internalQueries.push(queryInput)
+        return { rows: [{ id: userId }] as Row[] }
+      },
+    }
+
+    const repository = new AccountRepository(internalExecutor)
+    const didDelete = await repository.deleteAccount(userId, externalExecutor)
+
+    expect(didDelete).toBe(true)
+    expect(externalQueries).toHaveLength(1)
+    expect(externalQueries[0]).toEqual(
+      expect.objectContaining({
+        text: expect.stringContaining('SET deleted_at = NOW()'),
+        values: [userId],
+      }),
+    )
+    expect(internalQueries).toHaveLength(0)
   })
 
   it('returns false when account is already deleted', async function shouldReturnFalseWhenNotFound() {

@@ -4,6 +4,7 @@ import type {
   InterviewCreatedEvent,
   InterviewCancelledEvent,
   InterviewMatchCreatedEvent,
+  InterviewPremiumBookedEvent,
 } from '../notification-queue-event-contract'
 import type {
   NotificationOutboxEventRow,
@@ -435,6 +436,204 @@ describe('NotificationConsumerService', function notificationConsumerServiceSuit
       idempotency_key: 'interview.match.created:interview-id',
       checkpoint_key: 'interview.match.created:reminder',
     })
+  })
+
+  it('processes interview.premium_booked by recording confirmation checkpoint and scheduling reminder', async function run() {
+    const { consumer, dataSource } = createConsumerService()
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: 'interviewer-id',
+      type: 'system_design',
+      mode: 'peer_to_peer',
+      tier: 'premium',
+      status: 'scheduled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
+
+    await consumer.processInterviewPremiumBooked(createInterviewPremiumBookedEvent())
+
+    expect(dataSource.checkpoints).toHaveLength(2)
+    expect(dataSource.checkpoints[0]).toEqual({
+      idempotency_key: 'premium-booking:interview-id',
+      checkpoint_key: 'interview.premium_booked:confirmation',
+    })
+    expect(dataSource.checkpoints[1]).toEqual({
+      idempotency_key: 'premium-booking:interview-id',
+      checkpoint_key: 'interview.premium_booked:reminder',
+    })
+    expect(dataSource.reminderSchedules).toHaveLength(1)
+    expect(dataSource.reminderSchedules[0]?.interview_id).toBe('interview-id')
+    expect(dataSource.reminderSchedules[0]?.status).toBe('pending')
+  })
+
+  it('sends confirmation for interview.premium_booked to scheduler and interviewer exactly once', async function run() {
+    const { consumer, dataSource, deliveryCalls } = createConsumerService()
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: 'interviewer-id',
+      type: 'system_design',
+      mode: 'peer_to_peer',
+      tier: 'premium',
+      status: 'scheduled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
+    const event = createInterviewPremiumBookedEvent()
+
+    await consumer.processInterviewPremiumBooked(event)
+    await consumer.processInterviewPremiumBooked(event)
+
+    expect(deliveryCalls).toHaveLength(1)
+    expect(deliveryCalls[0]).toEqual({
+      kind: 'confirmation',
+      interviewId: 'interview-id',
+      scheduledAt: '2026-05-22T14:00:00.000Z',
+      recipientUserIds: ['scheduler-id', 'interviewer-id'],
+      idempotencyKey: 'premium-booking:interview-id/confirmation',
+    })
+  })
+
+  it('schedules a reminder when interview.premium_booked is processed exactly 30 minutes before scheduled_at', async function run() {
+    const { consumer, dataSource } = createConsumerService({
+      now: () => '2026-05-22T13:30:00.000Z',
+    })
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: 'interviewer-id',
+      type: 'system_design',
+      mode: 'peer_to_peer',
+      tier: 'premium',
+      status: 'scheduled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
+
+    await consumer.processInterviewPremiumBooked(createInterviewPremiumBookedEvent())
+
+    expect(dataSource.checkpoints).toHaveLength(2)
+    expect(dataSource.checkpoints[1]).toEqual({
+      idempotency_key: 'premium-booking:interview-id',
+      checkpoint_key: 'interview.premium_booked:reminder',
+    })
+    expect(dataSource.reminderSchedules).toHaveLength(1)
+    expect(dataSource.reminderSchedules[0]?.interview_id).toBe('interview-id')
+    expect(dataSource.reminderSchedules[0]?.reminder_due_at).toBe('2026-05-22T13:30:00.000Z')
+  })
+
+  it('suppresses premium booking reminder scheduling when interview is in the past', async function run() {
+    const { consumer, dataSource } = createConsumerService({
+      now: () => '2026-05-22T15:00:00.000Z',
+    })
+
+    await consumer.processInterviewPremiumBooked(
+      createInterviewPremiumBookedEvent({ interview: { ...createInterviewPremiumBookedEvent().interview, scheduled_at: '2026-05-22T14:00:00.000Z' } }),
+    )
+
+    expect(dataSource.checkpoints).toHaveLength(2)
+    expect(dataSource.checkpoints[1]).toEqual({
+      idempotency_key: 'premium-booking:interview-id',
+      checkpoint_key: 'interview.premium_booked:reminder',
+    })
+    expect(dataSource.reminderSchedules).toHaveLength(0)
+  })
+
+  it('suppresses premium booking reminder scheduling when interview is less than 30 minutes away', async function run() {
+    const { consumer, dataSource } = createConsumerService({
+      now: () => '2026-05-22T13:45:00.000Z',
+    })
+
+    await consumer.processInterviewPremiumBooked(createInterviewPremiumBookedEvent())
+
+    expect(dataSource.checkpoints).toHaveLength(2)
+    expect(dataSource.checkpoints[1]).toEqual({
+      idempotency_key: 'premium-booking:interview-id',
+      checkpoint_key: 'interview.premium_booked:reminder',
+    })
+    expect(dataSource.reminderSchedules).toHaveLength(0)
+  })
+
+  it('suppresses premium booking reminder when interview is not scheduled', async function run() {
+    const { consumer, dataSource } = createConsumerService()
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: 'interviewer-id',
+      type: 'system_design',
+      mode: 'peer_to_peer',
+      tier: 'premium',
+      status: 'cancelled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
+
+    await consumer.processInterviewPremiumBooked(createInterviewPremiumBookedEvent())
+
+    expect(dataSource.checkpoints).toHaveLength(2)
+    expect(dataSource.checkpoints[1]).toEqual({
+      idempotency_key: 'premium-booking:interview-id',
+      checkpoint_key: 'interview.premium_booked:reminder',
+    })
+    expect(dataSource.reminderSchedules).toHaveLength(0)
+  })
+
+  it('replay via confirmation and reminder checkpoints emits no duplicate confirmation or reminder', async function run() {
+    const { consumer, dataSource, notificationService, deliveryCalls } = createConsumerService()
+    dataSource.interviews.set('interview-id', {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: 'interviewer-id',
+      type: 'system_design',
+      mode: 'peer_to_peer',
+      tier: 'premium',
+      status: 'scheduled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+      created_at: '2026-05-22T10:00:00.000Z',
+      updated_at: '2026-05-22T10:00:00.000Z',
+    })
+    const event = createInterviewPremiumBookedEvent()
+    await notificationService.recordCheckpoint(
+      event.idempotency_key,
+      'interview.premium_booked:confirmation',
+    )
+    await notificationService.recordCheckpoint(
+      event.idempotency_key,
+      'interview.premium_booked:reminder',
+    )
+
+    await consumer.processInterviewPremiumBooked(event)
+    await consumer.processInterviewPremiumBooked(event)
+
+    expect(deliveryCalls).toHaveLength(0)
+    expect(dataSource.reminderSchedules).toHaveLength(0)
+    expect(dataSource.checkpoints).toHaveLength(2)
+  })
+
+  it('suppresses premium booking reminder schedules via interview.cancelled suppression', async function run() {
+    const { consumer, dataSource } = createConsumerService()
+    dataSource.reminderSchedules.push(
+      createReminderScheduleRow({
+        interview_id: 'interview-id',
+        idempotency_key: 'premium-booking:interview-id',
+        status: 'pending',
+      }),
+    )
+
+    await consumer.processInterviewCancelled(createInterviewCancelledEvent())
+
+    expect(dataSource.checkpoints).toHaveLength(1)
+    expect(dataSource.checkpoints[0]).toEqual({
+      idempotency_key: 'interview.cancelled:interview-id',
+      checkpoint_key: 'interview.cancelled:suppression',
+    })
+    expect(dataSource.reminderSchedules[0]?.status).toBe('suppressed')
   })
 
   it('schedules a reminder when interview.match.created is processed exactly 30 minutes before scheduled_at', async function run() {
@@ -1229,6 +1428,7 @@ function createInterviewCreatedEvent(
       interviewer_id: null,
       type: 'system_design',
       mode: 'ai_led',
+      booking_channel: 'ai_direct',
       tier: 'standard',
       status: 'scheduled',
       scheduled_at: scheduledAt,
@@ -1254,6 +1454,7 @@ function createInterviewCancelledEvent(
       interviewer_id: null,
       type: 'system_design',
       mode: 'ai_led',
+      booking_channel: 'ai_direct',
       tier: 'standard',
       status: 'cancelled',
       scheduled_at: '2026-05-22T14:00:00.000Z',
@@ -1280,6 +1481,7 @@ function createInterviewMatchCreatedEvent(
       interviewer_id: 'interviewer-id',
       type: 'system_design',
       mode: 'peer_to_peer',
+      booking_channel: 'standard_match',
       tier: 'standard',
       status: 'scheduled',
       scheduled_at: '2026-05-22T14:00:00.000Z',
@@ -1290,6 +1492,33 @@ function createInterviewMatchCreatedEvent(
     },
     ...overrides,
   } as InterviewMatchCreatedEvent
+}
+
+function createInterviewPremiumBookedEvent(
+  overrides: Partial<InterviewPremiumBookedEvent> = {},
+): InterviewPremiumBookedEvent {
+  return {
+    event_type: 'interview.premium_booked',
+    event_id: 'event-id',
+    idempotency_key: 'premium-booking:interview-id',
+    occurred_at: '2026-05-22T10:00:00.000Z',
+    interview: {
+      id: 'interview-id',
+      scheduler_id: 'scheduler-id',
+      interviewer_id: 'interviewer-id',
+      type: 'system_design',
+      mode: 'peer_to_peer',
+      booking_channel: 'verified_interviewer',
+      tier: 'premium',
+      status: 'scheduled',
+      scheduled_at: '2026-05-22T14:00:00.000Z',
+    },
+    participants: {
+      scheduler_user_id: 'scheduler-id',
+      interviewer_user_id: 'interviewer-id',
+    },
+    ...overrides,
+  } as InterviewPremiumBookedEvent
 }
 
 function createReminderScheduleRow(

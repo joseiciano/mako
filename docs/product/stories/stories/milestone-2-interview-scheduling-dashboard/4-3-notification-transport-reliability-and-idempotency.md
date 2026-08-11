@@ -17,13 +17,13 @@
 ### 1. Transport runtime reconciliation and boundary lock
 - [x] Reconcile any legacy queue/worker/binding naming that still implies interview provisioning with the Milestone 2 notification-orchestration purpose across Terraform, worker entrypoints, backend bindings, and related docs.
 - [x] Use the pre-provisioned queue/worker infrastructure from `docs/product/stories/stories/milestone-1-foundation-authentication/1-2-cloud-infrastructure-iac.md`, but keep Realtime/whiteboard provisioning out of this transport path.
-- [x] Keep transport behavior strictly post-commit hand-off for `interview.created`, `interview.cancelled`, and `interview.match.created`, never inside route or matcher transaction scope.
+- [x] Keep transport behavior strictly post-commit hand-off for `interview.created`, `interview.cancelled`, `interview.match.created`, and `interview.premium_booked`, never inside route or matcher transaction scope.
 
 Keep Realtime/whiteboard provisioning out of this transport path. Keep Cloudflare Workflow ownership separate for in-session lifecycle timers.
 
 ### 2. Producer hand-off failure policy
 - [x] Define explicit expected behavior when a lifecycle event cannot be enqueued after the source database commit has already succeeded.
-- [x] Unify producer-side failure semantics across direct interview create/cancel paths and matcher-created paths so queue publish failures are handled consistently.
+- [x] Unify producer-side failure semantics across direct interview create/cancel paths, matcher-created paths, and premium first-to-claim paths so queue publish failures are handled consistently.
 - [x] Define required recovery/visibility behavior for failed enqueue attempts (for example: structured logging, retry/repair path, and operator visibility) so committed lifecycle events are not silently lost.
 - [x] Ensure the durable outbox event for `interview.created` reflects the actual persisted interview record (including resolved tier and other policy-dependent fields) rather than pre-transaction guesswork.
 
@@ -41,11 +41,17 @@ Keep Realtime/whiteboard provisioning out of this transport path. Keep Cloudflar
 - [x] Ensure replay/retry of the same logical event does not produce duplicate downstream side effects for confirmation delivery, reminder scheduling, or cancellation-side suppression.
 - [x] Ensure replayed/duplicate delivery of the same emitted `interview.cancelled` event does not produce duplicate reminder suppression/cancellation actions.
 - [x] Persist dedupe/checkpoint state in a durable store so idempotency remains deterministic across worker restarts, retries, and redeploys.
-- [x] Keep `idempotency_key` as the canonical root dedupe key while defining per-side-effect checkpoints when one event fans out into multiple notification actions:
+- [x] Keep `idempotency_key` as the canonical root dedupe key while defining per-effect checkpoints when one event fans out into multiple notification actions:
   - `interview.created` — `interview.created:confirmation` (confirmation transport) and `interview.created:reminder` (reminder scheduling or suppression)
   - `interview.match.created` — `interview.match.created:confirmation` and `interview.match.created:reminder`
+  - `interview.premium_booked` — `interview.premium_booked:confirmation` and `interview.premium_booked:reminder`
+    - Owned by the Notification Orchestrator Worker (same consumer as `interview.match.created`).
+    - Confirmation is sent to both participants (`scheduler_id` and `interviewer_id`).
+    - Reminder is scheduled for 30 minutes before `scheduled_at` only when `interview.status = 'scheduled'`.
+    - Cancelled premium bookings are suppressed through the shared `interview.cancelled:suppression` checkpoint.
   - `interview.cancelled` — `interview.cancelled:suppression` (reminder suppression)
   - `reminder.due` — `reminder.due:{idempotency_key}` (delivery or suppression outcome)
+- [x] The `interview.premium_booked` outbox event is written atomically within the premium claim transaction and uses the deterministic idempotency key `premium-booking:{interview_id}`.
 
 ### 5. Lifecycle state ownership guardrails
 - [x] Ensure notification consumers do not mutate interview lifecycle state outside source route/matcher ownership boundaries.
@@ -56,7 +62,7 @@ Keep Realtime/whiteboard provisioning out of this transport path. Keep Cloudflar
 
 ### 6. Reliability and observability coverage
 - [x] Add/update reliability tests for:
-  - repeated delivery of `interview.created`, `interview.cancelled`, and `interview.match.created`
+  - repeated delivery of `interview.created`, `interview.cancelled`, `interview.match.created`, and `interview.premium_booked`
   - producer enqueue failure behavior
   - transient retry behavior preserving idempotency guarantees
   - restart-safe dedupe/checkpoint behavior

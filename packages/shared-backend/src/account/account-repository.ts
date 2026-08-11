@@ -145,7 +145,10 @@ export class AccountRepository {
     return toAccountProfileRecord(profileRow)
   }
 
-  async deleteAccount(userId: string): Promise<boolean> {
+  async deleteAccount(
+    userId: string,
+    queryExecutor?: SqlQueryExecutor,
+  ): Promise<boolean> {
     const query: SqlQuery = {
       text: `
         UPDATE "user"
@@ -158,7 +161,8 @@ export class AccountRepository {
       values: [userId],
     }
 
-    const result = await this.getQueryExecutor().query<{ id: string }>(query)
+    const executor = queryExecutor ?? this.getQueryExecutor()
+    const result = await executor.query<{ id: string }>(query)
 
     if (typeof result.rowCount === 'number') {
       return result.rowCount > 0
@@ -453,6 +457,7 @@ function toAccountProfileRecord(rowInput: unknown): AccountProfileRecord {
     credits: row.credits,
     freeStandardInterviews: row.free_standard_interviews,
     freeAiInterviews: row.free_ai_interviews,
+    isVerifiedInterviewer: row.companies,
     createdAt: row.created_at,
   }
 }

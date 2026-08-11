@@ -55,6 +55,7 @@ export const matcherCreatedInterviewSchema = z.object({
   interviewer_id: z.string().uuid(),
   type: interviewTypeSchema,
   mode: z.literal('peer_to_peer'),
+  booking_channel: z.literal('standard_match'),
   tier: z.enum(['standard', 'premium']),
   status: z.literal('scheduled'),
   scheduled_at: timestampSchema,
@@ -72,6 +73,7 @@ export type MatchAttemptWriteSkipReason =
   | 'interview_type_mismatch'
   | 'transaction_conflict'
   | 'insufficient_credits'
+  | 'scheduling_conflict'
 
 export type MatchAttemptWriteDiagnostics = {
   transactionConflicts: number

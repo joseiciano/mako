@@ -21,6 +21,7 @@ describe('NotificationService', function notificationServiceSuite() {
         interviewer_id: null,
         type: 'system_design',
         mode: 'ai_led',
+        booking_channel: 'ai_direct',
         tier: 'standard',
         status: 'scheduled',
         scheduled_at: '2026-05-22T14:00:00.000Z',
