@@ -33,6 +33,48 @@ describe('interview booking_channel parse after DB contraction', function bookin
     })
 
     expect(parsed.booking_channel).toBe('standard_match')
+    expect(parsed.cancellation_reason).toBeNull()
+  })
+
+  it('defaults a missing cancellation_reason to null for historical and non-premium rows', function run() {
+    const parsed = parseInterviewListItem({
+      id: interviewRowFixture.id,
+      scheduler_id: interviewRowFixture.scheduler_id,
+      scheduler_alias: interviewRowFixture.scheduler_alias,
+      interviewer_id: interviewRowFixture.interviewer_id,
+      interviewer_alias: interviewRowFixture.interviewer_alias,
+      type: interviewRowFixture.type,
+      mode: 'ai_led',
+      booking_channel: 'ai_direct',
+      tier: interviewRowFixture.tier,
+      status: interviewRowFixture.status,
+      scheduled_at: interviewRowFixture.scheduled_at,
+      created_at: interviewRowFixture.created_at,
+      updated_at: interviewRowFixture.updated_at,
+    })
+
+    expect(parsed.cancellation_reason).toBeNull()
+  })
+
+  it('parses a refund ledger reason on a cancelled verified_interviewer list row', function run() {
+    const parsed = parseInterviewListItem({
+      id: interviewRowFixture.id,
+      scheduler_id: interviewRowFixture.scheduler_id,
+      scheduler_alias: interviewRowFixture.scheduler_alias,
+      interviewer_id: interviewRowFixture.interviewer_id,
+      interviewer_alias: interviewRowFixture.interviewer_alias,
+      type: interviewRowFixture.type,
+      mode: 'peer_to_peer',
+      booking_channel: 'verified_interviewer',
+      tier: 'premium',
+      status: 'cancelled',
+      scheduled_at: interviewRowFixture.scheduled_at,
+      created_at: interviewRowFixture.created_at,
+      updated_at: interviewRowFixture.updated_at,
+      cancellation_reason: 'interviewer_account_deleted',
+    })
+
+    expect(parsed.cancellation_reason).toBe('interviewer_account_deleted')
   })
 
   it('parses a detail row with an explicit booking_channel', function run() {

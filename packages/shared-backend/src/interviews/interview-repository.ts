@@ -1,5 +1,10 @@
 import { bookingChannelSelect } from '../premium/booking-channel-sql'
-import type { Interview, InterviewDetail, InterviewListItem } from '@mako/shared'
+import type {
+  Interview,
+  InterviewCancellationReason,
+  InterviewDetail,
+  InterviewListItem,
+} from '@mako/shared'
 import { createSqlQuery, type SqlQuery, type SqlQueryExecutor, type QueryResult } from '../index'
 import type { NotificationQueueEvent } from '../notification-queue-event-contract'
 import { CreditRepository } from '../credit/credit-repository'
@@ -1344,12 +1349,18 @@ export function mergeDetailProcessingState(
 export function createInMemoryInterviewDataSource(
   seedAccounts: readonly InMemoryInterviewAccountRecord[],
   seedInterviews: readonly Interview[] = [],
+  seedCancellationReasons: ReadonlyMap<string, InterviewCancellationReason> =
+    new Map(),
 ): InterviewRepositoryDataSource {
   const accountStateByUserId = new Map<
     string,
     { credits: number; freeStandardInterviews: number; freeAiInterviews: number }
   >()
   const interviewsById = new Map<string, InterviewWithDetailState>()
+  const cancellationReasonByInterviewId = new Map<
+    string,
+    InterviewCancellationReason
+  >(seedCancellationReasons)
 
   for (const account of seedAccounts) {
     accountStateByUserId.set(account.userId, {
@@ -1442,7 +1453,11 @@ export function createInMemoryInterviewDataSource(
         .sort(compareInterviewListOrder)
         .slice(parsedInput.offset, parsedInput.offset + parsedInput.limit)
         .map(function cloneInterview(interview) {
-          return parseInterviewListItem(structuredClone(interview))
+          return parseInterviewListItem({
+            ...structuredClone(interview),
+            cancellation_reason:
+              cancellationReasonByInterviewId.get(interview.id) ?? null,
+          })
         })
     },
     async getInterviewById(id: string): Promise<Interview | null> {
@@ -1574,6 +1589,19 @@ export function createInMemoryInterviewDataSource(
         }),
         existingInterview,
       )
+
+      // Mirror the production premium refund ledger: an interviewer-initiated
+      // cancellation of a verified_interviewer booking refunds the scheduler
+      // and surfaces as `interviewer_cancelled` on the list response.
+      if (
+        existingInterview.booking_channel === 'verified_interviewer' &&
+        existingInterview.interviewer_id === parsedInput.participant_user_id
+      ) {
+        cancellationReasonByInterviewId.set(
+          cancelledInterview.id,
+          'interviewer_cancelled',
+        )
+      }
 
       interviewsById.set(cancelledInterview.id, structuredClone(cancelledInterview))
 
@@ -1799,7 +1827,8 @@ function buildListParticipantInterviewsQuery(
         status,
         scheduled_at,
         created_at,
-        updated_at
+        updated_at,
+        cancellation_reason
       FROM (
         SELECT
           id,
@@ -1837,6 +1866,8 @@ function buildListParticipantInterviewsQuery(
         WHERE interviewer_id = $1
           ${statusClause}
       ) AS participant_interviews
+      LEFT JOIN premium_booking_credit_refunds pr
+        ON pr.interview_id = participant_interviews.id
       ORDER BY scheduled_at ASC, id ASC
       LIMIT ${limitPlaceholder}
       OFFSET ${offsetPlaceholder};

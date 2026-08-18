@@ -18,7 +18,9 @@ import {
   getFieldErrors,
   getRetryLabel,
   classifyCreateFailure,
+  getSubmissionBranch,
   PENDING_CREATE_GUARD_KEY,
+  type CreateFailureKind,
   type ScheduleStep,
   type ScheduleState,
   type FlowSlot,
@@ -44,6 +46,40 @@ const AI_NOT_CONFIRMED_MESSAGE =
 
 const PENDING_CREATE_ALERT_MESSAGE =
   'We could not confirm whether your interview was created. Check your Interviews to avoid duplicates before trying again.'
+
+function getSubmissionMutationError(
+  lastSubmissionBranch: SubmissionBranch | null,
+  availabilityError: Error | null,
+  createError: Error | null,
+): string | null {
+  if (lastSubmissionBranch === 'peer_to_peer') {
+    return availabilityError?.message ?? null
+  }
+
+  if (lastSubmissionBranch === 'ai_led') {
+    return createError?.message ?? null
+  }
+
+  return null
+}
+
+function buildErrorMessage(
+  validationError: string | null,
+  pendingCreateGuard: boolean,
+  aiFailureKind: CreateFailureKind | null,
+  mutationError: string | null,
+): string | null {
+  if (validationError !== null) return validationError
+  if (pendingCreateGuard) return null
+
+  if (aiFailureKind === 'retryable_transport') {
+    return mutationError === null
+      ? AI_NOT_CONFIRMED_MESSAGE
+      : `${mutationError} ${AI_NOT_CONFIRMED_MESSAGE}`
+  }
+
+  return mutationError
+}
 
 function readPendingCreateGuard() {
   if (typeof window === 'undefined') return false
@@ -78,14 +114,7 @@ function readInitialSchedulingState(): {
     return { state: initialScheduleState, submissionBranch: 'pre_branch' }
   }
 
-  const submissionBranch: ScheduleSubmissionBranch =
-    restored.mode === 'ai_led'
-      ? 'ai_direct'
-      : restored.mode === 'peer_to_peer'
-        ? 'standard_p2p'
-        : 'pre_branch'
-
-  return { state: restored, submissionBranch }
+  return { state: restored, submissionBranch: getSubmissionBranch(restored) }
 }
 
 export function ScheduleSmart() {
@@ -110,12 +139,11 @@ export function ScheduleSmart() {
   const isDispatchingRef = useRef(false)
 
   const isSubmitting = createInterview.isPending || submitAvailability.isPending
-  const mutationError =
-    lastSubmissionBranch === 'peer_to_peer'
-      ? submitAvailability.error?.message ?? null
-      : lastSubmissionBranch === 'ai_led'
-        ? createInterview.error?.message ?? null
-        : null
+  const mutationError = getSubmissionMutationError(
+    lastSubmissionBranch,
+    submitAvailability.error,
+    createInterview.error,
+  )
 
   const isAiImmediate = state.mode === 'ai_led' && state.scheduledAt === 'now'
   const accountProfile = account.isSuccess && account.data ? account.data : null
@@ -135,15 +163,12 @@ export function ScheduleSmart() {
       : null
   const isAiRetryable = aiFailureKind === 'retryable_transport'
 
-  const errorMessage =
-    state.validationError ??
-    (pendingCreateGuard
-      ? null
-      : aiFailureKind === 'retryable_transport'
-        ? mutationError === null
-          ? AI_NOT_CONFIRMED_MESSAGE
-          : `${mutationError} ${AI_NOT_CONFIRMED_MESSAGE}`
-        : mutationError)
+  const errorMessage = buildErrorMessage(
+    state.validationError,
+    pendingCreateGuard,
+    aiFailureKind,
+    mutationError,
+  )
   const retryLabel = getRetryLabel(
     state.validationError,
     mutationError,

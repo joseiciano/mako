@@ -1,8 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { PremiumClaimResponse } from '@mako/shared'
-
-/** Module-level guard survives React Strict Mode remounts. */
-export const replayedClaims = new Set<string>()
 import {
   sortMarketplaceSlots,
   useClaimPremiumSlot,
@@ -18,6 +14,9 @@ import {
   PremiumMarketplaceDumb,
   type PremiumMarketplaceErrorOutcome,
 } from './premium-marketplace-dumb'
+
+/** Module-level guard survives React Strict Mode remounts. */
+export const replayedClaims = new Set<string>()
 
 export const PREMIUM_SLOT_ALREADY_CLAIMED = 'PREMIUM_SLOT_ALREADY_CLAIMED'
 export const PREMIUM_INTERVIEWER_INELIGIBLE = 'PREMIUM_INTERVIEWER_INELIGIBLE'
@@ -150,6 +149,7 @@ export function PremiumMarketplaceSmart() {
     readPersistedClaim,
   )
   const durableClaimRef = useRef<DurableClaim | null>(durableClaim)
+  const inFlightClaimRef = useRef<DurableClaim | null>(null)
   const [errorOutcome, setErrorOutcome] =
     useState<PremiumMarketplaceErrorOutcome | null>(null)
   const [bookedInterviewId, setBookedInterviewId] = useState<string | null>(
@@ -164,48 +164,16 @@ export function PremiumMarketplaceSmart() {
     [],
   )
 
-  const handleClaimSuccess = useCallback(
-    function handleClaimSuccess(data: PremiumClaimResponse, claim: DurableClaim) {
-      replayedClaims.delete(replayKey(claim))
-      clearVerifiedInterviewerClaim()
-      setDurableClaim(null)
-      setErrorOutcome(null)
-      setBookedInterviewId(data.interview.id)
-    },
-    [setDurableClaim],
-  )
-
-  const handleClaimError = useCallback(
-    function handleClaimError(error: Error, claim: DurableClaim) {
-      const failure = classifyClaimError(error) ?? 'transient'
-
-      if (failure === 'already_claimed' || failure === 'interviewer_ineligible') {
-        replayedClaims.delete(replayKey(claim))
-        clearVerifiedInterviewerClaim()
-        setDurableClaim(null)
-        void marketplace.refetch()
-      }
-
-      setErrorOutcome(buildOutcome(failure))
-    },
-    [setDurableClaim, marketplace],
-  )
-
   const issueClaim = useCallback(
     function issueClaim(claim: DurableClaim) {
-      claimMutation.mutate(
-        { slotId: claim.slotId, idempotencyKey: claim.idempotencyKey },
-        {
-          onSuccess: function onClaimSuccess(data) {
-            handleClaimSuccess(data, claim)
-          },
-          onError: function onClaimError(error) {
-            handleClaimError(error, claim)
-          },
-        },
-      )
+      inFlightClaimRef.current = claim
+      claimMutation.reset()
+      claimMutation.mutate({
+        slotId: claim.slotId,
+        idempotencyKey: claim.idempotencyKey,
+      })
     },
-    [claimMutation, handleClaimSuccess, handleClaimError],
+    [claimMutation],
   )
 
   const issueClaimRef = useRef(issueClaim)
@@ -223,6 +191,49 @@ export function PremiumMarketplaceSmart() {
     setErrorOutcome(null)
     issueClaimRef.current(claim)
   }, [])
+
+  useEffect(
+    function resolveClaimMutationOutcome() {
+      if (
+        claimMutation.status !== 'success' &&
+        claimMutation.status !== 'error'
+      ) {
+        return
+      }
+
+      const claim = inFlightClaimRef.current
+      if (claim === null) return
+
+      if (claimMutation.status === 'success' && claimMutation.data) {
+        replayedClaims.delete(replayKey(claim))
+        clearVerifiedInterviewerClaim()
+        setDurableClaim(null)
+        setErrorOutcome(null)
+        setBookedInterviewId(claimMutation.data.interview.id)
+        inFlightClaimRef.current = null
+        return
+      }
+
+      const failure = classifyClaimError(claimMutation.error) ?? 'transient'
+
+      if (failure === 'already_claimed' || failure === 'interviewer_ineligible') {
+        replayedClaims.delete(replayKey(claim))
+        clearVerifiedInterviewerClaim()
+        setDurableClaim(null)
+        void marketplace.refetch()
+      }
+
+      setErrorOutcome(buildOutcome(failure))
+      inFlightClaimRef.current = null
+    },
+    [
+      claimMutation.status,
+      claimMutation.data,
+      claimMutation.error,
+      setDurableClaim,
+      marketplace,
+    ],
+  )
 
   const handleBookSlot = useCallback(
     function handleBookSlot(slotId: string) {

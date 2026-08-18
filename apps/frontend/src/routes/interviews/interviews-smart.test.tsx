@@ -368,6 +368,71 @@ describe('InterviewsSmart', function interviewsSmartSuite() {
           booking_channel: 'verified_interviewer',
           scheduler_id: 'scheduler-user',
           interviewer_id: 'interviewer-user',
+          cancellation_reason: 'interviewer_cancelled',
+        }),
+      ],
+    })
+
+    renderWithQueryClient(<InterviewsSmart />)
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /cancel premium-1/i }),
+    )
+
+    const mutateOptions = mutateFn.mock.calls[0]?.[1] as {
+      onSuccess?: () => void
+    }
+    mutateOptions?.onSuccess?.()
+
+    await waitFor(function () {
+      expect(screen.getByRole('status')).toHaveTextContent(/credit was refunded/i)
+    })
+  })
+
+  it('shows refunded message when the scheduler views an interviewer-account-deletion refund', async function run() {
+    const mutateFn = mockCancelInterviewMutation()
+    mockAccountQuery({ data: { id: 'scheduler-user' } })
+    mockInterviewsQuery({
+      data: [
+        createInterviewFixture({
+          id: 'premium-1',
+          status: 'scheduled',
+          booking_channel: 'verified_interviewer',
+          scheduler_id: 'scheduler-user',
+          interviewer_id: 'interviewer-user',
+          cancellation_reason: 'interviewer_account_deleted',
+        }),
+      ],
+    })
+
+    renderWithQueryClient(<InterviewsSmart />)
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /cancel premium-1/i }),
+    )
+
+    const mutateOptions = mutateFn.mock.calls[0]?.[1] as {
+      onSuccess?: () => void
+    }
+    mutateOptions?.onSuccess?.()
+
+    await waitFor(function () {
+      expect(screen.getByRole('status')).toHaveTextContent(/credit was refunded/i)
+    })
+  })
+
+  it('shows refunded message when an interviewer self-cancels a verified_interviewer booking with null cancellation_reason', async function run() {
+    const mutateFn = mockCancelInterviewMutation()
+    mockAccountQuery({ data: { id: 'interviewer-user' } })
+    mockInterviewsQuery({
+      data: [
+        createInterviewFixture({
+          id: 'premium-1',
+          status: 'scheduled',
+          booking_channel: 'verified_interviewer',
+          scheduler_id: 'scheduler-user',
+          interviewer_id: 'interviewer-user',
+          cancellation_reason: null,
         }),
       ],
     })

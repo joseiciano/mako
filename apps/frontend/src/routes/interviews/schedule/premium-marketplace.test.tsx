@@ -103,6 +103,24 @@ let mockMarketplaceRefetch: ReturnType<typeof vi.fn> = vi.fn()
 let mockAccountCredits: number | null = 1
 const mockClaimMutate = vi.fn()
 let mockClaimIsPending = false
+let mockClaimStatus: 'idle' | 'pending' | 'success' | 'error' = 'idle'
+let mockClaimData: unknown = null
+let mockClaimError: Error | null = null
+const mockClaimReset = vi.fn()
+
+function resolveClaimAsSuccess(
+  data: typeof claimResponseFixture = claimResponseFixture,
+) {
+  mockClaimStatus = 'success'
+  mockClaimData = data
+  mockClaimError = null
+}
+
+function rejectClaimAsError(message: string) {
+  mockClaimStatus = 'error'
+  mockClaimData = null
+  mockClaimError = new Error(message)
+}
 
 vi.mock('#/hooks/use-premium-marketplace', async function mockMarketplaceHooks(
   importOriginal,
@@ -130,8 +148,24 @@ vi.mock('#/hooks/use-premium-marketplace', async function mockMarketplaceHooks(
     useClaimPremiumSlot: function useMockedClaimSlot() {
       return {
         mutate: mockClaimMutate,
+        reset: mockClaimReset,
         get isPending() {
           return mockClaimIsPending
+        },
+        get status() {
+          return mockClaimStatus
+        },
+        get isSuccess() {
+          return mockClaimStatus === 'success'
+        },
+        get isError() {
+          return mockClaimStatus === 'error'
+        },
+        get data() {
+          return mockClaimData
+        },
+        get error() {
+          return mockClaimError
         },
       }
     },
@@ -448,6 +482,10 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
       mockAccountCredits = 1
       mockClaimMutate.mockClear()
       mockClaimIsPending = false
+      mockClaimStatus = 'idle'
+      mockClaimData = null
+      mockClaimError = null
+      mockClaimReset.mockClear()
       replayedClaims.clear()
       window.localStorage.clear()
       window.sessionStorage.clear()
@@ -530,6 +568,74 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
       setItemSpy.mockRestore()
     })
 
+    it('issues the claim with variables only and never passes state-setter callbacks to mutate', async function run() {
+      const user = userEvent.setup()
+      render(<PremiumMarketplaceSmart />, { wrapper: createWrapper() })
+
+      await user.click(
+        screen.getByRole('button', { name: /claim this slot/i }),
+      )
+
+      expect(mockClaimMutate).toHaveBeenCalledTimes(1)
+      const [variables, options] = mockClaimMutate.mock.calls[0]!
+      expect(variables.slotId).toBe(slotId)
+      expect(typeof variables.idempotencyKey).toBe('string')
+      expect(options).toBeUndefined()
+    })
+
+    it('resets the mutation before a fresh claim so stale prior outcomes cannot leak', async function run() {
+      const user = userEvent.setup()
+      mockMarketplaceSlots = [slotFixture, secondSlotFixture]
+      const view = render(<PremiumMarketplaceSmart />, { wrapper: createWrapper() })
+      const claimButtons = screen.getAllByRole('button', {
+        name: /claim this slot/i,
+      })
+
+      await user.click(claimButtons[0]!)
+      resolveClaimAsSuccess(claimResponseFixture)
+      view.rerender(<PremiumMarketplaceSmart />)
+      await waitFor(function assertFirstBooked() {
+        expect(screen.getByRole('status')).toHaveTextContent(
+          '44444444-4444-4444-8444-444444444444',
+        )
+      })
+      expect(mockClaimReset).toHaveBeenCalledTimes(1)
+
+      await user.click(
+        screen.getAllByRole('button', { name: /claim this slot/i })[1]!,
+      )
+
+      // A fresh claim resets the mutation first, so the previous success
+      // outcome can never be re-applied to the new claim.
+      expect(mockClaimReset).toHaveBeenCalledTimes(2)
+      expect(mockClaimMutate).toHaveBeenCalledTimes(2)
+    })
+
+    it('does not apply terminal outcome handling after the component unmounts', async function run() {
+      window.localStorage.setItem(
+        SCHEDULE_DRAFT_V2_STORAGE_KEY,
+        persistedClaim(),
+      )
+
+      const view = render(<PremiumMarketplaceSmart />, { wrapper: createWrapper() })
+
+      await waitFor(function assertReplayIssued() {
+        expect(mockClaimMutate).toHaveBeenCalledTimes(1)
+      })
+      const claimKey = `${slotId}:${idempotencyKey}`
+      expect(replayedClaims.has(claimKey)).toBe(true)
+
+      view.unmount()
+
+      // A terminal mutation outcome arriving after unmount must not mutate
+      // state, clear the durable claim, or run the replay-cleanup side effects.
+      resolveClaimAsSuccess()
+      expect(
+        window.localStorage.getItem(SCHEDULE_DRAFT_V2_STORAGE_KEY),
+      ).not.toBeNull()
+      expect(replayedClaims.has(claimKey)).toBe(true)
+    })
+
     it('does not send the claim request when the durable write fails', async function run() {
       const user = userEvent.setup()
       const setItemSpy = vi
@@ -575,13 +681,15 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
 
     it('clears the durable claim and confirms the booking on a 201 success', async function run() {
       const user = userEvent.setup()
-      render(<PremiumMarketplaceSmart />, { wrapper: createWrapper() })
+      const view = render(<PremiumMarketplaceSmart />, { wrapper: createWrapper() })
 
       await user.click(
         screen.getByRole('button', { name: /claim this slot/i }),
       )
-      const options = mockClaimMutate.mock.calls[0]![1]
-      options.onSuccess(claimResponseFixture)
+      expect(mockClaimMutate).toHaveBeenCalledTimes(1)
+      expect(mockClaimMutate.mock.calls[0]![1]).toBeUndefined()
+      resolveClaimAsSuccess()
+      view.rerender(<PremiumMarketplaceSmart />)
 
       await waitFor(function assertBooked() {
         expect(screen.getByRole('status')).toHaveTextContent(/booked/i)
@@ -596,13 +704,13 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
 
     it('treats a 200 replay success as success and clears the durable claim', async function run() {
       const user = userEvent.setup()
-      render(<PremiumMarketplaceSmart />, { wrapper: createWrapper() })
+      const view = render(<PremiumMarketplaceSmart />, { wrapper: createWrapper() })
 
       await user.click(
         screen.getByRole('button', { name: /claim this slot/i }),
       )
-      const options = mockClaimMutate.mock.calls[0]![1]
-      options.onSuccess(claimResponseFixture)
+      resolveClaimAsSuccess()
+      view.rerender(<PremiumMarketplaceSmart />)
 
       await waitFor(function assertBooked() {
         expect(screen.getByRole('status')).toHaveTextContent(/booked/i)
@@ -614,13 +722,13 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
 
     it('treats PREMIUM_SLOT_ALREADY_CLAIMED as terminal after refetching', async function run() {
       const user = userEvent.setup()
-      render(<PremiumMarketplaceSmart />, { wrapper: createWrapper() })
+      const view = render(<PremiumMarketplaceSmart />, { wrapper: createWrapper() })
 
       await user.click(
         screen.getByRole('button', { name: /claim this slot/i }),
       )
-      const options = mockClaimMutate.mock.calls[0]![1]
-      options.onError(new Error('PREMIUM_SLOT_ALREADY_CLAIMED'))
+      rejectClaimAsError('PREMIUM_SLOT_ALREADY_CLAIMED')
+      view.rerender(<PremiumMarketplaceSmart />)
 
       await waitFor(function assertTerminal() {
         expect(screen.getByRole('alert')).toHaveTextContent(
@@ -638,13 +746,13 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
 
     it('treats PREMIUM_INTERVIEWER_INELIGIBLE as terminal after refetching', async function run() {
       const user = userEvent.setup()
-      render(<PremiumMarketplaceSmart />, { wrapper: createWrapper() })
+      const view = render(<PremiumMarketplaceSmart />, { wrapper: createWrapper() })
 
       await user.click(
         screen.getByRole('button', { name: /claim this slot/i }),
       )
-      const options = mockClaimMutate.mock.calls[0]![1]
-      options.onError(new Error('PREMIUM_INTERVIEWER_INELIGIBLE'))
+      rejectClaimAsError('PREMIUM_INTERVIEWER_INELIGIBLE')
+      view.rerender(<PremiumMarketplaceSmart />)
 
       await waitFor(function assertTerminal() {
         expect(screen.getByRole('alert')).toHaveTextContent(
@@ -659,14 +767,14 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
 
     it('retains the claim and key on INSUFFICIENT_CREDITS and links to billing', async function run() {
       const user = userEvent.setup()
-      render(<PremiumMarketplaceSmart />, { wrapper: createWrapper() })
+      const view = render(<PremiumMarketplaceSmart />, { wrapper: createWrapper() })
 
       await user.click(
         screen.getByRole('button', { name: /claim this slot/i }),
       )
       const firstKey = mockClaimMutate.mock.calls[0]![0].idempotencyKey
-      const options = mockClaimMutate.mock.calls[0]![1]
-      options.onError(new Error('INSUFFICIENT_CREDITS'))
+      rejectClaimAsError('INSUFFICIENT_CREDITS')
+      view.rerender(<PremiumMarketplaceSmart />)
 
       await waitFor(function assertRetained() {
         expect(screen.getByRole('alert')).toHaveTextContent(
@@ -687,14 +795,14 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
 
     it('retains the claim and key on PREMIUM_SCHEDULING_CONFLICT', async function run() {
       const user = userEvent.setup()
-      render(<PremiumMarketplaceSmart />, { wrapper: createWrapper() })
+      const view = render(<PremiumMarketplaceSmart />, { wrapper: createWrapper() })
 
       await user.click(
         screen.getByRole('button', { name: /claim this slot/i }),
       )
       const firstKey = mockClaimMutate.mock.calls[0]![0].idempotencyKey
-      const options = mockClaimMutate.mock.calls[0]![1]
-      options.onError(new Error('PREMIUM_SCHEDULING_CONFLICT'))
+      rejectClaimAsError('PREMIUM_SCHEDULING_CONFLICT')
+      view.rerender(<PremiumMarketplaceSmart />)
 
       await waitFor(function assertRetained() {
         expect(screen.getByRole('alert')).toHaveTextContent(/conflict/i)
@@ -710,14 +818,14 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
 
     it('retains the claim on a network failure and retries with the same key', async function run() {
       const user = userEvent.setup()
-      render(<PremiumMarketplaceSmart />, { wrapper: createWrapper() })
+      const view = render(<PremiumMarketplaceSmart />, { wrapper: createWrapper() })
 
       await user.click(
         screen.getByRole('button', { name: /claim this slot/i }),
       )
       const firstKey = mockClaimMutate.mock.calls[0]![0].idempotencyKey
-      const options = mockClaimMutate.mock.calls[0]![1]
-      options.onError(new Error('Network failure'))
+      rejectClaimAsError('Network failure')
+      view.rerender(<PremiumMarketplaceSmart />)
 
       await waitFor(function assertRetained() {
         expect(
@@ -743,14 +851,14 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
 
     it('replaces the durable key on IDEMPOTENCY_KEY_CONFLICT same-slot resubmit', async function run() {
       const user = userEvent.setup()
-      render(<PremiumMarketplaceSmart />, { wrapper: createWrapper() })
+      const view = render(<PremiumMarketplaceSmart />, { wrapper: createWrapper() })
 
       await user.click(
         screen.getByRole('button', { name: /claim this slot/i }),
       )
       const firstKey = mockClaimMutate.mock.calls[0]![0].idempotencyKey
-      const options = mockClaimMutate.mock.calls[0]![1]
-      options.onError(new Error('IDEMPOTENCY_KEY_CONFLICT'))
+      rejectClaimAsError('IDEMPOTENCY_KEY_CONFLICT')
+      view.rerender(<PremiumMarketplaceSmart />)
 
       await waitFor(function assertConflict() {
         expect(
@@ -779,7 +887,7 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
         persistedClaim({ startedAt: '2020-01-01T00:00:00.000Z' }),
       )
       const user = userEvent.setup()
-      render(<PremiumMarketplaceSmart />, { wrapper: createWrapper() })
+      const view = render(<PremiumMarketplaceSmart />, { wrapper: createWrapper() })
 
       await waitFor(function assertReplayIssued() {
         expect(mockClaimMutate).toHaveBeenCalledTimes(1)
@@ -789,8 +897,8 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
         idempotencyKey,
       })
 
-      const options = mockClaimMutate.mock.calls[0]![1]
-      options.onError(new Error('IDEMPOTENCY_KEY_CONFLICT'))
+      rejectClaimAsError('IDEMPOTENCY_KEY_CONFLICT')
+      view.rerender(<PremiumMarketplaceSmart />)
 
       await waitFor(function assertConflict() {
         expect(
@@ -828,13 +936,14 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
         slotId,
         idempotencyKey,
       })
+      expect(mockClaimMutate.mock.calls[0]![1]).toBeUndefined()
     })
 
     it('StrictMode double-mount does not corrupt persisted claim in localStorage', async function run() {
       const originalClaim = persistedClaim()
       window.localStorage.setItem(SCHEDULE_DRAFT_V2_STORAGE_KEY, originalClaim)
 
-      render(
+      const view = render(
         <StrictMode>
           <PremiumMarketplaceSmart />
         </StrictMode>,
@@ -853,8 +962,12 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
       expect(stored.branch).toBe('verified_interviewer')
       expect(typeof stored.startedAt).toBe('string')
 
-      const options = mockClaimMutate.mock.calls[0]![1]
-      options.onError(new Error('Network failure'))
+      rejectClaimAsError('Network failure')
+      view.rerender(
+        <StrictMode>
+          <PremiumMarketplaceSmart />
+        </StrictMode>,
+      )
 
       await waitFor(function assertRetained() {
         expect(screen.getByRole('alert')).toHaveTextContent(
@@ -893,7 +1006,6 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
       expect(replayedClaims.has(claimKey)).toBe(true)
       expect(mockClaimMutate).toHaveBeenCalledWith(
         { slotId, idempotencyKey },
-        expect.any(Object),
       )
     })
 
@@ -903,7 +1015,7 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
         persistedClaim(),
       )
 
-      render(
+      const view = render(
         <StrictMode>
           <PremiumMarketplaceSmart />
         </StrictMode>,
@@ -917,8 +1029,12 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
       const claimKey = `${slotId}:${idempotencyKey}`
       expect(replayedClaims.has(claimKey)).toBe(true)
 
-      const options = mockClaimMutate.mock.calls[0]![1]
-      options.onError(new Error('PREMIUM_SLOT_ALREADY_CLAIMED'))
+      rejectClaimAsError('PREMIUM_SLOT_ALREADY_CLAIMED')
+      view.rerender(
+        <StrictMode>
+          <PremiumMarketplaceSmart />
+        </StrictMode>,
+      )
 
       await waitFor(function assertTerminal() {
         expect(screen.getByRole('alert')).toHaveTextContent(
@@ -936,7 +1052,7 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
         persistedClaim(),
       )
 
-      render(
+      const view = render(
         <StrictMode>
           <PremiumMarketplaceSmart />
         </StrictMode>,
@@ -950,8 +1066,12 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
       const oldKey = `${slotId}:${idempotencyKey}`
       expect(replayedClaims.has(oldKey)).toBe(true)
 
-      const options = mockClaimMutate.mock.calls[0]![1]
-      options.onError(new Error('IDEMPOTENCY_KEY_CONFLICT'))
+      rejectClaimAsError('IDEMPOTENCY_KEY_CONFLICT')
+      view.rerender(
+        <StrictMode>
+          <PremiumMarketplaceSmart />
+        </StrictMode>,
+      )
 
       await waitFor(function assertConflict() {
         expect(
@@ -989,13 +1109,13 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
         persistedClaim(),
       )
 
-      render(<PremiumMarketplaceSmart />, { wrapper: createWrapper() })
+      const view = render(<PremiumMarketplaceSmart />, { wrapper: createWrapper() })
 
       await waitFor(function assertReplayIssued() {
         expect(mockClaimMutate).toHaveBeenCalledTimes(1)
       })
-      const options = mockClaimMutate.mock.calls[0]![1]
-      options.onSuccess(claimResponseFixture)
+      resolveClaimAsSuccess()
+      view.rerender(<PremiumMarketplaceSmart />)
 
       await waitFor(function assertClaimCleared() {
         expect(
@@ -1077,7 +1197,6 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
       })
       expect(mockClaimMutate).toHaveBeenCalledWith(
         { slotId, idempotencyKey },
-        expect.any(Object),
       )
     })
 

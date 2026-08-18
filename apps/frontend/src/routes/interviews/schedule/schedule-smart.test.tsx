@@ -106,6 +106,7 @@ vi.mock('#/hooks/use-premium-marketplace', async function mockMarketplaceHooks(
     }),
     useClaimPremiumSlot: () => ({
       mutate: mockPremiumClaimMutate,
+      reset: vi.fn(),
       get isPending() {
         return mockPremiumClaimIsPending
       },

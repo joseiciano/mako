@@ -337,6 +337,135 @@ describe('InterviewRepository', function interviewRepositorySuite() {
     expect(ids).toEqual([earlierUtc.id, laterWithOffset.id])
   })
 
+  it('in-memory listParticipantInterviews surfaces a seeded refund reason and null for non-refunded interviews', async function run() {
+    const participantId = '11111111-1111-4111-8111-111111111111'
+    const refundedId = '33333333-3333-4333-8333-333333333333'
+    const cancelledByInterviewer: Interview = {
+      ...createInterviewRecord({
+        id: refundedId,
+        scheduler_id: participantId,
+        status: 'cancelled',
+        booking_channel: 'verified_interviewer',
+        interviewer_id: '22222222-2222-4222-8222-222222222222',
+      }),
+    }
+    const scheduled: Interview = createInterviewRecord({
+      id: '44444444-4444-4444-8444-444444444444',
+      scheduler_id: participantId,
+    })
+
+    const repository = new InterviewRepository(
+      createInMemoryInterviewDataSource(
+        [
+          {
+            userId: participantId,
+            credits: 1,
+            freeStandardInterviews: 0,
+            freeAiInterviews: 0,
+          },
+        ],
+        [cancelledByInterviewer, scheduled],
+        new Map([[refundedId, 'interviewer_cancelled' as const]]),
+      ),
+    )
+
+    const result = await repository.listParticipantInterviews({
+      participant_user_id: participantId,
+      limit: 10,
+      offset: 0,
+    })
+
+    const byId = new Map(result.map((item) => [item.id, item]))
+    expect(byId.get(refundedId)?.cancellation_reason).toBe(
+      'interviewer_cancelled',
+    )
+    expect(
+      byId.get('44444444-4444-4444-8444-444444444444')?.cancellation_reason,
+    ).toBeNull()
+  })
+
+  it('in-memory cancelInterview records interviewer_cancelled for verified_interviewer bookings', async function run() {
+    const participantId = '11111111-1111-4111-8111-111111111111'
+    const interviewerId = '22222222-2222-4222-8222-222222222222'
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const repository = new InterviewRepository(
+      createInMemoryInterviewDataSource(
+        [
+          {
+            userId: participantId,
+            credits: 1,
+            freeStandardInterviews: 0,
+            freeAiInterviews: 0,
+          },
+        ],
+        [
+          createInterviewRecord({
+            id: interviewId,
+            scheduler_id: participantId,
+            interviewer_id: interviewerId,
+            booking_channel: 'verified_interviewer',
+            tier: 'premium',
+          }),
+        ],
+      ),
+    )
+
+    const cancelResult = await repository.cancelInterview({
+      interview_id: interviewId,
+      participant_user_id: interviewerId,
+      updated_at: '2026-05-22T09:30:00.000Z',
+    })
+    expect(cancelResult.outcome).toBe('cancelled')
+
+    const list = await repository.listParticipantInterviews({
+      participant_user_id: participantId,
+      limit: 10,
+      offset: 0,
+    })
+    expect(list[0]?.cancellation_reason).toBe('interviewer_cancelled')
+  })
+
+  it('in-memory scheduler self-cancellation keeps cancellation_reason null (no refund)', async function run() {
+    const participantId = '11111111-1111-4111-8111-111111111111'
+    const interviewerId = '22222222-2222-4222-8222-222222222222'
+    const interviewId = '33333333-3333-4333-8333-333333333333'
+    const repository = new InterviewRepository(
+      createInMemoryInterviewDataSource(
+        [
+          {
+            userId: participantId,
+            credits: 1,
+            freeStandardInterviews: 0,
+            freeAiInterviews: 0,
+          },
+        ],
+        [
+          createInterviewRecord({
+            id: interviewId,
+            scheduler_id: participantId,
+            interviewer_id: interviewerId,
+            booking_channel: 'verified_interviewer',
+            tier: 'premium',
+          }),
+        ],
+      ),
+    )
+
+    const cancelResult = await repository.cancelInterview({
+      interview_id: interviewId,
+      participant_user_id: participantId,
+      updated_at: '2026-05-22T09:30:00.000Z',
+    })
+    expect(cancelResult.outcome).toBe('cancelled')
+
+    const list = await repository.listParticipantInterviews({
+      participant_user_id: participantId,
+      limit: 10,
+      offset: 0,
+    })
+    expect(list[0]?.cancellation_reason).toBeNull()
+  })
+
   it('in-memory provisionInterview persists missing credentials and reuses them on retry', async function run() {
     const participantId = '11111111-1111-4111-8111-111111111111'
     const interviewId = '33333333-3333-4333-8333-333333333333'
@@ -787,6 +916,35 @@ describe('InterviewRepository', function interviewRepositorySuite() {
       expect(listQuery).toBeDefined()
       expect(listQuery!.text).toContain('scheduler_id = $1')
       expect(listQuery!.text).toContain('interviewer_id = $1')
+    })
+
+    it('listParticipantInterviews left-joins refund metadata into cancellation_reason', async function run() {
+      const mockQueryExecutor = createMockQueryExecutor({
+        'FROM interviews': () => ({
+          rows: [],
+          rowCount: 0,
+        }),
+      })
+
+      const repository = new InterviewRepository({
+        queryExecutor: mockQueryExecutor,
+      })
+
+      await repository.listParticipantInterviews({
+        participant_user_id: '11111111-1111-4111-8111-111111111111',
+        limit: 10,
+        offset: 0,
+      })
+
+      const listQuery = mockQueryExecutor.queries.find((q) =>
+        q.text.includes('FROM interviews'),
+      )
+      expect(listQuery).toBeDefined()
+      expect(listQuery!.text).toContain('LEFT JOIN premium_booking_credit_refunds')
+      expect(listQuery!.text).toContain(
+        'ON pr.interview_id = participant_interviews.id',
+      )
+      expect(listQuery!.text).toContain('cancellation_reason')
     })
 
     it('getInterviewById selects all optional columns', async function run() {

@@ -18,11 +18,26 @@ export const interviewerCancelRefundedMessage =
   'Premium interview cancelled. The scheduler\u2019s credit was refunded.'
 
 export function buildCancelSuccessMessage(
-  interview: Pick<InterviewListItem, 'booking_channel' | 'scheduler_id' | 'interviewer_id'> | undefined,
+  interview:
+    | Pick<
+        InterviewListItem,
+        | 'booking_channel'
+        | 'scheduler_id'
+        | 'interviewer_id'
+        | 'cancellation_reason'
+      >
+    | undefined,
   currentUserId: string | undefined,
 ): string {
   if (interview?.booking_channel !== 'verified_interviewer' || !currentUserId) {
     return genericCancelSuccessMessage
+  }
+
+  if (
+    interview.cancellation_reason === 'interviewer_cancelled' ||
+    interview.cancellation_reason === 'interviewer_account_deleted'
+  ) {
+    return interviewerCancelRefundedMessage
   }
 
   if (interview.scheduler_id === currentUserId) {
