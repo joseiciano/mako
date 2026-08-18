@@ -43,7 +43,7 @@ export type InsertArtifactInput = {
   object_key: string
   provider_asset_id: string
   idempotency_key: string
-  content_metadata: { content_type: string; size_bytes: number }
+  content_metadata: { content_type: string; size_bytes?: number }
   captured_at: string
   finalized_at: string
   expires_at: string
@@ -83,6 +83,7 @@ export type RecordingFinalizationRepositoryPort = {
     nextAttemptAt: string | null,
     terminalAt: string | null,
   ): Promise<void>
+  withTransaction<T>(callback: () => Promise<T>): Promise<T>
 }
 
 export type RecordingFinalizationRepositoryDataSource = {
@@ -568,7 +569,7 @@ export class RecordingFinalizationRepository
     const dataSource = this.dependencies.dataSource
 
     if (dataSource) {
-      return callback()
+      return dataSource.withTransaction(callback)
     }
 
     const queryExecutor = this.getQueryExecutor()

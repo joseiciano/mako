@@ -16,6 +16,7 @@ import {
   REALTIMEKIT_SAFE_ERROR_CODES,
   DEFAULT_REALTIMEKIT_SWEEP_DELAY_MS,
   type PostgresConnectionClient,
+  type RecordingFinalizationRepositoryPort,
   type SqlQueryExecutor,
 } from '@mako/shared-backend'
 import type { WorkerBindings } from '../index'
@@ -32,6 +33,64 @@ export type RecordingFinalizationWorkflowPayload = z.infer<typeof recordingFinal
 // Stable step names
 export const STEP_FINALIZE_RECORDING = 'finalize-recording'
 export const STEP_FINALIZE = STEP_FINALIZE_RECORDING
+
+export type RecordingFinalizationRecoveryRepository = Pick<
+  RecordingFinalizationRepositoryPort,
+  'failJob' | 'markEventFailed' | 'releaseClaim'
+>
+
+export type RecordingFinalizationRecoveryInput = {
+  repository: RecordingFinalizationRecoveryRepository
+  providerRecordingId: string
+  errorCode: string
+  failedAt: string
+  attempt: number
+  logError: (event: string, context: Record<string, unknown>) => void
+}
+
+// Testable seam around the catch-path recovery. Checkpointing a finalization
+// failure can itself fail (job/event rows unavailable); this helper then
+// releases the processing claim back to pending so a scheduled retry can claim
+// the job again, and reports both failures through the given logger. It never
+// throws: recovery failures must not mask the original finalization error,
+// which the caller rethrows.
+export async function checkpointRecordingFinalizationError(
+  input: RecordingFinalizationRecoveryInput,
+): Promise<void> {
+  const { repository, providerRecordingId, errorCode, failedAt, attempt, logError } =
+    input
+
+  try {
+    await repository.failJob(providerRecordingId, errorCode, 'workflow_error', failedAt)
+    await repository.markEventFailed(
+      providerRecordingId,
+      errorCode,
+      addMilliseconds(failedAt, DEFAULT_REALTIMEKIT_SWEEP_DELAY_MS),
+    )
+  } catch (checkpointError) {
+    // Checkpointing the failure itself failed: the job may still hold the
+    // processing claim, which would strand it until a sweeper notices.
+    // Release the claim back to pending so a scheduled retry can claim the
+    // job again, then report the checkpoint failure.
+    try {
+      await repository.releaseClaim(providerRecordingId, failedAt)
+    } catch (releaseError) {
+      logError('recording_finalization.release_claim_failure', {
+        error_code: errorCode,
+        release_error:
+          releaseError instanceof Error ? releaseError.message : String(releaseError),
+      })
+    }
+
+    logError('recording_finalization.checkpoint_failure', {
+      error_code: errorCode,
+      checkpoint_error:
+        checkpointError instanceof Error
+          ? checkpointError.message
+          : String(checkpointError),
+    })
+  }
+}
 
 export class RecordingFinalizationWorkflow extends WorkflowEntrypoint<
   WorkerBindings,
@@ -115,29 +174,22 @@ export class RecordingFinalizationWorkflow extends WorkflowEntrypoint<
       const errorCode = mapRecordingFinalizationError(error)
       const failedAt = new Date().toISOString()
 
-      try {
-        await repository.failJob(
-          payload.provider_recording_id,
-          errorCode,
-          'workflow_error',
-          failedAt,
-        )
-        await repository.markEventFailed(
-          payload.provider_recording_id,
-          errorCode,
-          addMilliseconds(failedAt, DEFAULT_REALTIMEKIT_SWEEP_DELAY_MS),
-        )
-      } catch (checkpointError) {
-        console.error({
-          event: 'recording_finalization.checkpoint_failure',
-          provider_recording_id: payload.provider_recording_id,
-          attempt: payload.attempt,
-          error_code: errorCode,
-          checkpoint_error: checkpointError instanceof Error
-            ? checkpointError.message
-            : String(checkpointError),
-        })
-      }
+      await checkpointRecordingFinalizationError({
+        repository,
+        providerRecordingId: payload.provider_recording_id,
+        errorCode,
+        failedAt,
+        attempt: payload.attempt,
+        logError(event, context) {
+          console.error({
+            event,
+            component: 'RecordingFinalizationWorkflow',
+            provider_recording_id: payload.provider_recording_id,
+            attempt: payload.attempt,
+            ...context,
+          })
+        },
+      })
 
       throw error
     } finally {

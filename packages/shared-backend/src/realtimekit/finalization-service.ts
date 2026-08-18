@@ -8,6 +8,7 @@ import {
   type RealtimeKitWebhookLogger,
 } from './types'
 import type {
+  InsertArtifactInput,
   RecordingFinalizationRepositoryPort,
   RecordingJobWithInterview,
 } from './finalization-repository'
@@ -158,10 +159,34 @@ export class RecordingFinalizationService {
       return { status: 'awaiting_provider' }
     }
 
-    await this.copyAssets(loaded, providerStatus, now)
+    // R2 downloads/stores happen outside the transaction: streaming bytes
+    // through a network fetch must not hold the Postgres transaction open.
+    // Keys successfully stored by this run are tracked so a failure anywhere
+    // before commit can compensate them (see deleteStoredArtifacts).
+    const storedKeys: string[] = []
 
-    await this.repository.finalizeJob(providerRecordingId, now)
-    await this.repository.markEventProcessed(providerRecordingId, now)
+    try {
+      const artifactInputs = await this.copyAssets(loaded, providerStatus, now, storedKeys)
+
+      // Core database finalization is atomic: artifact rows, the job status, and
+      // the webhook checkpoint commit together or roll back together.
+      await this.repository.withTransaction(async () => {
+        for (const input of artifactInputs) {
+          await this.repository.insertArtifact(input)
+        }
+
+        await this.repository.finalizeJob(providerRecordingId, now)
+        await this.repository.markEventProcessed(providerRecordingId, now)
+      })
+    } catch (error) {
+      // A failed asset copy or a rolled-back core transaction leaves freshly
+      // stored R2 objects orphaned: no artifact row references them, so a retry
+      // would download and upload the same bytes again. Delete exactly the keys
+      // this run stored; pre-existing rows/objects are never touched. The
+      // original error always propagates unchanged.
+      await this.deleteStoredArtifacts(storedKeys, error)
+      throw error
+    }
 
     await this.deriveAggregateReadiness(loaded, now)
 
@@ -172,7 +197,8 @@ export class RecordingFinalizationService {
     loaded: RecordingJobWithInterview,
     providerStatus: RealtimeKitRecordingStatusResult,
     now: string,
-  ): Promise<void> {
+    storedKeys: string[],
+  ): Promise<InsertArtifactInput[]> {
     const job = loaded.job
     const artifactKind: 'playback_recording' | 'transcription_audio' =
       job.recording_type === 'composite' ? 'playback_recording' : 'transcription_audio'
@@ -184,6 +210,7 @@ export class RecordingFinalizationService {
     // provider published status before its asset was visible; treating it as a
     // successful copy would permanently lose the recording.
     let persistedAssetCount = 0
+    const artifactInputs: InsertArtifactInput[] = []
 
     for (const asset of providerStatus.assets) {
       if (asset.kind !== expectedAssetKind) {
@@ -225,6 +252,7 @@ export class RecordingFinalizationService {
       }
 
       const contentType = response.headers.get('content-type') ?? asset.contentType
+      const sizeBytes = parseContentLength(response.headers)
       assertAllowedContentType(contentType)
 
       // Early rejection when the provider declares the size up front.
@@ -257,7 +285,11 @@ export class RecordingFinalizationService {
         participantRole: job.participant_role ?? undefined,
       })
 
-      await this.repository.insertArtifact({
+      // Track only keys newly stored by this run: they are the only objects
+      // eligible for compensating deletion if a later step fails.
+      storedKeys.push(stored.key)
+
+      artifactInputs.push({
         id: crypto.randomUUID(),
         interview_id: loaded.interview.id,
         artifact_kind: artifactKind,
@@ -268,7 +300,9 @@ export class RecordingFinalizationService {
         idempotency_key: `finalize:${asset.assetId}`,
         content_metadata: {
           content_type: contentType,
-          size_bytes: parseContentLength(response.headers) ?? 0,
+          // Omit the field entirely when the provider did not declare a
+          // trusted content-length; recording zero would be a lie.
+          ...(sizeBytes !== null ? { size_bytes: sizeBytes } : {}),
         },
         captured_at: capturedAt,
         finalized_at: now,
@@ -276,7 +310,7 @@ export class RecordingFinalizationService {
         created_at: now,
       })
 
-      // Whether the row was inserted now or is a duplicate from a concurrent
+      // Whether the row is inserted now or is a duplicate from a concurrent
       // finalization, the provider asset is durably present in storage.
       persistedAssetCount += 1
     }
@@ -286,6 +320,8 @@ export class RecordingFinalizationService {
         'Provider upload status contained no expected recording asset.',
       )
     }
+
+    return artifactInputs
   }
 
   private async deriveAggregateReadiness(
@@ -315,6 +351,30 @@ export class RecordingFinalizationService {
     }
 
     await this.repository.setInterviewRecordingReady(loaded.interview.id, now)
+  }
+
+  private async deleteStoredArtifacts(
+    storedKeys: string[],
+    originalError: unknown,
+  ): Promise<void> {
+    for (const key of storedKeys) {
+      try {
+        await this.storage.deleteArtifact(key)
+      } catch (cleanupError) {
+        // Compensating deletion is best-effort: the object is orphaned and will
+        // expire via the R2 lifecycle, but the failure must be observable. The
+        // original error is never replaced by a cleanup failure.
+        this.logger.error('realtimekit.finalization.cleanup_failed', {
+          object_key: key,
+          original_error:
+            originalError instanceof Error
+              ? originalError.message
+              : String(originalError),
+          cleanup_error:
+            cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+        })
+      }
+    }
   }
 }
 

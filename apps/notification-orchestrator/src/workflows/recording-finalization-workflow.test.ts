@@ -1,9 +1,11 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   RecordingFinalizationWorkflow,
+  checkpointRecordingFinalizationError,
   mapRecordingFinalizationError,
   recordingFinalizationWorkflowPayloadSchema,
   STEP_FINALIZE_RECORDING,
+  type RecordingFinalizationRecoveryRepository,
   type RecordingFinalizationWorkflowPayload,
 } from './recording-finalization-workflow'
 import {
@@ -147,6 +149,134 @@ describe('RecordingFinalizationWorkflow run', function runSuite() {
     await expect(
       workflow.run(createWorkflowEvent({ payload: { provider_recording_id: '', attempt: 0 } }), {} as WorkflowStep),
     ).rejects.toThrow()
+  })
+})
+
+describe('checkpointRecordingFinalizationError', function checkpointRecoverySuite() {
+  const FAILED_AT = '2026-08-17T12:05:00.000Z'
+  const ERROR_CODE = REALTIMEKIT_SAFE_ERROR_CODES.internal_error
+
+  function createRecoveryDependencies(overrides: {
+    failJob?: RecordingFinalizationRecoveryRepository['failJob']
+    markEventFailed?: RecordingFinalizationRecoveryRepository['markEventFailed']
+    releaseClaim?: RecordingFinalizationRecoveryRepository['releaseClaim']
+  } = {}) {
+    const order: string[] = []
+    const logError = vi.fn((event: string) => {
+      order.push(event)
+    })
+
+    const repository: RecordingFinalizationRecoveryRepository = {
+      async failJob(providerRecordingId, errorCode, checkpoint, now) {
+        order.push('failJob')
+        if (overrides.failJob) {
+          return overrides.failJob(providerRecordingId, errorCode, checkpoint, now)
+        }
+      },
+      async markEventFailed(recordingId, errorCode, nextAttemptAt) {
+        order.push('markEventFailed')
+        if (overrides.markEventFailed) {
+          return overrides.markEventFailed(recordingId, errorCode, nextAttemptAt)
+        }
+      },
+      async releaseClaim(providerRecordingId, now) {
+        order.push('releaseClaim')
+        if (overrides.releaseClaim) {
+          return overrides.releaseClaim(providerRecordingId, now)
+        }
+      },
+    }
+
+    return { repository, logError, order }
+  }
+
+  it('releases the claim with the same provider id and failedAt before reporting the checkpoint failure', async function run() {
+    const releaseClaim = vi.fn().mockResolvedValue(undefined)
+    const { repository, logError, order } = createRecoveryDependencies({
+      failJob: vi.fn().mockRejectedValue(new Error('checkpoint write failed')),
+      releaseClaim,
+    })
+
+    await checkpointRecordingFinalizationError({
+      repository,
+      providerRecordingId: RECORDING_ID,
+      errorCode: ERROR_CODE,
+      failedAt: FAILED_AT,
+      attempt: 2,
+      logError,
+    })
+
+    // The claim must be released with the exact provider id and failedAt used
+    // for the failed checkpoint, before any failure report is emitted.
+    expect(releaseClaim).toHaveBeenCalledWith(RECORDING_ID, FAILED_AT)
+    expect(logError).toHaveBeenCalledWith(
+      'recording_finalization.checkpoint_failure',
+      expect.objectContaining({ error_code: ERROR_CODE }),
+    )
+    expect(order).toEqual([
+      'failJob',
+      'releaseClaim',
+      'recording_finalization.checkpoint_failure',
+    ])
+    expect(logError).not.toHaveBeenCalledWith(
+      'recording_finalization.release_claim_failure',
+      expect.anything(),
+    )
+  })
+
+  it('logs a release failure and does not mask the original exception', async function run() {
+    const releaseClaim = vi.fn().mockRejectedValue(new Error('claim release failed'))
+    const { repository, logError, order } = createRecoveryDependencies({
+      failJob: vi.fn().mockRejectedValue(new Error('checkpoint write failed')),
+      releaseClaim,
+    })
+
+    // The recovery helper swallows recovery failures: the workflow rethrows the
+    // original finalization error afterwards, so nothing here may throw.
+    await expect(
+      checkpointRecordingFinalizationError({
+        repository,
+        providerRecordingId: RECORDING_ID,
+        errorCode: ERROR_CODE,
+        failedAt: FAILED_AT,
+        attempt: 2,
+        logError,
+      }),
+    ).resolves.toBeUndefined()
+
+    expect(releaseClaim).toHaveBeenCalledWith(RECORDING_ID, FAILED_AT)
+    expect(logError).toHaveBeenCalledWith(
+      'recording_finalization.release_claim_failure',
+      expect.objectContaining({ error_code: ERROR_CODE }),
+    )
+    expect(logError).toHaveBeenCalledWith(
+      'recording_finalization.checkpoint_failure',
+      expect.objectContaining({ error_code: ERROR_CODE }),
+    )
+    expect(order).toEqual([
+      'failJob',
+      'releaseClaim',
+      'recording_finalization.release_claim_failure',
+      'recording_finalization.checkpoint_failure',
+    ])
+  })
+
+  it('does not release the claim or log failures when checkpointing succeeds', async function run() {
+    const releaseClaim = vi.fn()
+    const { repository, logError, order } = createRecoveryDependencies()
+
+    await checkpointRecordingFinalizationError({
+      repository,
+      providerRecordingId: RECORDING_ID,
+      errorCode: ERROR_CODE,
+      failedAt: FAILED_AT,
+      attempt: 2,
+      logError,
+    })
+
+    expect(releaseClaim).not.toHaveBeenCalled()
+    expect(logError).not.toHaveBeenCalled()
+    expect(order).toEqual(['failJob', 'markEventFailed'])
   })
 })
 

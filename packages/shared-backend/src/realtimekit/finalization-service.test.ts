@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   RealtimeKitInvalidProviderAssetError,
   RecordingFinalizationService,
+  type InsertArtifactInput,
   type RecordingFinalizationConfig,
   type RecordingFinalizationRepositoryPort,
   type RecordingJobWithInterview,
@@ -43,7 +44,9 @@ function createInMemoryStorage() {
   const stored: Array<{
     input: Parameters<ArtifactStoragePort['storeRecording']>[0]
     size: number
+    key: string
   }> = []
+  const deleted: string[] = []
 
   const storage: ArtifactStoragePort = {
     async storeRecording(input) {
@@ -53,9 +56,10 @@ function createInMemoryStorage() {
         input.body instanceof ReadableStream
           ? await drainStream(input.body as ReadableStream<Uint8Array>)
           : input.body.byteLength
-      stored.push({ input, size })
+      const key = `interviews/${input.interviewId}/recording/${input.recordingId}`
+      stored.push({ input, size, key })
       return {
-        key: `interviews/${input.interviewId}/recording/${input.recordingId}`,
+        key,
         metadata: {
           interviewId: input.interviewId,
           artifactKind: input.artifactKind ?? 'playback_recording',
@@ -75,13 +79,15 @@ function createInMemoryStorage() {
     async getScreenshot() {
       return null
     },
-    async deleteArtifact() {},
+    async deleteArtifact(key) {
+      deleted.push(key)
+    },
     async headArtifact() {
       return { size: 1, contentType: 'video/mp4' }
     },
   }
 
-  return { storage, stored }
+  return { storage, stored, deleted }
 }
 
 function createInMemoryRepository(overrides: Partial<RecordingFinalizationRepositoryPort> = {}) {
@@ -96,6 +102,11 @@ function createInMemoryRepository(overrides: Partial<RecordingFinalizationReposi
     markEventFailed: [],
     setInterviewRecordingReady: [],
   }
+
+  // Order log distinguishes core DB writes issued inside the transaction
+  // (prefix `tx.`) from writes issued outside it.
+  const order: string[] = []
+  let inTransaction = false
 
   const repository: RecordingFinalizationRepositoryPort = {
     async getJobWithInterview() {
@@ -112,16 +123,19 @@ function createInMemoryRepository(overrides: Partial<RecordingFinalizationReposi
     },
     async insertArtifact(...args) {
       calls.insertArtifact.push(args)
+      order.push(inTransaction ? 'tx.insertArtifact' : 'insertArtifact')
       return 'inserted'
     },
     async finalizeJob(...args) {
       calls.finalizeJob.push(args)
+      order.push(inTransaction ? 'tx.finalizeJob' : 'finalizeJob')
     },
     async failJob(...args) {
       calls.failJob.push(args)
     },
     async markEventProcessed(...args) {
       calls.markEventProcessed.push(args)
+      order.push(inTransaction ? 'tx.markEventProcessed' : 'markEventProcessed')
     },
     async markEventAwaiting(...args) {
       calls.markEventAwaiting.push(args)
@@ -139,10 +153,19 @@ function createInMemoryRepository(overrides: Partial<RecordingFinalizationReposi
       return []
     },
     async updateSweepCheckpoint() {},
+    async withTransaction<T>(callback: () => Promise<T>): Promise<T> {
+      const previous = inTransaction
+      inTransaction = true
+      try {
+        return await callback()
+      } finally {
+        inTransaction = previous
+      }
+    },
     ...overrides,
   }
 
-  return { repository, calls }
+  return { repository, calls, order }
 }
 
 function createJobWithInterview(
@@ -224,15 +247,18 @@ function createService(options: {
   client?: RealtimeKitRecordingClientPort
   fetchMock?: ReturnType<typeof vi.fn>
   config?: Partial<RecordingFinalizationConfig>
+  logger?: RealtimeKitWebhookLogger
 }) {
   const repository = options.repository ?? createInMemoryRepository().repository
-  const { storage, stored } = options.storage
+  const { storage, stored, deleted } = options.storage
     ? {
         storage: options.storage,
         stored: [] as storedCalls,
+        deleted: [] as string[],
       }
     : createInMemoryStorage()
   const client = options.client ?? createDemoClient(createUploadedStatus())
+  const logger = options.logger ?? createLogger()
 
   const service = new RecordingFinalizationService({
     repository,
@@ -245,15 +271,16 @@ function createService(options: {
           headers: { 'content-type': 'video/mp4' },
         }))) as unknown as typeof globalThis.fetch,
     config: options.config,
-    logger: createLogger(),
+    logger,
   })
 
-  return { service, storage, stored, repository }
+  return { service, storage, stored, deleted, repository, logger }
 }
 
 type storedCalls = Array<{
   input: Parameters<ArtifactStoragePort['storeRecording']>[0]
   size: number
+  key: string
 }>
 
 describe('RecordingFinalizationService', function finalizationServiceSuite() {
@@ -836,6 +863,66 @@ describe('RecordingFinalizationService', function finalizationServiceSuite() {
     expect(stored[0].size).toBe(1024)
   })
 
+  it('omits size_bytes from artifact content metadata when the provider omits content-length', async function run() {
+    const bodyStream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([1, 2, 3]))
+        controller.close()
+      },
+    })
+    const { fetchMock } = createMockFetch(bodyStream, {})
+    const { repository, calls } = createInMemoryRepository()
+    const { service, stored } = createService({
+      repository: {
+        ...repository,
+        getJobWithInterview: vi.fn().mockResolvedValue(createJobWithInterview()),
+      },
+      fetchMock,
+    })
+
+    const result = await service.finalizeRecording(RECORDING_ID, NOW)
+
+    expect(result.status).toBe('finalized')
+    expect(stored).toHaveLength(1)
+    const insertInput = (calls.insertArtifact[0] as unknown[])[0] as InsertArtifactInput
+    expect(insertInput.content_metadata.content_type).toBe('video/mp4')
+    // A missing or invalid content-length must not be recorded as a bogus zero.
+    expect(insertInput.content_metadata).not.toHaveProperty('size_bytes')
+  })
+
+  it('performs artifact insertions, job finalization, and checkpoint processing inside a single repository transaction', async function run() {
+    const { repository, calls, order } = createInMemoryRepository()
+    const { service, stored } = createService({
+      repository: {
+        ...repository,
+        getJobWithInterview: vi.fn().mockResolvedValue(createJobWithInterview()),
+        getAggregateReadiness: vi.fn().mockResolvedValue([
+          {
+            provider_recording_id: RECORDING_ID,
+            recording_type: 'composite',
+            artifact_kind: 'playback_recording',
+            artifact_object_key: 'interviews/1/recording/rec-1',
+          },
+        ]),
+      },
+    })
+
+    const result = await service.finalizeRecording(RECORDING_ID, NOW)
+
+    expect(result.status).toBe('finalized')
+    expect(stored).toHaveLength(1)
+    expect(calls.insertArtifact).toHaveLength(1)
+    // R2 download/store happens before the transaction; the core DB writes are
+    // atomic within a single repository.withTransaction callback.
+    expect(order).toEqual([
+      'tx.insertArtifact',
+      'tx.finalizeJob',
+      'tx.markEventProcessed',
+    ])
+    // Aggregate readiness derivation stays outside the transaction.
+    expect(calls.setInterviewRecordingReady).toHaveLength(1)
+  })
+
   it('keeps the checkpoint sweep-eligible when another workflow holds the processing claim', async function run() {
     const { repository, calls } = createInMemoryRepository()
     const { service } = createService({
@@ -908,6 +995,149 @@ describe('RecordingFinalizationService', function finalizationServiceSuite() {
     expect(stored).toHaveLength(1)
     expect(calls.finalizeJob).toHaveLength(1)
     expect(calls.markEventProcessed).toHaveLength(1)
+  })
+
+  it('deletes newly stored artifacts when a later provider asset copy fails', async function run() {
+    const { repository, calls } = createInMemoryRepository()
+    const { service, stored, deleted } = createService({
+      repository: {
+        ...repository,
+        getJobWithInterview: vi.fn().mockResolvedValue(createJobWithInterview()),
+      },
+      client: createDemoClient(
+        createUploadedStatus({
+          assets: [
+            {
+              assetId: 'asset-one',
+              kind: 'composite',
+              downloadUrl: 'https://api.realtime.cloudflare.com/downloads/one.mp4',
+              contentType: 'video/mp4',
+            },
+            {
+              assetId: 'asset-two',
+              kind: 'composite',
+              downloadUrl: 'https://api.realtime.cloudflare.com/downloads/two.mp4',
+              contentType: 'video/mp4',
+            },
+          ],
+        }),
+      ),
+      fetchMock: vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response('first', {
+            status: 200,
+            headers: { 'content-type': 'video/mp4', 'content-length': '5' },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response('nope', {
+            status: 404,
+            headers: { 'content-type': 'video/mp4' },
+          }),
+        ),
+    })
+
+    await expect(service.finalizeRecording(RECORDING_ID, NOW)).rejects.toThrow(
+      RealtimeKitInvalidProviderAssetError,
+    )
+
+    // The first asset was persisted to R2 before the second copy failed. The
+    // compensating deletion must remove exactly that newly stored key so a
+    // retry neither orphans the object nor duplicates the upload.
+    expect(stored).toHaveLength(1)
+    expect(deleted).toEqual([stored[0].key])
+    expect(calls.finalizeJob).toHaveLength(0)
+    expect(calls.markEventProcessed).toHaveLength(0)
+  })
+
+  it('deletes only newly stored artifacts when the core transaction fails and never touches pre-existing assets', async function run() {
+    const { repository, calls } = createInMemoryRepository()
+    const { service, stored, deleted } = createService({
+      repository: {
+        ...repository,
+        getJobWithInterview: vi.fn().mockResolvedValue(createJobWithInterview()),
+        getArtifactByProviderAssetId: vi.fn().mockImplementation(
+          async (providerAssetId: string) =>
+            providerAssetId === 'asset-existing'
+              ? { id: 'existing-artifact', object_key: 'interviews/1/recording/existing' }
+              : null,
+        ),
+        withTransaction: vi.fn(async () => {
+          throw new Error('db unavailable')
+        }),
+      },
+      client: createDemoClient(
+        createUploadedStatus({
+          assets: [
+            {
+              assetId: 'asset-existing',
+              kind: 'composite',
+              downloadUrl: 'https://api.realtime.cloudflare.com/downloads/existing.mp4',
+              contentType: 'video/mp4',
+            },
+            {
+              assetId: 'asset-new',
+              kind: 'composite',
+              downloadUrl: 'https://api.realtime.cloudflare.com/downloads/new.mp4',
+              contentType: 'video/mp4',
+            },
+          ],
+        }),
+      ),
+    })
+
+    // The original DB error must surface unchanged so the workflow can fail the
+    // checkpoint and schedule a retry.
+    await expect(service.finalizeRecording(RECORDING_ID, NOW)).rejects.toThrow(
+      'db unavailable',
+    )
+
+    // Only the asset stored by this run is compensated; the pre-existing asset
+    // that already had an artifact row is left untouched.
+    expect(stored).toHaveLength(1)
+    expect(deleted).toEqual([stored[0].key])
+    expect(deleted).not.toContain('interviews/1/recording/existing')
+    expect(calls.finalizeJob).toHaveLength(0)
+    expect(calls.markEventProcessed).toHaveLength(0)
+  })
+
+  it('preserves the original error and logs cleanup failures when compensating deletion fails', async function run() {
+    const { repository } = createInMemoryRepository()
+    const baseStorage = createInMemoryStorage()
+    const failingDeleteStorage: ArtifactStoragePort = {
+      ...baseStorage.storage,
+      async deleteArtifact() {
+        throw new Error('r2 delete unavailable')
+      },
+    }
+    const logger = createLogger()
+    const { service } = createService({
+      repository: {
+        ...repository,
+        getJobWithInterview: vi.fn().mockResolvedValue(createJobWithInterview()),
+        withTransaction: vi.fn(async () => {
+          throw new Error('db unavailable')
+        }),
+      },
+      storage: failingDeleteStorage,
+      logger,
+    })
+
+    // A failed compensating delete must never replace the original error.
+    await expect(service.finalizeRecording(RECORDING_ID, NOW)).rejects.toThrow(
+      'db unavailable',
+    )
+
+    // The cleanup failure is reported through the existing logger so the
+    // workflow can observe and alert on the orphaned object.
+    expect(logger.error).toHaveBeenCalledWith(
+      'realtimekit.finalization.cleanup_failed',
+      expect.objectContaining({
+        object_key: expect.stringContaining('interviews/22222222-2222-4222-8222-222222222222/recording/'),
+        original_error: 'db unavailable',
+      }),
+    )
   })
 })
 

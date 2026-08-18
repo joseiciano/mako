@@ -1,7 +1,8 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { RecordingFinalizationRepository } from './finalization-repository'
 import type {
   ExistingArtifactRow,
+  RecordingFinalizationRepositoryDataSource,
   RequiredRecordingArtifact,
   RecordingJobWithInterview,
   SweepCandidateRow,
@@ -138,6 +139,33 @@ const JOB_WITH_INTERVIEW: RecordingJobWithInterview = {
     interviewer_id: null,
     recording_status: 'processing',
   },
+}
+
+function createFakeDataSource(
+  overrides: Partial<RecordingFinalizationRepositoryDataSource> = {},
+): RecordingFinalizationRepositoryDataSource {
+  return {
+    getJobWithInterview: vi.fn(),
+    claimJob: vi.fn(),
+    releaseClaim: vi.fn(),
+    getArtifactByProviderAssetId: vi.fn(),
+    insertArtifact: vi.fn(),
+    finalizeJob: vi.fn(),
+    failJob: vi.fn(),
+    markEventProcessed: vi.fn(),
+    markEventAwaiting: vi.fn(),
+    markEventFailed: vi.fn(),
+    getAggregateReadiness: vi.fn(),
+    setInterviewRecordingReady: vi.fn(),
+    listSweepCandidates: vi.fn(),
+    updateSweepCheckpoint: vi.fn(),
+    withTransaction: vi.fn(async function withTransaction<T>(
+      callback: () => Promise<T>,
+    ): Promise<T> {
+      return callback()
+    }) as RecordingFinalizationRepositoryDataSource['withTransaction'],
+    ...overrides,
+  }
 }
 
 describe('RecordingFinalizationRepository', function finalizationRepositorySuite() {
@@ -339,5 +367,19 @@ describe('RecordingFinalizationRepository', function finalizationRepositorySuite
     // Only unprocessed checkpoints are touched so a finalized recording stops
     // being a sweep candidate while an in-flight one stays scheduled.
     expect(sql).toContain('processed_at IS NULL')
+  })
+
+  it('forwards withTransaction to a datasource implementation', async function run() {
+    const dataSource = createFakeDataSource()
+    const dataSourceWithTransaction = dataSource.withTransaction as ReturnType<typeof vi.fn>
+    const repository = new RecordingFinalizationRepository(dataSource)
+
+    const callback = vi.fn(async () => 'tx-done')
+    const result = await repository.withTransaction(callback)
+
+    expect(result).toBe('tx-done')
+    // The repository delegates to the datasource's own transaction primitive so
+    // callers holding the port keep the real transaction boundary.
+    expect(dataSourceWithTransaction).toHaveBeenCalledExactlyOnceWith(callback)
   })
 })
