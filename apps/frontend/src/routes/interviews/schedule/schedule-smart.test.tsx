@@ -200,10 +200,14 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
     await waitFor(function assertReplayIssued() {
       expect(mockPremiumClaimMutate).toHaveBeenCalledTimes(1)
     })
-    expect(mockPremiumClaimMutate.mock.calls[0]![0]).toEqual({
-      slotId,
-      idempotencyKey,
-    })
+    const replayPayload = mockPremiumClaimMutate.mock.calls[0]![0]
+    expect(replayPayload).toEqual(
+      expect.objectContaining({
+        slotId,
+        idempotencyKey,
+      }),
+    )
+    expect(replayPayload.signal).toBeInstanceOf(AbortSignal)
     expect(mockCreateMutate).not.toHaveBeenCalled()
     expect(mockAvailabilityMutate).not.toHaveBeenCalled()
 
