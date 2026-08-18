@@ -5,14 +5,41 @@ import {
   useInterviews,
   useCancelInterview,
 } from '#/hooks/use-interviews'
+import { useAccount } from '#/hooks/use-account'
 import {
   InterviewsDumb,
   type CancelStatus,
 } from './interviews-dumb'
 
+export const genericCancelSuccessMessage = 'Interview cancelled successfully.'
+export const schedulerCancelNoRefundMessage =
+  'Your premium interview was cancelled. Scheduler-initiated cancellations are not refunded.'
+export const interviewerCancelRefundedMessage =
+  'Premium interview cancelled. The scheduler\u2019s credit was refunded.'
+
+export function buildCancelSuccessMessage(
+  interview: Pick<InterviewListItem, 'booking_channel' | 'scheduler_id' | 'interviewer_id'> | undefined,
+  currentUserId: string | undefined,
+): string {
+  if (interview?.booking_channel !== 'verified_interviewer' || !currentUserId) {
+    return genericCancelSuccessMessage
+  }
+
+  if (interview.scheduler_id === currentUserId) {
+    return schedulerCancelNoRefundMessage
+  }
+
+  if (interview.interviewer_id === currentUserId) {
+    return interviewerCancelRefundedMessage
+  }
+
+  return genericCancelSuccessMessage
+}
+
 export function InterviewsSmart() {
   const interviewsQuery = useInterviews()
   const cancelInterviewMutation = useCancelInterview()
+  const accountQuery = useAccount()
   const navigate = useNavigate()
   const [cancelStatus, setCancelStatus] = useState<CancelStatus | null>(null)
   const [cancellingInterviewId, setCancellingInterviewId] = useState<
@@ -76,9 +103,17 @@ export function InterviewsSmart() {
         { id },
         {
           onSuccess: function onCancelSuccess() {
+            const cancelledInterview = interviewsQuery.data?.find(
+              function findCancelledInterview(interview) {
+                return interview.id === id
+              },
+            )
             setCancelStatus({
               type: 'success',
-              message: 'Interview cancelled successfully.',
+              message: buildCancelSuccessMessage(
+                cancelledInterview,
+                accountQuery.data?.id,
+              ),
             })
             setCancellingInterviewId(null)
           },
@@ -92,7 +127,7 @@ export function InterviewsSmart() {
         },
       )
     },
-    [cancelInterviewMutation],
+    [cancelInterviewMutation, interviewsQuery.data, accountQuery.data],
   )
 
   if (interviewsQuery.isPending) {

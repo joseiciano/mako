@@ -27,6 +27,16 @@ vi.mock('@tanstack/react-router', () => ({
   useNavigate: () => mockNavigate,
 }))
 
+const useAccountMock = vi.hoisted(function createUseAccountMock() {
+  return vi.fn()
+})
+
+vi.mock('#/hooks/use-account', function mockUseAccountModule() {
+  return {
+    useAccount: useAccountMock,
+  }
+})
+
 function renderWithQueryClient(element: ReactNode) {
   const queryClient = new QueryClient({
     defaultOptions: {
@@ -82,10 +92,22 @@ function mockCancelInterviewMutation(overrides: Record<string, unknown> = {}) {
   return mutateFn
 }
 
+function mockAccountQuery(overrides: Record<string, unknown> = {}) {
+  useAccountMock.mockReturnValue({
+    data: undefined,
+    isPending: false,
+    isError: false,
+    error: null,
+    ...overrides,
+  })
+}
+
 describe('InterviewsSmart', function interviewsSmartSuite() {
   beforeEach(function resetMocks() {
     useInterviewsMock.mockReset()
     useCancelInterviewMock.mockReset()
+    useAccountMock.mockReset()
+    mockAccountQuery({ data: { id: 'demo-user' } })
     mockNavigate.mockClear()
   })
 
@@ -297,5 +319,105 @@ describe('InterviewsSmart', function interviewsSmartSuite() {
     expect(screen.getByRole('alert')).toHaveTextContent(
       'Unable to load interviews.',
     )
+  })
+
+  it('shows no-refund message when scheduler cancels a verified_interviewer booking', async function run() {
+    const mutateFn = mockCancelInterviewMutation()
+    mockAccountQuery({ data: { id: 'scheduler-user' } })
+    mockInterviewsQuery({
+      data: [
+        createInterviewFixture({
+          id: 'premium-1',
+          status: 'scheduled',
+          booking_channel: 'verified_interviewer',
+          scheduler_id: 'scheduler-user',
+          interviewer_id: 'interviewer-user',
+        }),
+      ],
+    })
+
+    renderWithQueryClient(<InterviewsSmart />)
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /cancel premium-1/i }),
+    )
+
+    const mutateOptions = mutateFn.mock.calls[0]?.[1] as {
+      onSuccess?: () => void
+    }
+    mutateOptions?.onSuccess?.()
+
+    await waitFor(function () {
+      expect(screen.getByRole('status')).toHaveTextContent(
+        'Your premium interview was cancelled. Scheduler-initiated cancellations are not refunded.',
+      )
+    })
+    expect(screen.getByRole('status')).not.toHaveTextContent(
+      /credit was refunded/i,
+    )
+  })
+
+  it('shows refunded message when interviewer cancels a verified_interviewer booking', async function run() {
+    const mutateFn = mockCancelInterviewMutation()
+    mockAccountQuery({ data: { id: 'interviewer-user' } })
+    mockInterviewsQuery({
+      data: [
+        createInterviewFixture({
+          id: 'premium-1',
+          status: 'scheduled',
+          booking_channel: 'verified_interviewer',
+          scheduler_id: 'scheduler-user',
+          interviewer_id: 'interviewer-user',
+        }),
+      ],
+    })
+
+    renderWithQueryClient(<InterviewsSmart />)
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /cancel premium-1/i }),
+    )
+
+    const mutateOptions = mutateFn.mock.calls[0]?.[1] as {
+      onSuccess?: () => void
+    }
+    mutateOptions?.onSuccess?.()
+
+    await waitFor(function () {
+      expect(screen.getByRole('status')).toHaveTextContent(/credit was refunded/i)
+    })
+  })
+
+  it('keeps generic message when current user role is unknown on a verified_interviewer cancel', async function run() {
+    const mutateFn = mockCancelInterviewMutation()
+    mockAccountQuery({ data: undefined })
+    mockInterviewsQuery({
+      data: [
+        createInterviewFixture({
+          id: 'premium-1',
+          status: 'scheduled',
+          booking_channel: 'verified_interviewer',
+          scheduler_id: 'scheduler-user',
+          interviewer_id: 'interviewer-user',
+        }),
+      ],
+    })
+
+    renderWithQueryClient(<InterviewsSmart />)
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /cancel premium-1/i }),
+    )
+
+    const mutateOptions = mutateFn.mock.calls[0]?.[1] as {
+      onSuccess?: () => void
+    }
+    mutateOptions?.onSuccess?.()
+
+    await waitFor(function () {
+      expect(screen.getByRole('status')).toHaveTextContent(
+        'Interview cancelled successfully.',
+      )
+    })
   })
 })
