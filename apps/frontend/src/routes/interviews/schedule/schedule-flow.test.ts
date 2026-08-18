@@ -738,6 +738,10 @@ describe('schedule-flow', function scheduleFlowSuite() {
         'Verified Interviewer',
       )
     })
+
+    it('labels the pre-submission pre_branch as "Not selected"', function () {
+      expect(getSubmissionBranchLabel('pre_branch')).toBe('Not selected')
+    })
   })
 
   describe('branch switch resets invalid downstream state', function branchResetSuite() {
@@ -1735,7 +1739,7 @@ describe('schedule-flow', function scheduleFlowSuite() {
       ).toBeNull()
     })
 
-    it('rejects parseable non-ISO-8601 timestamps in scheduledAt, startedAt, and slots', function () {
+    it('rejects parseable non-ISO-8601 timestamps in scheduledAt and startedAt', function () {
       // 'June 10, 2026' is parseable by Date but is not ISO-8601.
       expect(
         parseScheduleDraftV2(
@@ -1781,6 +1785,8 @@ describe('schedule-flow', function scheduleFlowSuite() {
           }),
         ),
       ).toBeNull()
+      // standard_p2p slots use the lenient v1 `isValidSlot` (any
+      // Date-parseable 60-minute window), so non-ISO strings are accepted.
       expect(
         parseScheduleDraftV2(
           JSON.stringify({
@@ -1793,12 +1799,12 @@ describe('schedule-flow', function scheduleFlowSuite() {
               scheduledAt: null,
               maxMatches: 2,
               slots: [
-                { startTime: 'June 10, 2026 10:00', endTime: '2026-06-10T11:00' },
+                { startTime: 'June 10, 2026 10:00', endTime: 'June 10, 2026 11:00' },
               ],
             },
           }),
         ),
-      ).toBeNull()
+      ).not.toBeNull()
     })
 
     it('rejects envelopes whose restore would alter persisted normalized values', function () {
@@ -1858,6 +1864,114 @@ describe('schedule-flow', function scheduleFlowSuite() {
           }),
         ),
       ).not.toBeNull()
+    })
+
+    it('accepts 60-minute non-ISO slots in standard_p2p using exact v1 isValidSlot semantics', function () {
+      const envelope = parseScheduleDraftV2(
+        JSON.stringify({
+          version: 'v2',
+          branch: 'standard_p2p',
+          draft: {
+            step: 'availability',
+            interviewType: 'system_design',
+            mode: 'peer_to_peer',
+            scheduledAt: null,
+            maxMatches: 2,
+            slots: [
+              { startTime: 'June 10, 2026 10:00', endTime: 'June 10, 2026 11:00' },
+            ],
+          },
+        }),
+      )
+
+      // Lossless round-trip: the non-ISO strings are preserved verbatim.
+      expect(envelope).toEqual({
+        version: 'v2',
+        branch: 'standard_p2p',
+        draft: {
+          step: 'availability',
+          interviewType: 'system_design',
+          mode: 'peer_to_peer',
+          scheduledAt: null,
+          maxMatches: 2,
+          slots: [
+            { startTime: 'June 10, 2026 10:00', endTime: 'June 10, 2026 11:00' },
+          ],
+        },
+      })
+    })
+
+    it('still rejects standard_p2p slots that Date cannot parse or are not 60 minutes', function () {
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'standard_p2p',
+            draft: {
+              step: 'availability',
+              interviewType: 'system_design',
+              mode: 'peer_to_peer',
+              scheduledAt: null,
+              maxMatches: 2,
+              slots: [{ startTime: 'not-a-date', endTime: '2026-06-10T11:00' }],
+            },
+          }),
+        ),
+      ).toBeNull()
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'standard_p2p',
+            draft: {
+              step: 'availability',
+              interviewType: 'system_design',
+              mode: 'peer_to_peer',
+              scheduledAt: null,
+              maxMatches: 2,
+              slots: [
+                { startTime: 'June 10, 2026 10:00', endTime: 'June 10, 2026 10:30' },
+              ],
+            },
+          }),
+        ),
+      ).toBeNull()
+    })
+
+    it('keeps strict ISO validation for ai_direct scheduledAt and verified_interviewer startedAt', function () {
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'ai_direct',
+            draft: {
+              step: 'confirm',
+              interviewType: 'system_design',
+              mode: 'ai_led',
+              scheduledAt: 'June 10, 2026',
+              maxMatches: null,
+              slots: [],
+            },
+          }),
+        ),
+      ).toBeNull()
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'verified_interviewer',
+            slotId: '0c7e9f0e-0e9a-4c8e-9b6d-9f7a2e1c8d4a',
+            idempotencyKey: 'f1d2c3b4-5a6e-4f8b-9c0d-1e2f3a4b5c6d',
+            startedAt: 'June 10, 2026',
+          }),
+        ),
+      ).toBeNull()
+    })
+
+    it('rejects a JSON null literal with the string-only parse contract', function () {
+      // parseScheduleDraftV2 accepts only serialized strings; JSON null is
+      // rejected even though JSON.parse('null') is valid JS.
+      expect(parseScheduleDraftV2('null')).toBeNull()
     })
   })
 
@@ -1977,6 +2091,41 @@ describe('schedule-flow', function scheduleFlowSuite() {
     it('produces a migrated envelope that parses back losslessly', function () {
       const migrated = migrateScheduleDraftV1ToV2(serializeScheduleDraft(p2pDraft))
       expect(parseScheduleDraftV2(JSON.stringify(migrated))).toEqual(migrated)
+    })
+
+    it('migrates a v1 p2p draft with parsable 60-minute non-ISO slots and parses the result back losslessly', function () {
+      const nonIsoP2pDraft: ScheduleState = {
+        ...initialScheduleState,
+        step: 'confirm',
+        interviewType: 'system_design',
+        mode: 'peer_to_peer',
+        scheduledAt: null,
+        maxMatches: 2,
+        slots: [
+          {
+            startTime: 'June 10, 2026 10:00',
+            endTime: 'June 10, 2026 11:00',
+          },
+        ],
+        validationError: null,
+        fieldErrors: null,
+      }
+
+      const migrated = migrateScheduleDraftV1ToV2(
+        serializeScheduleDraft(nonIsoP2pDraft),
+      )
+
+      expect(migrated).not.toBeNull()
+      expect(migrated!.branch).toBe('standard_p2p')
+      expect(parseScheduleDraftV2(JSON.stringify(migrated))).toEqual(migrated)
+      if (migrated!.branch === 'standard_p2p') {
+        expect(migrated!.draft.slots).toEqual([
+          {
+            startTime: 'June 10, 2026 10:00',
+            endTime: 'June 10, 2026 11:00',
+          },
+        ])
+      }
     })
   })
 

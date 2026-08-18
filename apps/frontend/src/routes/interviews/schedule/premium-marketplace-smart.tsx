@@ -51,10 +51,16 @@ function replayKey(claim: DurableClaim): string {
   return `${claim.slotId}:${claim.idempotencyKey}`
 }
 
+/**
+ * Classifies a claim failure from the structured machine-readable error code
+ * attached by `claimPremiumSlot` (`PremiumClaimError.code`), never from the
+ * display message text. Errors without a structured code (network failures,
+ * unexpected throws) are treated as transient.
+ */
 export function classifyClaimError(error: Error | null): ClaimFailureKind | null {
   if (error === null) return null
 
-  switch (error.message) {
+  switch ((error as { code?: unknown }).code) {
     case PREMIUM_SLOT_ALREADY_CLAIMED:
       return 'already_claimed'
     case PREMIUM_INTERVIEWER_INELIGIBLE:
@@ -149,7 +155,13 @@ function readPersistedClaim(): DurableClaim | null {
 }
 
 export function PremiumMarketplaceSmart() {
-  const marketplace = usePremiumMarketplace()
+  const {
+    data: marketplaceData,
+    isLoading: marketplaceIsLoading,
+    isError: marketplaceIsError,
+    isSuccess: marketplaceIsSuccess,
+    refetch: refetchMarketplace,
+  } = usePremiumMarketplace()
   const claimMutation = useClaimPremiumSlot()
   const account = useAccount()
 
@@ -158,6 +170,7 @@ export function PremiumMarketplaceSmart() {
   )
   const durableClaimRef = useRef<DurableClaim | null>(durableClaim)
   const inFlightClaimRef = useRef<DurableClaim | null>(null)
+  const abortControllerRef = useRef<AbortController | null>(null)
   const [errorOutcome, setErrorOutcome] =
     useState<PremiumMarketplaceErrorOutcome | null>(null)
   const [bookedInterviewId, setBookedInterviewId] = useState<string | null>(
@@ -174,11 +187,14 @@ export function PremiumMarketplaceSmart() {
 
   const issueClaim = useCallback(
     function issueClaim(claim: DurableClaim) {
+      const controller = new AbortController()
+      abortControllerRef.current = controller
       inFlightClaimRef.current = claim
       claimMutation.reset()
       claimMutation.mutate({
         slotId: claim.slotId,
         idempotencyKey: claim.idempotencyKey,
+        signal: controller.signal,
       })
     },
     [claimMutation],
@@ -198,6 +214,25 @@ export function PremiumMarketplaceSmart() {
     setBookedInterviewId(null)
     setErrorOutcome(null)
     issueClaimRef.current(claim)
+  }, [])
+
+  /**
+   * Abort lifecycle: when the component unmounts with an in-flight claim, the
+   * request is aborted via the signal wired into the mutation. The replay
+   * guard is cleared so a later mount re-issues the SAME idempotency key
+   * (the server replays the durable claim instead of double-charging). The
+   * durable local claim remains available for a later mount or page reload.
+   */
+  useEffect(function abortInFlightClaimOnUnmount() {
+    return function abortClaimOnUnmount() {
+      const controller = abortControllerRef.current
+      if (controller === null || controller.signal.aborted) return
+      const claim = inFlightClaimRef.current
+      if (claim === null) return
+      replayedClaims.delete(replayKey(claim))
+      controller.abort()
+      inFlightClaimRef.current = null
+    }
   }, [])
 
   useEffect(
@@ -228,7 +263,7 @@ export function PremiumMarketplaceSmart() {
         replayedClaims.delete(replayKey(claim))
         clearVerifiedInterviewerClaim()
         setDurableClaim(null)
-        void marketplace.refetch()
+        void refetchMarketplace()
       }
 
       setErrorOutcome(buildOutcome(failure))
@@ -239,7 +274,7 @@ export function PremiumMarketplaceSmart() {
       claimMutation.data,
       claimMutation.error,
       setDurableClaim,
-      marketplace,
+      refetchMarketplace,
     ],
   )
 
@@ -248,7 +283,18 @@ export function PremiumMarketplaceSmart() {
       if (durableClaimRef.current !== null) return
       if (claimMutation.isPending) return
 
-      const idempotencyKey = crypto.randomUUID()
+      let idempotencyKey: string
+      try {
+        idempotencyKey = crypto.randomUUID()
+      } catch {
+        // Non-secure contexts (HTTP) throw from crypto.randomUUID. This is a
+        // recoverable client-side failure: no request is sent and nothing is
+        // persisted, so the user can simply try again once the context is
+        // secure. No weak fallback UUID is generated.
+        setBookedInterviewId(null)
+        setErrorOutcome(buildOutcome('persist_failed'))
+        return
+      }
       const startedAt = new Date().toISOString()
       const claim: DurableClaim = { slotId, idempotencyKey, startedAt }
 
@@ -293,15 +339,23 @@ export function PremiumMarketplaceSmart() {
       if (claim === null) return
       if (claimMutation.isPending) return
 
-      replayedClaims.delete(replayKey(claim))
-
-      const freshKey = crypto.randomUUID()
+      // Generate the fresh key BEFORE touching the durable claim or the replay
+      // guard: on UUID failure the old claim and old key are left intact.
+      let freshKey: string
+      try {
+        freshKey = crypto.randomUUID()
+      } catch {
+        setErrorOutcome(buildOutcome('persist_failed'))
+        return
+      }
       const startedAt = new Date().toISOString()
       const replacement: DurableClaim = {
         slotId: claim.slotId,
         idempotencyKey: freshKey,
         startedAt,
       }
+
+      replayedClaims.delete(replayKey(claim))
 
       try {
         persistVerifiedInterviewerClaim(replacement)
@@ -319,21 +373,21 @@ export function PremiumMarketplaceSmart() {
 
   const handleRetryMarketplace = useCallback(
     function handleRetryMarketplace() {
-      void marketplace.refetch()
+      void refetchMarketplace()
     },
-    [marketplace],
+    [refetchMarketplace],
   )
 
   const slots =
-    marketplace.isSuccess && marketplace.data
+    marketplaceIsSuccess && marketplaceData
       ? sortMarketplaceSlots(
-          marketplace.data.slots.filter(
+          marketplaceData.slots.filter(
             (slot) => slot.interviewType === 'system_design',
           ),
         )
       : []
 
-  const priceCredits = marketplace.data?.policy.priceCredits ?? 1
+  const priceCredits = marketplaceData?.policy.priceCredits ?? 1
 
   const accountCredits =
     account.isSuccess && account.data ? account.data.credits : null
@@ -350,8 +404,8 @@ export function PremiumMarketplaceSmart() {
       slots={slots}
       priceCredits={priceCredits}
       accountCredits={accountCredits}
-      isLoading={marketplace.isLoading}
-      isError={marketplace.isError}
+      isLoading={marketplaceIsLoading}
+      isError={marketplaceIsError}
       isReserving={isReserving}
       pendingClaimMessage={pendingClaimMessage}
       errorOutcome={errorOutcome}

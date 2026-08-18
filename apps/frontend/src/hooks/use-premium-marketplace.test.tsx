@@ -6,6 +6,7 @@ import type { ReactNode } from 'react'
 import {
   claimPremiumSlot,
   fetchPremiumMarketplace,
+  PremiumClaimError,
   premiumMarketplaceQueryKey,
   sortMarketplaceSlots,
   useClaimPremiumSlot,
@@ -212,6 +213,65 @@ describe('premium marketplace hooks', function suite() {
 
       expect(fetchImpl).toHaveBeenCalledTimes(1)
       expect(result.interview.id).toBe('44444444-4444-4444-8444-444444444444')
+    })
+
+    it('forwards an optional AbortSignal into the claim request init', async function run() {
+      let capturedInit: RequestInit | undefined
+      const abortController = new AbortController()
+
+      const fetchImpl = vi.fn(async function fetchImpl(_input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+        capturedInit = init
+        return new Response(
+          JSON.stringify(claimResponseFixture),
+          { status: 201, headers: { 'content-type': 'application/json' } },
+        )
+      })
+
+      const result = await claimPremiumSlot(
+        { slotId, idempotencyKey, signal: abortController.signal },
+        fetchImpl as unknown as typeof fetch,
+      )
+
+      expect(capturedInit?.signal).toBe(abortController.signal)
+      expect(result.interview.id).toBe('44444444-4444-4444-8444-444444444444')
+    })
+
+    it('exposes the machine-readable payload.error as a structured PremiumClaimError code on rejection', async function run() {
+      const fetchImpl = vi.fn(async function fetchImpl(): Promise<Response> {
+        return new Response(
+          JSON.stringify({ error: 'PREMIUM_SLOT_ALREADY_CLAIMED' }),
+          { status: 409, headers: { 'content-type': 'application/json' } },
+        )
+      })
+
+      let capturedError: unknown
+      try {
+        await claimPremiumSlot({ slotId, idempotencyKey }, fetchImpl as unknown as typeof fetch)
+      } catch (error) {
+        capturedError = error
+      }
+
+      expect(capturedError).toBeInstanceOf(PremiumClaimError)
+      expect((capturedError as PremiumClaimError).code).toBe('PREMIUM_SLOT_ALREADY_CLAIMED')
+    })
+
+    it('falls back to the display message as the code when the payload has no machine-readable error string', async function run() {
+      const fetchImpl = vi.fn(async function fetchImpl(): Promise<Response> {
+        return new Response(
+          JSON.stringify({ detail: 'something failed' }),
+          { status: 409, headers: { 'content-type': 'application/json' } },
+        )
+      })
+
+      let capturedError: unknown
+      try {
+        await claimPremiumSlot({ slotId, idempotencyKey }, fetchImpl as unknown as typeof fetch)
+      } catch (error) {
+        capturedError = error
+      }
+
+      expect(capturedError).toBeInstanceOf(PremiumClaimError)
+      expect((capturedError as PremiumClaimError).code).toBe('Unable to claim premium slot.')
     })
   })
 

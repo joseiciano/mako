@@ -30,6 +30,23 @@ const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{1
 export type ClaimPremiumSlotInput = {
   slotId: string
   idempotencyKey: string
+  signal?: AbortSignal
+}
+
+/**
+ * Structured claim failure carrying the backend's machine-readable
+ * `payload.error` code separately from the human display message. Consumers
+ * classify outcomes from `code` so classification never depends on message
+ * formatting.
+ */
+export class PremiumClaimError extends Error {
+  readonly code: string
+
+  constructor(message: string, code: string) {
+    super(message)
+    this.name = 'PremiumClaimError'
+    this.code = code
+  }
 }
 
 export function usePremiumMarketplace(
@@ -103,13 +120,24 @@ export async function claimPremiumSlot(
         'Idempotency-Key': input.idempotencyKey,
         ...demoSessionHeaders,
       },
+      signal: input.signal,
     }),
   )
 
   const payload = await parseResponse(response)
 
   if (!response.ok) {
-    throw new Error(readErrorMessage(payload, 'Unable to claim premium slot.'))
+    const fallbackMessage = 'Unable to claim premium slot.'
+    const machineCode =
+      payload !== null &&
+      typeof payload === 'object' &&
+      typeof (payload as Record<string, unknown>).error === 'string'
+        ? ((payload as Record<string, unknown>).error as string)
+        : fallbackMessage
+    throw new PremiumClaimError(
+      readErrorMessage(payload, fallbackMessage),
+      machineCode,
+    )
   }
 
   return premiumClaimResponseSchema.parse(payload)

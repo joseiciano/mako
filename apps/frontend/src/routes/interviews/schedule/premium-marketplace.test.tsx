@@ -117,10 +117,10 @@ function resolveClaimAsSuccess(
   mockClaimError = null
 }
 
-function rejectClaimAsError(message: string) {
+function rejectClaimAsError(code: string) {
   mockClaimStatus = 'error'
   mockClaimData = null
-  mockClaimError = new Error(message)
+  mockClaimError = Object.assign(new Error(code), { code })
 }
 
 vi.mock('#/hooks/use-premium-marketplace', async function mockMarketplaceHooks(
@@ -225,22 +225,47 @@ function createWrapper() {
 
 describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
   describe('classifyClaimError', function classifySuite() {
-    it('maps every exact 409 literal to its failure kind', function run() {
+    it('maps every exact 409 code to its failure kind', function run() {
       expect(
-        classifyClaimError(new Error('PREMIUM_SLOT_ALREADY_CLAIMED')),
+        classifyClaimError(
+          Object.assign(new Error('some display message'), {
+            code: 'PREMIUM_SLOT_ALREADY_CLAIMED',
+          }),
+        ),
       ).toBe('already_claimed')
       expect(
-        classifyClaimError(new Error('PREMIUM_INTERVIEWER_INELIGIBLE')),
+        classifyClaimError(
+          Object.assign(new Error('some display message'), {
+            code: 'PREMIUM_INTERVIEWER_INELIGIBLE',
+          }),
+        ),
       ).toBe('interviewer_ineligible')
-      expect(classifyClaimError(new Error('INSUFFICIENT_CREDITS'))).toBe(
-        'insufficient_credits',
-      )
       expect(
-        classifyClaimError(new Error('PREMIUM_SCHEDULING_CONFLICT')),
+        classifyClaimError(
+          Object.assign(new Error('some display message'), {
+            code: 'INSUFFICIENT_CREDITS',
+          }),
+        ),
+      ).toBe('insufficient_credits')
+      expect(
+        classifyClaimError(
+          Object.assign(new Error('some display message'), {
+            code: 'PREMIUM_SCHEDULING_CONFLICT',
+          }),
+        ),
       ).toBe('scheduling_conflict')
       expect(
-        classifyClaimError(new Error('IDEMPOTENCY_KEY_CONFLICT')),
+        classifyClaimError(
+          Object.assign(new Error('some display message'), {
+            code: 'IDEMPOTENCY_KEY_CONFLICT',
+          }),
+        ),
       ).toBe('idempotency_conflict')
+      // A matching message without a structured code is transient, never
+      // terminal.
+      expect(
+        classifyClaimError(new Error('PREMIUM_SLOT_ALREADY_CLAIMED')),
+      ).toBe('transient')
     })
 
     it('treats network/unknown failures as transient and null error as no failure', function run() {
@@ -697,13 +722,16 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
 
       view.unmount()
 
+      // Unmount aborts the in-flight claim and clears the replay guard so a
+      // later mount re-issues the same idempotency key. The durable claim is
+      // NOT cleared — it survives for the next mount.
       // A terminal mutation outcome arriving after unmount must not mutate
       // state, clear the durable claim, or run the replay-cleanup side effects.
       resolveClaimAsSuccess()
       expect(
         window.localStorage.getItem(SCHEDULE_DRAFT_V2_STORAGE_KEY),
       ).not.toBeNull()
-      expect(replayedClaims.has(claimKey)).toBe(true)
+      expect(replayedClaims.has(claimKey)).toBe(false)
     })
 
     it('does not send the claim request when the durable write fails', async function run() {
@@ -962,7 +990,7 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
       await waitFor(function assertReplayIssued() {
         expect(mockClaimMutate).toHaveBeenCalledTimes(1)
       })
-      expect(mockClaimMutate.mock.calls[0]![0]).toEqual({
+      expect(mockClaimMutate.mock.calls[0]![0]).toMatchObject({
         slotId,
         idempotencyKey,
       })
@@ -999,14 +1027,14 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
         { wrapper: createWrapper() },
       )
 
+      // StrictMode must not duplicate automatic replay within one document.
       await waitFor(function assertReplayIssued() {
         expect(mockClaimMutate).toHaveBeenCalledTimes(1)
       })
-      expect(mockClaimMutate.mock.calls[0]![0]).toEqual({
+      expect(mockClaimMutate.mock.calls[0]![0]).toMatchObject({
         slotId,
         idempotencyKey,
       })
-      expect(mockClaimMutate.mock.calls[0]![1]).toBeUndefined()
     })
 
     it('StrictMode double-mount does not corrupt persisted claim in localStorage', async function run() {
@@ -1069,14 +1097,14 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
         { wrapper: createWrapper() },
       )
 
-      await waitFor(function assertSingleReplay() {
+      await waitFor(function assertReplayIssuedOnce() {
         expect(mockClaimMutate).toHaveBeenCalledTimes(1)
       })
 
-      expect(replayedClaims.has(claimKey)).toBe(true)
-      expect(mockClaimMutate).toHaveBeenCalledWith(
-        { slotId, idempotencyKey },
-      )
+      expect(mockClaimMutate.mock.calls[0]![0]).toMatchObject({
+        slotId,
+        idempotencyKey,
+      })
     })
 
     it('removes replayedClaims entry when terminal error clears the durable claim', async function run() {
@@ -1167,7 +1195,7 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
       await waitFor(function assertReplayIssued() {
         expect(mockClaimMutate).toHaveBeenCalledTimes(1)
       })
-      expect(mockClaimMutate.mock.calls[0]![0]).toEqual({
+      expect(mockClaimMutate.mock.calls[0]![0]).toMatchObject({
         slotId,
         idempotencyKey,
       })
@@ -1195,7 +1223,7 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
       expect(screen.getByRole('status')).toHaveTextContent(/booked/i)
     })
 
-    it('regression: StrictMode issues claim once, fresh page replays it', async function run() {
+    it('regression: StrictMode issues once, fresh page replays the same key', async function run() {
       const claimKey = `${slotId}:${idempotencyKey}`
       window.localStorage.setItem(
         SCHEDULE_DRAFT_V2_STORAGE_KEY,
@@ -1209,7 +1237,7 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
         { wrapper: createWrapper() },
       )
 
-      await waitFor(function assertSingleReplay() {
+      await waitFor(function assertOneIssue() {
         expect(mockClaimMutate).toHaveBeenCalledTimes(1)
       })
       expect(replayedClaims.has(claimKey)).toBe(true)
@@ -1225,7 +1253,7 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
       await waitFor(function assertReplayAfterReload() {
         expect(mockClaimMutate).toHaveBeenCalledTimes(2)
       })
-      expect(mockClaimMutate.mock.calls[1]![0]).toEqual({
+      expect(mockClaimMutate.mock.calls[1]![0]).toMatchObject({
         slotId,
         idempotencyKey,
       })
@@ -1266,7 +1294,7 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
         expect(mockClaimMutate).toHaveBeenCalledTimes(1)
       })
       expect(mockClaimMutate).toHaveBeenCalledWith(
-        { slotId, idempotencyKey },
+        expect.objectContaining({ slotId, idempotencyKey }),
       )
     })
 
@@ -1299,6 +1327,136 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
       expect(screen.getByRole('alert')).toHaveTextContent(
         /unable to load/i,
       )
+    })
+
+    it('classifies by the structured error code, never the display message text', function run() {
+      const codeOnly = Object.assign(
+        new Error('some unrelated display message'),
+        { code: 'PREMIUM_SLOT_ALREADY_CLAIMED' },
+      )
+      expect(classifyClaimError(codeOnly)).toBe('already_claimed')
+      expect(
+        classifyClaimError(
+          Object.assign(new Error('noise'), { code: 'PREMIUM_INTERVIEWER_INELIGIBLE' }),
+        ),
+      ).toBe('interviewer_ineligible')
+      // A message-only error (no structured code) must never be classified
+      // from its message text.
+      expect(
+        classifyClaimError(new Error('PREMIUM_SLOT_ALREADY_CLAIMED')),
+      ).toBe('transient')
+    })
+
+    it('does not send a request or persist a claim when crypto.randomUUID fails on booking', async function run() {
+      const user = userEvent.setup()
+      const uuidSpy = vi
+        .spyOn(crypto, 'randomUUID')
+        .mockImplementation(function throwOnUuid() {
+          throw new Error('crypto.randomUUID unavailable in insecure context')
+        })
+
+      render(<PremiumMarketplaceSmart />, { wrapper: createWrapper() })
+      await user.click(
+        screen.getByRole('button', { name: /claim this slot/i }),
+      )
+
+      expect(mockClaimMutate).not.toHaveBeenCalled()
+      expect(
+        window.localStorage.getItem(SCHEDULE_DRAFT_V2_STORAGE_KEY),
+      ).toBeNull()
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        /no request was sent/i,
+      )
+
+      uuidSpy.mockRestore()
+    })
+
+    it('preserves the old durable claim when crypto.randomUUID fails on same-slot resubmit', async function run() {
+      window.localStorage.setItem(
+        SCHEDULE_DRAFT_V2_STORAGE_KEY,
+        persistedClaim(),
+      )
+      const user = userEvent.setup()
+      const view = render(<PremiumMarketplaceSmart />, {
+        wrapper: createWrapper(),
+      })
+
+      await waitFor(function assertReplayIssued() {
+        expect(mockClaimMutate).toHaveBeenCalledTimes(1)
+      })
+      rejectClaimAsError('IDEMPOTENCY_KEY_CONFLICT')
+      view.rerender(<PremiumMarketplaceSmart />)
+
+      await waitFor(function assertConflict() {
+        expect(
+          screen.getByRole('button', { name: /fresh key/i }),
+        ).toBeDefined()
+      })
+
+      const uuidSpy = vi
+        .spyOn(crypto, 'randomUUID')
+        .mockImplementation(function throwOnUuid() {
+          throw new Error('crypto.randomUUID unavailable in insecure context')
+        })
+
+      await user.click(
+        screen.getByRole('button', { name: /fresh key/i }),
+      )
+
+      // No replacement request is issued and the old durable key survives.
+      expect(mockClaimMutate).toHaveBeenCalledTimes(1)
+      const stored = JSON.parse(
+        window.localStorage.getItem(SCHEDULE_DRAFT_V2_STORAGE_KEY)!,
+      )
+      expect(stored.slotId).toBe(slotId)
+      expect(stored.idempotencyKey).toBe(idempotencyKey)
+
+      uuidSpy.mockRestore()
+    })
+
+    it('aborts the in-flight claim on unmount and replays the same key on the next mount', async function run() {
+      window.localStorage.setItem(
+        SCHEDULE_DRAFT_V2_STORAGE_KEY,
+        persistedClaim(),
+      )
+
+      const view = render(<PremiumMarketplaceSmart />, {
+        wrapper: createWrapper(),
+      })
+
+      await waitFor(function assertFirstReplay() {
+        expect(mockClaimMutate).toHaveBeenCalledTimes(1)
+      })
+      const firstVars = mockClaimMutate.mock.calls[0]![0] as {
+        slotId: string
+        idempotencyKey: string
+        signal?: AbortSignal
+      }
+      expect(firstVars.slotId).toBe(slotId)
+      expect(firstVars.idempotencyKey).toBe(idempotencyKey)
+      expect(firstVars.signal).toBeInstanceOf(AbortSignal)
+      expect(firstVars.signal?.aborted).toBe(false)
+
+      view.unmount()
+
+      // Unmount aborts the in-flight request; the durable claim survives and
+      // the replay guard is cleared so the next mount re-issues the SAME key.
+      expect(firstVars.signal?.aborted).toBe(true)
+      expect(
+        window.localStorage.getItem(SCHEDULE_DRAFT_V2_STORAGE_KEY),
+      ).not.toBeNull()
+
+      render(<PremiumMarketplaceSmart />, { wrapper: createWrapper() })
+
+      await waitFor(function assertReplayReissued() {
+        expect(mockClaimMutate).toHaveBeenCalledTimes(2)
+      })
+      const secondVars = mockClaimMutate.mock.calls[1]![0] as {
+        slotId: string
+        idempotencyKey: string
+      }
+      expect(secondVars.slotId).toBe(slotId)
+      expect(secondVars.idempotencyKey).toBe(idempotencyKey)
     })
   })
 })

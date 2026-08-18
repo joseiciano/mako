@@ -379,20 +379,6 @@ function isIsoDate(value: unknown): value is string {
   return !Number.isNaN(new Date(value).valueOf())
 }
 
-/**
- * A 60-minute slot whose boundaries are strict ISO-8601 timestamps. Unlike
- * `isValidSlot` (the lenient v1 normalize check), non-ISO strings that `Date`
- * happens to parse are rejected so a persisted v2 slot is never reinterpreted
- * on restore.
- */
-function isValidStrictIsoSlot(slot: FlowSlot): boolean {
-  if (!isIsoDate(slot.startTime) || !isIsoDate(slot.endTime)) return false
-  const start = new Date(slot.startTime)
-  const end = new Date(slot.endTime)
-  if (Number.isNaN(start.valueOf()) || Number.isNaN(end.valueOf())) return false
-  return end.getTime() - start.getTime() === 60 * 60 * 1000
-}
-
 function parseV2DraftFields(value: unknown): V2DraftFields | null {
   if (!isRecord(value)) return null
 
@@ -509,9 +495,11 @@ function parseScheduleDraftV2Envelope(value: unknown): ScheduleDraftV2Envelope |
     ) {
       return null
     }
-    // Every slot must already be a strict ISO-8601 60-minute window; malformed
-    // slots are rejected rather than silently normalized on restore.
-    if (!fields.slots.every(isValidStrictIsoSlot)) return null
+    // standard_p2p slots use the exact v1 `isValidSlot` semantics: any
+    // Date-parseable 60-minute window, including non-ISO strings such as
+    // "June 10, 2026 10:00". This lets valid normalized v1 P2P drafts migrate
+    // losslessly instead of being rejected for not matching strict ISO-8601.
+    if (!fields.slots.every(isValidSlot)) return null
 
     envelope = {
       version: 'v2',
@@ -549,8 +537,6 @@ function parseScheduleDraftV2Envelope(value: unknown): ScheduleDraftV2Envelope |
  * that do not match the exact normalized shape for their branch.
  */
 export function parseScheduleDraftV2(serialized: string): ScheduleDraftV2Envelope | null {
-  if (serialized === null) return null
-
   try {
     const parsed: unknown = JSON.parse(serialized)
     return parseScheduleDraftV2Envelope(parsed)
@@ -1052,6 +1038,8 @@ export function getSubmissionBranchLabel(
   branch: ScheduleSubmissionBranch,
 ): string {
   switch (branch) {
+    case 'pre_branch':
+      return 'Not selected'
     case 'ai_direct':
       return 'AI Direct'
     case 'standard_p2p':

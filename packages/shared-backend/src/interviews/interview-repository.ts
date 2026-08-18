@@ -1866,6 +1866,10 @@ function buildListParticipantInterviewsQuery(
         WHERE interviewer_id = $1
           ${statusClause}
       ) AS participant_interviews
+      -- UNIQUE premium_booking_credit_refunds.interview_id (from
+      -- 20260807160000_add_premium_scheduling_tables.sql) guarantees at most
+      -- one join row per interview, so this LEFT JOIN cannot duplicate list
+      -- rows and pagination remains correct over the UNION ALL.
       LEFT JOIN premium_booking_credit_refunds pr
         ON pr.interview_id = participant_interviews.id
       ORDER BY scheduled_at ASC, id ASC
