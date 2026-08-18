@@ -33,9 +33,11 @@ export function createArtifactStorage(
       const key = buildRecordingKey(input.interviewId, input.recordingId)
       const metadata = toR2Metadata({
         interviewId: input.interviewId,
-        artifactKind: 'playback_recording',
+        artifactKind: input.artifactKind ?? 'playback_recording',
         contentType: input.contentType,
         captureTimestamp: input.captureTimestamp,
+        participantId: input.participantId,
+        participantRole: input.participantRole,
       })
 
       await bucket.put({

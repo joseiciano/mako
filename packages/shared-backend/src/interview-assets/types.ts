@@ -1,5 +1,7 @@
 export type ArtifactKind = 'playback_recording' | 'transcription_audio' | 'screenshot'
 
+export type RecordingArtifactKind = 'playback_recording' | 'transcription_audio'
+
 export type ArtifactStorageConfig = {
   maxScreenshotBytes: number
   maxScreenshotsPerInterview: number
@@ -40,6 +42,9 @@ export type ArtifactStoragePort = {
     contentType: string
     body: ReadableStream | ArrayBuffer
     captureTimestamp: string
+    artifactKind?: RecordingArtifactKind
+    participantId?: string
+    participantRole?: string
   }): Promise<StoredArtifact>
   storeScreenshot(input: {
     interviewId: string
@@ -73,7 +78,14 @@ export class ArtifactNotFoundError extends Error {
 export const DEFAULT_ARTIFACT_STORAGE_CONFIG: ArtifactStorageConfig = {
   maxScreenshotBytes: 5 * 1024 * 1024,
   maxScreenshotsPerInterview: 10,
-  allowedRecordingContentTypes: ['audio/webm', 'video/webm', 'audio/ogg', 'video/mp4'],
+  allowedRecordingContentTypes: [
+    'audio/webm',
+    'video/webm',
+    'audio/ogg',
+    'video/mp4',
+    'audio/mp4',
+    'audio/m4a',
+  ],
   allowedScreenshotContentTypes: ['image/png'],
 }
 
