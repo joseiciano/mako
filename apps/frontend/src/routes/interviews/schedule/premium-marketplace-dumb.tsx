@@ -1,4 +1,5 @@
 import type { PremiumMarketplaceSlot } from '@mako/shared'
+import { Link } from '@tanstack/react-router'
 import { formatScheduledTime } from '#/lib/format-scheduled-time'
 
 export type PremiumMarketplaceErrorOutcome = {
@@ -147,12 +148,12 @@ export function PremiumMarketplaceDumb(props: PremiumMarketplaceDumbProps) {
               </button>
             ) : null}
             {props.errorOutcome.billingHref !== null ? (
-              <a
-                href={props.errorOutcome.billingHref}
+              <Link
+                to={props.errorOutcome.billingHref}
                 className="inline-flex w-fit items-center justify-center rounded-lg border border-rose-300/60 px-3 py-1.5 text-xs font-semibold text-rose-50 transition hover:bg-rose-500/20"
               >
                 Add credits in Billing
-              </a>
+              </Link>
             ) : null}
           </div>
         </section>

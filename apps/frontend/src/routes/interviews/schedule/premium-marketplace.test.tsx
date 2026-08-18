@@ -2,12 +2,29 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { ReactNode } from 'react'
+import { StrictMode, type ReactNode } from 'react'
 import type { PremiumMarketplaceSlot } from '@mako/shared'
+
+vi.mock('@tanstack/react-router', function () {
+  return {
+    Link: function MockLink(props: {
+      to: string
+      children: ReactNode
+      className?: string
+    }) {
+      return (
+        <a href={props.to} className={props.className}>
+          {props.children}
+        </a>
+      )
+    },
+  }
+})
 import { SCHEDULE_DRAFT_V2_STORAGE_KEY } from './schedule-flow'
 import {
   classifyClaimError,
   PremiumMarketplaceSmart,
+  replayedClaims,
 } from './premium-marketplace-smart'
 import {
   PremiumMarketplaceDumb,
@@ -414,6 +431,7 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
       mockAccountCredits = 1
       mockClaimMutate.mockClear()
       mockClaimIsPending = false
+      replayedClaims.clear()
       window.localStorage.clear()
       window.sessionStorage.clear()
     })
@@ -771,6 +789,95 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
       )
       expect(stored.idempotencyKey).not.toBe(idempotencyKey)
       expect(stored.startedAt).not.toBe('2020-01-01T00:00:00.000Z')
+    })
+
+    it('replays a persisted claim once under StrictMode', async function run() {
+      window.localStorage.setItem(
+        SCHEDULE_DRAFT_V2_STORAGE_KEY,
+        persistedClaim(),
+      )
+
+      render(
+        <StrictMode>
+          <PremiumMarketplaceSmart />
+        </StrictMode>,
+        { wrapper: createWrapper() },
+      )
+
+      await waitFor(function assertReplayIssued() {
+        expect(mockClaimMutate).toHaveBeenCalledTimes(1)
+      })
+      expect(mockClaimMutate.mock.calls[0]![0]).toEqual({
+        slotId,
+        idempotencyKey,
+      })
+    })
+
+    it('StrictMode double-mount does not corrupt persisted claim in localStorage', async function run() {
+      const originalClaim = persistedClaim()
+      window.localStorage.setItem(SCHEDULE_DRAFT_V2_STORAGE_KEY, originalClaim)
+
+      render(
+        <StrictMode>
+          <PremiumMarketplaceSmart />
+        </StrictMode>,
+        { wrapper: createWrapper() },
+      )
+
+      await waitFor(function assertReplayIssued() {
+        expect(mockClaimMutate).toHaveBeenCalledTimes(1)
+      })
+
+      const stored = JSON.parse(
+        window.localStorage.getItem(SCHEDULE_DRAFT_V2_STORAGE_KEY)!,
+      )
+      expect(stored.slotId).toBe(slotId)
+      expect(stored.idempotencyKey).toBe(idempotencyKey)
+      expect(stored.branch).toBe('verified_interviewer')
+      expect(typeof stored.startedAt).toBe('string')
+
+      const options = mockClaimMutate.mock.calls[0]![1]
+      options.onError(new Error('Network failure'))
+
+      await waitFor(function assertRetained() {
+        expect(screen.getByRole('alert')).toHaveTextContent(
+          /could not confirm/i,
+        )
+      })
+
+      const storedAfterError = JSON.parse(
+        window.localStorage.getItem(SCHEDULE_DRAFT_V2_STORAGE_KEY)!,
+      )
+      expect(storedAfterError.slotId).toBe(slotId)
+      expect(storedAfterError.idempotencyKey).toBe(idempotencyKey)
+      expect(storedAfterError.branch).toBe('verified_interviewer')
+    })
+
+    it('StrictMode regression: document-lifetime guard prevents duplicate automatic replay', async function run() {
+      const claimKey = `${slotId}:${idempotencyKey}`
+      expect(replayedClaims.has(claimKey)).toBe(false)
+
+      window.localStorage.setItem(
+        SCHEDULE_DRAFT_V2_STORAGE_KEY,
+        persistedClaim(),
+      )
+
+      render(
+        <StrictMode>
+          <PremiumMarketplaceSmart />
+        </StrictMode>,
+        { wrapper: createWrapper() },
+      )
+
+      await waitFor(function assertSingleReplay() {
+        expect(mockClaimMutate).toHaveBeenCalledTimes(1)
+      })
+
+      expect(replayedClaims.has(claimKey)).toBe(true)
+      expect(mockClaimMutate).toHaveBeenCalledWith(
+        { slotId, idempotencyKey },
+        expect.any(Object),
+      )
     })
 
     it('replays the same key for the same slot on reload with a persisted unknown claim', async function run() {
