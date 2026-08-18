@@ -160,6 +160,11 @@ resource "cloudflare_workers_script" "notification_orchestrator" {
     {
       type = "ai"
       name = "AI"
+    },
+    {
+      type = "plain_text"
+      name = "CLOUDFLARE_REALTIMEKIT_APP_ID"
+      text = var.realtime_app_id
     }
   ]
 

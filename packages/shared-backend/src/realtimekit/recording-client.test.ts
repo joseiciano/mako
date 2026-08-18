@@ -245,6 +245,42 @@ describe('createRealtimeKitRecordingClient', function recordingClientSuite() {
 
     expect(result.assets[0].kind).toBe('composite')
   })
+
+  it('throws when an asset kind cannot be resolved instead of defaulting to composite', async function run() {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          data: {
+            recording: {
+              id: RECORDING_ID,
+              state: 'UPLOADED',
+              assets: [
+                {
+                  id: 'asset-unresolved-001',
+                  url: 'https://api.realtime.cloudflare.com/downloads/asset-unresolved-001',
+                  content_type: 'video/mp4',
+                },
+              ],
+            },
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    )
+
+    const client = createRealtimeKitRecordingClient(
+      {
+        CLOUDFLARE_ACCOUNT_ID: 'account-id',
+        CLOUDFLARE_API_TOKEN: 'token',
+        CLOUDFLARE_REALTIMEKIT_APP_ID: 'app-id',
+      },
+      { fetch: fetchMock },
+    )
+
+    await expect(client.getRecordingStatus(RECORDING_ID)).rejects.toThrow(
+      RealtimeKitRecordingClientError,
+    )
+  })
 })
 
 describe('createDemoRealtimeKitRecordingClient', function demoClientSuite() {

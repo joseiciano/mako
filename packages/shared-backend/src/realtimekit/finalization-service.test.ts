@@ -671,6 +671,60 @@ describe('RecordingFinalizationService', function finalizationServiceSuite() {
     expect(stored).toHaveLength(0)
   })
 
+  it('issues aggregate readiness head checks concurrently', async function run() {
+    const { repository, calls } = createInMemoryRepository()
+    const baseStorage = createInMemoryStorage()
+    const invokedKeys: string[] = []
+    const resolvers: Array<() => void> = []
+
+    const headArtifact = vi.fn((key: string) => {
+      invokedKeys.push(key)
+      return new Promise<{ size: number; contentType: string }>((resolve) => {
+        resolvers.push(() => resolve({ size: 1, contentType: 'video/mp4' }))
+      })
+    })
+
+    const { service } = createService({
+      repository: {
+        ...repository,
+        getJobWithInterview: vi.fn().mockResolvedValue(createJobWithInterview()),
+        getAggregateReadiness: vi.fn().mockResolvedValue([
+          {
+            provider_recording_id: RECORDING_ID,
+            recording_type: 'composite',
+            artifact_kind: 'playback_recording',
+            artifact_object_key: 'interviews/1/recording/rec-1',
+          },
+          {
+            provider_recording_id: RECORDING_ID,
+            recording_type: 'participant_track',
+            artifact_kind: 'transcription_audio',
+            artifact_object_key: 'interviews/1/recording/rec-2',
+          },
+        ]),
+      },
+      storage: { ...baseStorage.storage, headArtifact },
+    })
+
+    const finalizePromise = service.finalizeRecording(RECORDING_ID, NOW)
+
+    // Both head checks must begin while neither has resolved. A sequential
+    // loop would issue the second only after the first settles, so this
+    // waitFor would time out (or the service would deadlock) on the old code.
+    await vi.waitFor(() => expect(invokedKeys).toHaveLength(2))
+
+    resolvers.forEach((resolve) => resolve())
+
+    const result = await finalizePromise
+
+    expect(result.status).toBe('finalized')
+    expect(invokedKeys).toEqual([
+      'interviews/1/recording/rec-1',
+      'interviews/1/recording/rec-2',
+    ])
+    expect(calls.setInterviewRecordingReady).toHaveLength(1)
+  })
+
   it('does not derive aggregate ready until every required artifact is visible in R2', async function run() {
     const { repository, calls } = createInMemoryRepository()
     const { service, storage, stored } = createService({

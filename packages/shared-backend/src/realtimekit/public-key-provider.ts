@@ -94,6 +94,7 @@ async function fetchPublicKeyFromUrl(
 ): Promise<ArrayBuffer> {
   const response = await fetch(url, {
     headers: { accept: 'application/json' },
+    signal: AbortSignal.timeout(5000),
   })
 
   if (!response.ok) {

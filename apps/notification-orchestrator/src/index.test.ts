@@ -731,6 +731,12 @@ describe('notification-orchestrator scheduled handler', function scheduledHandle
         event: 'notification_orchestrator.sweep_exhausted',
       }),
     )
+    expect(logs.errors).toContainEqual(
+      expect.objectContaining({
+        event: 'notification_orchestrator.sweep_exhausted',
+        context: expect.objectContaining({ attempt_count: 11 }),
+      }),
+    )
   })
 
   it('advances the sweep checkpoint with a delayed next attempt when workflow triggering fails', async function run() {

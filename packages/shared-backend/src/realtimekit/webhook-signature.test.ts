@@ -224,6 +224,31 @@ describe('createRealtimeKitPublicKeyProvider', function keyProviderSuite() {
 
     await expect(provider.getPublicKeyDer()).rejects.toThrow()
   })
+
+  it('aborts the key fetch after a 5-second timeout', async function run() {
+    const { publicKeyPem } = await generateRsaKeyPair()
+    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout')
+    const controller = new AbortController()
+    timeoutSpy.mockReturnValue(controller.signal)
+    const fetchMock = vi.fn(async () => webhookJsonResponse(publicKeyPem))
+
+    const provider = createRealtimeKitPublicKeyProvider({
+      url: defaultUrl,
+      cacheTtlMs: 60_000,
+      fetch: fetchMock,
+    })
+
+    await provider.getPublicKeyDer()
+
+    expect(timeoutSpy).toHaveBeenCalledTimes(1)
+    expect(timeoutSpy).toHaveBeenCalledWith(5000)
+    expect(fetchMock).toHaveBeenCalledWith(
+      defaultUrl,
+      expect.objectContaining({ signal: controller.signal }),
+    )
+
+    timeoutSpy.mockRestore()
+  })
 })
 
 function webhookJsonResponse(publicKey: string): Response {

@@ -337,17 +337,22 @@ export class RecordingFinalizationService {
     }
 
     // Aggregate ready only after every required candidate/participant track and
-    // the playback object are visible in R2.
+    // the playback object are visible in R2. Head checks are issued
+    // concurrently: object visibility is independent per artifact.
+    const keys: string[] = []
+
     for (const job of readiness) {
       if (!job.artifact_object_key) {
         return
       }
 
-      const head = await this.storage.headArtifact(job.artifact_object_key)
+      keys.push(job.artifact_object_key)
+    }
 
-      if (!head) {
-        return
-      }
+    const heads = await Promise.all(keys.map((key) => this.storage.headArtifact(key)))
+
+    if (heads.some((head) => !head)) {
+      return
     }
 
     await this.repository.setInterviewRecordingReady(loaded.interview.id, now)

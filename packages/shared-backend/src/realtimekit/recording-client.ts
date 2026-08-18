@@ -232,7 +232,9 @@ function inferAssetKind(
     return 'participant_track'
   }
 
-  return 'composite'
+  throw new RealtimeKitRecordingClientError(
+    `Unable to determine asset kind for RealtimeKit recording asset ${assetId}.`,
+  )
 }
 
 function inferContentType(assetId: string): string {

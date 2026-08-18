@@ -425,7 +425,7 @@ async function sweepRecordingFinalization(
         logger.error('notification_orchestrator.sweep_exhausted', {
           provider_event_id: candidate.provider_event_id,
           recording_id: candidate.recording_id,
-          attempt_count: candidate.attempt_count,
+          attempt_count: candidate.attempt_count + 1,
         })
         continue
       }

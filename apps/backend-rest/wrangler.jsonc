@@ -4,6 +4,9 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-03-15",
   "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "REALTIMEKIT_WEBHOOK_PUBLIC_KEY": ""
+  },
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
