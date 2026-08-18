@@ -947,6 +947,31 @@ describe('InterviewRepository', function interviewRepositorySuite() {
       expect(listQuery!.text).toContain('cancellation_reason')
     })
 
+    it('listParticipantInterviews aliases the joined refund reason exactly as pr.reason AS cancellation_reason', async function run() {
+      const mockQueryExecutor = createMockQueryExecutor({
+        'FROM interviews': () => ({
+          rows: [],
+          rowCount: 0,
+        }),
+      })
+
+      const repository = new InterviewRepository({
+        queryExecutor: mockQueryExecutor,
+      })
+
+      await repository.listParticipantInterviews({
+        participant_user_id: '11111111-1111-4111-8111-111111111111',
+        limit: 10,
+        offset: 0,
+      })
+
+      const listQuery = mockQueryExecutor.queries.find((q) =>
+        q.text.includes('FROM interviews'),
+      )
+      expect(listQuery).toBeDefined()
+      expect(listQuery!.text).toContain('pr.reason AS cancellation_reason')
+    })
+
     it('getInterviewById selects all optional columns', async function run() {
       const mockQueryExecutor = createMockQueryExecutor({
         'FROM interviews': () => ({

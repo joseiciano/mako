@@ -33,6 +33,7 @@ import {
   type PremiumMarketplaceDumbProps,
 } from './premium-marketplace-dumb'
 import { clearVerifiedInterviewerClaim } from './schedule-draft-storage'
+import { formatScheduledTime } from '#/lib/format-scheduled-time'
 
 const slotFixture: PremiumMarketplaceSlot = {
   slotId: '11111111-1111-4111-8111-111111111111',
@@ -470,6 +471,75 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
       expect(screen.getByRole('status')).toHaveTextContent(
         '44444444-4444-4444-8444-444444444444',
       )
+    })
+
+    it('claim button accessible name identifies interviewer and formatted start time', function run() {
+      renderDumb()
+
+      const formattedStart = formatScheduledTime(slotFixture.startTime)
+      const expectedAccessibleName = new RegExp(
+        `claim this slot.*${slotFixture.interviewer.displayName}.*${formattedStart.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`,
+        'i',
+      )
+      expect(
+        screen.getByRole('button', { name: expectedAccessibleName }),
+      ).toBeDefined()
+    })
+
+    it('booked status region uses aria-live="polite" for dynamic updates', function run() {
+      renderDumb({
+        bookedInterviewId: '44444444-4444-4444-8444-444444444444',
+      })
+      const statusRegion = screen.getByRole('status')
+      expect(statusRegion).toHaveAttribute('aria-live', 'polite')
+    })
+
+    it('pending claim status region uses aria-live="polite" for dynamic updates', function run() {
+      renderDumb({
+        pendingClaimMessage:
+          'You have a claim in progress. Resolve it before claiming a different slot.',
+      })
+      const statusRegions = screen.getAllByRole('status')
+      const pendingRegion = statusRegions.find(function findPending(region) {
+        return region.textContent?.includes('claim in progress')
+      })
+      expect(pendingRegion).toBeDefined()
+      expect(pendingRegion).toHaveAttribute('aria-live', 'polite')
+    })
+
+    it('gives each claim button a contextual accessible name including interviewer and formatted time', function run() {
+      renderDumb({ slots: [slotFixture, secondSlotFixture] })
+
+      const redButtonTime = formatScheduledTime(slotFixture.startTime)
+      const redButton = screen.getByRole('button', {
+        name: (accessibleName) =>
+          accessibleName.includes('claim') &&
+          accessibleName.includes('Interviewer-Red') &&
+          accessibleName.includes(redButtonTime),
+      })
+      expect(redButton).toBeDefined()
+
+      const blueButtonTime = formatScheduledTime(secondSlotFixture.startTime)
+      const blueButton = screen.getByRole('button', {
+        name: (accessibleName) =>
+          accessibleName.includes('claim') &&
+          accessibleName.includes('Interviewer-Blue') &&
+          accessibleName.includes(blueButtonTime),
+      })
+      expect(blueButton).toBeDefined()
+    })
+
+    it('marks the dynamically rendered booked confirmation as aria-live polite', function run() {
+      renderDumb({ bookedInterviewId: '44444444-4444-4444-8444-444444444444' })
+      expect(screen.getByRole('status')).toHaveAttribute('aria-live', 'polite')
+    })
+
+    it('marks the dynamically rendered pending-claim status as aria-live polite', function run() {
+      renderDumb({
+        pendingClaimMessage:
+          'You have a claim in progress. Resolve it before claiming a different slot.',
+      })
+      expect(screen.getByRole('status')).toHaveAttribute('aria-live', 'polite')
     })
   })
 

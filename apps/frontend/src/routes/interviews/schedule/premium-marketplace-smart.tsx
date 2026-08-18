@@ -15,7 +15,15 @@ import {
   type PremiumMarketplaceErrorOutcome,
 } from './premium-marketplace-dumb'
 
-/** Module-level guard survives React Strict Mode remounts. */
+/**
+ * Module-level guard survives React Strict Mode remounts and spans the whole
+ * document lifetime (unlike a ref or effect-local state).
+ *
+ * TEST CLEANUP REQUIRED: because this is exported module-level mutable state,
+ * it leaks across tests. Every test suite that mounts `PremiumMarketplaceSmart`
+ * MUST clear it (e.g. `replayedClaims.clear()` in `beforeEach`) or entries from
+ * one test suppress the persisted-claim replay in the next.
+ */
 export const replayedClaims = new Set<string>()
 
 export const PREMIUM_SLOT_ALREADY_CLAIMED = 'PREMIUM_SLOT_ALREADY_CLAIMED'

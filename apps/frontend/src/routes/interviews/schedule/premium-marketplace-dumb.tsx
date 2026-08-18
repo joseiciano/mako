@@ -63,6 +63,11 @@ function SlotCard(props: {
         onClick={function onBook() {
           props.onBookSlot(props.slot.slotId)
         }}
+        aria-label={
+          props.isReserving
+            ? `Reserving slot with ${interviewer.displayName} at ${formatScheduledTime(props.slot.startTime)}`
+            : `claim this slot with ${interviewer.displayName} at ${formatScheduledTime(props.slot.startTime)}`
+        }
         disabled={props.isReserving || props.bookingDisabled}
         className="mt-2 inline-flex w-fit items-center justify-center rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-70"
       >
@@ -112,6 +117,7 @@ export function PremiumMarketplaceDumb(props: PremiumMarketplaceDumbProps) {
         <section
           className="rounded-xl border border-emerald-500/60 bg-emerald-500/10 p-4 text-sm text-emerald-100"
           role="status"
+          aria-live="polite"
         >
           <p>
             Slot booked! Your interview (<span className="font-mono text-xs">{props.bookedInterviewId}</span>) has been
@@ -163,6 +169,7 @@ export function PremiumMarketplaceDumb(props: PremiumMarketplaceDumbProps) {
         <section
           className="rounded-xl border border-amber-500/60 bg-amber-500/10 p-4 text-sm text-amber-100"
           role="status"
+          aria-live="polite"
         >
           <p>{props.pendingClaimMessage}</p>
         </section>

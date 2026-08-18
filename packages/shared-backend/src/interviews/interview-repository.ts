@@ -1828,7 +1828,7 @@ function buildListParticipantInterviewsQuery(
         scheduled_at,
         created_at,
         updated_at,
-        cancellation_reason
+        pr.reason AS cancellation_reason
       FROM (
         SELECT
           id,

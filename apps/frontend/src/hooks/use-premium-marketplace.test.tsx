@@ -195,6 +195,24 @@ describe('premium marketplace hooks', function suite() {
 
       expect(fetchImpl).not.toHaveBeenCalled()
     })
+
+    it('accepts a syntactically valid UUID idempotency key with a version nibble beyond 1-5 and sends the request', async function run() {
+      const versionSixUuid = '77777777-7777-6777-8777-777777777777'
+      const fetchImpl = vi.fn(async function fetchImpl(): Promise<Response> {
+        return new Response(
+          JSON.stringify(claimResponseFixture),
+          { status: 201, headers: { 'content-type': 'application/json' } },
+        )
+      })
+
+      const result = await claimPremiumSlot(
+        { slotId, idempotencyKey: versionSixUuid },
+        fetchImpl as unknown as typeof fetch,
+      )
+
+      expect(fetchImpl).toHaveBeenCalledTimes(1)
+      expect(result.interview.id).toBe('44444444-4444-4444-8444-444444444444')
+    })
   })
 
   describe('sortMarketplaceSlots', function sortSlotsSuite() {
