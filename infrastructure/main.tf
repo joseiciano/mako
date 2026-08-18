@@ -152,6 +152,12 @@ resource "cloudflare_workers_script" "notification_orchestrator" {
       script_name   = cloudflare_workers_script.notification_orchestrator.script_name
     },
     {
+      type          = "workflow"
+      name          = "RECORDING_FINALIZATION_WORKFLOW"
+      workflow_name = cloudflare_workflow.recording_finalization.workflow_name
+      script_name   = cloudflare_workers_script.notification_orchestrator.script_name
+    },
+    {
       type = "ai"
       name = "AI"
     }
@@ -179,6 +185,13 @@ resource "cloudflare_workflow" "interview_lifecycle" {
   workflow_name = var.interview_workflow_name
   script_name   = cloudflare_workers_script.notification_orchestrator.script_name
   class_name    = var.interview_workflow_class_name
+}
+
+resource "cloudflare_workflow" "recording_finalization" {
+  account_id    = var.cloudflare_account_id
+  workflow_name = var.recording_finalization_workflow_name
+  script_name   = cloudflare_workers_script.notification_orchestrator.script_name
+  class_name    = var.recording_finalization_workflow_class_name
 }
 
 resource "cloudflare_workers_script" "backend_api" {
@@ -218,8 +231,14 @@ resource "cloudflare_workers_script" "backend_api" {
         script_name   = cloudflare_workers_script.notification_orchestrator.script_name
       },
       {
+        type          = "workflow"
+        name          = "RECORDING_FINALIZATION_WORKFLOW"
+        workflow_name = cloudflare_workflow.recording_finalization.workflow_name
+        script_name   = cloudflare_workers_script.notification_orchestrator.script_name
+      },
+      {
         type = "plain_text"
-        name = "REALTIME_APP_ID"
+        name = "CLOUDFLARE_REALTIMEKIT_APP_ID"
         text = var.realtime_app_id
       }
     ],

@@ -12,7 +12,7 @@ cloudflare_account_id = "<your-cloudflare-account-id>"
 cloudflare_api_token  = "<your-cloudflare-api-token>"
 
 # Realtime app metadata is managed outside Terraform (RealtimeKit/API).
-# This value is injected into worker bindings as REALTIME_APP_ID.
+# This value is injected into worker bindings as CLOUDFLARE_REALTIMEKIT_APP_ID.
 realtime_app_id      = "<your-realtime-app-id>"
 
 neon_api_key  = "<your-neon-api-key>"

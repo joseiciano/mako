@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { createNotificationWorker, type NotificationWorkerDependencies } from './index'
 import type { NotificationTransportMessage } from '@mako/shared-backend'
 import type { FeedbackWorkflowPayload } from './workflows/feedback-workflow'
+import type { RecordingFinalizationWorkflowPayload } from './workflows/recording-finalization-workflow'
 
 describe('notification-orchestrator queue handler', function queueHandlerSuite() {
   it('acks valid interview.created messages after processing', async function run() {
@@ -632,6 +633,237 @@ describe('notification-orchestrator scheduled handler', function scheduledHandle
       event: 'notification_orchestrator.missing_hyperdrive',
     })
   })
+
+  it('sweeps due recording finalization checkpoints with deterministic workflow ids', async function run() {
+    const recordingId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+    const providerEventId = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+    const workflow = createMockRecordingFinalizationWorkflow()
+    const { worker } = createTestWorker({
+      queryRowsBySqlIncludes: {
+        'from realtimekit_webhook_events': [
+          {
+            provider_event_id: providerEventId,
+            recording_id: recordingId,
+            attempt_count: 1,
+          },
+        ],
+      },
+    })
+
+    const env = {
+      ...createMockEnv(),
+      RECORDING_FINALIZATION_WORKFLOW: workflow,
+    }
+
+    await worker.scheduled(
+      { scheduledTime: Date.now(), cron: '*/5 * * * *', noRetry() {} },
+      env,
+    )
+
+    expect(workflow.createBatch).toHaveBeenCalledWith([
+      {
+        id: `recording-finalize-v1-${recordingId}-2`,
+        params: {
+          provider_recording_id: recordingId,
+          attempt: 2,
+        },
+      },
+    ])
+  })
+
+  it('exhausts sweep checkpoints for candidates without a recording linkage', async function run() {
+    const providerEventId = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+    const workflow = createMockRecordingFinalizationWorkflow()
+    const { worker } = createTestWorker({
+      queryRowsBySqlIncludes: {
+        'from realtimekit_webhook_events': [
+          {
+            provider_event_id: providerEventId,
+            recording_id: null,
+            attempt_count: 3,
+          },
+        ],
+      },
+    })
+
+    const env = {
+      ...createMockEnv(),
+      RECORDING_FINALIZATION_WORKFLOW: workflow,
+    }
+
+    await worker.scheduled(
+      { scheduledTime: Date.now(), cron: '*/5 * * * *', noRetry() {} },
+      env,
+    )
+
+    expect(workflow.createBatch).not.toHaveBeenCalled()
+  })
+
+  it('terminates candidates that reached the max sweep attempts', async function run() {
+    const recordingId = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd'
+    const providerEventId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'
+    const workflow = createMockRecordingFinalizationWorkflow()
+    const { worker, logs } = createTestWorker({
+      queryRowsBySqlIncludes: {
+        'from realtimekit_webhook_events': [
+          {
+            provider_event_id: providerEventId,
+            recording_id: recordingId,
+            attempt_count: 10,
+          },
+        ],
+      },
+    })
+
+    const env = {
+      ...createMockEnv(),
+      RECORDING_FINALIZATION_WORKFLOW: workflow,
+    }
+
+    await worker.scheduled(
+      { scheduledTime: Date.now(), cron: '*/5 * * * *', noRetry() {} },
+      env,
+    )
+
+    expect(workflow.createBatch).not.toHaveBeenCalled()
+    expect(logs.errors).toContainEqual(
+      expect.objectContaining({
+        event: 'notification_orchestrator.sweep_exhausted',
+      }),
+    )
+  })
+
+  it('advances the sweep checkpoint with a delayed next attempt when workflow triggering fails', async function run() {
+    const recordingId = 'ffffffff-ffff-4fff-8fff-ffffffffffff'
+    const providerEventId = '11111111-2222-4333-8444-555555555555'
+    const workflow = createMockRecordingFinalizationWorkflow()
+    workflow.createBatch.mockRejectedValueOnce(new Error('workflow engine unavailable'))
+    const { worker, logs, queries } = createTestWorker({
+      queryRowsBySqlIncludes: {
+        'from realtimekit_webhook_events': [
+          {
+            provider_event_id: providerEventId,
+            recording_id: recordingId,
+            attempt_count: 1,
+          },
+        ],
+      },
+    })
+
+    const env = {
+      ...createMockEnv(),
+      RECORDING_FINALIZATION_WORKFLOW: workflow,
+    }
+
+    await worker.scheduled(
+      { scheduledTime: Date.now(), cron: '*/5 * * * *', noRetry() {} },
+      env,
+    )
+
+    expect(workflow.createBatch).toHaveBeenCalledTimes(1)
+    expect(logs.errors).toContainEqual(
+      expect.objectContaining({
+        event: 'notification_orchestrator.sweep_workflow_trigger_failed',
+      }),
+    )
+
+    const [checkpoint] = sweepCheckpointUpdates(queries)
+    expect(checkpoint.values).toEqual([
+      providerEventId,
+      2,
+      expect.any(String),
+      null,
+    ])
+  })
+
+  it('terminalizes the sweep checkpoint when a failed workflow trigger reaches the max attempt', async function run() {
+    const recordingId = 'aaaaaaaa-0000-4000-8000-000000000001'
+    const providerEventId = 'bbbbbbbb-1111-4111-8111-111111111111'
+    const workflow = createMockRecordingFinalizationWorkflow()
+    workflow.createBatch.mockRejectedValue(new Error('workflow engine unavailable'))
+    const { worker, logs, queries } = createTestWorker({
+      queryRowsBySqlIncludes: {
+        'from realtimekit_webhook_events': [
+          {
+            provider_event_id: providerEventId,
+            recording_id: recordingId,
+            attempt_count: 9,
+          },
+        ],
+      },
+    })
+
+    const env = {
+      ...createMockEnv(),
+      RECORDING_FINALIZATION_WORKFLOW: workflow,
+    }
+
+    await worker.scheduled(
+      { scheduledTime: Date.now(), cron: '*/5 * * * *', noRetry() {} },
+      env,
+    )
+
+    expect(workflow.createBatch).toHaveBeenCalledTimes(1)
+    expect(logs.errors).toContainEqual(
+      expect.objectContaining({
+        event: 'notification_orchestrator.sweep_exhausted',
+      }),
+    )
+
+    const [checkpoint] = sweepCheckpointUpdates(queries)
+    expect(checkpoint.values[0]).toBe(providerEventId)
+    expect(checkpoint.values[1]).toBe(10)
+    expect(checkpoint.values[2]).toBeNull()
+    expect(typeof checkpoint.values[3]).toBe('string')
+  })
+
+  it('bounds repeated createBatch failures to the max attempt before terminal exhaustion', async function run() {
+    const recordingId = 'cccccccc-2222-4222-8222-222222222222'
+    const providerEventId = 'dddddddd-3333-4333-8333-333333333333'
+    const candidates = [
+      {
+        provider_event_id: providerEventId,
+        recording_id: recordingId,
+        attempt_count: 0,
+      },
+    ]
+    const workflow = createMockRecordingFinalizationWorkflow()
+    workflow.createBatch.mockRejectedValue(new Error('workflow engine unavailable'))
+    const { worker, queries } = createTestWorker({
+      queryRowsBySqlIncludes: {
+        'from realtimekit_webhook_events': candidates,
+      },
+    })
+
+    const env = {
+      ...createMockEnv(),
+      RECORDING_FINALIZATION_WORKFLOW: workflow,
+    }
+
+    for (let attempt = 1; attempt <= 10; attempt += 1) {
+      await worker.scheduled(
+        { scheduledTime: Date.now(), cron: '*/5 * * * *', noRetry() {} },
+        env,
+      )
+      // Simulate the checkpoint persisted by the previous failed trigger.
+      candidates[0].attempt_count = attempt
+    }
+
+    const updates = sweepCheckpointUpdates(queries)
+    expect(workflow.createBatch).toHaveBeenCalledTimes(10)
+    expect(updates).toHaveLength(10)
+
+    const delayed = updates.slice(0, 9)
+    for (const update of delayed) {
+      expect(typeof update.values[2]).toBe('string')
+      expect(update.values[3]).toBeNull()
+    }
+
+    const [terminal] = updates.slice(-1)
+    expect(terminal.values[1]).toBe(10)
+    expect(terminal.values[2]).toBeNull()
+    expect(typeof terminal.values[3]).toBe('string')
+  })
 })
 
 describe('createNotificationWorker factory', function factorySuite() {
@@ -652,6 +884,7 @@ function createTestWorker(options?: {
   queryRowsBySqlIncludes?: Record<string, unknown[]>
 }) {
   const queueSentMessages: NotificationTransportMessage[] = []
+  const queries: Array<{ text: string; values: unknown[] }> = []
   const logs: { errors: Array<{ event: string; context: Record<string, unknown> }>; logs: unknown[] } = {
     errors: [],
     logs: [],
@@ -670,6 +903,7 @@ function createTestWorker(options?: {
     async connect() {
       return {
         async query(text: string, values: unknown[]) {
+          queries.push({ text, values })
           const normalizedSql = text.toLowerCase()
           const configuredRows = options?.queryRowsBySqlIncludes
 
@@ -693,7 +927,13 @@ function createTestWorker(options?: {
     console: mockConsole,
   })
 
-  return { worker, queueSentMessages, logs }
+  return { worker, queueSentMessages, logs, queries }
+}
+
+function sweepCheckpointUpdates(queries: Array<{ text: string; values: unknown[] }>) {
+  return queries.filter((query) =>
+    query.text.toLowerCase().includes('update realtimekit_webhook_events'),
+  )
 }
 
 function createMockMessage(id: string, body: unknown, attempts: number = 1) {
@@ -772,6 +1012,15 @@ function createMockFeedbackWorkflow() {
   return {
     createBatch,
   } as unknown as Workflow<FeedbackWorkflowPayload>
+}
+
+function createMockRecordingFinalizationWorkflow() {
+  const createBatch = vi.fn(async () => [])
+  return {
+    createBatch,
+  } as unknown as Workflow<RecordingFinalizationWorkflowPayload> & {
+    createBatch: ReturnType<typeof vi.fn>
+  }
 }
 
 function createMockEnvWithFeedback(

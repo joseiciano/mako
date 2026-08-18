@@ -167,10 +167,12 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_REALTIMEKIT_APP_ID: ${{ secrets.CLOUDFLARE_REALTIMEKIT_APP_ID }}
           HYPERDRIVE_ID: ${{ secrets.HYPERDRIVE_ID }}
         run: |
           test -n "$CLOUDFLARE_API_TOKEN" || (echo "Missing CLOUDFLARE_API_TOKEN" && exit 1)
           test -n "$CLOUDFLARE_ACCOUNT_ID" || (echo "Missing CLOUDFLARE_ACCOUNT_ID" && exit 1)
+          test -n "$CLOUDFLARE_REALTIMEKIT_APP_ID" || (echo "Missing CLOUDFLARE_REALTIMEKIT_APP_ID" && exit 1)
           test -n "$HYPERDRIVE_ID" || (echo "Missing HYPERDRIVE_ID" && exit 1)
 
       - name: Inject Hyperdrive binding ID into notification-orchestrator Wrangler config
@@ -188,6 +190,14 @@ jobs:
           packageManager: pnpm
           workingDirectory: apps/notification-orchestrator
           command: deploy --config wrangler.jsonc
+          secrets: |
+            CLOUDFLARE_ACCOUNT_ID
+            CLOUDFLARE_API_TOKEN
+            CLOUDFLARE_REALTIMEKIT_APP_ID
+        env:
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_REALTIMEKIT_APP_ID: ${{ secrets.CLOUDFLARE_REALTIMEKIT_APP_ID }}
 
   deploy-frontend:
     name: Deploy frontend worker

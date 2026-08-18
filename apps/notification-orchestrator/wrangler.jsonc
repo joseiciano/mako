@@ -19,6 +19,11 @@
       "binding": "FEEDBACK_WORKFLOW",
       "name": "feedback-workflow",
       "class_name": "InterviewFeedbackWorkflow"
+    },
+    {
+      "binding": "RECORDING_FINALIZATION_WORKFLOW",
+      "name": "recording-finalization-workflow",
+      "class_name": "RecordingFinalizationWorkflow"
     }
   ],
   "ai": {

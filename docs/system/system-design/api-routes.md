@@ -568,9 +568,12 @@ Company route behavior:
   - **Request Body**: Provider webhook event payload.
   - **Response Body**: `200 OK`
   - **Behavior Rules**:
-    - Verifies webhook signature using a public-key verification scheme before processing.
+    - Provider-only boundary; browser-session authentication is not required.
+    - Reads raw request bytes and verifies Base64 RSA-SHA256 `rtk-signature` before parsing JSON.
+    - Validly signed unsupported event types return `200` without side effects.
     - Idempotent via `provider_event_id` as primary key on `realtimekit_webhook_events`.
     - Handles recording finalization status transitions (`accepted`, `finalizing`, `processed`, `failed`).
+    - `UPLOADED` acknowledgement triggers deterministic recording-finalization workflow instance.
     - Does not expose provider error bodies to clients.
   - **Query Params**: None
 
