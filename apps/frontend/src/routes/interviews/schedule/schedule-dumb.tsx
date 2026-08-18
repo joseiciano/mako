@@ -1,9 +1,11 @@
 import type { InterviewType, InterviewMode } from '@mako/shared'
 import {
   getStepLabel,
+  getSubmissionBranchLabel,
   type ScheduleStep,
   type FlowSlot,
   type ScheduleFieldErrors,
+  type ScheduleSubmissionBranch,
 } from './schedule-flow'
 
 export type ScheduleDumbProps = {
@@ -27,7 +29,7 @@ export type ScheduleDumbProps = {
   canAdvance: boolean
   canGoBack: boolean
   onSetType: (type: InterviewType) => void
-  onSetMode: (mode: InterviewMode) => void
+  onSelectBranch: (branch: ScheduleSubmissionBranch) => void
   onSetScheduledAt: (value: 'now' | string) => void
   onSetMaxMatches: (value: number) => void
   onSetSlots: (slots: FlowSlot[]) => void
@@ -136,37 +138,53 @@ function TypeStep(props: {
   )
 }
 
-function ModeStep(props: {
+function BranchStep(props: {
   value: InterviewMode | null
-  onChange: (mode: InterviewMode) => void
+  onSelect: (branch: ScheduleSubmissionBranch) => void
   disabled: boolean
   error?: string
 }) {
-  const modes: { value: InterviewMode; label: string; description: string }[] = [
+  const branches: {
+    branch: ScheduleSubmissionBranch
+    label: string
+    description: string
+  }[] = [
     {
-      value: 'ai_led',
-      label: 'AI-Led',
-      description: 'Practice with an AI interviewer. Start immediately or schedule for later.',
+      branch: 'ai_direct',
+      label: 'AI Direct',
+      description: 'Start an AI-led interview immediately or schedule for later.',
     },
     {
-      value: 'peer_to_peer',
-      label: 'Peer-to-Peer',
-      description: 'Match with another candidate. Submit your availability and we will pair you.',
+      branch: 'standard_p2p',
+      label: 'Standard P2P Availability',
+      description:
+        'Submit your availability and we will match you with another candidate.',
+    },
+    {
+      branch: 'verified_interviewer',
+      label: 'Verified Interviewer',
+      description:
+        'Claim a first-to-claim slot with a verified interviewer for exactly one credit.',
     },
   ]
 
   return (
     <div className="flex flex-col gap-4">
-      <h2 className="text-lg font-semibold text-white">Select Mode</h2>
+      <h2 className="text-lg font-semibold text-white">Select Branch</h2>
       <div className="grid gap-3">
-        {modes.map(function renderModeOption(mode) {
-          const selected = props.value === mode.value
+        {branches.map(function renderBranchOption(branch) {
+          const selected =
+            props.value === 'ai_led'
+              ? branch.branch === 'ai_direct'
+              : props.value === 'peer_to_peer'
+                ? branch.branch === 'standard_p2p'
+                : false
           return (
             <button
-              key={mode.value}
+              key={branch.branch}
               type="button"
-              onClick={function onModeClick() {
-                props.onChange(mode.value)
+              onClick={function onBranchClick() {
+                props.onSelect(branch.branch)
               }}
               disabled={props.disabled}
               className={`flex flex-col gap-1 rounded-lg border px-4 py-3 text-left transition ${
@@ -175,9 +193,9 @@ function ModeStep(props: {
                   : 'border-slate-700 bg-slate-900/40 text-slate-300 hover:border-slate-600 hover:bg-slate-800/40'
               }`}
             >
-              <span className="text-sm font-medium">{mode.label}</span>
+              <span className="text-sm font-medium">{branch.label}</span>
               <span className="text-xs text-slate-400">
-                {mode.description}
+                {branch.description}
               </span>
             </button>
           )
@@ -414,12 +432,12 @@ function ConfirmStep(props: {
         <div className="h-px bg-slate-800" />
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs text-slate-400">Mode</p>
+            <p className="text-xs text-slate-400">Branch</p>
             <p className="text-sm text-slate-200">
               {props.mode === 'ai_led'
-                ? 'AI-Led'
+                ? getSubmissionBranchLabel('ai_direct')
                 : props.mode === 'peer_to_peer'
-                  ? 'Peer-to-Peer'
+                  ? getSubmissionBranchLabel('standard_p2p')
                   : '—'}
             </p>
           </div>
@@ -608,9 +626,9 @@ export function ScheduleDumb(props: ScheduleDumbProps) {
           />
         ) : null}
         {props.step === 'mode' ? (
-          <ModeStep
+          <BranchStep
             value={props.mode}
-            onChange={props.onSetMode}
+            onSelect={props.onSelectBranch}
             disabled={props.isSubmitting}
             error={props.fieldErrors.mode}
           />
