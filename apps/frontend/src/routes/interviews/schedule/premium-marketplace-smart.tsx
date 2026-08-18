@@ -1,5 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PremiumClaimResponse } from '@mako/shared'
+
+/** Module-level guard survives React Strict Mode remounts. */
+export const replayedClaims = new Set<string>()
 import {
   sortMarketplaceSlots,
   useClaimPremiumSlot,
@@ -148,7 +151,6 @@ export function PremiumMarketplaceSmart() {
   const [bookedInterviewId, setBookedInterviewId] = useState<string | null>(
     null,
   )
-  const replayStartedRef = useRef(false)
 
   const setDurableClaim = useCallback(
     function setDurableClaim(claim: DurableClaim | null) {
@@ -206,17 +208,21 @@ export function PremiumMarketplaceSmart() {
     [claimMutation, handleClaimSuccess, handleClaimError],
   )
 
-  useEffect(function replayPersistedClaimOnMount() {
-    if (replayStartedRef.current) return
-    replayStartedRef.current = true
+  const issueClaimRef = useRef(issueClaim)
+  issueClaimRef.current = issueClaim
 
+  useEffect(function replayPersistedClaimOnMount() {
     const claim = durableClaimRef.current
-    if (claim !== null) {
-      setBookedInterviewId(null)
-      setErrorOutcome(null)
-      issueClaim(claim)
-    }
-  }, [issueClaim])
+    if (claim === null) return
+
+    const key = `${claim.slotId}:${claim.idempotencyKey}`
+    if (replayedClaims.has(key)) return
+    replayedClaims.add(key)
+
+    setBookedInterviewId(null)
+    setErrorOutcome(null)
+    issueClaimRef.current(claim)
+  }, [])
 
   const handleBookSlot = useCallback(
     function handleBookSlot(slotId: string) {
