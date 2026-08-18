@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   RecordingFinalizationWorkflow,
   checkpointRecordingFinalizationError,
+  createWorkflowQueryExecutor,
   mapRecordingFinalizationError,
   recordingFinalizationWorkflowPayloadSchema,
   STEP_FINALIZE_RECORDING,
@@ -149,6 +150,118 @@ describe('RecordingFinalizationWorkflow run', function runSuite() {
     await expect(
       workflow.run(createWorkflowEvent({ payload: { provider_recording_id: '', attempt: 0 } }), {} as WorkflowStep),
     ).rejects.toThrow()
+  })
+
+  it('preserves the original error when cleanup fails while an error is in flight', async function run() {
+    const release = vi.fn(async () => {
+      throw new Error('client release failed')
+    })
+    const end = vi.fn(async () => {
+      throw new Error('pool end failed')
+    })
+    const client = {
+      query: vi.fn(async () => ({ rows: [], rowCount: 0 })),
+      release,
+    }
+    const connect = vi.fn(async () => client)
+    const pool = { connect, end }
+
+    const step = {
+      do: vi.fn(async () => {
+        throw new Error('original finalization failure')
+      }),
+    } as unknown as WorkflowStep
+
+    const workflow = new RecordingFinalizationWorkflow(
+      mockExecutionContext(),
+      {
+        HYPERDRIVE: { connectionString: 'postgresql://localhost:5432/test' },
+        RECORDINGS_BUCKET: {},
+        CLOUDFLARE_ACCOUNT_ID: 'account-id',
+        CLOUDFLARE_API_TOKEN: 'api-token',
+        CLOUDFLARE_REALTIMEKIT_APP_ID: 'app-id',
+      } as unknown as WorkerBindings,
+      () => pool,
+    )
+
+    // The original finalization failure must win over both the release error
+    // and the pool end error, and the pool must still be ended.
+    await expect(workflow.run(createWorkflowEvent(), step)).rejects.toThrow(
+      'original finalization failure',
+    )
+    expect(end).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe('createWorkflowQueryExecutor cleanup', function queryExecutorCleanupSuite() {
+  const CONNECTION_STRING = 'postgresql://localhost:5432/test'
+
+  function createMockPool() {
+    const release = vi.fn(async () => {})
+    const client = {
+      query: vi.fn(async () => ({ rows: [], rowCount: 0 })),
+      release,
+    }
+    const connect = vi.fn(async () => client)
+    const end = vi.fn(async () => {})
+    return { pool: { connect, end }, client, connect, release, end }
+  }
+
+  function createEnv() {
+    return {
+      HYPERDRIVE: { connectionString: CONNECTION_STRING },
+    } as unknown as WorkerBindings
+  }
+
+  it('releases the acquired client before ending the pool', async function run() {
+    const { pool, connect, release, end } = createMockPool()
+    const { queryExecutor, cleanup } = createWorkflowQueryExecutor(createEnv(), () => pool)
+
+    await queryExecutor.query({ text: 'select 1', values: [] })
+
+    expect(connect).toHaveBeenCalledTimes(1)
+
+    await cleanup()
+
+    expect(release).toHaveBeenCalledTimes(1)
+    expect(end).toHaveBeenCalledTimes(1)
+    expect(release.mock.invocationCallOrder[0]).toBeLessThan(
+      end.mock.invocationCallOrder[0],
+    )
+  })
+
+  it('ends the pool without connecting when no client was acquired', async function run() {
+    const { pool, connect, end } = createMockPool()
+    const { cleanup } = createWorkflowQueryExecutor(createEnv(), () => pool)
+
+    await cleanup()
+
+    expect(connect).not.toHaveBeenCalled()
+    expect(end).toHaveBeenCalledTimes(1)
+  })
+
+  it('still ends the pool when releasing the client fails and surfaces the release error', async function run() {
+    const { pool, release, end } = createMockPool()
+    release.mockRejectedValueOnce(new Error('client release failed'))
+    const { queryExecutor, cleanup } = createWorkflowQueryExecutor(createEnv(), () => pool)
+
+    await queryExecutor.query({ text: 'select 1', values: [] })
+
+    await expect(cleanup()).rejects.toThrow('client release failed')
+    expect(end).toHaveBeenCalledTimes(1)
+  })
+
+  it('still ends the pool when acquiring the client fails and surfaces the connection error', async function run() {
+    const { pool, connect, end } = createMockPool()
+    connect.mockRejectedValueOnce(new Error('connection failed'))
+    const { queryExecutor, cleanup } = createWorkflowQueryExecutor(createEnv(), () => pool)
+
+    await expect(queryExecutor.query({ text: 'select 1', values: [] })).rejects.toThrow(
+      'connection failed',
+    )
+
+    await expect(cleanup()).rejects.toThrow('connection failed')
+    expect(end).toHaveBeenCalledTimes(1)
   })
 })
 

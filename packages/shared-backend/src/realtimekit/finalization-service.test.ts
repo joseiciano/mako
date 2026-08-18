@@ -614,6 +614,124 @@ describe('RecordingFinalizationService', function finalizationServiceSuite() {
     )
   })
 
+  it('recovers provider download timeouts by deleting stored artifacts, releasing the claim, and awaiting the provider', async function run() {
+    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout')
+    const logger = createLogger()
+    const { repository, calls } = createInMemoryRepository()
+    const timeoutError = new DOMException(
+      'The operation was aborted due to timeout',
+      'TimeoutError',
+    )
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response('first', {
+          status: 200,
+          headers: { 'content-type': 'video/mp4', 'content-length': '5' },
+        }),
+      )
+      .mockRejectedValueOnce(timeoutError)
+    const { service, stored, deleted } = createService({
+      repository: {
+        ...repository,
+        getJobWithInterview: vi.fn().mockResolvedValue(createJobWithInterview()),
+      },
+      client: createDemoClient(
+        createUploadedStatus({
+          assets: [
+            {
+              assetId: 'asset-one',
+              kind: 'composite',
+              downloadUrl: 'https://api.realtime.cloudflare.com/downloads/one.mp4',
+              contentType: 'video/mp4',
+            },
+            {
+              assetId: 'asset-two',
+              kind: 'composite',
+              downloadUrl: 'https://api.realtime.cloudflare.com/downloads/two.mp4',
+              contentType: 'video/mp4',
+            },
+          ],
+        }),
+      ),
+      fetchMock,
+      logger,
+    })
+
+    const result = await service.finalizeRecording(RECORDING_ID, NOW)
+
+    // The first asset was stored before the second download timed out; it must
+    // be compensated so a retry neither orphans the object nor duplicates it.
+    expect(result.status).toBe('awaiting_provider')
+    expect(stored).toHaveLength(1)
+    expect(deleted).toEqual([stored[0].key])
+    // The claim returns to pending and the checkpoint stays sweep-eligible so
+    // the scheduled retry re-downloads once the provider resumes.
+    expect(calls.releaseClaim).toHaveLength(1)
+    expect(calls.markEventAwaiting).toHaveLength(1)
+    expect((calls.markEventAwaiting[0] as unknown[])[1]).toBe(
+      addMilliseconds(NOW, 5 * 60 * 1000),
+    )
+    expect(calls.finalizeJob).toHaveLength(0)
+    expect(calls.markEventProcessed).toHaveLength(0)
+    // The timeout recovery is observable through the safe logger.
+    expect(logger.warn).toHaveBeenCalledWith(
+      'realtimekit.finalization.provider_download_timeout',
+      expect.objectContaining({ provider_recording_id: RECORDING_ID }),
+    )
+    // Redirects stay manual while the configurable timeout guards the download.
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({ redirect: 'manual' }),
+    )
+    // Default provider download timeout is 10 minutes.
+    expect(timeoutSpy).toHaveBeenCalledWith(600_000)
+    timeoutSpy.mockRestore()
+  })
+
+  it('uses a configurable provider download timeout', async function run() {
+    const timeoutSpy = vi.spyOn(AbortSignal, 'timeout')
+    const { repository } = createInMemoryRepository()
+    const { service } = createService({
+      repository: {
+        ...repository,
+        getJobWithInterview: vi.fn().mockResolvedValue(createJobWithInterview()),
+      },
+      config: { providerDownloadTimeoutMs: 42_000 },
+    })
+
+    const result = await service.finalizeRecording(RECORDING_ID, NOW)
+
+    expect(result.status).toBe('finalized')
+    expect(timeoutSpy).toHaveBeenCalledWith(42_000)
+    timeoutSpy.mockRestore()
+  })
+
+  it('does not treat unrelated provider fetch errors as download timeouts', async function run() {
+    const logger = createLogger()
+    const { repository, calls } = createInMemoryRepository()
+    const networkError = new TypeError('fetch failed')
+    const { service, stored } = createService({
+      repository: {
+        ...repository,
+        getJobWithInterview: vi.fn().mockResolvedValue(createJobWithInterview()),
+      },
+      fetchMock: vi.fn().mockRejectedValue(networkError),
+      logger,
+    })
+
+    await expect(service.finalizeRecording(RECORDING_ID, NOW)).rejects.toThrow(
+      'fetch failed',
+    )
+
+    // Non-timeout fetch failures stay hard workflow failures: no claim release,
+    // no awaiting-provider re-arming, no timeout log.
+    expect(calls.releaseClaim).toHaveLength(0)
+    expect(calls.markEventAwaiting).toHaveLength(0)
+    expect(logger.warn).not.toHaveBeenCalled()
+    expect(stored).toHaveLength(0)
+  })
+
   it('fails on non-2xx provider downloads', async function run() {
     const { fetchMock } = createMockFetch(undefined, { status: 404 })
     const { repository } = createInMemoryRepository()
@@ -747,6 +865,62 @@ describe('RecordingFinalizationService', function finalizationServiceSuite() {
     expect(result.status).toBe('finalized')
     expect(stored).toHaveLength(1)
     expect(calls.setInterviewRecordingReady).toHaveLength(0)
+  })
+
+  it('logs transient R2 head failures and leaves the interview not-ready without failing finalization', async function run() {
+    const logger = createLogger()
+    const { repository, calls } = createInMemoryRepository()
+    const baseStorage = createInMemoryStorage()
+    const headArtifact = vi.fn(async () => {
+      throw new Error('r2 head unavailable')
+    })
+    const { service } = createService({
+      repository: {
+        ...repository,
+        getJobWithInterview: vi.fn().mockResolvedValue(createJobWithInterview()),
+        getAggregateReadiness: vi.fn().mockResolvedValue([
+          {
+            provider_recording_id: RECORDING_ID,
+            recording_type: 'composite',
+            artifact_kind: 'playback_recording',
+            artifact_object_key: 'interviews/1/recording/rec-1',
+          },
+          {
+            provider_recording_id: RECORDING_ID,
+            recording_type: 'participant_track',
+            artifact_kind: 'transcription_audio',
+            artifact_object_key: 'interviews/1/recording/rec-2',
+          },
+        ]),
+      },
+      storage: { ...baseStorage.storage, headArtifact },
+      logger,
+    })
+
+    const result = await service.finalizeRecording(RECORDING_ID, NOW)
+
+    // The job is finalized but aggregate readiness stays unset: a transient R2
+    // HEAD failure must not fail the workflow and force a full re-download.
+    expect(result.status).toBe('finalized')
+    expect(calls.finalizeJob).toHaveLength(1)
+    expect(calls.setInterviewRecordingReady).toHaveLength(0)
+    expect(baseStorage.stored).toHaveLength(1)
+    // Every failing visibility check is reported through the safe logger.
+    expect(logger.error).toHaveBeenCalledTimes(2)
+    expect(logger.error).toHaveBeenCalledWith(
+      'realtimekit.finalization.readiness_head_failed',
+      expect.objectContaining({
+        interview_id: INTERVIEW_ID,
+        object_key: 'interviews/1/recording/rec-1',
+      }),
+    )
+    expect(logger.error).toHaveBeenCalledWith(
+      'realtimekit.finalization.readiness_head_failed',
+      expect.objectContaining({
+        interview_id: INTERVIEW_ID,
+        object_key: 'interviews/1/recording/rec-2',
+      }),
+    )
   })
 
   it('propagates R2 persistence failures so the workflow can fail the checkpoint', async function run() {

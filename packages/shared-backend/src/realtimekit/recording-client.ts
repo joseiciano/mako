@@ -188,9 +188,17 @@ function parseAssets(value: unknown): RealtimeKitRecordingAsset[] {
         ? entry.content_type
         : inferContentType(assetId)
 
+    // Unresolved asset kinds are skipped rather than failing the whole
+    // recording status: an unexpected asset type should not hide the
+    // recording's state or the assets that were resolved.
+    const kind = inferAssetKind(assetId, entry, contentType)
+    if (!kind) {
+      continue
+    }
+
     assets.push({
       assetId,
-      kind: inferAssetKind(assetId, entry),
+      kind,
       downloadUrl,
       contentType,
     })
@@ -199,8 +207,9 @@ function parseAssets(value: unknown): RealtimeKitRecordingAsset[] {
   return assets
 }
 
-// Explicit provider-declared asset kinds take precedence. Filename heuristics
-// are only a compatibility fallback for provider responses that omit the kind.
+// Explicit provider-declared asset kinds take precedence over any metadata
+// or filename heuristic. Remaining heuristics are conservative audio/video
+// signals; assets that cannot be resolved are skipped by the caller.
 const EXPLICIT_KIND_TO_ASSET_KIND: Record<string, RealtimeKitRecordingAssetKind> = {
   composite: 'composite',
   mp4: 'composite',
@@ -216,7 +225,8 @@ const EXPLICIT_KIND_TO_ASSET_KIND: Record<string, RealtimeKitRecordingAssetKind>
 function inferAssetKind(
   assetId: string,
   entry: Record<string, unknown>,
-): RealtimeKitRecordingAssetKind {
+  contentType: string,
+): RealtimeKitRecordingAssetKind | undefined {
   const kind = typeof entry.kind === 'string' ? entry.kind.trim().toLowerCase() : ''
 
   const explicitKind = EXPLICIT_KIND_TO_ASSET_KIND[kind]
@@ -228,13 +238,36 @@ function inferAssetKind(
     return 'participant_track'
   }
 
-  if (assetId.toLowerCase().includes('m4a')) {
+  // Conservative content-type metadata signals: explicit audio or video
+  // media types are strong enough to classify without an explicit kind.
+  const normalizedContentType = contentType.toLowerCase()
+  if (
+    normalizedContentType.includes('audio') ||
+    normalizedContentType.includes('m4a')
+  ) {
     return 'participant_track'
   }
+  if (
+    normalizedContentType.includes('video') ||
+    normalizedContentType.includes('mp4')
+  ) {
+    return 'composite'
+  }
 
-  throw new RealtimeKitRecordingClientError(
-    `Unable to determine asset kind for RealtimeKit recording asset ${assetId}.`,
-  )
+  // Conservative filename heuristics only; anything else stays unresolved.
+  const normalizedAssetId = assetId.toLowerCase()
+  if (normalizedAssetId.includes('m4a') || normalizedAssetId.includes('audio')) {
+    return 'participant_track'
+  }
+  if (
+    normalizedAssetId.includes('mp4') ||
+    normalizedAssetId.includes('video') ||
+    normalizedAssetId.includes('composite')
+  ) {
+    return 'composite'
+  }
+
+  return undefined
 }
 
 function inferContentType(assetId: string): string {

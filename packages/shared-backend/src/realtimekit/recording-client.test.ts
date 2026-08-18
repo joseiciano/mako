@@ -246,7 +246,7 @@ describe('createRealtimeKitRecordingClient', function recordingClientSuite() {
     expect(result.assets[0].kind).toBe('composite')
   })
 
-  it('throws when an asset kind cannot be resolved instead of defaulting to composite', async function run() {
+  it('skips assets whose kind cannot be resolved instead of failing the recording status', async function run() {
     const fetchMock = vi.fn(async () =>
       new Response(
         JSON.stringify({
@@ -258,6 +258,48 @@ describe('createRealtimeKitRecordingClient', function recordingClientSuite() {
                 {
                   id: 'asset-unresolved-001',
                   url: 'https://api.realtime.cloudflare.com/downloads/asset-unresolved-001',
+                  content_type: 'application/octet-stream',
+                },
+              ],
+            },
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    )
+
+    const client = createRealtimeKitRecordingClient(
+      {
+        CLOUDFLARE_ACCOUNT_ID: 'account-id',
+        CLOUDFLARE_API_TOKEN: 'token',
+        CLOUDFLARE_REALTIMEKIT_APP_ID: 'app-id',
+      },
+      { fetch: fetchMock },
+    )
+
+    const result = await client.getRecordingStatus(RECORDING_ID)
+
+    expect(result.state).toBe('UPLOADED')
+    expect(result.assets).toEqual([])
+  })
+
+  it('resolves asset kind from content-type metadata when the provider omits the kind', async function run() {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          data: {
+            recording: {
+              id: RECORDING_ID,
+              state: 'UPLOADED',
+              assets: [
+                {
+                  id: 'asset-audio-001',
+                  url: 'https://api.realtime.cloudflare.com/downloads/asset-audio-001',
+                  content_type: 'audio/mp4',
+                },
+                {
+                  id: 'asset-video-001',
+                  url: 'https://api.realtime.cloudflare.com/downloads/asset-video-001',
                   content_type: 'video/mp4',
                 },
               ],
@@ -277,9 +319,150 @@ describe('createRealtimeKitRecordingClient', function recordingClientSuite() {
       { fetch: fetchMock },
     )
 
-    await expect(client.getRecordingStatus(RECORDING_ID)).rejects.toThrow(
-      RealtimeKitRecordingClientError,
+    const result = await client.getRecordingStatus(RECORDING_ID)
+
+    expect(result.assets).toEqual([
+      {
+        assetId: 'asset-audio-001',
+        kind: 'participant_track',
+        downloadUrl: 'https://api.realtime.cloudflare.com/downloads/asset-audio-001',
+        contentType: 'audio/mp4',
+      },
+      {
+        assetId: 'asset-video-001',
+        kind: 'composite',
+        downloadUrl: 'https://api.realtime.cloudflare.com/downloads/asset-video-001',
+        contentType: 'video/mp4',
+      },
+    ])
+  })
+
+  it('skips unknown asset types while keeping resolvable assets', async function run() {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          data: {
+            recording: {
+              id: RECORDING_ID,
+              state: 'UPLOADED',
+              assets: [
+                {
+                  id: 'asset-unknown-001',
+                  url: 'https://api.realtime.cloudflare.com/downloads/asset-unknown-001',
+                  content_type: 'application/octet-stream',
+                },
+                {
+                  id: 'asset-composite-002',
+                  kind: 'mp4',
+                  url: 'https://api.realtime.cloudflare.com/downloads/composite-002',
+                  content_type: 'video/mp4',
+                },
+              ],
+            },
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
     )
+
+    const client = createRealtimeKitRecordingClient(
+      {
+        CLOUDFLARE_ACCOUNT_ID: 'account-id',
+        CLOUDFLARE_API_TOKEN: 'token',
+        CLOUDFLARE_REALTIMEKIT_APP_ID: 'app-id',
+      },
+      { fetch: fetchMock },
+    )
+
+    const result = await client.getRecordingStatus(RECORDING_ID)
+
+    expect(result.assets).toEqual([
+      {
+        assetId: 'asset-composite-002',
+        kind: 'composite',
+        downloadUrl: 'https://api.realtime.cloudflare.com/downloads/composite-002',
+        contentType: 'video/mp4',
+      },
+    ])
+  })
+
+  it('prefers an explicit provider kind over content-type metadata', async function run() {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          data: {
+            recording: {
+              id: RECORDING_ID,
+              state: 'UPLOADED',
+              assets: [
+                {
+                  id: 'explicit-composite.mp4',
+                  kind: 'mp4',
+                  url: 'https://api.realtime.cloudflare.com/downloads/explicit-composite.mp4',
+                  content_type: 'audio/mp4',
+                },
+              ],
+            },
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    )
+
+    const client = createRealtimeKitRecordingClient(
+      {
+        CLOUDFLARE_ACCOUNT_ID: 'account-id',
+        CLOUDFLARE_API_TOKEN: 'token',
+        CLOUDFLARE_REALTIMEKIT_APP_ID: 'app-id',
+      },
+      { fetch: fetchMock },
+    )
+
+    const result = await client.getRecordingStatus(RECORDING_ID)
+
+    expect(result.assets[0].kind).toBe('composite')
+  })
+
+  it('resolves participant_track from an m4a filename when kind and content type are absent', async function run() {
+    const fetchMock = vi.fn(async () =>
+      new Response(
+        JSON.stringify({
+          data: {
+            recording: {
+              id: RECORDING_ID,
+              state: 'UPLOADED',
+              assets: [
+                {
+                  id: 'participant-001.m4a',
+                  url: 'https://api.realtime.cloudflare.com/downloads/participant-001.m4a',
+                },
+              ],
+            },
+          },
+        }),
+        { status: 200, headers: { 'content-type': 'application/json' } },
+      ),
+    )
+
+    const client = createRealtimeKitRecordingClient(
+      {
+        CLOUDFLARE_ACCOUNT_ID: 'account-id',
+        CLOUDFLARE_API_TOKEN: 'token',
+        CLOUDFLARE_REALTIMEKIT_APP_ID: 'app-id',
+      },
+      { fetch: fetchMock },
+    )
+
+    const result = await client.getRecordingStatus(RECORDING_ID)
+
+    expect(result.assets).toEqual([
+      {
+        assetId: 'participant-001.m4a',
+        kind: 'participant_track',
+        downloadUrl: 'https://api.realtime.cloudflare.com/downloads/participant-001.m4a',
+        contentType: 'audio/mp4',
+      },
+    ])
   })
 })
 

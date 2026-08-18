@@ -51,13 +51,18 @@ export type WorkerBindings = {
   CLOUDFLARE_REALTIMEKIT_APP_ID?: string
 }
 
+export type NotificationWorkerPoolClient = {
+  query(text: string, values: unknown[]): Promise<{ rows: unknown[]; rowCount: number | null }>
+  release(): Promise<void>
+}
+
+export type NotificationWorkerPool = {
+  connect(): Promise<NotificationWorkerPoolClient>
+  end(): Promise<void>
+}
+
 export type NotificationWorkerDependencies = {
-  createPool: (connectionString: string) => {
-    connect(): Promise<{
-      query(text: string, values: unknown[]): Promise<{ rows: unknown[]; rowCount: number | null }>
-      release(): Promise<void>
-    }>
-  }
+  createPool: (connectionString: string) => NotificationWorkerPool
   console: Pick<Console, 'error' | 'log'>
 }
 
@@ -75,12 +80,15 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
       }
 
       const pool = createPool(connectionString)
-      const client = await pool.connect()
+      let client: NotificationWorkerPoolClient | null = null
+      let failure: unknown
 
       try {
+        client = await pool.connect()
+
         const queryExecutor = {
           async query<Row>(queryInput: { text: string; values: readonly unknown[] }) {
-            const result = await client.query(queryInput.text, [...queryInput.values])
+            const result = await client!.query(queryInput.text, [...queryInput.values])
             return {
               rows: result.rows as Row[],
               rowCount: result.rowCount ?? undefined,
@@ -205,9 +213,11 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
             message.retry()
           }
         }
-      } finally {
-        await client.release()
+      } catch (error) {
+        failure = error
       }
+
+      await releaseAndEndPool(pool, client, failure)
     },
 
     async scheduled(_controller: ScheduledController, env: WorkerBindings): Promise<void> {
@@ -218,12 +228,15 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
       }
 
       const pool = createPool(connectionString)
-      const client = await pool.connect()
+      let client: NotificationWorkerPoolClient | null = null
+      let failure: unknown
 
       try {
+        client = await pool.connect()
+
         const queryExecutor = {
           async query<Row>(queryInput: { text: string; values: readonly unknown[] }) {
-            const result = await client.query(queryInput.text, [...queryInput.values])
+            const result = await client!.query(queryInput.text, [...queryInput.values])
             return {
               rows: result.rows as Row[],
               rowCount: result.rowCount ?? undefined,
@@ -254,9 +267,11 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
         if (env.RECORDING_FINALIZATION_WORKFLOW) {
           await sweepRecordingFinalization(queryExecutor, env, consoleLike)
         }
-      } finally {
-        await client.release()
+      } catch (error) {
+        failure = error
       }
+
+      await releaseAndEndPool(pool, client, failure)
     },
   }
 }
@@ -280,6 +295,36 @@ const worker = createNotificationWorker({
 })
 
 export default worker
+
+async function releaseAndEndPool(
+  pool: NotificationWorkerPool,
+  client: NotificationWorkerPoolClient | null,
+  inFlightError: unknown,
+): Promise<void> {
+  let failure: unknown = inFlightError
+
+  if (client) {
+    try {
+      await client.release()
+    } catch (error) {
+      if (failure === undefined) {
+        failure = error
+      }
+    }
+  }
+
+  try {
+    await pool.end()
+  } catch (error) {
+    if (failure === undefined) {
+      failure = error
+    }
+  }
+
+  if (failure !== undefined) {
+    throw failure
+  }
+}
 
 function isSchemaValidationError(error: unknown): boolean {
   if (
@@ -489,5 +534,7 @@ async function sweepRecordingFinalization(
     logger.error('notification_orchestrator.sweep_failed', {
       error_message: error instanceof Error ? error.message : String(error),
     })
+    throw error
   }
 }
+

@@ -119,6 +119,8 @@ RealtimeKit server-controlled recording is used for session capture. Recording i
 **Recording finalization**:
 - `RecordingFinalizationWorkflow` runs in `mako-notification-orchestrator` with deterministic instance IDs `recording-finalize-v1-{provider_recording_id}-{attempt}`.
 - Workflow fetches fresh RealtimeKit status and short-lived asset URLs by provider recording ID, then streams composite playback and participant-track bodies into private `RECORDINGS_BUCKET`.
+- Provider asset downloads are bounded by a configurable `AbortSignal.timeout` (default 10 minutes) with redirects disabled. A download timeout compensates any objects stored by that run, releases the claim back to pending, and re-arms the checkpoint sweep-eligible (`awaiting_provider`) instead of failing finalization; unrelated provider fetch errors still fail the workflow.
+- Aggregate interview readiness is derived only after every required artifact passes an R2 head check. Transient R2 head-check failures are logged (`realtimekit.finalization.readiness_head_failed`) and leave the interview not-ready without failing the workflow or forcing a re-download.
 - Postgres webhook checkpoints are retried by the five-minute notification-orchestrator sweep with a bounded ten-attempt limit; signed URLs are never persisted.
 - `RECORDING_FINALIZATION_WORKFLOW` is bound in both Workers; production ownership and cross-Worker binding are managed by Terraform.
 

@@ -374,6 +374,7 @@ describe('notification-orchestrator queue handler', function queueHandlerSuite()
           async release() {},
         }
       },
+      async end() {},
     }
 
     const worker = createNotificationWorker({
@@ -413,6 +414,64 @@ describe('notification-orchestrator queue handler', function queueHandlerSuite()
     expect(logs.errors[0]).toMatchObject({
       event: 'notification_orchestrator.processing_error',
     })
+  })
+
+  it('releases the acquired client and ends the pool after processing a batch', async function run() {
+    const { worker, clientRelease, poolEnd } = createTestWorker()
+    const batch = createMockBatch([
+      createMockMessage('msg-1', {
+        event_type: 'interview.created',
+        event_id: '11111111-1111-4111-8111-111111111111',
+        idempotency_key: 'interview.created:22222222-2222-4222-8222-222222222222',
+        occurred_at: '2026-05-22T10:00:00.000Z',
+        interview: {
+          id: '22222222-2222-4222-8222-222222222222',
+          scheduler_id: '33333333-3333-4333-8333-333333333333',
+          interviewer_id: null,
+          type: 'system_design',
+          mode: 'ai_led',
+          tier: 'standard',
+          status: 'scheduled',
+          scheduled_at: '2026-05-22T14:00:00.000Z',
+        },
+        participants: {
+          scheduler_user_id: '33333333-3333-4333-8333-333333333333',
+          interviewer_user_id: null,
+        },
+      }),
+    ])
+
+    const env = createMockEnv()
+
+    await worker.queue(batch, env)
+
+    expect(batch.acked).toContain('msg-1')
+    expect(clientRelease).toHaveBeenCalledTimes(1)
+    expect(poolEnd).toHaveBeenCalledTimes(1)
+    expect(clientRelease.mock.invocationCallOrder[0]).toBeLessThan(
+      poolEnd.mock.invocationCallOrder[0],
+    )
+  })
+
+  it('ends the pool when the client connection fails and surfaces the connection error', async function run() {
+    const mockConsole = {
+      error: vi.fn(),
+      log: vi.fn(),
+    }
+    const poolEnd = vi.fn(async () => {})
+    const connect = vi.fn(async () => {
+      throw new Error('connection refused')
+    })
+    const worker = createNotificationWorker({
+      createPool: () => ({ connect, end: poolEnd }),
+      console: mockConsole,
+    })
+
+    const batch = createMockBatch([createMockMessage('msg-1', { invalid: 'payload' })])
+    const env = createMockEnv()
+
+    await expect(worker.queue(batch, env)).rejects.toThrow('connection refused')
+    expect(poolEnd).toHaveBeenCalledTimes(1)
   })
 
   describe('interview.completed feedback workflow triggering', function completedSuite() {
@@ -870,6 +929,62 @@ describe('notification-orchestrator scheduled handler', function scheduledHandle
     expect(terminal.values[2]).toBeNull()
     expect(typeof terminal.values[3]).toBe('string')
   })
+
+  it('releases the acquired client and ends the pool after the scheduled run', async function run() {
+    const { worker, clientRelease, poolEnd } = createTestWorker()
+    const env = createMockEnv()
+
+    await worker.scheduled(
+      { scheduledTime: Date.now(), cron: '*/5 * * * *', noRetry() {} },
+      env,
+    )
+
+    expect(clientRelease).toHaveBeenCalledTimes(1)
+    expect(poolEnd).toHaveBeenCalledTimes(1)
+    expect(clientRelease.mock.invocationCallOrder[0]).toBeLessThan(
+      poolEnd.mock.invocationCallOrder[0],
+    )
+  })
+
+  it('logs and rethrows sweep-level failures so the scheduled run surfaces them', async function run() {
+    const { worker, logs } = createTestWorker({
+      queryErrorsBySqlIncludes: {
+        'from realtimekit_webhook_events': new Error('sweep list failed'),
+      },
+    })
+
+    const env = {
+      ...createMockEnv(),
+      RECORDING_FINALIZATION_WORKFLOW: createMockRecordingFinalizationWorkflow(),
+    }
+
+    await expect(
+      worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *', noRetry() {} }, env),
+    ).rejects.toThrow('sweep list failed')
+
+    expect(logs.errors).toContainEqual(
+      expect.objectContaining({ event: 'notification_orchestrator.sweep_failed' }),
+    )
+  })
+
+  it('preserves the sweep error when releasing the client fails during cleanup', async function run() {
+    const { worker, poolEnd } = createTestWorker({
+      queryErrorsBySqlIncludes: {
+        'from realtimekit_webhook_events': new Error('sweep list failed'),
+      },
+      releaseRejectsWith: new Error('client release failed'),
+    })
+
+    const env = {
+      ...createMockEnv(),
+      RECORDING_FINALIZATION_WORKFLOW: createMockRecordingFinalizationWorkflow(),
+    }
+
+    await expect(
+      worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *', noRetry() {} }, env),
+    ).rejects.toThrow('sweep list failed')
+    expect(poolEnd).toHaveBeenCalledTimes(1)
+  })
 })
 
 describe('createNotificationWorker factory', function factorySuite() {
@@ -888,6 +1003,8 @@ describe('createNotificationWorker factory', function factorySuite() {
 
 function createTestWorker(options?: {
   queryRowsBySqlIncludes?: Record<string, unknown[]>
+  queryErrorsBySqlIncludes?: Record<string, Error>
+  releaseRejectsWith?: Error
 }) {
   const queueSentMessages: NotificationTransportMessage[] = []
   const queries: Array<{ text: string; values: unknown[] }> = []
@@ -905,12 +1022,28 @@ function createTestWorker(options?: {
     }),
   }
 
+  const clientRelease = vi.fn(async () => {
+    if (options?.releaseRejectsWith) {
+      throw options.releaseRejectsWith
+    }
+  })
+  const poolEnd = vi.fn(async () => {})
+
   const mockPool = {
     async connect() {
       return {
         async query(text: string, values: unknown[]) {
           queries.push({ text, values })
           const normalizedSql = text.toLowerCase()
+
+          if (options?.queryErrorsBySqlIncludes) {
+            for (const [needle, error] of Object.entries(options.queryErrorsBySqlIncludes)) {
+              if (normalizedSql.includes(needle.toLowerCase())) {
+                throw error
+              }
+            }
+          }
+
           const configuredRows = options?.queryRowsBySqlIncludes
 
           if (configuredRows) {
@@ -923,8 +1056,11 @@ function createTestWorker(options?: {
 
           return { rows: [], rowCount: 0 }
         },
-        async release() {},
+        release: clientRelease,
       }
+    },
+    async end() {
+      return poolEnd()
     },
   }
 
@@ -933,7 +1069,7 @@ function createTestWorker(options?: {
     console: mockConsole,
   })
 
-  return { worker, queueSentMessages, logs, queries }
+  return { worker, queueSentMessages, logs, queries, clientRelease, poolEnd }
 }
 
 function sweepCheckpointUpdates(queries: Array<{ text: string; values: unknown[] }>) {

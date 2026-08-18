@@ -33,11 +33,19 @@ export class RealtimeKitInvalidProviderAssetError extends Error {
   }
 }
 
+export class RealtimeKitProviderDownloadTimeoutError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'RealtimeKitProviderDownloadTimeoutError'
+  }
+}
+
 export type RecordingFinalizationConfig = {
   sweepDelayMs: number
   artifactExpiryDays: number
   maxArtifactBytes: number
   allowedDownloadHosts: readonly string[]
+  providerDownloadTimeoutMs: number
 }
 
 export const DEFAULT_RECORDING_FINALIZATION_CONFIG: RecordingFinalizationConfig = {
@@ -45,6 +53,7 @@ export const DEFAULT_RECORDING_FINALIZATION_CONFIG: RecordingFinalizationConfig 
   artifactExpiryDays: 30,
   maxArtifactBytes: 2 * 1024 * 1024 * 1024,
   allowedDownloadHosts: ['api.realtime.cloudflare.com'],
+  providerDownloadTimeoutMs: 10 * 60 * 1000,
 }
 
 export type RecordingFinalizationServiceDependencies = {
@@ -182,9 +191,29 @@ export class RecordingFinalizationService {
       // A failed asset copy or a rolled-back core transaction leaves freshly
       // stored R2 objects orphaned: no artifact row references them, so a retry
       // would download and upload the same bytes again. Delete exactly the keys
-      // this run stored; pre-existing rows/objects are never touched. The
-      // original error always propagates unchanged.
+      // this run stored; pre-existing rows/objects are never touched.
       await this.deleteStoredArtifacts(storedKeys, error)
+
+      if (error instanceof RealtimeKitProviderDownloadTimeoutError) {
+        // A provider download timeout is a transient provider stall, not a
+        // failure: the object(s) stored by this run are compensated above, the
+        // claim returns to pending, and the checkpoint stays sweep-eligible so
+        // the scheduled retry re-downloads once the provider resumes. The event
+        // completes successfully (awaiting_provider) instead of consuming a
+        // bounded retry on an unrecoverable re-run.
+        await this.repository.releaseClaim(providerRecordingId, now)
+        await this.repository.markEventAwaiting(
+          providerRecordingId,
+          addMilliseconds(now, this.config.sweepDelayMs),
+        )
+        this.logger.warn('realtimekit.finalization.provider_download_timeout', {
+          provider_recording_id: providerRecordingId,
+          stored_artifact_count: storedKeys.length,
+        })
+        return { status: 'awaiting_provider' }
+      }
+
+      // Any other failure always propagates unchanged.
       throw error
     }
 
@@ -229,10 +258,25 @@ export class RecordingFinalizationService {
 
       assertSafeProviderUrl(asset.downloadUrl, this.config.allowedDownloadHosts)
 
+      // A stalled provider must not pin the workflow step forever, so the
+      // download is bounded by a configurable AbortSignal.timeout.
+      const timeoutSignal = AbortSignal.timeout(this.config.providerDownloadTimeoutMs)
+
       // Redirects are never followed: a redirect from an allowlisted endpoint
       // could point the Worker at an arbitrary host and bypass the SSRF
       // boundary assertSafeProviderUrl() enforces. Any redirect is rejected.
-      const response = await this.fetch(asset.downloadUrl, { redirect: 'manual' })
+      let response: Response
+      try {
+        response = await this.fetch(asset.downloadUrl, {
+          redirect: 'manual',
+          signal: timeoutSignal,
+        })
+      } catch (error) {
+        // Only an abort fired by our own timeout signal is a provider stall.
+        // Any other fetch failure (network, DNS, TLS) is unrelated and stays a
+        // hard workflow failure handled by the caller.
+        throwProviderDownloadError(error, timeoutSignal)
+      }
 
       // With redirects disabled, the Workers runtime surfaces a manual
       // redirect as an opaque-redirect response (status 0) while other
@@ -274,16 +318,25 @@ export class RecordingFinalizationService {
       const expiresAt = addDays(now, this.config.artifactExpiryDays)
       const recordingId = crypto.randomUUID()
 
-      const stored = await this.storage.storeRecording({
-        interviewId: loaded.interview.id,
-        recordingId,
-        contentType,
-        body: boundedBody,
-        captureTimestamp: capturedAt,
-        artifactKind,
-        participantId: job.participant_id ?? undefined,
-        participantRole: job.participant_role ?? undefined,
-      })
+      let stored: Awaited<ReturnType<ArtifactStoragePort['storeRecording']>>
+      try {
+        stored = await this.storage.storeRecording({
+          interviewId: loaded.interview.id,
+          recordingId,
+          contentType,
+          body: boundedBody,
+          captureTimestamp: capturedAt,
+          artifactKind,
+          participantId: job.participant_id ?? undefined,
+          participantRole: job.participant_role ?? undefined,
+        })
+      } catch (error) {
+        // A timeout firing while the response body streams surfaces from the
+        // body read (or the bounded stream) rather than the fetch promise, so
+        // the abort is classified here too. The object is added to storedKeys
+        // only after a fully successful store.
+        throwProviderDownloadError(error, timeoutSignal)
+      }
 
       // Track only keys newly stored by this run: they are the only objects
       // eligible for compensating deletion if a later step fails.
@@ -349,7 +402,25 @@ export class RecordingFinalizationService {
       keys.push(job.artifact_object_key)
     }
 
-    const heads = await Promise.all(keys.map((key) => this.storage.headArtifact(key)))
+    const heads = await Promise.all(
+      keys.map(async (key) => {
+        try {
+          return await this.storage.headArtifact(key)
+        } catch (error) {
+          // The job is already finalized by the time readiness is derived, so
+          // a thrown head failure could never be recovered by the retry (it
+          // would return already_finalized) and would force a wasteful
+          // re-download. A transient R2 failure instead logs a safe error and
+          // leaves the interview not-ready; the next derivation attempts again.
+          this.logger.error('realtimekit.finalization.readiness_head_failed', {
+            interview_id: loaded.interview.id,
+            object_key: key,
+            error: error instanceof Error ? error.message : String(error),
+          })
+          return null
+        }
+      }),
+    )
 
     if (heads.some((head) => !head)) {
       return
@@ -381,6 +452,28 @@ export class RecordingFinalizationService {
       }
     }
   }
+}
+
+function throwProviderDownloadError(error: unknown, signal: AbortSignal): never {
+  // Only an abort fired by the timeout signal we created for this download is
+  // treated as a provider stall. The runtime surfaces that abort either as the
+  // signal being flagged or as an AbortError/TimeoutError DOMException (both
+  // are exclusive to the abort mechanism). Unrelated fetch/stream errors,
+  // including network failures, pass through untouched.
+  if (signal.aborted || isAbortError(error)) {
+    throw new RealtimeKitProviderDownloadTimeoutError(
+      'Provider download timed out.',
+    )
+  }
+
+  throw error
+}
+
+function isAbortError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    (error.name === 'AbortError' || error.name === 'TimeoutError')
+  )
 }
 
 function assertSafeProviderUrl(

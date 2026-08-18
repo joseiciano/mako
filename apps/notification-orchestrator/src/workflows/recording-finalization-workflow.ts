@@ -16,6 +16,7 @@ import {
   REALTIMEKIT_SAFE_ERROR_CODES,
   DEFAULT_REALTIMEKIT_SWEEP_DELAY_MS,
   type PostgresConnectionClient,
+  type PostgresConnectionPool,
   type RecordingFinalizationRepositoryPort,
   type SqlQueryExecutor,
 } from '@mako/shared-backend'
@@ -96,14 +97,27 @@ export class RecordingFinalizationWorkflow extends WorkflowEntrypoint<
   WorkerBindings,
   RecordingFinalizationWorkflowPayload
 > {
+  constructor(
+    ctx: ExecutionContext,
+    env: WorkerBindings,
+    private readonly poolFactory: (
+      connectionString: string,
+    ) => Pick<PostgresConnectionPool, 'connect' | 'end'> = createPostgresConnectionPool,
+  ) {
+    super(ctx, env)
+  }
+
   async run(
     event: Readonly<WorkflowEvent<RecordingFinalizationWorkflowPayload>>,
     step: WorkflowStep,
   ) {
     const payload = recordingFinalizationWorkflowPayloadSchema.parse(event.payload)
     const env = this.env
-    const { queryExecutor, cleanup } = createWorkflowQueryExecutor(env)
+    const { queryExecutor, cleanup } = createWorkflowQueryExecutor(env, this.poolFactory)
     const repository = new RecordingFinalizationRepository({ queryExecutor })
+
+    let failure: unknown
+    let result: { status: 'failed'; reason: string } | { provider_recording_id: string; attempt: number; status: string; [key: string]: unknown } | null = null
 
     try {
       const recordingsBucketPort = env.RECORDINGS_BUCKET
@@ -111,66 +125,67 @@ export class RecordingFinalizationWorkflow extends WorkflowEntrypoint<
         : null
 
       if (!recordingsBucketPort) {
-        return { status: 'failed', reason: 'recordings_bucket_not_configured' }
-      }
+        result = { status: 'failed', reason: 'recordings_bucket_not_configured' }
+      } else {
+        const storage = createArtifactStorage(recordingsBucketPort, recordingsBucketPort)
 
-      const storage = createArtifactStorage(recordingsBucketPort, recordingsBucketPort)
+        const providerClient = createRealtimeKitRecordingClient({
+          CLOUDFLARE_ACCOUNT_ID: env.CLOUDFLARE_ACCOUNT_ID,
+          CLOUDFLARE_API_TOKEN: env.CLOUDFLARE_API_TOKEN,
+          CLOUDFLARE_REALTIMEKIT_APP_ID: env.CLOUDFLARE_REALTIMEKIT_APP_ID,
+        })
 
-      const providerClient = createRealtimeKitRecordingClient({
-        CLOUDFLARE_ACCOUNT_ID: env.CLOUDFLARE_ACCOUNT_ID,
-        CLOUDFLARE_API_TOKEN: env.CLOUDFLARE_API_TOKEN,
-        CLOUDFLARE_REALTIMEKIT_APP_ID: env.CLOUDFLARE_REALTIMEKIT_APP_ID,
-      })
-
-      const service = new RecordingFinalizationService({
-        repository,
-        storage,
-        providerClient,
-        fetch: globalThis.fetch,
-        logger: {
-          info(event, context) {
-            console.info({
-              event,
-              component: 'RecordingFinalizationWorkflow',
-              provider_recording_id: payload.provider_recording_id,
-              attempt: payload.attempt,
-              ...context,
-            })
+        const service = new RecordingFinalizationService({
+          repository,
+          storage,
+          providerClient,
+          fetch: globalThis.fetch,
+          logger: {
+            info(event, context) {
+              console.info({
+                event,
+                component: 'RecordingFinalizationWorkflow',
+                provider_recording_id: payload.provider_recording_id,
+                attempt: payload.attempt,
+                ...context,
+              })
+            },
+            warn(event, context) {
+              console.warn({
+                event,
+                component: 'RecordingFinalizationWorkflow',
+                provider_recording_id: payload.provider_recording_id,
+                attempt: payload.attempt,
+                ...context,
+              })
+            },
+            error(event, context) {
+              console.error({
+                event,
+                component: 'RecordingFinalizationWorkflow',
+                provider_recording_id: payload.provider_recording_id,
+                attempt: payload.attempt,
+                ...context,
+              })
+            },
           },
-          warn(event, context) {
-            console.warn({
-              event,
-              component: 'RecordingFinalizationWorkflow',
-              provider_recording_id: payload.provider_recording_id,
-              attempt: payload.attempt,
-              ...context,
-            })
-          },
-          error(event, context) {
-            console.error({
-              event,
-              component: 'RecordingFinalizationWorkflow',
-              provider_recording_id: payload.provider_recording_id,
-              attempt: payload.attempt,
-              ...context,
-            })
-          },
-        },
-      })
+        })
 
-      const result = await step.do(STEP_FINALIZE_RECORDING, async function finalizeRecording() {
-        return service.finalizeRecording(
-          payload.provider_recording_id,
-          event.timestamp.toISOString(),
-        )
-      })
+        const finalizeResult = await step.do(STEP_FINALIZE_RECORDING, async function finalizeRecording() {
+          return service.finalizeRecording(
+            payload.provider_recording_id,
+            event.timestamp.toISOString(),
+          )
+        })
 
-      return {
-        provider_recording_id: payload.provider_recording_id,
-        attempt: payload.attempt,
-        ...result,
+        result = {
+          provider_recording_id: payload.provider_recording_id,
+          attempt: payload.attempt,
+          ...finalizeResult,
+        }
       }
     } catch (error) {
+      failure = error
       const errorCode = mapRecordingFinalizationError(error)
       const failedAt = new Date().toISOString()
 
@@ -190,11 +205,33 @@ export class RecordingFinalizationWorkflow extends WorkflowEntrypoint<
           })
         },
       })
-
-      throw error
-    } finally {
-      await cleanup()
     }
+
+    try {
+      await cleanup()
+    } catch (cleanupError) {
+      if (failure === undefined) {
+        throw cleanupError
+      }
+      console.error({
+        event: 'recording_finalization.cleanup_failure',
+        component: 'RecordingFinalizationWorkflow',
+        provider_recording_id: payload.provider_recording_id,
+        attempt: payload.attempt,
+        cleanup_error:
+          cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+      })
+    }
+
+    if (failure !== undefined) {
+      throw failure
+    }
+
+    if (result === null) {
+      throw new Error('recording_finalization_run_outcome_missing')
+    }
+
+    return result
   }
 }
 
@@ -214,7 +251,12 @@ function addMilliseconds(timestamp: string, millis: number): string {
   return new Date(new Date(timestamp).getTime() + millis).toISOString()
 }
 
-function createWorkflowQueryExecutor(env: WorkerBindings): {
+export function createWorkflowQueryExecutor(
+  env: WorkerBindings,
+  createPool: (
+    connectionString: string,
+  ) => Pick<PostgresConnectionPool, 'connect' | 'end'> = createPostgresConnectionPool,
+): {
   queryExecutor: SqlQueryExecutor
   cleanup: () => Promise<void>
 } {
@@ -223,7 +265,7 @@ function createWorkflowQueryExecutor(env: WorkerBindings): {
     throw new Error('HYPERDRIVE binding is not configured')
   }
 
-  const pool = createPostgresConnectionPool(connectionString)
+  const pool = createPool(connectionString)
   let clientPromise: Promise<PostgresConnectionClient> | null = null
 
   return {
@@ -241,9 +283,27 @@ function createWorkflowQueryExecutor(env: WorkerBindings): {
       },
     },
     async cleanup() {
+      let cleanupError: unknown
+
       if (clientPromise) {
-        const client = await clientPromise
-        await client.release()
+        try {
+          const client = await clientPromise
+          await client.release()
+        } catch (error) {
+          cleanupError = error
+        }
+      }
+
+      try {
+        await pool.end()
+      } catch (error) {
+        if (cleanupError === undefined) {
+          cleanupError = error
+        }
+      }
+
+      if (cleanupError !== undefined) {
+        throw cleanupError
       }
     },
   }
