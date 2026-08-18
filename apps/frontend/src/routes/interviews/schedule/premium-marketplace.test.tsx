@@ -1041,30 +1041,22 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
       })
     })
 
-    it('regression: replayStartedRef blocks re-issue when effect re-runs within same lifecycle', async function run() {
+    it('regression: re-render does not replay the durable claim again', async function run() {
       window.localStorage.setItem(
         SCHEDULE_DRAFT_V2_STORAGE_KEY,
         persistedClaim(),
       )
 
-      render(<PremiumMarketplaceSmart />, { wrapper: createWrapper() })
+      const { rerender } = render(<PremiumMarketplaceSmart />, {
+        wrapper: createWrapper(),
+      })
 
       await waitFor(function assertReplayIssued() {
         expect(mockClaimMutate).toHaveBeenCalledTimes(1)
       })
 
-      // Simulate effect re-run by toggling mock pending state (triggers re-render,
-      // which would re-evaluate the effect if replayStartedRef were absent)
-      mockClaimIsPending = true
-      await waitFor(function waitAfterToggle() {
-        // allow microtask flush
-      })
-      mockClaimIsPending = false
-      await waitFor(function waitAfterSecondToggle() {
-        // allow microtask flush
-      })
+      rerender(<PremiumMarketplaceSmart />)
 
-      // Claim must still have been issued exactly once
       expect(mockClaimMutate).toHaveBeenCalledTimes(1)
     })
 

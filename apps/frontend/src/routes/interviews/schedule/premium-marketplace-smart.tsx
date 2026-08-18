@@ -40,6 +40,10 @@ type DurableClaim = {
   startedAt: string
 }
 
+function replayKey(claim: DurableClaim): string {
+  return `${claim.slotId}:${claim.idempotencyKey}`
+}
+
 export function classifyClaimError(error: Error | null): ClaimFailureKind | null {
   if (error === null) return null
 
@@ -161,11 +165,8 @@ export function PremiumMarketplaceSmart() {
   )
 
   const handleClaimSuccess = useCallback(
-    function handleClaimSuccess(data: PremiumClaimResponse) {
-      const claim = durableClaimRef.current
-      if (claim !== null) {
-        replayedClaims.delete(`${claim.slotId}:${claim.idempotencyKey}`)
-      }
+    function handleClaimSuccess(data: PremiumClaimResponse, claim: DurableClaim) {
+      replayedClaims.delete(replayKey(claim))
       clearVerifiedInterviewerClaim()
       setDurableClaim(null)
       setErrorOutcome(null)
@@ -175,20 +176,11 @@ export function PremiumMarketplaceSmart() {
   )
 
   const handleClaimError = useCallback(
-    function handleClaimError(error: Error) {
+    function handleClaimError(error: Error, claim: DurableClaim) {
       const failure = classifyClaimError(error) ?? 'transient'
-      const claim = durableClaimRef.current
-
-      if (claim === null) {
-        setErrorOutcome(buildOutcome('transient'))
-        return
-      }
 
       if (failure === 'already_claimed' || failure === 'interviewer_ineligible') {
-        const claim = durableClaimRef.current
-        if (claim !== null) {
-          replayedClaims.delete(`${claim.slotId}:${claim.idempotencyKey}`)
-        }
+        replayedClaims.delete(replayKey(claim))
         clearVerifiedInterviewerClaim()
         setDurableClaim(null)
         void marketplace.refetch()
@@ -205,10 +197,10 @@ export function PremiumMarketplaceSmart() {
         { slotId: claim.slotId, idempotencyKey: claim.idempotencyKey },
         {
           onSuccess: function onClaimSuccess(data) {
-            handleClaimSuccess(data)
+            handleClaimSuccess(data, claim)
           },
           onError: function onClaimError(error) {
-            handleClaimError(error)
+            handleClaimError(error, claim)
           },
         },
       )
@@ -282,7 +274,7 @@ export function PremiumMarketplaceSmart() {
       if (claim === null) return
       if (claimMutation.isPending) return
 
-      replayedClaims.delete(`${claim.slotId}:${claim.idempotencyKey}`)
+      replayedClaims.delete(replayKey(claim))
 
       const freshKey = crypto.randomUUID()
       const startedAt = new Date().toISOString()
