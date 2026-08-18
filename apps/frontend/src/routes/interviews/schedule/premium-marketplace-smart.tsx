@@ -162,6 +162,10 @@ export function PremiumMarketplaceSmart() {
 
   const handleClaimSuccess = useCallback(
     function handleClaimSuccess(data: PremiumClaimResponse) {
+      const claim = durableClaimRef.current
+      if (claim !== null) {
+        replayedClaims.delete(`${claim.slotId}:${claim.idempotencyKey}`)
+      }
       clearVerifiedInterviewerClaim()
       setDurableClaim(null)
       setErrorOutcome(null)
@@ -181,6 +185,10 @@ export function PremiumMarketplaceSmart() {
       }
 
       if (failure === 'already_claimed' || failure === 'interviewer_ineligible') {
+        const claim = durableClaimRef.current
+        if (claim !== null) {
+          replayedClaims.delete(`${claim.slotId}:${claim.idempotencyKey}`)
+        }
         clearVerifiedInterviewerClaim()
         setDurableClaim(null)
         void marketplace.refetch()
@@ -273,6 +281,8 @@ export function PremiumMarketplaceSmart() {
       const claim = durableClaimRef.current
       if (claim === null) return
       if (claimMutation.isPending) return
+
+      replayedClaims.delete(`${claim.slotId}:${claim.idempotencyKey}`)
 
       const freshKey = crypto.randomUUID()
       const startedAt = new Date().toISOString()

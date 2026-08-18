@@ -5,20 +5,22 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { StrictMode, type ReactNode } from 'react'
 import type { PremiumMarketplaceSlot } from '@mako/shared'
 
+const mockLinkSpy = vi.hoisted(() =>
+  vi.fn(function MockLink(props: {
+    to: string
+    children: ReactNode
+    className?: string
+  }) {
+    return (
+      <a href={props.to} className={props.className}>
+        {props.children}
+      </a>
+    )
+  }),
+)
+
 vi.mock('@tanstack/react-router', function () {
-  return {
-    Link: function MockLink(props: {
-      to: string
-      children: ReactNode
-      className?: string
-    }) {
-      return (
-        <a href={props.to} className={props.className}>
-          {props.children}
-        </a>
-      )
-    },
-  }
+  return { Link: mockLinkSpy }
 })
 import { SCHEDULE_DRAFT_V2_STORAGE_KEY } from './schedule-flow'
 import {
@@ -390,6 +392,21 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
       expect(
         screen.getByRole('link', { name: /add credits/i }),
       ).toHaveAttribute('href', '/billing')
+    })
+
+    it('uses TanStack Router Link for billing navigation', function run() {
+      mockLinkSpy.mockClear()
+      renderDumb({
+        errorOutcome: {
+          message: 'A claim costs exactly one credit and your balance is too low.',
+          retryLabel: null,
+          sameSlotResubmitLabel: null,
+          billingHref: '/billing',
+        },
+      })
+      expect(mockLinkSpy).toHaveBeenCalledTimes(1)
+      const firstArg = mockLinkSpy.mock.calls[0]![0] as { to: string }
+      expect(firstArg.to).toBe('/billing')
     })
 
     it('renders the same-slot resubmit action for idempotency conflicts', async function run() {
@@ -880,6 +897,75 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
       )
     })
 
+    it('removes replayedClaims entry when terminal error clears the durable claim', async function run() {
+      window.localStorage.setItem(
+        SCHEDULE_DRAFT_V2_STORAGE_KEY,
+        persistedClaim(),
+      )
+
+      render(
+        <StrictMode>
+          <PremiumMarketplaceSmart />
+        </StrictMode>,
+        { wrapper: createWrapper() },
+      )
+
+      await waitFor(function assertReplayIssued() {
+        expect(mockClaimMutate).toHaveBeenCalledTimes(1)
+      })
+
+      const claimKey = `${slotId}:${idempotencyKey}`
+      expect(replayedClaims.has(claimKey)).toBe(true)
+
+      const options = mockClaimMutate.mock.calls[0]![1]
+      options.onError(new Error('PREMIUM_SLOT_ALREADY_CLAIMED'))
+
+      await waitFor(function assertTerminal() {
+        expect(screen.getByRole('alert')).toHaveTextContent(
+          /no longer available/i,
+        )
+      })
+
+      expect(replayedClaims.has(claimKey)).toBe(false)
+    })
+
+    it('removes old replayedClaims entry when key is replaced via same-slot resubmit', async function run() {
+      const user = userEvent.setup()
+      window.localStorage.setItem(
+        SCHEDULE_DRAFT_V2_STORAGE_KEY,
+        persistedClaim(),
+      )
+
+      render(
+        <StrictMode>
+          <PremiumMarketplaceSmart />
+        </StrictMode>,
+        { wrapper: createWrapper() },
+      )
+
+      await waitFor(function assertReplayIssued() {
+        expect(mockClaimMutate).toHaveBeenCalledTimes(1)
+      })
+
+      const oldKey = `${slotId}:${idempotencyKey}`
+      expect(replayedClaims.has(oldKey)).toBe(true)
+
+      const options = mockClaimMutate.mock.calls[0]![1]
+      options.onError(new Error('IDEMPOTENCY_KEY_CONFLICT'))
+
+      await waitFor(function assertConflict() {
+        expect(
+          screen.getByRole('button', { name: /fresh key/i }),
+        ).toBeDefined()
+      })
+
+      await user.click(
+        screen.getByRole('button', { name: /fresh key/i }),
+      )
+
+      expect(replayedClaims.has(oldKey)).toBe(false)
+    })
+
     it('replays the same key for the same slot on reload with a persisted unknown claim', async function run() {
       window.localStorage.setItem(
         SCHEDULE_DRAFT_V2_STORAGE_KEY,
@@ -917,6 +1003,90 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
         ).toBeNull()
       })
       expect(screen.getByRole('status')).toHaveTextContent(/booked/i)
+    })
+
+    it('regression: StrictMode issues claim once, fresh page replays it', async function run() {
+      const claimKey = `${slotId}:${idempotencyKey}`
+      window.localStorage.setItem(
+        SCHEDULE_DRAFT_V2_STORAGE_KEY,
+        persistedClaim(),
+      )
+
+      const { unmount } = render(
+        <StrictMode>
+          <PremiumMarketplaceSmart />
+        </StrictMode>,
+        { wrapper: createWrapper() },
+      )
+
+      await waitFor(function assertSingleReplay() {
+        expect(mockClaimMutate).toHaveBeenCalledTimes(1)
+      })
+      expect(replayedClaims.has(claimKey)).toBe(true)
+
+      unmount()
+
+      // Simulate page reload: clear module-level guard
+      replayedClaims.clear()
+
+      // Fresh page: claim replays
+      render(<PremiumMarketplaceSmart />, { wrapper: createWrapper() })
+
+      await waitFor(function assertReplayAfterReload() {
+        expect(mockClaimMutate).toHaveBeenCalledTimes(2)
+      })
+      expect(mockClaimMutate.mock.calls[1]![0]).toEqual({
+        slotId,
+        idempotencyKey,
+      })
+    })
+
+    it('regression: replayStartedRef blocks re-issue when effect re-runs within same lifecycle', async function run() {
+      window.localStorage.setItem(
+        SCHEDULE_DRAFT_V2_STORAGE_KEY,
+        persistedClaim(),
+      )
+
+      render(<PremiumMarketplaceSmart />, { wrapper: createWrapper() })
+
+      await waitFor(function assertReplayIssued() {
+        expect(mockClaimMutate).toHaveBeenCalledTimes(1)
+      })
+
+      // Simulate effect re-run by toggling mock pending state (triggers re-render,
+      // which would re-evaluate the effect if replayStartedRef were absent)
+      mockClaimIsPending = true
+      await waitFor(function waitAfterToggle() {
+        // allow microtask flush
+      })
+      mockClaimIsPending = false
+      await waitFor(function waitAfterSecondToggle() {
+        // allow microtask flush
+      })
+
+      // Claim must still have been issued exactly once
+      expect(mockClaimMutate).toHaveBeenCalledTimes(1)
+    })
+
+    it('regression: fresh page with no prior replayedClaims reissues the persisted claim', async function run() {
+      // Ensure replayedClaims is empty (simulates brand-new document)
+      replayedClaims.clear()
+      expect(replayedClaims.size).toBe(0)
+
+      window.localStorage.setItem(
+        SCHEDULE_DRAFT_V2_STORAGE_KEY,
+        persistedClaim(),
+      )
+
+      render(<PremiumMarketplaceSmart />, { wrapper: createWrapper() })
+
+      await waitFor(function assertReplayIssued() {
+        expect(mockClaimMutate).toHaveBeenCalledTimes(1)
+      })
+      expect(mockClaimMutate).toHaveBeenCalledWith(
+        { slotId, idempotencyKey },
+        expect.any(Object),
+      )
     })
 
     it('blocks claiming a different slot while an unknown claim is unresolved', async function run() {
