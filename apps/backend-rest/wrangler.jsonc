@@ -27,6 +27,12 @@
       "binding": "SESSION_TIMER_WORKFLOW",
       "name": "session-timer-workflow",
       "class_name": "SessionTimerWorkflow"
+    },
+    {
+      "binding": "RECORDING_FINALIZATION_WORKFLOW",
+      "name": "recording-finalization-workflow",
+      "class_name": "RecordingFinalizationWorkflow",
+      "script_name": "mako-notification-orchestrator"
     }
   ],
   "ratelimits": [
