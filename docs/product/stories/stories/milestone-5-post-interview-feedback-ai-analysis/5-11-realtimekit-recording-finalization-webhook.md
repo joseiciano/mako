@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 5: Post-Interview Feedback & AI Analysis
 **Description**: Accept signed RealtimeKit recording updates and hand durable composite/participant-audio finalization to a dedicated workflow.
-**Status**: Todo
+**Status**: Completed
 **Prerequisites**:
 - `docs/system/system-design/api-routes.md`
 - `docs/infrastructure/backend.md`

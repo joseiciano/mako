@@ -51,6 +51,7 @@ export * from './credit'
 export * from './tier-policy'
 export * from './payment'
 export * from './interview-assets'
+export * from './realtimekit'
 export * from './premium'
 export {
   interviewCreatedEventSchema,

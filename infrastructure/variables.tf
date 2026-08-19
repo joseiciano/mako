@@ -82,6 +82,18 @@ variable "feedback_workflow_class_name" {
   default     = "InterviewFeedbackWorkflow"
 }
 
+variable "recording_finalization_workflow_name" {
+  description = "Workflow name for recording finalization processing."
+  type        = string
+  default     = "recording-finalization-workflow"
+}
+
+variable "recording_finalization_workflow_class_name" {
+  description = "Workflow class exported by the notification orchestrator for recording finalization."
+  type        = string
+  default     = "RecordingFinalizationWorkflow"
+}
+
 variable "recordings_bucket_name" {
   description = "R2 bucket name for interview recordings."
   type        = string

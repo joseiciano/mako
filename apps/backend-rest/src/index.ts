@@ -99,8 +99,23 @@ import {
   type HyperdriveBinding,
 } from './database'
 import { SessionTimerWorkflow } from './workflows/session-timer-workflow'
+import {
+  DEFAULT_REALTIMEKIT_WEBHOOK_PUBLIC_KEY_URL,
+  registerRealtimeKitWebhookController,
+  RealtimeKitWebhookService,
+  RealtimeKitWebhookRepository,
+  createRealtimeKitSignatureVerifier,
+  createRealtimeKitPublicKeyProvider,
+  createRealtimeKitWorkflowTriggerPort,
+  type RealtimeKitWebhookLogger,
+} from '@mako/shared-backend'
 
 export { SessionTimerWorkflow }
+
+type RecordingFinalizationWorkflowPayload = {
+  provider_recording_id: string
+  attempt: number
+}
 
 export type WorkerBindings = {
   DB?: DatabaseBinding
@@ -114,8 +129,10 @@ export type WorkerBindings = {
   CLOUDFLARE_ACCOUNT_ID?: string
   CLOUDFLARE_API_TOKEN?: string
   CLOUDFLARE_REALTIMEKIT_APP_ID?: string
+  REALTIMEKIT_WEBHOOK_PUBLIC_KEY?: string
   AI_GATEWAY_BASE_URL?: string
   SESSION_TIMER_WORKFLOW?: Workflow
+  RECORDING_FINALIZATION_WORKFLOW?: Workflow<RecordingFinalizationWorkflowPayload>
   STRIPE_SECRET_KEY?: string
   STRIPE_WEBHOOK_SECRET?: string
   PREMIUM_MARKETPLACE_RATE_LIMITER?: RateLimiter
@@ -213,14 +230,71 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
 
   app.use('/api/*', applyCorsHeaders)
 
-  app.use(
-    '/api/*',
-    createAuthSessionMiddleware({
-      getAuth: function getAuth(context) {
-        return createWorkerAuth(context)
-      },
-    }),
-  )
+  // Provider webhook boundary: intentionally registered before the browser-auth
+  // middleware and scoped outside browser-session authentication. Authenticity is
+  // established by the rtk-signature public-key verification inside the service.
+  registerRealtimeKitWebhookController(app, {
+    createService: function createService(context) {
+      const queryExecutor = hasDatabaseAccess(context.bindings)
+        ? createDatabaseQueryExecutor(context.bindings)
+        : undefined
+
+      if (!queryExecutor) {
+        return undefined
+      }
+
+      const webhookRepository = new RealtimeKitWebhookRepository({ queryExecutor })
+
+      const workflowTrigger = context.bindings.RECORDING_FINALIZATION_WORKFLOW
+        ? createRealtimeKitWorkflowTriggerPort(context.bindings.RECORDING_FINALIZATION_WORKFLOW)
+        : undefined
+
+      const workflowLogger: RealtimeKitWebhookLogger = {
+        info(event, context) {
+          console.info({ event, component: 'RealtimeKitWebhook', ...context })
+        },
+        warn(event, context) {
+          console.warn({ event, component: 'RealtimeKitWebhook', ...context })
+        },
+        error(event, context) {
+          console.error({ event, component: 'RealtimeKitWebhook', ...context })
+        },
+      }
+
+      const publicKeyProvider = createRealtimeKitPublicKeyProvider({
+        url: DEFAULT_REALTIMEKIT_WEBHOOK_PUBLIC_KEY_URL,
+        cacheTtlMs: 5 * 60 * 1000,
+        fetch: globalThis.fetch,
+        fallbackPem: context.bindings.REALTIMEKIT_WEBHOOK_PUBLIC_KEY,
+      })
+
+      const signatureVerifier = createRealtimeKitSignatureVerifier({
+        publicKeyProvider,
+        subtle: crypto.subtle,
+      })
+
+      return new RealtimeKitWebhookService(
+        webhookRepository,
+        signatureVerifier,
+        workflowTrigger,
+        workflowLogger,
+      )
+    },
+  })
+
+  const authSessionMiddleware = createAuthSessionMiddleware({
+    getAuth: function getAuth(context) {
+      return createWorkerAuth(context)
+    },
+  })
+
+  app.use('/api/*', async function applyAuthSessionMiddlewareScoped(c, next) {
+    if (c.req.path.startsWith('/api/webhooks/')) {
+      return next()
+    }
+
+    return authSessionMiddleware(c, next)
+  })
 
   registerAuthController(app, {
     getAuth: function getAuth(context) {

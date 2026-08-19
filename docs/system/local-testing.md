@@ -108,3 +108,9 @@ The `POST /api/payments/webhook` endpoint verifies Stripe webhook signatures usi
    The worker logs the credit grant. Verify the user's credit balance updated via `GET /api/account`. The `user_id` must match a real local user; the demo account ID above works in demo-mode flows.
 
 **Note**: `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` must both be present in `.dev.vars` for local payment flows. The Stripe SDK client is initialized from `STRIPE_SECRET_KEY`; webhook signature verification uses `STRIPE_WEBHOOK_SECRET`.
+
+## RealtimeKit Recording Finalization Local Testing
+
+Set `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_REALTIMEKIT_APP_ID`, and `REALTIMEKIT_WEBHOOK_PUBLIC_KEY` in `apps/backend-rest/.dev.vars`. Run notification-orchestrator with matching `HYPERDRIVE`, private R2, and RealtimeKit bindings from its `wrangler.jsonc`.
+
+`POST /api/webhooks/realtimekit` requires raw-body `rtk-signature` and `rtk-uuid` headers. Accepted `UPLOADED` events create deterministic `RecordingFinalizationWorkflow` instances; the five-minute scheduled sweep retries due checkpoints.

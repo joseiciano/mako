@@ -1,5 +1,5 @@
 import * as sharedBackend from '@mako/shared-backend'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createApp, type WorkerBindings } from './index'
 
 function createMockStripeClient(overrides: {
@@ -1410,6 +1410,277 @@ describe('payment routes', function () {
   })
 })
 
+describe('realtimekit webhook routes', function () {
+  const RECORDING_ID = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'
+  const EVENT_UUID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
+  const INTERVIEW_ID = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc'
+
+  let keyPair: CryptoKeyPair
+  let publicKeyPem: string
+
+  beforeEach(async function () {
+    sharedBackend.clearRealtimeKitPublicKeyCache()
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('network down'))
+    const generated = await generateWebhookKeyPair()
+    keyPair = generated.keyPair
+    publicKeyPem = generated.publicKeyPem
+  })
+
+  afterEach(function () {
+    vi.restoreAllMocks()
+    sharedBackend.clearRealtimeKitPublicKeyCache()
+  })
+
+  function createJob() {
+    return {
+      id: '11111111-1111-4111-8111-111111111111',
+      interview_id: INTERVIEW_ID,
+      provider_recording_id: RECORDING_ID,
+      recording_type: 'composite',
+      participant_id: null,
+      participant_role: null,
+      provider_status: 'RECORDING',
+      finalization_status: 'pending',
+    }
+  }
+
+  function createEnv(options: {
+    job?: Record<string, unknown> | null
+    existingEventIds?: Set<string>
+    latestEventStatus?: { status: string } | null
+    withWorkflow?: boolean
+  } = {}) {
+    const db = createWebhookDatabaseBinding({
+      job: options.job,
+      existingEventIds: options.existingEventIds,
+      latestEventStatus: options.latestEventStatus,
+    })
+    const workflow = options.withWorkflow
+      ? ({ createBatch: vi.fn() } as unknown as WorkerBindings['RECORDING_FINALIZATION_WORKFLOW'])
+      : undefined
+    const env: WorkerBindings = {
+      DB: db,
+      REALTIMEKIT_WEBHOOK_PUBLIC_KEY: publicKeyPem,
+      ...(workflow ? { RECORDING_FINALIZATION_WORKFLOW: workflow } : {}),
+    }
+    return { db, workflow, env }
+  }
+
+  function postWebhook(
+    app: ReturnType<typeof createApp>,
+    body: string,
+    env: Partial<WorkerBindings>,
+    headers: { signature?: string; uuid?: string } = {},
+  ) {
+    return app.request('/api/webhooks/realtimekit', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        ...(headers.signature ? { 'rtk-signature': headers.signature } : {}),
+        ...(headers.uuid ? { 'rtk-uuid': headers.uuid } : {}),
+      },
+      body,
+    }, env)
+  }
+
+  async function sign(body: string): Promise<string> {
+    const signature = await crypto.subtle.sign(
+      'RSASSA-PKCS1-v1_5',
+      keyPair.privateKey,
+      new TextEncoder().encode(body),
+    )
+    return Buffer.from(signature).toString('base64')
+  }
+
+  function buildBody(state: string, type = 'recording.statusUpdate'): string {
+    return JSON.stringify({
+      type,
+      recording: { id: RECORDING_ID, state },
+    })
+  }
+
+  it('returns 503 when database access is not configured', async function () {
+    const app = createApp()
+    const response = await postWebhook(app, buildBody('UPLOADED'), {})
+    expect(response.status).toBe(503)
+    await expect(response.json()).resolves.toEqual({
+      error: 'RealtimeKit webhooks are not configured.',
+    })
+  })
+
+  it('returns 400 when the rtk-signature or rtk-uuid header is missing', async function () {
+    const app = createApp()
+    const { env } = createEnv({ job: createJob() })
+    const body = buildBody('UPLOADED')
+
+    const missingSignature = await postWebhook(app, body, env, { uuid: EVENT_UUID })
+    expect(missingSignature.status).toBe(400)
+
+    const missingUuid = await postWebhook(app, body, env, { signature: await sign(body) })
+    expect(missingUuid.status).toBe(400)
+  })
+
+  it('returns 400 for an invalid signature without persisting side effects', async function () {
+    const app = createApp()
+    const { db, env } = createEnv({ job: createJob() })
+    const body = buildBody('UPLOADED')
+
+    const response = await postWebhook(app, body, env, {
+      signature: 'c2ln',
+      uuid: EVENT_UUID,
+    })
+
+    expect(response.status).toBe(400)
+    expect(db.insertedEvents).toHaveLength(0)
+    expect(db.executedStatements.join('\n')).not.toContain('INSERT INTO realtimekit_webhook_events')
+  })
+
+  it('returns 400 for a malformed body after a valid signature', async function () {
+    const app = createApp()
+    const { db, env } = createEnv({ job: createJob() })
+
+    const response = await postWebhook(app, 'not-json', env, {
+      signature: await sign('not-json'),
+      uuid: EVENT_UUID,
+    })
+
+    expect(response.status).toBe(400)
+    expect(db.insertedEvents).toHaveLength(0)
+  })
+
+  it('acknowledges a valid signed recording.statusUpdate and schedules the finalization workflow deterministically', async function () {
+    const app = createApp()
+    const { db, workflow, env } = createEnv({ job: createJob(), withWorkflow: true })
+    const body = buildBody('UPLOADED')
+
+    const response = await postWebhook(app, body, env, {
+      signature: await sign(body),
+      uuid: EVENT_UUID,
+    })
+
+    expect(response.status).toBe(200)
+    expect(db.insertedEvents).toHaveLength(1)
+    expect(db.insertedEvents[0]).toMatchObject({
+      provider_event_id: EVENT_UUID,
+      event_type: 'recording.statusUpdate',
+      recording_id: RECORDING_ID,
+      status: 'processed',
+      // The UPLOADED event stays sweep-eligible until finalization marks it
+      // processed, so a failed createBatch still gets retried by the sweep.
+      next_attempt_at: expect.any(String),
+    })
+    expect(workflow!.createBatch).toHaveBeenCalledWith([
+      {
+        id: `recording-finalize-v1-${RECORDING_ID}-0`,
+        params: { provider_recording_id: RECORDING_ID, attempt: 0 },
+      },
+    ])
+  })
+
+  it('acknowledges valid signed unsupported event types with 2xx and no side effects', async function () {
+    const app = createApp()
+    const { db, workflow, env } = createEnv({ job: createJob(), withWorkflow: true })
+    const body = buildBody('RECORDING', 'meeting.created')
+
+    const response = await postWebhook(app, body, env, {
+      signature: await sign(body),
+      uuid: EVENT_UUID,
+    })
+
+    expect(response.status).toBe(200)
+    expect(db.insertedEvents).toHaveLength(0)
+    expect(db.executedStatements).toHaveLength(0)
+    expect(workflow!.createBatch).not.toHaveBeenCalled()
+  })
+
+  it('treats duplicate event delivery as idempotent without re-triggering the workflow', async function () {
+    const app = createApp()
+    const { db, workflow, env } = createEnv({
+      job: createJob(),
+      existingEventIds: new Set([EVENT_UUID]),
+      withWorkflow: true,
+    })
+    const body = buildBody('UPLOADED')
+
+    const response = await postWebhook(app, body, env, {
+      signature: await sign(body),
+      uuid: EVENT_UUID,
+    })
+
+    expect(response.status).toBe(200)
+    expect(db.insertedEvents).toHaveLength(0)
+    expect(workflow!.createBatch).not.toHaveBeenCalled()
+  })
+
+  it('acknowledges out-of-order stale updates without side effects', async function () {
+    const app = createApp()
+    const { db, workflow, env } = createEnv({
+      job: createJob(),
+      latestEventStatus: { status: 'processed' },
+      withWorkflow: true,
+    })
+    const body = buildBody('RECORDING')
+
+    const response = await postWebhook(app, body, env, {
+      signature: await sign(body),
+      uuid: EVENT_UUID,
+    })
+
+    expect(response.status).toBe(200)
+    expect(db.insertedEvents).toHaveLength(0)
+    expect(workflow!.createBatch).not.toHaveBeenCalled()
+  })
+
+  it('acknowledges unknown recording ids without side effects', async function () {
+    const app = createApp()
+    const { db, workflow, env } = createEnv({ job: null, withWorkflow: true })
+    const body = buildBody('UPLOADED')
+
+    const response = await postWebhook(app, body, env, {
+      signature: await sign(body),
+      uuid: EVENT_UUID,
+    })
+
+    expect(response.status).toBe(200)
+    expect(db.insertedEvents).toHaveLength(0)
+    expect(workflow!.createBatch).not.toHaveBeenCalled()
+  })
+
+  it('returns 503 when the webhook public key is unavailable', async function () {
+    const app = createApp()
+    const { env } = createEnv({ job: createJob() })
+    env.REALTIMEKIT_WEBHOOK_PUBLIC_KEY = undefined
+    const body = buildBody('UPLOADED')
+
+    const response = await postWebhook(app, body, env, {
+      signature: await sign(body),
+      uuid: EVENT_UUID,
+    })
+
+    expect(response.status).toBe(503)
+    await expect(response.json()).resolves.toEqual({
+      error: 'RealtimeKit webhook verification is unavailable.',
+    })
+  })
+
+  it('never downloads media or persists signed URLs during webhook handling', async function () {
+    const app = createApp()
+    const { db, env } = createEnv({ job: createJob() })
+    const body = buildBody('UPLOADED')
+
+    const response = await postWebhook(app, body, env, {
+      signature: await sign(body),
+      uuid: EVENT_UUID,
+    })
+
+    expect(response.status).toBe(200)
+    const statements = db.executedStatements.join('\n')
+    expect(statements).not.toContain('http')
+    expect(statements).not.toContain('provider_download')
+    expect(statements).not.toContain('signed')
+  })
+})
+
 type TrackingQueue = Queue & {
   messages: unknown[]
 }
@@ -1564,6 +1835,119 @@ function provisionInterview(
   env: Partial<WorkerBindings> = {},
 ) {
   return app.request(`/api/interviews/${interviewId}/provision`, { method: 'POST' }, env)
+}
+
+async function generateWebhookKeyPair(): Promise<{
+  keyPair: CryptoKeyPair
+  publicKeyPem: string
+}> {
+  const generated = await crypto.subtle.generateKey(
+    {
+      name: 'RSASSA-PKCS1-v1_5',
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: 'SHA-256',
+    },
+    true,
+    ['sign', 'verify'],
+  )
+
+  const keyPair = generated as CryptoKeyPair
+  const publicKeyDer = (await crypto.subtle.exportKey(
+    'spki',
+    keyPair.publicKey,
+  )) as ArrayBuffer
+  const publicKeyPem = [
+    '-----BEGIN PUBLIC KEY-----',
+    Buffer.from(publicKeyDer).toString('base64'),
+    '-----END PUBLIC KEY-----',
+  ].join('\n')
+
+  return { keyPair, publicKeyPem }
+}
+
+function createWebhookDatabaseBinding(options: {
+  job?: Record<string, unknown> | null
+  existingEventIds?: Set<string>
+  latestEventStatus?: { status: string } | null
+}): {
+  executedStatements: string[]
+  insertedEvents: Array<Record<string, unknown>>
+  query(statementText: string, ...statementValues: readonly unknown[]): Promise<{ rows: unknown[] }>
+} {
+  const executedStatements: string[] = []
+  const insertedEvents: Array<Record<string, unknown>> = []
+  let job = options.job ?? null
+  const existingEventIds = new Set(options.existingEventIds ?? new Set<string>())
+  let latestEventStatus = options.latestEventStatus ?? null
+
+  return {
+    executedStatements,
+    insertedEvents,
+    async query(statementText: string, ...statementValues: readonly unknown[]) {
+      executedStatements.push(statementText)
+      const normalized = statementText.replace(/\s+/g, ' ').trim()
+
+      if (
+        normalized === 'BEGIN;' ||
+        normalized === 'COMMIT;' ||
+        normalized === 'ROLLBACK;'
+      ) {
+        return { rows: [] }
+      }
+
+      if (
+        statementText.includes('FROM interview_recordings') &&
+        statementText.includes('provider_recording_id')
+      ) {
+        return { rows: job ? [job] : [] }
+      }
+
+      if (
+        statementText.includes('FROM realtimekit_webhook_events') &&
+        statementText.includes('provider_event_id = $1') &&
+        !statementText.includes('ORDER BY')
+      ) {
+        const exists = existingEventIds.has(String(statementValues[0]))
+        return { rows: exists ? [{ provider_event_id: statementValues[0] }] : [] }
+      }
+
+      if (
+        statementText.includes('FROM realtimekit_webhook_events') &&
+        statementText.includes('ORDER BY received_at DESC')
+      ) {
+        return { rows: latestEventStatus ? [latestEventStatus] : [] }
+      }
+
+      if (statementText.includes('INSERT INTO realtimekit_webhook_events')) {
+        insertedEvents.push({
+          provider_event_id: statementValues[0],
+          event_type: statementValues[1],
+          recording_id: statementValues[2],
+          provider_asset_id: statementValues[3],
+          status: statementValues[4],
+          next_attempt_at: statementValues[5],
+          received_at: statementValues[6],
+          last_error_code: statementValues[7],
+        })
+        existingEventIds.add(String(statementValues[0]))
+        latestEventStatus = { status: String(statementValues[4]) }
+        return { rows: [] }
+      }
+
+      if (
+        statementText.includes('UPDATE interview_recordings') &&
+        statementText.includes('provider_status')
+      ) {
+        if (job) {
+          job = { ...job, provider_status: statementValues[1] }
+        }
+        return { rows: job ? [{ id: job.id }] : [] }
+      }
+
+      throw new Error(`Unhandled webhook DB statement: ${statementText}`)
+    },
+  }
 }
 
 function createDatabaseBinding(accountState: {

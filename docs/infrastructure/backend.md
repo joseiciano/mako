@@ -2,7 +2,7 @@
 
 This document goes over all the tools we will be using for our backend services
 
-**Last reconciled**: 2026-08-07
+**Last reconciled**: 2026-08-17
 
 - **Cloudflare Workers**: Cloudflare workers for the main hosting environment of the backend service. Routes are defined via a singular API worker. [Docs](https://developers.cloudflare.com/api/resources/workers/)
 - **Cloudflare Hyperdrive**: We use hyperdrive to speak to our Postgres database instance from Cloudflare Workers. [Docs](https://developers.cloudflare.com/api/resources/hyperdrive/)
@@ -11,6 +11,7 @@ This document goes over all the tools we will be using for our backend services
   - Backend room provisioning requires `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and `CLOUDFLARE_REALTIMEKIT_APP_ID` for the `POST /api/interviews/:id/provision` route.
 - **Cloudflare Workflows**: We use Workflows to orchestrate the interview lifecycle. This handles the 60-minute interview timer, emits structured `timer_warning`/`timer_completed` logs, and converges on a guarded lifecycle transition upon completion. Realtime warning delivery, session locking, and AI feedback generation are future scope. [Docs](https://developers.cloudflare.com/api/resources/workflows/)
 - **Feedback Workflow (InterviewFeedbackWorkflow)**: A dedicated Cloudflare Workflow for post-interview feedback processing that runs in the notification-orchestrator Worker alongside the existing `InterviewLifecycleWorkflow`. It is triggered idempotently from `interview.completed` queue events with a deterministic instance ID `feedback-v1-{interview_id}`, so duplicate events never spawn duplicate feedback runs. It is provisioned for future transcription/analysis steps (Stories 5.16/5.17); the Workers AI binding is configured but not yet invoked; the AI Gateway will be wired in a future story.
+- **Recording Finalization Workflow (RecordingFinalizationWorkflow)**: A dedicated notification-orchestrator Workflow triggered by signed RealtimeKit `UPLOADED` events. It refreshes provider state by recording ID, streams composite playback and participant tracks into private R2, persists artifact rows, and derives interview recording readiness only after required objects are visible. Workflow instances use `recording-finalize-v1-{provider_recording_id}-{attempt}`; scheduled sweeps retry bounded accepted/failed checkpoints.
 - **Cloudflare Queues**: We use Queues for post-commit hand-off between workers (for example: matcher/API emitted orchestration events consumed by downstream notification/orchestration workers). Realtime session provisioning remains join-time route behavior (`POST /api/interviews/:id/provision`) rather than queue-triggered behavior. [Docs](https://developers.cloudflare.com/queues/)
 - **Cron Triggers (Workers Schedules)**: We use cron-triggered workers for background scheduling jobs (for example: the Greedy Matcher worker). [Docs](https://developers.cloudflare.com/workers/configuration/cron-triggers/)
 - **Durable Outbox Pattern**: Interview lifecycle events are persisted to a `notification_outbox_events` table within the same database transaction as the source write (interview create/cancel/match/completed/premium-booked). A separate dispatch step (post-commit or scheduled sweep) publishes these events to the queue, ensuring committed events are never silently lost even if the queue is temporarily unavailable.
@@ -27,10 +28,12 @@ This document goes over all the tools we will be using for our backend services
   - All artifact buckets have a 30-day lifecycle expiration.
   - Buckets are private by default — public URL access must stay disabled.
   - **Key prefix conventions**: `interviews/{interviewId}/recording/{recordingId}` and `interviews/{interviewId}/screenshots/{screenshotId}`.
-- **Local Workflow Development**: Cloudflare Workflows (`SessionTimerWorkflow` in `backend-rest`, `InterviewFeedbackWorkflow` in `notification-orchestrator`) can be tested locally via `wrangler dev`. Required bindings for local workflow runs:
+- **Local Workflow Development**: Cloudflare Workflows (`SessionTimerWorkflow` in `backend-rest`, `InterviewFeedbackWorkflow` and `RecordingFinalizationWorkflow` in `notification-orchestrator`) can be tested locally via `wrangler dev`. Required bindings for local workflow runs:
   - `HYPERDRIVE` — local Postgres connection string (set in `.dev.vars` or via `wrangler.jsonc` local config)
   - `NOTIFICATION_QUEUE` — local queue binding (configured in `wrangler.jsonc`)
-  - `RECORDINGS_BUCKET` / `SCREENSHOTS_BUCKET` — local R2 buckets (configured via `wrangler r2 bucket create` for local dev)
+   - `RECORDINGS_BUCKET` / `SCREENSHOTS_BUCKET` — local R2 buckets (configured via `wrangler r2 bucket create` for local dev)
+   - `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and `CLOUDFLARE_REALTIMEKIT_APP_ID` — RealtimeKit recording status API credentials
+   - `REALTIMEKIT_WEBHOOK_PUBLIC_KEY` — optional static webhook-key fallback; primary key source is the provider endpoint
   - `AI` — Workers AI binding (for feedback workflow; configured in `notification-orchestrator/wrangler.jsonc`)
   See `docs/system/local-testing.md` for the general local test stack setup.
 - **Cloudflare AI Gateway**: We will interact with our AI providers through Cloudflare's AI Gateway service [Docs](https://developers.cloudflare.com/api/resources/ai_gateway/)
@@ -112,6 +115,14 @@ RealtimeKit server-controlled recording is used for session capture. Recording i
 - Maximum recording duration: 3,600 seconds (60 minutes).
 - Recording status verified via public-key-verified webhook (`POST /api/webhooks/realtimekit`).
 - Browser-composed full-session recordings are not uploaded.
+
+**Recording finalization**:
+- `RecordingFinalizationWorkflow` runs in `mako-notification-orchestrator` with deterministic instance IDs `recording-finalize-v1-{provider_recording_id}-{attempt}`.
+- Workflow fetches fresh RealtimeKit status and short-lived asset URLs by provider recording ID, then streams composite playback and participant-track bodies into private `RECORDINGS_BUCKET`.
+- Provider asset downloads are bounded by a configurable `AbortSignal.timeout` (default 10 minutes) with redirects disabled. A download timeout compensates any objects stored by that run, releases the claim back to pending, and re-arms the checkpoint sweep-eligible (`awaiting_provider`) instead of failing finalization; unrelated provider fetch errors still fail the workflow.
+- Aggregate interview readiness is derived only after every required artifact passes an R2 head check. Transient R2 head-check failures are logged (`realtimekit.finalization.readiness_head_failed`) and leave the interview not-ready without failing the workflow or forcing a re-download.
+- Postgres webhook checkpoints are retried by the five-minute notification-orchestrator sweep with a bounded ten-attempt limit; signed URLs are never persisted.
+- `RECORDING_FINALIZATION_WORKFLOW` is bound in both Workers; production ownership and cross-Worker binding are managed by Terraform.
 
 ### Private R2 Storage
 
