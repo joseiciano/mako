@@ -113,6 +113,20 @@ export class RecordingFinalizationWorkflow extends WorkflowEntrypoint<
   ) {
     const payload = recordingFinalizationWorkflowPayloadSchema.parse(event.payload)
     const env = this.env
+
+    const recordingsBucketPort = env.RECORDINGS_BUCKET
+      ? createR2BucketPort(env.RECORDINGS_BUCKET)
+      : null
+
+    if (!recordingsBucketPort) {
+      return {
+        provider_recording_id: payload.provider_recording_id,
+        attempt: payload.attempt,
+        status: 'failed',
+        reason: 'RECORDINGS_BUCKET binding is not configured',
+      }
+    }
+
     const { queryExecutor, cleanup } = createWorkflowQueryExecutor(env, this.poolFactory)
     const repository = new RecordingFinalizationRepository({ queryExecutor })
 
@@ -120,69 +134,61 @@ export class RecordingFinalizationWorkflow extends WorkflowEntrypoint<
     let result: { status: 'failed'; reason: string } | { provider_recording_id: string; attempt: number; status: string; [key: string]: unknown } | null = null
 
     try {
-      const recordingsBucketPort = env.RECORDINGS_BUCKET
-        ? createR2BucketPort(env.RECORDINGS_BUCKET)
-        : null
+      const storage = createArtifactStorage(recordingsBucketPort, recordingsBucketPort)
 
-      if (!recordingsBucketPort) {
-        result = { status: 'failed', reason: 'recordings_bucket_not_configured' }
-      } else {
-        const storage = createArtifactStorage(recordingsBucketPort, recordingsBucketPort)
+      const providerClient = createRealtimeKitRecordingClient({
+        CLOUDFLARE_ACCOUNT_ID: env.CLOUDFLARE_ACCOUNT_ID,
+        CLOUDFLARE_API_TOKEN: env.CLOUDFLARE_API_TOKEN,
+        CLOUDFLARE_REALTIMEKIT_APP_ID: env.CLOUDFLARE_REALTIMEKIT_APP_ID,
+      })
 
-        const providerClient = createRealtimeKitRecordingClient({
-          CLOUDFLARE_ACCOUNT_ID: env.CLOUDFLARE_ACCOUNT_ID,
-          CLOUDFLARE_API_TOKEN: env.CLOUDFLARE_API_TOKEN,
-          CLOUDFLARE_REALTIMEKIT_APP_ID: env.CLOUDFLARE_REALTIMEKIT_APP_ID,
-        })
-
-        const service = new RecordingFinalizationService({
-          repository,
-          storage,
-          providerClient,
-          fetch: globalThis.fetch,
-          logger: {
-            info(event, context) {
-              console.info({
-                event,
-                component: 'RecordingFinalizationWorkflow',
-                provider_recording_id: payload.provider_recording_id,
-                attempt: payload.attempt,
-                ...context,
-              })
-            },
-            warn(event, context) {
-              console.warn({
-                event,
-                component: 'RecordingFinalizationWorkflow',
-                provider_recording_id: payload.provider_recording_id,
-                attempt: payload.attempt,
-                ...context,
-              })
-            },
-            error(event, context) {
-              console.error({
-                event,
-                component: 'RecordingFinalizationWorkflow',
-                provider_recording_id: payload.provider_recording_id,
-                attempt: payload.attempt,
-                ...context,
-              })
-            },
+      const service = new RecordingFinalizationService({
+        repository,
+        storage,
+        providerClient,
+        fetch: globalThis.fetch,
+        logger: {
+          info(event, context) {
+            console.info({
+              event,
+              component: 'RecordingFinalizationWorkflow',
+              provider_recording_id: payload.provider_recording_id,
+              attempt: payload.attempt,
+              ...context,
+            })
           },
-        })
+          warn(event, context) {
+            console.warn({
+              event,
+              component: 'RecordingFinalizationWorkflow',
+              provider_recording_id: payload.provider_recording_id,
+              attempt: payload.attempt,
+              ...context,
+            })
+          },
+          error(event, context) {
+            console.error({
+              event,
+              component: 'RecordingFinalizationWorkflow',
+              provider_recording_id: payload.provider_recording_id,
+              attempt: payload.attempt,
+              ...context,
+            })
+          },
+        },
+      })
 
-        const finalizeResult = await step.do(STEP_FINALIZE_RECORDING, async function finalizeRecording() {
-          return service.finalizeRecording(
-            payload.provider_recording_id,
-            event.timestamp.toISOString(),
-          )
-        })
+      const finalizeResult = await step.do(STEP_FINALIZE_RECORDING, async function finalizeRecording() {
+        return service.finalizeRecording(
+          payload.provider_recording_id,
+          event.timestamp.toISOString(),
+        )
+      })
 
-        result = {
-          provider_recording_id: payload.provider_recording_id,
-          attempt: payload.attempt,
-          ...finalizeResult,
-        }
+      result = {
+        provider_recording_id: payload.provider_recording_id,
+        attempt: payload.attempt,
+        ...finalizeResult,
       }
     } catch (error) {
       failure = error
@@ -293,6 +299,8 @@ export function createWorkflowQueryExecutor(
           cleanupError = error
         }
       }
+
+      clientPromise = null
 
       try {
         await pool.end()

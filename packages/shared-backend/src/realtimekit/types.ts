@@ -28,6 +28,7 @@ export const REALTIMEKIT_SAFE_ERROR_CODES = {
   invalid_provider_asset: 'invalid_provider_asset',
   internal_error: 'internal_error',
   sweep_exhausted: 'sweep_exhausted',
+  recordings_bucket_not_configured: 'recordings_bucket_not_configured',
 } as const
 
 export type RealtimeKitSafeErrorCode =

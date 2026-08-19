@@ -125,15 +125,18 @@ describe('RecordingFinalizationWorkflow run', function runSuite() {
       HYPERDRIVE: { connectionString: 'postgresql://localhost:5432/test' },
     } as unknown as WorkerBindings)
 
-    const result = await workflow.run(createWorkflowEvent(), {} as WorkflowStep)
-
-    expect(result).toEqual({ status: 'failed', reason: 'recordings_bucket_not_configured' })
+    await expect(workflow.run(createWorkflowEvent(), {} as WorkflowStep)).resolves.toEqual({
+      provider_recording_id: RECORDING_ID,
+      attempt: 0,
+      status: 'failed',
+      reason: 'RECORDINGS_BUCKET binding is not configured',
+    })
   })
 
   it('rejects when the HYPERDRIVE binding is missing', async function run() {
     const workflow = new RecordingFinalizationWorkflow(
       mockExecutionContext(),
-      {} as unknown as WorkerBindings,
+      { RECORDINGS_BUCKET: {} } as unknown as WorkerBindings,
     )
 
     await expect(workflow.run(createWorkflowEvent(), {} as WorkflowStep)).rejects.toThrow(
@@ -262,6 +265,24 @@ describe('createWorkflowQueryExecutor cleanup', function queryExecutorCleanupSui
 
     await expect(cleanup()).rejects.toThrow('connection failed')
     expect(end).toHaveBeenCalledTimes(1)
+  })
+
+  it('resets the client promise so the executor can be reused after cleanup', async function run() {
+    const { pool, connect, release, end } = createMockPool()
+    const { queryExecutor, cleanup } = createWorkflowQueryExecutor(createEnv(), () => pool)
+
+    await queryExecutor.query({ text: 'select 1', values: [] })
+    expect(connect).toHaveBeenCalledTimes(1)
+
+    await cleanup()
+    expect(release).toHaveBeenCalledTimes(1)
+    expect(end).toHaveBeenCalledTimes(1)
+
+    // After cleanup, a new query must re-acquire a client instead of reusing
+    // the stale released one.
+    await queryExecutor.query({ text: 'select 2', values: [] })
+    expect(connect).toHaveBeenCalledTimes(2)
+    expect(release).toHaveBeenCalledTimes(1)
   })
 })
 

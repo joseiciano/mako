@@ -135,7 +135,7 @@ export class RealtimeKitWebhookRepository
         return { outcome: 'stale' }
       }
 
-      await queryExecutor.query(
+      const insertResult = await queryExecutor.query(
         createSqlQuery(
           `
             INSERT INTO realtimekit_webhook_events (
@@ -150,7 +150,8 @@ export class RealtimeKitWebhookRepository
               processed_at,
               last_error_code
             )
-            VALUES ($1, $2, $3, $4, $5, 0, $6, $7, NULL, $8);
+            VALUES ($1, $2, $3, $4, $5, 0, $6, $7, NULL, $8)
+            ON CONFLICT (provider_event_id) DO NOTHING;
           `,
           [
             input.provider_event_id,
@@ -164,6 +165,11 @@ export class RealtimeKitWebhookRepository
           ],
         ),
       )
+
+      if (insertResult.rowCount === 0) {
+        await queryExecutor.query(createSqlQuery('COMMIT;'))
+        return { outcome: 'duplicate' }
+      }
 
       // Provider asset identity lives on the webhook event row (and later on
       // the artifact row during finalization); interview_recordings has no

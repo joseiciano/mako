@@ -684,8 +684,8 @@ describe('RecordingFinalizationService', function finalizationServiceSuite() {
       expect.any(String),
       expect.objectContaining({ redirect: 'manual' }),
     )
-    // Default provider download timeout is 10 minutes.
-    expect(timeoutSpy).toHaveBeenCalledWith(600_000)
+    // Default provider download timeout is 5 minutes.
+    expect(timeoutSpy).toHaveBeenCalledWith(300_000)
     timeoutSpy.mockRestore()
   })
 

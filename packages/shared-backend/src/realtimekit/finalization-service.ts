@@ -53,7 +53,7 @@ export const DEFAULT_RECORDING_FINALIZATION_CONFIG: RecordingFinalizationConfig 
   artifactExpiryDays: 30,
   maxArtifactBytes: 2 * 1024 * 1024 * 1024,
   allowedDownloadHosts: ['api.realtime.cloudflare.com'],
-  providerDownloadTimeoutMs: 10 * 60 * 1000,
+  providerDownloadTimeoutMs: 5 * 60 * 1000,
 }
 
 export type RecordingFinalizationServiceDependencies = {
@@ -433,24 +433,26 @@ export class RecordingFinalizationService {
     storedKeys: string[],
     originalError: unknown,
   ): Promise<void> {
-    for (const key of storedKeys) {
-      try {
-        await this.storage.deleteArtifact(key)
-      } catch (cleanupError) {
-        // Compensating deletion is best-effort: the object is orphaned and will
-        // expire via the R2 lifecycle, but the failure must be observable. The
-        // original error is never replaced by a cleanup failure.
-        this.logger.error('realtimekit.finalization.cleanup_failed', {
-          object_key: key,
-          original_error:
-            originalError instanceof Error
-              ? originalError.message
-              : String(originalError),
-          cleanup_error:
-            cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
-        })
-      }
-    }
+    await Promise.all(
+      storedKeys.map(async (key) => {
+        try {
+          await this.storage.deleteArtifact(key)
+        } catch (cleanupError) {
+          // Compensating deletion is best-effort: the object is orphaned and will
+          // expire via the R2 lifecycle, but the failure must be observable. The
+          // original error is never replaced by a cleanup failure.
+          this.logger.error('realtimekit.finalization.cleanup_failed', {
+            object_key: key,
+            original_error:
+              originalError instanceof Error
+                ? originalError.message
+                : String(originalError),
+            cleanup_error:
+              cleanupError instanceof Error ? cleanupError.message : String(cleanupError),
+          })
+        }
+      }),
+    )
   }
 }
 

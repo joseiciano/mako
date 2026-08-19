@@ -16,6 +16,7 @@ function createFakeExecutor(initial: {
   job?: ResolvedRecordingJob | null
   eventsByEventId?: Map<string, { status: RealtimeKitWebhookEventStatus }>
   eventsByRecordingId?: Map<string, Array<{ status: RealtimeKitWebhookEventStatus; received_at: string }>>
+  forceConflictEventIds?: string[]
 }): {
   executor: SqlQueryExecutor
   statements: string[]
@@ -70,6 +71,13 @@ function createFakeExecutor(initial: {
       }
 
       if (sql.includes('INSERT INTO realtimekit_webhook_events')) {
+        const providerEventId = values[0] as string
+        if (
+          eventsByEventId.has(providerEventId) ||
+          initial.forceConflictEventIds?.includes(providerEventId)
+        ) {
+          return { rows: [], rowCount: 0 }
+        }
         const input: RealtimeKitWebhookAcceptanceInput = {
           provider_event_id: values[0] as string,
           event_type: values[1] as string,
@@ -179,6 +187,20 @@ describe('RealtimeKitWebhookRepository', function webhookRepositorySuite() {
     expect(result.outcome).toBe('duplicate')
     expect(fake.insertedEvents).toHaveLength(0)
     expect(fake.job()?.provider_status).toBe('UPLOADED')
+    expect(fake.statements.join('\n')).toContain('COMMIT;')
+  })
+
+  it('returns duplicate when a concurrent delivery causes a unique conflict on insert', async function run() {
+    const fake = createFakeExecutor({
+      job: createRecordingJob(),
+      forceConflictEventIds: ['bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'],
+    })
+    const repository = new RealtimeKitWebhookRepository(fake.executor)
+
+    const result = await repository.acceptWebhookEvent(buildAcceptanceInput())
+
+    expect(result.outcome).toBe('duplicate')
+    expect(fake.insertedEvents).toHaveLength(0)
     expect(fake.statements.join('\n')).toContain('COMMIT;')
   })
 
