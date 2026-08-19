@@ -4,6 +4,7 @@ import { useCreateInterview } from '#/hooks/use-interviews'
 import { useSubmitAvailability } from '#/hooks/use-submit-availability'
 import { useAccount } from '#/hooks/use-account'
 import { ScheduleDumb } from './schedule-dumb'
+import { PremiumMarketplaceSmart } from './premium-marketplace-smart'
 import {
   initialScheduleState,
   scheduleReducer,
@@ -17,17 +18,22 @@ import {
   getFieldErrors,
   getRetryLabel,
   classifyCreateFailure,
-  restoreScheduleDraft,
-  serializeScheduleDraft,
-  shouldPersistScheduleDraft,
-  SCHEDULE_DRAFT_STORAGE_KEY,
+  getSubmissionBranch,
   PENDING_CREATE_GUARD_KEY,
+  type CreateFailureKind,
   type ScheduleStep,
   type ScheduleState,
   type FlowSlot,
   type SubmissionBranch,
+  type ScheduleSubmissionBranch,
 } from './schedule-flow'
-import type { InterviewType, InterviewMode } from '@mako/shared'
+import {
+  clearScheduleDraftStorage,
+  persistScheduleDraft,
+  readScheduleDraftV2,
+  restoreScheduleDraftWithMigration,
+} from './schedule-draft-storage'
+import type { InterviewType } from '@mako/shared'
 
 const P2P_ACCEPTED_MESSAGE =
   'Availability submitted for matcher processing. Your interview will appear after matcher success.'
@@ -40,6 +46,40 @@ const AI_NOT_CONFIRMED_MESSAGE =
 
 const PENDING_CREATE_ALERT_MESSAGE =
   'We could not confirm whether your interview was created. Check your Interviews to avoid duplicates before trying again.'
+
+function getSubmissionMutationError(
+  lastSubmissionBranch: SubmissionBranch | null,
+  availabilityError: Error | null,
+  createError: Error | null,
+): string | null {
+  if (lastSubmissionBranch === 'peer_to_peer') {
+    return availabilityError?.message ?? null
+  }
+
+  if (lastSubmissionBranch === 'ai_led') {
+    return createError?.message ?? null
+  }
+
+  return null
+}
+
+function buildErrorMessage(
+  validationError: string | null,
+  pendingCreateGuard: boolean,
+  aiFailureKind: CreateFailureKind | null,
+  mutationError: string | null,
+): string | null {
+  if (validationError !== null) return validationError
+  if (pendingCreateGuard) return null
+
+  if (aiFailureKind === 'retryable_transport') {
+    return mutationError === null
+      ? AI_NOT_CONFIRMED_MESSAGE
+      : `${mutationError} ${AI_NOT_CONFIRMED_MESSAGE}`
+  }
+
+  return mutationError
+}
 
 function readPendingCreateGuard() {
   if (typeof window === 'undefined') return false
@@ -56,32 +96,25 @@ function clearPendingCreateGuard() {
   window.sessionStorage.removeItem(PENDING_CREATE_GUARD_KEY)
 }
 
-function readInitialScheduleState() {
-  if (typeof window === 'undefined') return initialScheduleState
-
-  const serialized = window.sessionStorage.getItem(SCHEDULE_DRAFT_STORAGE_KEY)
-  const restored = restoreScheduleDraft(serialized)
-  if (serialized !== null && restored === null) {
-    window.sessionStorage.removeItem(SCHEDULE_DRAFT_STORAGE_KEY)
+function readInitialSchedulingState(): {
+  state: ScheduleState
+  submissionBranch: ScheduleSubmissionBranch
+} {
+  if (typeof window === 'undefined') {
+    return { state: initialScheduleState, submissionBranch: 'pre_branch' }
   }
 
-  return restored ?? initialScheduleState
-}
-
-function clearScheduleDraft() {
-  if (typeof window === 'undefined') return
-  window.sessionStorage.removeItem(SCHEDULE_DRAFT_STORAGE_KEY)
-}
-
-function writeScheduleDraft(state: ScheduleState) {
-  if (typeof window === 'undefined') return
-
-  if (!shouldPersistScheduleDraft(state)) {
-    clearScheduleDraft()
-    return
+  const envelope = readScheduleDraftV2()
+  if (envelope !== null && envelope.branch === 'verified_interviewer') {
+    return { state: initialScheduleState, submissionBranch: 'verified_interviewer' }
   }
 
-  window.sessionStorage.setItem(SCHEDULE_DRAFT_STORAGE_KEY, serializeScheduleDraft(state))
+  const restored = restoreScheduleDraftWithMigration()
+  if (restored === null) {
+    return { state: initialScheduleState, submissionBranch: 'pre_branch' }
+  }
+
+  return { state: restored, submissionBranch: getSubmissionBranch(restored) }
 }
 
 export function ScheduleSmart() {
@@ -90,11 +123,13 @@ export function ScheduleSmart() {
   const submitAvailability = useSubmitAvailability()
   const account = useAccount()
 
+  const [initialScheduling] = useState(readInitialSchedulingState)
   const [state, dispatch] = useReducer(
     scheduleReducer,
-    initialScheduleState,
-    readInitialScheduleState,
+    initialScheduling.state,
   )
+  const [submissionBranch, setSubmissionBranch] =
+    useState<ScheduleSubmissionBranch>(initialScheduling.submissionBranch)
   const [lastSubmissionBranch, setLastSubmissionBranch] =
     useState<SubmissionBranch | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
@@ -104,12 +139,11 @@ export function ScheduleSmart() {
   const isDispatchingRef = useRef(false)
 
   const isSubmitting = createInterview.isPending || submitAvailability.isPending
-  const mutationError =
-    lastSubmissionBranch === 'peer_to_peer'
-      ? submitAvailability.error?.message ?? null
-      : lastSubmissionBranch === 'ai_led'
-        ? createInterview.error?.message ?? null
-        : null
+  const mutationError = getSubmissionMutationError(
+    lastSubmissionBranch,
+    submitAvailability.error,
+    createInterview.error,
+  )
 
   const isAiImmediate = state.mode === 'ai_led' && state.scheduledAt === 'now'
   const accountProfile = account.isSuccess && account.data ? account.data : null
@@ -129,15 +163,12 @@ export function ScheduleSmart() {
       : null
   const isAiRetryable = aiFailureKind === 'retryable_transport'
 
-  const errorMessage =
-    state.validationError ??
-    (pendingCreateGuard
-      ? null
-      : aiFailureKind === 'retryable_transport'
-        ? mutationError === null
-          ? AI_NOT_CONFIRMED_MESSAGE
-          : `${mutationError} ${AI_NOT_CONFIRMED_MESSAGE}`
-        : mutationError)
+  const errorMessage = buildErrorMessage(
+    state.validationError,
+    pendingCreateGuard,
+    aiFailureKind,
+    mutationError,
+  )
   const retryLabel = getRetryLabel(
     state.validationError,
     mutationError,
@@ -150,15 +181,17 @@ export function ScheduleSmart() {
     lastSubmissionBranch === 'peer_to_peer' && successMessage !== null
 
   useEffect(
-    function persistScheduleDraft() {
+    function persistScheduleDraftEffect() {
+      if (submissionBranch === 'verified_interviewer') return
+
       if (isP2pSubmissionAccepted) {
-        clearScheduleDraft()
+        clearScheduleDraftStorage()
         return
       }
 
-      writeScheduleDraft(state)
+      persistScheduleDraft(state)
     },
-    [state, isP2pSubmissionAccepted],
+    [state, isP2pSubmissionAccepted, submissionBranch],
   )
 
   const clearSubmissionFeedback = useCallback(function clearSubmissionFeedback() {
@@ -174,10 +207,21 @@ export function ScheduleSmart() {
     [clearSubmissionFeedback],
   )
 
-  const handleSetMode = useCallback(
-    function handleSetMode(mode: InterviewMode) {
+  const handleSelectBranch = useCallback(
+    function handleSelectBranch(branch: ScheduleSubmissionBranch) {
       clearSubmissionFeedback()
-      dispatch({ type: 'SET_MODE', payload: mode })
+
+      if (branch === 'verified_interviewer') {
+        clearScheduleDraftStorage()
+        setSubmissionBranch('verified_interviewer')
+        return
+      }
+
+      dispatch({
+        type: 'SET_MODE',
+        payload: branch === 'ai_direct' ? 'ai_led' : 'peer_to_peer',
+      })
+      setSubmissionBranch(branch)
     },
     [clearSubmissionFeedback],
   )
@@ -273,7 +317,7 @@ export function ScheduleSmart() {
           onSuccess: async function onCreateSuccess(data) {
             clearPendingCreateGuard()
             setPendingCreateGuard(false)
-            clearScheduleDraft()
+            clearScheduleDraftStorage()
             const interviewId = data.interview.id
             if (payload.scheduled_at === 'now' && interviewId) {
               try {
@@ -328,7 +372,7 @@ export function ScheduleSmart() {
         setLastSubmissionBranch('peer_to_peer')
         submitAvailability.mutate(payload, {
           onSuccess: function onAvailabilitySuccess() {
-            clearScheduleDraft()
+            clearScheduleDraftStorage()
             setSuccessMessage(P2P_ACCEPTED_MESSAGE)
           },
           onSettled: function onAvailabilitySettled() {
@@ -373,6 +417,10 @@ export function ScheduleSmart() {
     [pendingSessionId, navigate],
   )
 
+  if (submissionBranch === 'verified_interviewer') {
+    return <PremiumMarketplaceSmart />
+  }
+
   return (
     <ScheduleDumb
       step={state.step}
@@ -395,7 +443,7 @@ export function ScheduleSmart() {
       canAdvance={canAdvance(state)}
       canGoBack={canGoBack(state)}
       onSetType={handleSetType}
-      onSetMode={handleSetMode}
+      onSelectBranch={handleSelectBranch}
       onSetScheduledAt={handleSetScheduledAt}
       onSetMaxMatches={handleSetMaxMatches}
       onSetSlots={handleSetSlots}

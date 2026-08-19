@@ -18,7 +18,14 @@ import {
   restoreScheduleDraft,
   serializeScheduleDraft,
   shouldPersistScheduleDraft,
+  buildScheduleDraftV2,
+  parseScheduleDraftV2,
+  migrateScheduleDraftV1ToV2,
+  scheduleDraftV2ToState,
+  getSubmissionBranch,
+  getSubmissionBranchLabel,
   type ScheduleState,
+  type ScheduleDraftV2Envelope,
 } from './schedule-flow'
 import type { InterviewMode } from '@mako/shared'
 
@@ -703,6 +710,40 @@ describe('schedule-flow', function scheduleFlowSuite() {
     })
   })
 
+  describe('getSubmissionBranch', function submissionBranchSuite() {
+    it('maps ai_led to ai_direct', function () {
+      expect(
+        getSubmissionBranch({ ...initialScheduleState, mode: 'ai_led' }),
+      ).toBe('ai_direct')
+    })
+
+    it('maps peer_to_peer to standard_p2p', function () {
+      expect(
+        getSubmissionBranch({ ...initialScheduleState, mode: 'peer_to_peer' }),
+      ).toBe('standard_p2p')
+    })
+
+    it('returns pre_branch for the no-mode pre-submission state', function () {
+      expect(getSubmissionBranch(initialScheduleState)).toBe('pre_branch')
+    })
+  })
+
+  describe('getSubmissionBranchLabel', function submissionBranchLabelSuite() {
+    it('renders the exact branch labels for the three submission branches', function () {
+      expect(getSubmissionBranchLabel('ai_direct')).toBe('AI Direct')
+      expect(getSubmissionBranchLabel('standard_p2p')).toBe(
+        'Standard P2P Availability',
+      )
+      expect(getSubmissionBranchLabel('verified_interviewer')).toBe(
+        'Verified Interviewer',
+      )
+    })
+
+    it('labels the pre-submission pre_branch as "Not selected"', function () {
+      expect(getSubmissionBranchLabel('pre_branch')).toBe('Not selected')
+    })
+  })
+
   describe('branch switch resets invalid downstream state', function branchResetSuite() {
     it('switching from p2p to ai_led clears availability state', function () {
       const state: ScheduleState = {
@@ -1015,6 +1056,1145 @@ describe('schedule-flow', function scheduleFlowSuite() {
           interviewType: 'system_design',
         }),
       ).toBe(true)
+    })
+  })
+
+  describe('buildScheduleDraftV2', function buildV2Suite() {
+    it('builds an exact ai_direct envelope from a complete ai draft', function () {
+      const envelope = buildScheduleDraftV2({
+        ...initialScheduleState,
+        step: 'confirm',
+        interviewType: 'system_design',
+        mode: 'ai_led',
+        scheduledAt: 'now',
+      })
+
+      expect(envelope).toEqual({
+        version: 'v2',
+        branch: 'ai_direct',
+        draft: {
+          step: 'confirm',
+          interviewType: 'system_design',
+          mode: 'ai_led',
+          scheduledAt: 'now',
+          maxMatches: null,
+          slots: [],
+        },
+      })
+    })
+
+    it('preserves ISO scheduledAt in ai_direct and clears p2p-only fields', function () {
+      const envelope = buildScheduleDraftV2({
+        ...initialScheduleState,
+        step: 'confirm',
+        interviewType: 'system_design',
+        mode: 'ai_led',
+        scheduledAt: '2026-06-10T10:00:00.000Z',
+        maxMatches: 3,
+        slots: [{ startTime: '2026-06-10T10:00', endTime: '2026-06-10T11:00' }],
+      })
+
+      expect(envelope).toEqual({
+        version: 'v2',
+        branch: 'ai_direct',
+        draft: {
+          step: 'confirm',
+          interviewType: 'system_design',
+          mode: 'ai_led',
+          scheduledAt: '2026-06-10T10:00:00.000Z',
+          maxMatches: null,
+          slots: [],
+        },
+      })
+    })
+
+    it('builds an exact standard_p2p envelope carrying slots losslessly', function () {
+      const envelope = buildScheduleDraftV2({
+        ...initialScheduleState,
+        step: 'confirm',
+        interviewType: 'system_design',
+        mode: 'peer_to_peer',
+        scheduledAt: 'now',
+        maxMatches: 2,
+        slots: [{ startTime: '2026-06-10T10:00', endTime: '2026-06-10T11:00' }],
+      })
+
+      expect(envelope).toEqual({
+        version: 'v2',
+        branch: 'standard_p2p',
+        draft: {
+          step: 'confirm',
+          interviewType: 'system_design',
+          mode: 'peer_to_peer',
+          scheduledAt: null,
+          maxMatches: 2,
+          slots: [{ startTime: '2026-06-10T10:00', endTime: '2026-06-10T11:00' }],
+        },
+      })
+    })
+
+    it('carries incomplete p2p availability (empty slots, null maxMatches) through standard_p2p', function () {
+      const envelope = buildScheduleDraftV2({
+        ...initialScheduleState,
+        step: 'availability',
+        interviewType: 'system_design',
+        mode: 'peer_to_peer',
+        scheduledAt: 'now',
+        maxMatches: null,
+        slots: [],
+      })
+
+      expect(envelope).toEqual({
+        version: 'v2',
+        branch: 'standard_p2p',
+        draft: {
+          step: 'availability',
+          interviewType: 'system_design',
+          mode: 'peer_to_peer',
+          scheduledAt: null,
+          maxMatches: null,
+          slots: [],
+        },
+      })
+    })
+
+    it('builds an exact pre_branch envelope for an incomplete no-mode draft', function () {
+      const envelope = buildScheduleDraftV2({
+        ...initialScheduleState,
+        step: 'mode',
+        interviewType: 'system_design',
+      })
+
+      expect(envelope).toEqual({
+        version: 'v2',
+        branch: 'pre_branch',
+        draft: {
+          step: 'mode',
+          interviewType: 'system_design',
+          mode: null,
+          scheduledAt: null,
+          maxMatches: null,
+          slots: [],
+        },
+      })
+    })
+
+    it('builds a pre_branch envelope for the pristine initial state', function () {
+      const envelope = buildScheduleDraftV2(initialScheduleState)
+
+      expect(envelope).toEqual({
+        version: 'v2',
+        branch: 'pre_branch',
+        draft: {
+          step: 'type',
+          interviewType: null,
+          mode: null,
+          scheduledAt: null,
+          maxMatches: null,
+          slots: [],
+        },
+      })
+    })
+
+    it('normalizes an invalid ai scheduledAt to null before tagging ai_direct', function () {
+      const envelope = buildScheduleDraftV2({
+        ...initialScheduleState,
+        step: 'confirm',
+        interviewType: 'system_design',
+        mode: 'ai_led',
+        scheduledAt: 'not-a-date',
+      })
+
+      expect(envelope.branch).toBe('ai_direct')
+      if (envelope.branch === 'ai_direct') {
+        expect(envelope.draft.scheduledAt).toBeNull()
+        expect(envelope.draft.step).toBe('timing')
+      }
+    })
+  })
+
+  describe('parseScheduleDraftV2', function parseV2Suite() {
+    it('accepts each exact v2 envelope shape', function () {
+      const preBranch = parseScheduleDraftV2(
+        JSON.stringify({
+          version: 'v2',
+          branch: 'pre_branch',
+          draft: {
+            step: 'type',
+            interviewType: null,
+            mode: null,
+            scheduledAt: null,
+            maxMatches: null,
+            slots: [],
+          },
+        }),
+      )
+      expect(preBranch).toEqual({
+        version: 'v2',
+        branch: 'pre_branch',
+        draft: {
+          step: 'type',
+          interviewType: null,
+          mode: null,
+          scheduledAt: null,
+          maxMatches: null,
+          slots: [],
+        },
+      })
+
+      const aiDirect = parseScheduleDraftV2(
+        JSON.stringify({
+          version: 'v2',
+          branch: 'ai_direct',
+          draft: {
+            step: 'confirm',
+            interviewType: 'system_design',
+            mode: 'ai_led',
+            scheduledAt: 'now',
+            maxMatches: null,
+            slots: [],
+          },
+        }),
+      )
+      expect(aiDirect).toEqual({
+        version: 'v2',
+        branch: 'ai_direct',
+        draft: {
+          step: 'confirm',
+          interviewType: 'system_design',
+          mode: 'ai_led',
+          scheduledAt: 'now',
+          maxMatches: null,
+          slots: [],
+        },
+      })
+
+      const standardP2p = parseScheduleDraftV2(
+        JSON.stringify({
+          version: 'v2',
+          branch: 'standard_p2p',
+          draft: {
+            step: 'availability',
+            interviewType: 'system_design',
+            mode: 'peer_to_peer',
+            scheduledAt: null,
+            maxMatches: null,
+            slots: [],
+          },
+        }),
+      )
+      expect(standardP2p).toEqual({
+        version: 'v2',
+        branch: 'standard_p2p',
+        draft: {
+          step: 'availability',
+          interviewType: 'system_design',
+          mode: 'peer_to_peer',
+          scheduledAt: null,
+          maxMatches: null,
+          slots: [],
+        },
+      })
+
+      const verified = parseScheduleDraftV2(
+        JSON.stringify({
+          version: 'v2',
+          branch: 'verified_interviewer',
+          slotId: '0c7e9f0e-0e9a-4c8e-9b6d-9f7a2e1c8d4a',
+          idempotencyKey: 'f1d2c3b4-5a6e-4f8b-9c0d-1e2f3a4b5c6d',
+          startedAt: '2026-06-10T10:00:00.000Z',
+        }),
+      )
+      expect(verified).toEqual({
+        version: 'v2',
+        branch: 'verified_interviewer',
+        slotId: '0c7e9f0e-0e9a-4c8e-9b6d-9f7a2e1c8d4a',
+        idempotencyKey: 'f1d2c3b4-5a6e-4f8b-9c0d-1e2f3a4b5c6d',
+        startedAt: '2026-06-10T10:00:00.000Z',
+      })
+    })
+
+    it('rejects malformed json, wrong version, missing branch, and unknown branches', function () {
+      expect(parseScheduleDraftV2('{not-json')).toBeNull()
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 2,
+            branch: 'ai_direct',
+            draft: {
+              step: 'confirm',
+              interviewType: 'system_design',
+              mode: 'ai_led',
+              scheduledAt: 'now',
+              maxMatches: null,
+              slots: [],
+            },
+          }),
+        ),
+      ).toBeNull()
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            draft: {
+              step: 'confirm',
+              interviewType: 'system_design',
+              mode: 'ai_led',
+              scheduledAt: 'now',
+              maxMatches: null,
+              slots: [],
+            },
+          }),
+        ),
+      ).toBeNull()
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'unknown_branch',
+            draft: {},
+          }),
+        ),
+      ).toBeNull()
+    })
+
+    it('rejects ai_direct envelopes that are not the exact ai normalized shape', function () {
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'ai_direct',
+            draft: {
+              step: 'confirm',
+              interviewType: 'system_design',
+              mode: 'peer_to_peer',
+              scheduledAt: null,
+              maxMatches: 2,
+              slots: [{ startTime: 'x', endTime: 'y' }],
+            },
+          }),
+        ),
+      ).toBeNull()
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'ai_direct',
+            draft: {
+              step: 'confirm',
+              interviewType: 'system_design',
+              mode: 'ai_led',
+              scheduledAt: '2026-06-10T10:00',
+              maxMatches: 3,
+              slots: [],
+            },
+          }),
+        ),
+      ).toBeNull()
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'ai_direct',
+            draft: {
+              step: 'confirm',
+              interviewType: 'system_design',
+              mode: 'ai_led',
+              scheduledAt: '',
+              maxMatches: null,
+              slots: [],
+            },
+          }),
+        ),
+      ).toBeNull()
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'ai_direct',
+            draft: {
+              step: 'confirm',
+              interviewType: 'system_design',
+              mode: 'ai_led',
+              scheduledAt: 'not-a-date',
+              maxMatches: null,
+              slots: [],
+            },
+          }),
+        ),
+      ).toBeNull()
+    })
+
+    it('accepts incomplete ai_direct envelopes whose scheduledAt is null', function () {
+      const envelope = parseScheduleDraftV2(
+        JSON.stringify({
+          version: 'v2',
+          branch: 'ai_direct',
+          draft: {
+            step: 'timing',
+            interviewType: 'system_design',
+            mode: 'ai_led',
+            scheduledAt: null,
+            maxMatches: null,
+            slots: [],
+          },
+        }),
+      )
+
+      expect(envelope).toEqual({
+        version: 'v2',
+        branch: 'ai_direct',
+        draft: {
+          step: 'timing',
+          interviewType: 'system_design',
+          mode: 'ai_led',
+          scheduledAt: null,
+          maxMatches: null,
+          slots: [],
+        },
+      })
+    })
+
+    it('rejects standard_p2p envelopes with non-null scheduledAt or invalid maxMatches', function () {
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'standard_p2p',
+            draft: {
+              step: 'confirm',
+              interviewType: 'system_design',
+              mode: 'peer_to_peer',
+              scheduledAt: 'now',
+              maxMatches: 2,
+              slots: [],
+            },
+          }),
+        ),
+      ).toBeNull()
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'standard_p2p',
+            draft: {
+              step: 'confirm',
+              interviewType: 'system_design',
+              mode: 'peer_to_peer',
+              scheduledAt: null,
+              maxMatches: 0,
+              slots: [],
+            },
+          }),
+        ),
+      ).toBeNull()
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'standard_p2p',
+            draft: {
+              step: 'confirm',
+              interviewType: 'system_design',
+              mode: 'peer_to_peer',
+              scheduledAt: null,
+              maxMatches: 1.5,
+              slots: [],
+            },
+          }),
+        ),
+      ).toBeNull()
+    })
+
+    it('rejects standard_p2p envelopes with slots that are not ISO-8601 60-minute windows', function () {
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'standard_p2p',
+            draft: {
+              step: 'availability',
+              interviewType: 'system_design',
+              mode: 'peer_to_peer',
+              scheduledAt: null,
+              maxMatches: 2,
+              slots: [{ startTime: '2026-06-10T10:00', endTime: '2026-06-10T10:30' }],
+            },
+          }),
+        ),
+      ).toBeNull()
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'standard_p2p',
+            draft: {
+              step: 'availability',
+              interviewType: 'system_design',
+              mode: 'peer_to_peer',
+              scheduledAt: null,
+              maxMatches: 2,
+              slots: [{ startTime: 'not-a-date', endTime: '2026-06-10T11:00' }],
+            },
+          }),
+        ),
+      ).toBeNull()
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'standard_p2p',
+            draft: {
+              step: 'availability',
+              interviewType: 'system_design',
+              mode: 'peer_to_peer',
+              scheduledAt: null,
+              maxMatches: 2,
+              slots: [{ startTime: '', endTime: '' }],
+            },
+          }),
+        ),
+      ).toBeNull()
+    })
+
+    it('rejects pre_branch envelopes that carry any mode/submission state', function () {
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'pre_branch',
+            draft: {
+              step: 'confirm',
+              interviewType: 'system_design',
+              mode: 'ai_led',
+              scheduledAt: null,
+              maxMatches: null,
+              slots: [],
+            },
+          }),
+        ),
+      ).toBeNull()
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'pre_branch',
+            draft: {
+              step: 'type',
+              interviewType: null,
+              mode: null,
+              scheduledAt: null,
+              maxMatches: null,
+              slots: [{ startTime: 'x', endTime: 'y' }],
+            },
+          }),
+        ),
+      ).toBeNull()
+    })
+
+    it('rejects verified_interviewer envelopes missing fields or with malformed values', function () {
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'verified_interviewer',
+            slotId: 'not-a-uuid',
+            idempotencyKey: 'f1d2c3b4-5a6e-4f8b-9c0d-1e2f3a4b5c6d',
+            startedAt: '2026-06-10T10:00:00.000Z',
+          }),
+        ),
+      ).toBeNull()
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'verified_interviewer',
+            slotId: '0c7e9f0e-0e9a-4c8e-9b6d-9f7a2e1c8d4a',
+            startedAt: '2026-06-10T10:00:00.000Z',
+          }),
+        ),
+      ).toBeNull()
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'verified_interviewer',
+            slotId: '0c7e9f0e-0e9a-4c8e-9b6d-9f7a2e1c8d4a',
+            idempotencyKey: 'f1d2c3b4-5a6e-4f8b-9c0d-1e2f3a4b5c6d',
+            startedAt: 'not-a-date',
+          }),
+        ),
+      ).toBeNull()
+    })
+
+    it('rejects unsupported interview types that the normalized flow would reset', function () {
+      // 'coding' is a valid enum value but is not supported by this flow, which
+      // normalizes it back to the untouched initial state on restore.
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'ai_direct',
+            draft: {
+              step: 'confirm',
+              interviewType: 'coding',
+              mode: 'ai_led',
+              scheduledAt: 'now',
+              maxMatches: null,
+              slots: [],
+            },
+          }),
+        ),
+      ).toBeNull()
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'standard_p2p',
+            draft: {
+              step: 'availability',
+              interviewType: 'coding',
+              mode: 'peer_to_peer',
+              scheduledAt: null,
+              maxMatches: 2,
+              slots: [
+                { startTime: '2026-06-10T10:00', endTime: '2026-06-10T11:00' },
+              ],
+            },
+          }),
+        ),
+      ).toBeNull()
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'pre_branch',
+            draft: {
+              step: 'mode',
+              interviewType: 'coding',
+              mode: null,
+              scheduledAt: null,
+              maxMatches: null,
+              slots: [],
+            },
+          }),
+        ),
+      ).toBeNull()
+    })
+
+    it('rejects branch-inappropriate steps instead of clamping them on restore', function () {
+      // 'availability' is not in the ai_led step order; restore clamps it to
+      // the ai max step, so the persisted draft would not survive losslessly.
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'ai_direct',
+            draft: {
+              step: 'availability',
+              interviewType: 'system_design',
+              mode: 'ai_led',
+              scheduledAt: 'now',
+              maxMatches: null,
+              slots: [],
+            },
+          }),
+        ),
+      ).toBeNull()
+      // 'timing' is not in the peer_to_peer step order; restore clamps it.
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'standard_p2p',
+            draft: {
+              step: 'timing',
+              interviewType: 'system_design',
+              mode: 'peer_to_peer',
+              scheduledAt: null,
+              maxMatches: 2,
+              slots: [
+                { startTime: '2026-06-10T10:00', endTime: '2026-06-10T11:00' },
+              ],
+            },
+          }),
+        ),
+      ).toBeNull()
+      // pre_branch has no mode yet; only the pre-mode steps are restorable.
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'pre_branch',
+            draft: {
+              step: 'confirm',
+              interviewType: 'system_design',
+              mode: null,
+              scheduledAt: null,
+              maxMatches: null,
+              slots: [],
+            },
+          }),
+        ),
+      ).toBeNull()
+    })
+
+    it('rejects parseable non-ISO-8601 timestamps in scheduledAt and startedAt', function () {
+      // 'June 10, 2026' is parseable by Date but is not ISO-8601.
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'ai_direct',
+            draft: {
+              step: 'confirm',
+              interviewType: 'system_design',
+              mode: 'ai_led',
+              scheduledAt: 'June 10, 2026',
+              maxMatches: null,
+              slots: [],
+            },
+          }),
+        ),
+      ).toBeNull()
+      // A date-only string is not a full ISO-8601 timestamp (no time component).
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'ai_direct',
+            draft: {
+              step: 'confirm',
+              interviewType: 'system_design',
+              mode: 'ai_led',
+              scheduledAt: '2026-06-10',
+              maxMatches: null,
+              slots: [],
+            },
+          }),
+        ),
+      ).toBeNull()
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'verified_interviewer',
+            slotId: '0c7e9f0e-0e9a-4c8e-9b6d-9f7a2e1c8d4a',
+            idempotencyKey: 'f1d2c3b4-5a6e-4f8b-9c0d-1e2f3a4b5c6d',
+            startedAt: 'June 10, 2026',
+          }),
+        ),
+      ).toBeNull()
+      // standard_p2p slots use the lenient v1 `isValidSlot` (any
+      // Date-parseable 60-minute window), so non-ISO strings are accepted.
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'standard_p2p',
+            draft: {
+              step: 'availability',
+              interviewType: 'system_design',
+              mode: 'peer_to_peer',
+              scheduledAt: null,
+              maxMatches: 2,
+              slots: [
+                { startTime: 'June 10, 2026 10:00', endTime: 'June 10, 2026 11:00' },
+              ],
+            },
+          }),
+        ),
+      ).not.toBeNull()
+    })
+
+    it('rejects envelopes whose restore would alter persisted normalized values', function () {
+      // A confirm-step ai_direct draft with no scheduledAt is not timing
+      // complete; restore clamps the step to 'timing'.
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'ai_direct',
+            draft: {
+              step: 'confirm',
+              interviewType: 'system_design',
+              mode: 'ai_led',
+              scheduledAt: null,
+              maxMatches: null,
+              slots: [],
+            },
+          }),
+        ),
+      ).toBeNull()
+      // A confirm-step standard_p2p draft with no availability is not complete;
+      // restore clamps the step to 'availability'.
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'standard_p2p',
+            draft: {
+              step: 'confirm',
+              interviewType: 'system_design',
+              mode: 'peer_to_peer',
+              scheduledAt: null,
+              maxMatches: null,
+              slots: [],
+            },
+          }),
+        ),
+      ).toBeNull()
+      // A complete standard_p2p draft at 'confirm' restores losslessly and is
+      // preserved (guard against over-rejection).
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'standard_p2p',
+            draft: {
+              step: 'confirm',
+              interviewType: 'system_design',
+              mode: 'peer_to_peer',
+              scheduledAt: null,
+              maxMatches: 2,
+              slots: [
+                { startTime: '2026-06-10T10:00', endTime: '2026-06-10T11:00' },
+              ],
+            },
+          }),
+        ),
+      ).not.toBeNull()
+    })
+
+    it('accepts 60-minute non-ISO slots in standard_p2p using exact v1 isValidSlot semantics', function () {
+      const envelope = parseScheduleDraftV2(
+        JSON.stringify({
+          version: 'v2',
+          branch: 'standard_p2p',
+          draft: {
+            step: 'availability',
+            interviewType: 'system_design',
+            mode: 'peer_to_peer',
+            scheduledAt: null,
+            maxMatches: 2,
+            slots: [
+              { startTime: 'June 10, 2026 10:00', endTime: 'June 10, 2026 11:00' },
+            ],
+          },
+        }),
+      )
+
+      // Lossless round-trip: the non-ISO strings are preserved verbatim.
+      expect(envelope).toEqual({
+        version: 'v2',
+        branch: 'standard_p2p',
+        draft: {
+          step: 'availability',
+          interviewType: 'system_design',
+          mode: 'peer_to_peer',
+          scheduledAt: null,
+          maxMatches: 2,
+          slots: [
+            { startTime: 'June 10, 2026 10:00', endTime: 'June 10, 2026 11:00' },
+          ],
+        },
+      })
+    })
+
+    it('still rejects standard_p2p slots that Date cannot parse or are not 60 minutes', function () {
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'standard_p2p',
+            draft: {
+              step: 'availability',
+              interviewType: 'system_design',
+              mode: 'peer_to_peer',
+              scheduledAt: null,
+              maxMatches: 2,
+              slots: [{ startTime: 'not-a-date', endTime: '2026-06-10T11:00' }],
+            },
+          }),
+        ),
+      ).toBeNull()
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'standard_p2p',
+            draft: {
+              step: 'availability',
+              interviewType: 'system_design',
+              mode: 'peer_to_peer',
+              scheduledAt: null,
+              maxMatches: 2,
+              slots: [
+                { startTime: 'June 10, 2026 10:00', endTime: 'June 10, 2026 10:30' },
+              ],
+            },
+          }),
+        ),
+      ).toBeNull()
+    })
+
+    it('keeps strict ISO validation for ai_direct scheduledAt and verified_interviewer startedAt', function () {
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'ai_direct',
+            draft: {
+              step: 'confirm',
+              interviewType: 'system_design',
+              mode: 'ai_led',
+              scheduledAt: 'June 10, 2026',
+              maxMatches: null,
+              slots: [],
+            },
+          }),
+        ),
+      ).toBeNull()
+      expect(
+        parseScheduleDraftV2(
+          JSON.stringify({
+            version: 'v2',
+            branch: 'verified_interviewer',
+            slotId: '0c7e9f0e-0e9a-4c8e-9b6d-9f7a2e1c8d4a',
+            idempotencyKey: 'f1d2c3b4-5a6e-4f8b-9c0d-1e2f3a4b5c6d',
+            startedAt: 'June 10, 2026',
+          }),
+        ),
+      ).toBeNull()
+    })
+
+    it('rejects a JSON null literal with the string-only parse contract', function () {
+      // parseScheduleDraftV2 accepts only serialized strings; JSON null is
+      // rejected even though JSON.parse('null') is valid JS.
+      expect(parseScheduleDraftV2('null')).toBeNull()
+    })
+  })
+
+  describe('migrateScheduleDraftV1ToV2', function migrateV1Suite() {
+    const aiDraft: ScheduleState = {
+      ...initialScheduleState,
+      step: 'confirm',
+      interviewType: 'system_design',
+      mode: 'ai_led',
+      scheduledAt: 'now',
+      validationError: null,
+      fieldErrors: null,
+    }
+
+    const p2pDraft: ScheduleState = {
+      ...initialScheduleState,
+      step: 'confirm',
+      interviewType: 'system_design',
+      mode: 'peer_to_peer',
+      scheduledAt: null,
+      maxMatches: 2,
+      slots: [{ startTime: '2026-06-10T10:00', endTime: '2026-06-10T11:00' }],
+      validationError: null,
+      fieldErrors: null,
+    }
+
+    it('maps a complete v1 ai draft to its unchanged ai_direct branch', function () {
+      const migrated = migrateScheduleDraftV1ToV2(serializeScheduleDraft(aiDraft))
+
+      expect(migrated).toEqual({
+        version: 'v2',
+        branch: 'ai_direct',
+        draft: {
+          step: 'confirm',
+          interviewType: 'system_design',
+          mode: 'ai_led',
+          scheduledAt: 'now',
+          maxMatches: null,
+          slots: [],
+        },
+      })
+    })
+
+    it('maps a complete v1 p2p draft to its unchanged standard_p2p branch losslessly', function () {
+      const migrated = migrateScheduleDraftV1ToV2(serializeScheduleDraft(p2pDraft))
+
+      expect(migrated).toEqual({
+        version: 'v2',
+        branch: 'standard_p2p',
+        draft: {
+          step: 'confirm',
+          interviewType: 'system_design',
+          mode: 'peer_to_peer',
+          scheduledAt: null,
+          maxMatches: 2,
+          slots: [{ startTime: '2026-06-10T10:00', endTime: '2026-06-10T11:00' }],
+        },
+      })
+    })
+
+    it('maps an incomplete v1 draft with no submission branch to pre_branch', function () {
+      const incomplete: ScheduleState = {
+        ...initialScheduleState,
+        step: 'mode',
+        interviewType: 'system_design',
+        validationError: null,
+        fieldErrors: null,
+      }
+
+      const migrated = migrateScheduleDraftV1ToV2(serializeScheduleDraft(incomplete))
+
+      expect(migrated).toEqual({
+        version: 'v2',
+        branch: 'pre_branch',
+        draft: {
+          step: 'mode',
+          interviewType: 'system_design',
+          mode: null,
+          scheduledAt: null,
+          maxMatches: null,
+          slots: [],
+        },
+      })
+    })
+
+    it('rejects malformed and unknown v1 envelopes', function () {
+      expect(migrateScheduleDraftV1ToV2('{not-json')).toBeNull()
+      expect(
+        migrateScheduleDraftV1ToV2(
+          JSON.stringify({ version: 99, draft: {} }),
+        ),
+      ).toBeNull()
+      expect(
+        migrateScheduleDraftV1ToV2(
+          JSON.stringify({
+            version: 1,
+            draft: {
+              step: 'not-a-step',
+              interviewType: 'system_design',
+              mode: null,
+              scheduledAt: null,
+              maxMatches: null,
+              slots: [],
+            },
+          }),
+        ),
+      ).toBeNull()
+    })
+
+    it('never reinterprets a v1 p2p draft as verified_interviewer', function () {
+      const migrated = migrateScheduleDraftV1ToV2(serializeScheduleDraft(p2pDraft))
+
+      expect(migrated).not.toBeNull()
+      expect(migrated!.branch).toBe('standard_p2p')
+    })
+
+    it('produces a migrated envelope that parses back losslessly', function () {
+      const migrated = migrateScheduleDraftV1ToV2(serializeScheduleDraft(p2pDraft))
+      expect(parseScheduleDraftV2(JSON.stringify(migrated))).toEqual(migrated)
+    })
+
+    it('migrates a v1 p2p draft with parsable 60-minute non-ISO slots and parses the result back losslessly', function () {
+      const nonIsoP2pDraft: ScheduleState = {
+        ...initialScheduleState,
+        step: 'confirm',
+        interviewType: 'system_design',
+        mode: 'peer_to_peer',
+        scheduledAt: null,
+        maxMatches: 2,
+        slots: [
+          {
+            startTime: 'June 10, 2026 10:00',
+            endTime: 'June 10, 2026 11:00',
+          },
+        ],
+        validationError: null,
+        fieldErrors: null,
+      }
+
+      const migrated = migrateScheduleDraftV1ToV2(
+        serializeScheduleDraft(nonIsoP2pDraft),
+      )
+
+      expect(migrated).not.toBeNull()
+      expect(migrated!.branch).toBe('standard_p2p')
+      expect(parseScheduleDraftV2(JSON.stringify(migrated))).toEqual(migrated)
+      if (migrated!.branch === 'standard_p2p') {
+        expect(migrated!.draft.slots).toEqual([
+          {
+            startTime: 'June 10, 2026 10:00',
+            endTime: 'June 10, 2026 11:00',
+          },
+        ])
+      }
+    })
+  })
+
+  describe('scheduleDraftV2ToState', function v2ToStateSuite() {
+    it('restores an ai_direct envelope to ai schedule state', function () {
+      const envelope = buildScheduleDraftV2({
+        ...initialScheduleState,
+        step: 'confirm',
+        interviewType: 'system_design',
+        mode: 'ai_led',
+        scheduledAt: 'now',
+      })
+
+      const state = scheduleDraftV2ToState(envelope)
+      expect(state).toEqual({
+        ...initialScheduleState,
+        step: 'confirm',
+        interviewType: 'system_design',
+        mode: 'ai_led',
+        scheduledAt: 'now',
+      })
+    })
+
+    it('restores a standard_p2p envelope to p2p schedule state', function () {
+      const envelope = buildScheduleDraftV2({
+        ...initialScheduleState,
+        step: 'confirm',
+        interviewType: 'system_design',
+        mode: 'peer_to_peer',
+        maxMatches: 2,
+        slots: [{ startTime: '2026-06-10T10:00', endTime: '2026-06-10T11:00' }],
+      })
+
+      const state = scheduleDraftV2ToState(envelope)
+      expect(state).toEqual({
+        ...initialScheduleState,
+        step: 'confirm',
+        interviewType: 'system_design',
+        mode: 'peer_to_peer',
+        maxMatches: 2,
+        slots: [{ startTime: '2026-06-10T10:00', endTime: '2026-06-10T11:00' }],
+      })
+    })
+
+    it('restores a pre_branch envelope to the normalized no-mode state', function () {
+      const envelope = buildScheduleDraftV2({
+        ...initialScheduleState,
+        step: 'mode',
+        interviewType: 'system_design',
+      })
+
+      const state = scheduleDraftV2ToState(envelope)
+      expect(state).toEqual({
+        ...initialScheduleState,
+        step: 'mode',
+        interviewType: 'system_design',
+      })
+    })
+
+    it('returns null for a verified_interviewer envelope (no schedule state)', function () {
+      const envelope: ScheduleDraftV2Envelope = {
+        version: 'v2',
+        branch: 'verified_interviewer',
+        slotId: '0c7e9f0e-0e9a-4c8e-9b6d-9f7a2e1c8d4a',
+        idempotencyKey: 'f1d2c3b4-5a6e-4f8b-9c0d-1e2f3a4b5c6d',
+        startedAt: '2026-06-10T10:00:00.000Z',
+      }
+
+      expect(scheduleDraftV2ToState(envelope)).toBeNull()
     })
   })
 })

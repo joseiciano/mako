@@ -23,6 +23,17 @@ export const interviewStatusSchema = z.enum([
   'cancelled',
 ])
 
+/**
+ * Why a premium (verified_interviewer) booking was refunded. Mirrors the
+ * `premium_booking_credit_refunds.reason` CHECK constraint exactly. Absent
+ * (null) for scheduler-initiated cancellations, non-premium interviews, and
+ * historical records that predate refund metadata.
+ */
+export const interviewCancellationReasonSchema = z.enum([
+  'interviewer_cancelled',
+  'interviewer_account_deleted',
+])
+
 export const interviewScheduledAtSchema = z.string().datetime({ offset: true })
 
 export const defaultInterviewListLimit = 50
@@ -78,17 +89,21 @@ export const interviewSchema = z.object({
   updated_at: z.string().datetime({ offset: true }),
 })
 
-export const interviewListItemSchema = interviewSchema.omit({
-  realtime_session_id: true,
-  excalidraw_room_id: true,
-  excalidraw_key: true,
-  recording_url: true,
-  screenshot_urls: true,
-  feedback: true,
-  started_at: true,
-  expires_at: true,
-  warning_at: true,
-})
+export const interviewListItemSchema = interviewSchema
+  .omit({
+    realtime_session_id: true,
+    excalidraw_room_id: true,
+    excalidraw_key: true,
+    recording_url: true,
+    screenshot_urls: true,
+    feedback: true,
+    started_at: true,
+    expires_at: true,
+    warning_at: true,
+  })
+  .extend({
+    cancellation_reason: interviewCancellationReasonSchema.nullable().default(null),
+  })
 
 // ============================================================================
 // Feedback v1 Report Schema
@@ -363,6 +378,9 @@ export type InterviewMode = z.infer<typeof interviewModeSchema>
 export type BookingChannel = z.infer<typeof bookingChannelSchema>
 export type InterviewTier = z.infer<typeof interviewTierSchema>
 export type Interview = z.infer<typeof interviewSchema>
+export type InterviewCancellationReason = z.infer<
+  typeof interviewCancellationReasonSchema
+>
 export type InterviewListItem = z.infer<typeof interviewListItemSchema>
 export type InterviewListResponse = z.infer<typeof interviewListResponseSchema>
 export type InterviewDetail = z.infer<typeof interviewDetailSchema>

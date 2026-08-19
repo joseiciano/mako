@@ -18,6 +18,7 @@ function createInterviewFixture(
     tier: 'standard' as const,
     status: 'scheduled' as const,
     scheduled_at: '2026-04-10T10:30:00.000Z',
+    cancellation_reason: null,
     realtime_session_id: null,
     excalidraw_room_id: null,
     excalidraw_key: null,

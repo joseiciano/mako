@@ -26,7 +26,7 @@ function renderSchedule(props: Partial<ScheduleDumbProps> = {}) {
     canAdvance: false,
     canGoBack: false,
     onSetType: vi.fn(),
-    onSetMode: vi.fn(),
+    onSelectBranch: vi.fn(),
     onSetScheduledAt: vi.fn(),
     onSetMaxMatches: vi.fn(),
     onSetSlots: vi.fn(),
@@ -56,7 +56,7 @@ describe('ScheduleDumb', function scheduleDumbSuite() {
       step: 'mode',
     })
     expect(screen.getByText('Type')).toBeDefined()
-    expect(screen.getByText('Mode')).toBeDefined()
+    expect(screen.getByText('Branch')).toBeDefined()
     expect(screen.getByText('Timing')).toBeDefined()
     expect(screen.getByText('Confirm')).toBeDefined()
     cleanup()
@@ -70,17 +70,57 @@ describe('ScheduleDumb', function scheduleDumbSuite() {
     cleanup()
   })
 
-  it('calls onSetMode when mode is selected', async function testSetMode() {
-    const onSetMode = vi.fn()
+  it('renders exactly the three submission branches', function testBranches() {
+    renderSchedule({
+      step: 'mode',
+      visibleSteps: ['type', 'mode', 'timing', 'confirm'],
+      interviewType: 'system_design',
+    })
+    expect(screen.getByText('AI Direct')).toBeDefined()
+    expect(screen.getByText('Standard P2P Availability')).toBeDefined()
+    expect(screen.getByText('Verified Interviewer')).toBeDefined()
+    cleanup()
+  })
+
+  it('calls onSelectBranch when ai direct is selected', async function testSelectAiDirect() {
+    const onSelectBranch = vi.fn()
     renderSchedule({
       step: 'mode',
       visibleSteps: ['type', 'mode', 'timing', 'confirm'],
       interviewType: 'system_design',
       canAdvance: true,
-      onSetMode,
+      onSelectBranch,
     })
-    await userEvent.click(screen.getByText('AI-Led'))
-    expect(onSetMode).toHaveBeenCalledWith('ai_led')
+    await userEvent.click(screen.getByText('AI Direct'))
+    expect(onSelectBranch).toHaveBeenCalledWith('ai_direct')
+    cleanup()
+  })
+
+  it('calls onSelectBranch when standard p2p availability is selected', async function testSelectStandardP2p() {
+    const onSelectBranch = vi.fn()
+    renderSchedule({
+      step: 'mode',
+      visibleSteps: ['type', 'mode', 'availability', 'confirm'],
+      interviewType: 'system_design',
+      canAdvance: true,
+      onSelectBranch,
+    })
+    await userEvent.click(screen.getByText('Standard P2P Availability'))
+    expect(onSelectBranch).toHaveBeenCalledWith('standard_p2p')
+    cleanup()
+  })
+
+  it('calls onSelectBranch when verified interviewer is selected', async function testSelectVerifiedInterviewer() {
+    const onSelectBranch = vi.fn()
+    renderSchedule({
+      step: 'mode',
+      visibleSteps: ['type', 'mode'],
+      interviewType: 'system_design',
+      canAdvance: true,
+      onSelectBranch,
+    })
+    await userEvent.click(screen.getByText('Verified Interviewer'))
+    expect(onSelectBranch).toHaveBeenCalledWith('verified_interviewer')
     cleanup()
   })
 
@@ -406,8 +446,19 @@ describe('ScheduleDumb', function scheduleDumbSuite() {
       interviewType: 'system_design',
       isSubmitting: true,
     })
-    const modeButtons = screen.getAllByRole('button').filter((b) => b.textContent?.includes('AI-Led') || b.textContent?.includes('Peer-to-Peer'))
-    expect(modeButtons[0]).toHaveProperty('disabled', true)
+    const branchButtons = screen
+      .getAllByRole('button')
+      .filter(function isBranchButton(b) {
+        return (
+          b.textContent?.includes('AI Direct') ||
+          b.textContent?.includes('Standard P2P Availability') ||
+          b.textContent?.includes('Verified Interviewer')
+        )
+      })
+    expect(branchButtons).toHaveLength(3)
+    expect(branchButtons[0]).toHaveProperty('disabled', true)
+    expect(branchButtons[1]).toHaveProperty('disabled', true)
+    expect(branchButtons[2]).toHaveProperty('disabled', true)
     cleanup()
   })
 

@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 7: Interviewer Verification & Premium Matching
 **Description**: Build the scheduler-facing frontend that browses the first-to-claim verified-interviewer marketplace, claims an available slot (paying exactly one credit via the Story 7.15 claim route with a UUID idempotency key), and reflects booking/cancellation outcomes. It presents **only** `system_design` inventory as a third branch inside `/interviews/new`.
-**Status**: Todo
+**Status**: Completed
 
 ## What Needs to Be Done
 

@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { ScheduleSmart } from './schedule-smart'
 import {
   SCHEDULE_DRAFT_STORAGE_KEY,
+  SCHEDULE_DRAFT_V2_STORAGE_KEY,
   PENDING_CREATE_GUARD_KEY,
   serializeScheduleDraft,
 } from './schedule-flow'
@@ -81,19 +82,54 @@ vi.mock('#/hooks/use-account', () => ({
   }),
 }))
 
+const mockPremiumClaimMutate = vi.fn()
+let mockPremiumClaimIsPending = false
+
+vi.mock('#/hooks/use-premium-marketplace', async function mockMarketplaceHooks(
+  importOriginal,
+) {
+  const actual = await importOriginal<
+    typeof import('#/hooks/use-premium-marketplace')
+  >()
+  return {
+    ...actual,
+    usePremiumMarketplace: () => ({
+      data: {
+        slots: [],
+        pagination: { limit: 25, offset: 0, hasMore: false },
+        policy: { leadTimeMinutes: 60, horizonDays: 90, priceCredits: 1 },
+      },
+      isLoading: false,
+      isError: false,
+      isSuccess: true,
+      refetch: vi.fn(),
+    }),
+    useClaimPremiumSlot: () => ({
+      mutate: mockPremiumClaimMutate,
+      reset: vi.fn(),
+      get isPending() {
+        return mockPremiumClaimIsPending
+      },
+    }),
+  }
+})
+
 
 describe('ScheduleSmart', function scheduleSmartSuite() {
   beforeEach(function () {
     mockNavigate.mockClear()
     mockCreateMutate.mockClear()
     mockAvailabilityMutate.mockClear()
+    mockPremiumClaimMutate.mockClear()
     mockCreateIsPending = false
     mockCreateError = null
     mockAvailabilityIsPending = false
     mockAvailabilityError = null
+    mockPremiumClaimIsPending = false
     mockAccountData = accountFixture
     mockAccountIsLoading = false
     mockAccountIsError = false
+    window.localStorage.clear()
     window.sessionStorage.clear()
   })
 
@@ -106,6 +142,78 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
     cleanup()
   })
 
+  it('exposes exactly the three submission branches plus the pre-branch state', async function testBranchOptions() {
+    const user = userEvent.setup()
+    render(<ScheduleSmart />)
+
+    await user.click(screen.getByText('System Design'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+
+    expect(screen.getByText('Select Branch')).toBeDefined()
+    expect(screen.getByText('AI Direct')).toBeDefined()
+    expect(screen.getByText('Standard P2P Availability')).toBeDefined()
+    expect(screen.getByText('Verified Interviewer')).toBeDefined()
+    expect(screen.queryByText('AI-Led')).toBeNull()
+    expect(screen.queryByText('Peer-to-Peer')).toBeNull()
+
+    cleanup()
+  })
+
+  it('renders the premium marketplace surface when Verified Interviewer is selected without calling standard/AI mutations', async function testVerifiedBranchRendersPremium() {
+    const user = userEvent.setup()
+    render(<ScheduleSmart />)
+
+    await user.click(screen.getByText('System Design'))
+    await user.click(screen.getByRole('button', { name: 'Next' }))
+    await user.click(screen.getByText('Verified Interviewer'))
+
+    expect(
+      screen.getByRole('heading', { name: 'Verified Interviewer Slots' }),
+    ).toBeDefined()
+    expect(screen.queryByRole('heading', { name: 'Schedule Interview' })).toBeNull()
+    expect(mockCreateMutate).not.toHaveBeenCalled()
+    expect(mockAvailabilityMutate).not.toHaveBeenCalled()
+    expect(mockPremiumClaimMutate).not.toHaveBeenCalled()
+
+    cleanup()
+  })
+
+  it('restores a persisted verified_interviewer claim into the premium surface and replays the same key', async function testPremiumRecovery() {
+    const slotId = '11111111-1111-4111-8111-111111111111'
+    const idempotencyKey = '66666666-6666-4666-8666-666666666666'
+    window.localStorage.setItem(
+      SCHEDULE_DRAFT_V2_STORAGE_KEY,
+      JSON.stringify({
+        version: 'v2',
+        branch: 'verified_interviewer',
+        slotId,
+        idempotencyKey,
+        startedAt: '2026-08-08T09:00:00.000Z',
+      }),
+    )
+
+    render(<ScheduleSmart />)
+
+    expect(
+      screen.getByRole('heading', { name: 'Verified Interviewer Slots' }),
+    ).toBeDefined()
+    await waitFor(function assertReplayIssued() {
+      expect(mockPremiumClaimMutate).toHaveBeenCalledTimes(1)
+    })
+    const replayPayload = mockPremiumClaimMutate.mock.calls[0]![0]
+    expect(replayPayload).toEqual(
+      expect.objectContaining({
+        slotId,
+        idempotencyKey,
+      }),
+    )
+    expect(replayPayload.signal).toBeInstanceOf(AbortSignal)
+    expect(mockCreateMutate).not.toHaveBeenCalled()
+    expect(mockAvailabilityMutate).not.toHaveBeenCalled()
+
+    cleanup()
+  })
+
   it('allows step progression through ai-led flow and submits', async function testAiFlow() {
     const user = userEvent.setup()
     render(<ScheduleSmart />)
@@ -113,7 +221,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
 
-    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByText('AI Direct'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
 
     await user.click(screen.getByText('Start now'))
@@ -158,7 +266,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByText('AI Direct'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await user.click(screen.getByText('Start now'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -193,7 +301,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByText('AI Direct'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await user.click(screen.getByText('Start now'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -251,7 +359,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
 
-    await user.click(screen.getByText('Peer-to-Peer'))
+    await user.click(screen.getByText('Standard P2P Availability'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
 
     const maxMatchesInput = screen.getByLabelText(/maximum matches/i)
@@ -294,7 +402,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByText('AI Direct'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await user.click(screen.getByText('Schedule for later'))
 
@@ -331,7 +439,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
 
-    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByText('AI Direct'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
 
     await user.click(screen.getByText('Start now'))
@@ -341,7 +449,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
     expect(screen.getByText('Start now')).toBeDefined()
 
     await user.click(screen.getByRole('button', { name: 'Back' }))
-    expect(screen.getByText('AI-Led')).toBeDefined()
+    expect(screen.getByText('AI Direct')).toBeDefined()
 
     cleanup()
   })
@@ -353,14 +461,14 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
 
-    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByText('AI Direct'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
 
     await user.click(screen.getByText('Start now'))
 
     // Go back to mode and switch to P2P
     await user.click(screen.getByRole('button', { name: 'Back' }))
-    await user.click(screen.getByText('Peer-to-Peer'))
+    await user.click(screen.getByText('Standard P2P Availability'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
 
     // Should be at availability step with empty state
@@ -375,7 +483,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByText('AI Direct'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await user.click(screen.getByText('Start now'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -398,7 +506,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByText('AI Direct'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await user.click(screen.getByText('Start now'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -417,7 +525,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByText('AI Direct'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await user.click(screen.getByText('Start now'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -446,7 +554,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByText('AI Direct'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await user.click(screen.getByText('Start now'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -467,7 +575,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByText('AI Direct'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await user.click(screen.getByText('Start now'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -505,7 +613,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.click(screen.getByText('Peer-to-Peer'))
+    await user.click(screen.getByText('Standard P2P Availability'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
 
     const maxMatchesInput = screen.getByLabelText(/maximum matches/i)
@@ -543,7 +651,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.click(screen.getByText('Peer-to-Peer'))
+    await user.click(screen.getByText('Standard P2P Availability'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
 
     const maxMatchesInput = screen.getByLabelText(/maximum matches/i)
@@ -586,7 +694,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.click(screen.getByText('Peer-to-Peer'))
+    await user.click(screen.getByText('Standard P2P Availability'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
 
     const maxMatchesInput = screen.getByLabelText(/maximum matches/i)
@@ -628,7 +736,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByText('AI Direct'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await user.click(screen.getByText('Start now'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -666,7 +774,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByText('AI Direct'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await user.click(screen.getByText('Start now'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -680,7 +788,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
     expect(screen.getByRole('button', { name: /retry scheduling/i })).toBeDefined()
 
     await user.click(screen.getAllByText('Edit')[1]!)
-    await user.click(screen.getByText('Peer-to-Peer'))
+    await user.click(screen.getByText('Standard P2P Availability'))
 
     expect(screen.queryByRole('button', { name: /retry scheduling/i })).toBeNull()
     expect(screen.queryByRole('alert')).toBeNull()
@@ -699,7 +807,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.click(screen.getByText('Peer-to-Peer'))
+    await user.click(screen.getByText('Standard P2P Availability'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
 
     const maxMatchesInput = screen.getByLabelText(/maximum matches/i)
@@ -744,8 +852,14 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
     render(<ScheduleSmart />)
 
     expect(screen.getByText('Confirm Your Interview')).toBeDefined()
-    expect(screen.getByText('AI-Led')).toBeDefined()
+    expect(screen.getByText('AI Direct')).toBeDefined()
     expect(screen.getByText('Start now')).toBeDefined()
+
+    // The legacy v1 draft is migrated into the durable v2 localStorage key.
+    expect(
+      window.localStorage.getItem(SCHEDULE_DRAFT_V2_STORAGE_KEY),
+    ).not.toBeNull()
+    expect(window.sessionStorage.getItem(SCHEDULE_DRAFT_STORAGE_KEY)).toBeNull()
 
     cleanup()
   })
@@ -756,7 +870,9 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     await user.click(screen.getByText('System Design'))
     await waitFor(function () {
-      expect(window.sessionStorage.getItem(SCHEDULE_DRAFT_STORAGE_KEY)).not.toBeNull()
+      expect(
+        window.localStorage.getItem(SCHEDULE_DRAFT_V2_STORAGE_KEY),
+      ).not.toBeNull()
     })
 
     cleanup()
@@ -764,7 +880,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     expect(screen.getByText('System Design')).toBeDefined()
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    expect(screen.getByText('Select Mode')).toBeDefined()
+    expect(screen.getByText('Select Branch')).toBeDefined()
 
     cleanup()
   })
@@ -775,18 +891,20 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByText('AI Direct'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await user.click(screen.getByText('Start now'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
 
-    expect(window.sessionStorage.getItem(SCHEDULE_DRAFT_STORAGE_KEY)).not.toBeNull()
+    expect(
+      window.localStorage.getItem(SCHEDULE_DRAFT_V2_STORAGE_KEY),
+    ).not.toBeNull()
     await user.click(screen.getByRole('button', { name: /confirm & schedule/i }))
 
     const onSuccess = mockCreateMutate.mock.calls[0]![1].onSuccess
     await onSuccess(createInterviewResponse('interview_draft'))
 
-    expect(window.sessionStorage.getItem(SCHEDULE_DRAFT_STORAGE_KEY)).toBeNull()
+    expect(window.localStorage.getItem(SCHEDULE_DRAFT_V2_STORAGE_KEY)).toBeNull()
 
     cleanup()
   })
@@ -800,13 +918,15 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByText('AI Direct'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await user.click(screen.getByText('Start now'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await user.click(screen.getByRole('button', { name: /confirm & schedule/i }))
 
-    expect(window.sessionStorage.getItem(SCHEDULE_DRAFT_STORAGE_KEY)).not.toBeNull()
+    expect(
+      window.localStorage.getItem(SCHEDULE_DRAFT_V2_STORAGE_KEY),
+    ).not.toBeNull()
 
     cleanup()
   })
@@ -817,7 +937,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByText('AI Direct'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await user.click(screen.getByText('Schedule for later'))
     fireEvent.change(screen.getByLabelText(/date and time/i), {
@@ -846,7 +966,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.click(screen.getByText('Peer-to-Peer'))
+    await user.click(screen.getByText('Standard P2P Availability'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await user.clear(screen.getByLabelText(/maximum matches/i))
     await user.type(screen.getByLabelText(/maximum matches/i), '2')
@@ -859,10 +979,12 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
     })
     await user.click(screen.getByRole('button', { name: 'Next' }))
 
-    expect(window.sessionStorage.getItem(SCHEDULE_DRAFT_STORAGE_KEY)).not.toBeNull()
+    expect(
+      window.localStorage.getItem(SCHEDULE_DRAFT_V2_STORAGE_KEY),
+    ).not.toBeNull()
     await user.click(screen.getByRole('button', { name: /confirm & schedule/i }))
 
-    expect(window.sessionStorage.getItem(SCHEDULE_DRAFT_STORAGE_KEY)).toBeNull()
+    expect(window.localStorage.getItem(SCHEDULE_DRAFT_V2_STORAGE_KEY)).toBeNull()
     expect(mockNavigate).not.toHaveBeenCalled()
 
     cleanup()
@@ -874,7 +996,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByText('AI Direct'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await user.click(screen.getByText('Start now'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -893,7 +1015,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByText('AI Direct'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await user.click(screen.getByText('Start now'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -915,7 +1037,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.click(screen.getByText('Peer-to-Peer'))
+    await user.click(screen.getByText('Standard P2P Availability'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
 
     await user.clear(screen.getByLabelText(/maximum matches/i))
@@ -943,7 +1065,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByText('AI Direct'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await user.click(screen.getByText('Schedule for later'))
     fireEvent.change(screen.getByLabelText(/date and time/i), {
@@ -965,7 +1087,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByText('AI Direct'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await user.click(screen.getByText('Start now'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -995,7 +1117,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByText('AI Direct'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await user.click(screen.getByText('Start now'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -1028,7 +1150,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByText('AI Direct'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await user.click(screen.getByText('Start now'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
@@ -1057,7 +1179,7 @@ describe('ScheduleSmart', function scheduleSmartSuite() {
 
     await user.click(screen.getByText('System Design'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
-    await user.click(screen.getByText('AI-Led'))
+    await user.click(screen.getByText('AI Direct'))
     await user.click(screen.getByRole('button', { name: 'Next' }))
     await user.click(screen.getByText('Start now'))
     await user.click(screen.getByRole('button', { name: 'Next' }))

@@ -1,8 +1,10 @@
 import type { InterviewType, InterviewMode } from '@mako/shared'
+import { isUuid } from '../../../lib/validation'
 
 export const supportedInterviewTypes: InterviewType[] = ['system_design']
 export const supportedModes: InterviewMode[] = ['ai_led', 'peer_to_peer']
 export const SCHEDULE_DRAFT_STORAGE_KEY = 'mako:schedule-flow:draft:v1'
+export const SCHEDULE_DRAFT_V2_STORAGE_KEY = 'mako:schedule-flow:draft:v2'
 export const PENDING_CREATE_GUARD_KEY = 'mako:schedule-flow:pending-create:v1'
 
 const SCHEDULE_DRAFT_VERSION = 1
@@ -60,6 +62,73 @@ type ScheduleDraftEnvelope = {
   version: typeof SCHEDULE_DRAFT_VERSION
   draft: ScheduleDraftData
 }
+
+export type ScheduleDraftV2Branch =
+  | 'pre_branch'
+  | 'ai_direct'
+  | 'standard_p2p'
+  | 'verified_interviewer'
+
+export type ScheduleDraftPreBranchEnvelope = {
+  version: 'v2'
+  branch: 'pre_branch'
+  draft: {
+    step: ScheduleStep
+    interviewType: InterviewType | null
+    mode: null
+    scheduledAt: null
+    maxMatches: null
+    slots: []
+  }
+}
+
+export type ScheduleDraftAiDirectEnvelope = {
+  version: 'v2'
+  branch: 'ai_direct'
+  draft: {
+    step: ScheduleStep
+    interviewType: InterviewType | null
+    mode: 'ai_led'
+    scheduledAt: 'now' | string | null
+    maxMatches: null
+    slots: []
+  }
+}
+
+export type ScheduleDraftStandardP2pEnvelope = {
+  version: 'v2'
+  branch: 'standard_p2p'
+  draft: {
+    step: ScheduleStep
+    interviewType: InterviewType | null
+    mode: 'peer_to_peer'
+    scheduledAt: null
+    maxMatches: number | null
+    slots: FlowSlot[]
+  }
+}
+
+export type ScheduleDraftVerifiedInterviewerEnvelope = {
+  version: 'v2'
+  branch: 'verified_interviewer'
+  slotId: string
+  idempotencyKey: string
+  startedAt: string
+}
+
+export type ScheduleDraftV2Envelope =
+  | ScheduleDraftPreBranchEnvelope
+  | ScheduleDraftAiDirectEnvelope
+  | ScheduleDraftStandardP2pEnvelope
+  | ScheduleDraftVerifiedInterviewerEnvelope
+
+/**
+ * The submission branches exposed by `/interviews/new`: the three selectable
+ * branches (`ai_direct`, `standard_p2p`, `verified_interviewer`) plus the
+ * `pre_branch` pre-submission state shown before a branch is chosen. Mirrors
+ * the v2 draft envelope `branch` discriminator exactly.
+ */
+export type ScheduleSubmissionBranch = ScheduleDraftV2Branch
 
 export type ScheduleAction =
   | { type: 'SET_TYPE'; payload: InterviewType }
@@ -274,6 +343,292 @@ export function restoreScheduleDraft(serialized: string | null): ScheduleState |
     return null
   }
 }
+
+// ---------------------------------------------------------------------------
+// v2 draft envelopes (mako:schedule-flow:draft:v2 in localStorage)
+// ---------------------------------------------------------------------------
+
+type V2DraftFields = {
+  step: ScheduleStep
+  interviewType: InterviewType | null
+  mode: InterviewMode | null
+  scheduledAt: 'now' | string | null
+  maxMatches: number | null
+  slots: FlowSlot[]
+}
+
+const ISO_8601_TIMESTAMP_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d{1,3})?)?(?:Z|[+-]\d{2}:\d{2})?$/
+
+/**
+ * Strict ISO-8601 timestamp check. The value must match the extended ISO-8601
+ * datetime representation (`YYYY-MM-DDTHH:mm` with optional seconds,
+ * fractional seconds, and `Z`/`±HH:mm` offset) and be a real date per the spec
+ * grammar. Strings a generic `Date` parse happens to accept, such as
+ * `"June 10, 2026"` or date-only `"2026-06-10"`, are rejected.
+ */
+function isIsoDate(value: unknown): value is string {
+  if (typeof value !== 'string' || value === '') return false
+  if (!ISO_8601_TIMESTAMP_PATTERN.test(value)) return false
+  return !Number.isNaN(new Date(value).valueOf())
+}
+
+function parseV2DraftFields(value: unknown): V2DraftFields | null {
+  if (!isRecord(value)) return null
+
+  const step = value.step
+  if (!isSupportedStep(step)) return null
+
+  const slots = Array.isArray(value.slots) ? value.slots : null
+  if (slots === null || !slots.every(isFlowSlot)) return null
+
+  if (value.interviewType !== null && typeof value.interviewType !== 'string') {
+    return null
+  }
+  if (value.mode !== null && typeof value.mode !== 'string') return null
+  if (value.scheduledAt !== null && typeof value.scheduledAt !== 'string') {
+    return null
+  }
+  if (value.maxMatches !== null && typeof value.maxMatches !== 'number') {
+    return null
+  }
+
+  return {
+    step,
+    interviewType:
+      typeof value.interviewType === 'string'
+        ? (value.interviewType as InterviewType)
+        : null,
+    mode: typeof value.mode === 'string' ? (value.mode as InterviewMode) : null,
+    scheduledAt:
+      typeof value.scheduledAt === 'string' ? value.scheduledAt : null,
+    maxMatches: typeof value.maxMatches === 'number' ? value.maxMatches : null,
+    slots,
+  }
+}
+
+function parseScheduleDraftV2Envelope(value: unknown): ScheduleDraftV2Envelope | null {
+  if (!isRecord(value)) return null
+  if (value.version !== 'v2') return null
+
+  if (value.branch === 'verified_interviewer') {
+    const slotId = value.slotId
+    const idempotencyKey = value.idempotencyKey
+    const startedAt = value.startedAt
+    if (!isUuid(slotId) || !isUuid(idempotencyKey)) return null
+    if (!isIsoDate(startedAt)) return null
+
+    return {
+      version: 'v2',
+      branch: 'verified_interviewer',
+      slotId,
+      idempotencyKey,
+      startedAt,
+    }
+  }
+
+  const fields = parseV2DraftFields(value.draft)
+  if (fields === null) return null
+
+  let envelope: ScheduleDraftV2Envelope | null = null
+
+  if (value.branch === 'pre_branch') {
+    if (
+      fields.mode !== null ||
+      fields.scheduledAt !== null ||
+      fields.maxMatches !== null ||
+      fields.slots.length !== 0
+    ) {
+      return null
+    }
+
+    envelope = {
+      version: 'v2',
+      branch: 'pre_branch',
+      draft: {
+        step: fields.step,
+        interviewType: fields.interviewType,
+        mode: null,
+        scheduledAt: null,
+        maxMatches: null,
+        slots: [],
+      },
+    }
+  } else if (value.branch === 'ai_direct') {
+    if (fields.mode !== 'ai_led') return null
+    if (fields.maxMatches !== null || fields.slots.length !== 0) return null
+    // scheduledAt may be null for an incomplete AI Direct draft (time not yet
+    // selected); the literal 'now' is allowed; any other value must be a
+    // strict ISO-8601 timestamp.
+    if (
+      fields.scheduledAt !== null &&
+      fields.scheduledAt !== 'now' &&
+      !isIsoDate(fields.scheduledAt)
+    ) {
+      return null
+    }
+
+    envelope = {
+      version: 'v2',
+      branch: 'ai_direct',
+      draft: {
+        step: fields.step,
+        interviewType: fields.interviewType,
+        mode: 'ai_led',
+        scheduledAt: fields.scheduledAt,
+        maxMatches: null,
+        slots: [],
+      },
+    }
+  } else if (value.branch === 'standard_p2p') {
+    if (fields.mode !== 'peer_to_peer') return null
+    if (fields.scheduledAt !== null) return null
+    if (
+      fields.maxMatches !== null &&
+      (!Number.isInteger(fields.maxMatches) || fields.maxMatches <= 0)
+    ) {
+      return null
+    }
+    // standard_p2p slots use the exact v1 `isValidSlot` semantics: any
+    // Date-parseable 60-minute window, including non-ISO strings such as
+    // "June 10, 2026 10:00". This lets valid normalized v1 P2P drafts migrate
+    // losslessly instead of being rejected for not matching strict ISO-8601.
+    if (!fields.slots.every(isValidSlot)) return null
+
+    envelope = {
+      version: 'v2',
+      branch: 'standard_p2p',
+      draft: {
+        step: fields.step,
+        interviewType: fields.interviewType,
+        mode: 'peer_to_peer',
+        scheduledAt: null,
+        maxMatches: fields.maxMatches,
+        slots: fields.slots,
+      },
+    }
+  } else {
+    return null
+  }
+
+  // Reject any envelope whose restore would alter a persisted normalized
+  // value (e.g. an unsupported interview type reset to null, a cross-branch
+  // step clamped by `normalizeRestoredScheduleState`, or a confirm step whose
+  // branch data is not complete). A losslessly restorable envelope round-trips
+  // back to the identical envelope.
+  const restored = scheduleDraftV2ToState(envelope)
+  if (restored === null) return null
+  if (JSON.stringify(buildScheduleDraftV2(restored)) !== JSON.stringify(envelope)) {
+    return null
+  }
+
+  return envelope
+}
+
+/**
+ * Parses and strictly validates a serialized v2 draft envelope. Rejects
+ * malformed JSON, wrong versions, missing/unknown branches, and envelopes
+ * that do not match the exact normalized shape for their branch.
+ */
+export function parseScheduleDraftV2(serialized: string): ScheduleDraftV2Envelope | null {
+  try {
+    const parsed: unknown = JSON.parse(serialized)
+    return parseScheduleDraftV2Envelope(parsed)
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Builds the exact v2 envelope for a schedule state. The state is normalized
+ * first (mirroring the v1 normalize/restore contract), so any valid
+ * normalized/restorable v1 state maps losslessly to its v2 branch:
+ * `ai_led` -> `ai_direct`, `peer_to_peer` -> `standard_p2p`, and a no-mode
+ * state -> `pre_branch`.
+ */
+export function buildScheduleDraftV2(state: ScheduleState): ScheduleDraftV2Envelope {
+  const normalized = normalizeRestoredScheduleState(state)
+
+  if (normalized.mode === 'ai_led') {
+    const envelope: ScheduleDraftAiDirectEnvelope = {
+      version: 'v2',
+      branch: 'ai_direct',
+      draft: {
+        step: normalized.step,
+        interviewType: normalized.interviewType,
+        mode: 'ai_led',
+        scheduledAt: normalized.scheduledAt,
+        maxMatches: null,
+        slots: [],
+      },
+    }
+    return envelope
+  }
+
+  if (normalized.mode === 'peer_to_peer') {
+    const envelope: ScheduleDraftStandardP2pEnvelope = {
+      version: 'v2',
+      branch: 'standard_p2p',
+      draft: {
+        step: normalized.step,
+        interviewType: normalized.interviewType,
+        mode: 'peer_to_peer',
+        scheduledAt: null,
+        maxMatches: normalized.maxMatches,
+        slots: normalized.slots,
+      },
+    }
+    return envelope
+  }
+
+  const envelope: ScheduleDraftPreBranchEnvelope = {
+    version: 'v2',
+    branch: 'pre_branch',
+    draft: {
+      step: normalized.step,
+      interviewType: normalized.interviewType,
+      mode: null,
+      scheduledAt: null,
+      maxMatches: null,
+      slots: [],
+    },
+  }
+  return envelope
+}
+
+/**
+ * Migrates a serialized v1 draft envelope to its unchanged v2 branch. Complete
+ * AI/P2P drafts map to `ai_direct`/`standard_p2p`; incomplete drafts (no
+ * submission branch selected) map to `pre_branch`. Malformed/unknown v1
+ * envelopes are rejected (null). A v1 P2P draft is never reinterpreted as
+ * `verified_interviewer`.
+ */
+export function migrateScheduleDraftV1ToV2(
+  serializedV1: string,
+): ScheduleDraftV2Envelope | null {
+  const restored = restoreScheduleDraft(serializedV1)
+  if (restored === null) return null
+
+  return buildScheduleDraftV2(restored)
+}
+
+/**
+ * Converts a validated v2 envelope back to schedule state. Draft branches are
+ * restored through the v1 normalize/restore contract (lossless for the valid
+ * normalized shapes). The `verified_interviewer` branch has no schedule state
+ * and returns null; it is handled by the premium claim flow instead.
+ */
+export function scheduleDraftV2ToState(
+  envelope: ScheduleDraftV2Envelope,
+): ScheduleState | null {
+  if (envelope.branch === 'verified_interviewer') return null
+
+  return normalizeRestoredScheduleState({
+    ...initialScheduleState,
+    ...envelope.draft,
+  })
+}
+
 
 function toIsoString(value: string): string | null {
   const parsed = new Date(value)
@@ -647,13 +1002,44 @@ export function getStepLabel(step: ScheduleStep): string {
     case 'type':
       return 'Type'
     case 'mode':
-      return 'Mode'
+      return 'Branch'
     case 'timing':
       return 'Timing'
     case 'availability':
       return 'Availability'
     case 'confirm':
       return 'Confirm'
+    default:
+      return ''
+  }
+}
+
+/**
+ * Derives the submission branch for a schedule state. `ai_led` and
+ * `peer_to_peer` map to their v2 submission branches; a no-mode state is
+ * still in the pre-submission `pre_branch`. A `verified_interviewer` branch
+ * has no schedule state and is tracked by the scheduler surface instead.
+ */
+export function getSubmissionBranch(
+  state: ScheduleState,
+): ScheduleSubmissionBranch {
+  if (state.mode === 'ai_led') return 'ai_direct'
+  if (state.mode === 'peer_to_peer') return 'standard_p2p'
+  return 'pre_branch'
+}
+
+export function getSubmissionBranchLabel(
+  branch: ScheduleSubmissionBranch,
+): string {
+  switch (branch) {
+    case 'pre_branch':
+      return 'Not selected'
+    case 'ai_direct':
+      return 'AI Direct'
+    case 'standard_p2p':
+      return 'Standard P2P Availability'
+    case 'verified_interviewer':
+      return 'Verified Interviewer'
     default:
       return ''
   }

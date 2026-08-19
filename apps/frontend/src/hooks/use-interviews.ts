@@ -159,6 +159,10 @@ export function useCancelInterview(): UseMutationResult<
       await queryClient.invalidateQueries({
         queryKey: interviewsQueryRootKey,
       })
+      // A current-client cancellation can change the persisted credit balance
+      // (verified_interviewer refund/no-refund outcomes), so the account query
+      // must be refreshed alongside the interview surfaces.
+      await queryClient.invalidateQueries({ queryKey: accountQueryKey })
     },
   })
 }

@@ -1,10 +1,65 @@
 import type { InterviewType, InterviewMode } from '@mako/shared'
 import {
   getStepLabel,
+  getSubmissionBranchLabel,
   type ScheduleStep,
   type FlowSlot,
   type ScheduleFieldErrors,
+  type ScheduleSubmissionBranch,
 } from './schedule-flow'
+
+function isBranchSelected(
+  mode: InterviewMode | null,
+  branch: ScheduleSubmissionBranch,
+): boolean {
+  if (mode === 'ai_led') return branch === 'ai_direct'
+  if (mode === 'peer_to_peer') return branch === 'standard_p2p'
+  return false
+}
+
+function getModeBranchLabel(mode: InterviewMode | null): string {
+  if (mode === 'ai_led') return getSubmissionBranchLabel('ai_direct')
+  if (mode === 'peer_to_peer') return getSubmissionBranchLabel('standard_p2p')
+  return '—'
+}
+
+function getInterviewTypeLabel(type: InterviewType | null): string {
+  if (type === 'system_design') return 'System Design'
+  if (type === 'coding') return 'Coding'
+  if (type === 'behavioral') return 'Behavioral'
+  return '—'
+}
+
+function getConfirmSubmitLabel(
+  successMessage: string | null,
+  isSubmitting: boolean,
+): string {
+  if (successMessage !== null) return 'Submitted'
+  if (isSubmitting) return 'Submitting...'
+  return 'Confirm & Schedule'
+}
+
+function getStepIndicatorClassName(
+  isCurrent: boolean,
+  isPast: boolean,
+): string {
+  if (isCurrent) return 'bg-emerald-500 text-slate-950'
+  if (isPast) return 'bg-emerald-500/20 text-emerald-300'
+  return 'bg-slate-800 text-slate-500'
+}
+
+function getStepIndicatorButtonClassName(
+  isCurrent: boolean,
+  isPast: boolean,
+): string {
+  if (isCurrent) return 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40'
+  if (isPast) return 'text-emerald-400 hover:text-emerald-300'
+  return 'text-slate-500'
+}
+
+function getStepIndicatorConnectorClassName(isPast: boolean): string {
+  return isPast ? 'bg-emerald-400' : 'bg-slate-700'
+}
 
 export type ScheduleDumbProps = {
   step: ScheduleStep
@@ -27,7 +82,7 @@ export type ScheduleDumbProps = {
   canAdvance: boolean
   canGoBack: boolean
   onSetType: (type: InterviewType) => void
-  onSetMode: (mode: InterviewMode) => void
+  onSelectBranch: (branch: ScheduleSubmissionBranch) => void
   onSetScheduledAt: (value: 'now' | string) => void
   onSetMaxMatches: (value: number) => void
   onSetSlots: (slots: FlowSlot[]) => void
@@ -54,7 +109,7 @@ function StepIndicator(props: {
             <li key={step} className="flex items-center gap-2">
               {index > 0 ? (
                 <span
-                  className={`h-px w-4 ${isPast ? 'bg-emerald-400' : 'bg-slate-700'}`}
+                  className={`h-px w-4 ${getStepIndicatorConnectorClassName(isPast)}`}
                 />
               ) : null}
               <button
@@ -64,24 +119,12 @@ function StepIndicator(props: {
                     props.onGoToStep(step)
                   }
                 }}
-                className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition ${
-                  isCurrent
-                    ? 'bg-emerald-500/20 text-emerald-300 ring-1 ring-emerald-500/40'
-                    : isPast
-                      ? 'text-emerald-400 hover:text-emerald-300'
-                      : 'text-slate-500'
-                }`}
+                className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition ${getStepIndicatorButtonClassName(isCurrent, isPast)}`}
                 disabled={!isPast}
                 aria-current={isCurrent ? 'step' : undefined}
               >
                 <span
-                  className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] ${
-                    isCurrent
-                      ? 'bg-emerald-500 text-slate-950'
-                      : isPast
-                        ? 'bg-emerald-500/20 text-emerald-300'
-                        : 'bg-slate-800 text-slate-500'
-                  }`}
+                  className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] ${getStepIndicatorClassName(isCurrent, isPast)}`}
                 >
                   {index + 1}
                 </span>
@@ -136,37 +179,48 @@ function TypeStep(props: {
   )
 }
 
-function ModeStep(props: {
+function BranchStep(props: {
   value: InterviewMode | null
-  onChange: (mode: InterviewMode) => void
+  onSelect: (branch: ScheduleSubmissionBranch) => void
   disabled: boolean
   error?: string
 }) {
-  const modes: { value: InterviewMode; label: string; description: string }[] = [
+  const branches: {
+    branch: ScheduleSubmissionBranch
+    label: string
+    description: string
+  }[] = [
     {
-      value: 'ai_led',
-      label: 'AI-Led',
-      description: 'Practice with an AI interviewer. Start immediately or schedule for later.',
+      branch: 'ai_direct',
+      label: 'AI Direct',
+      description: 'Start an AI-led interview immediately or schedule for later.',
     },
     {
-      value: 'peer_to_peer',
-      label: 'Peer-to-Peer',
-      description: 'Match with another candidate. Submit your availability and we will pair you.',
+      branch: 'standard_p2p',
+      label: 'Standard P2P Availability',
+      description:
+        'Submit your availability and we will match you with another candidate.',
+    },
+    {
+      branch: 'verified_interviewer',
+      label: 'Verified Interviewer',
+      description:
+        'Claim a first-to-claim slot with a verified interviewer for exactly one credit.',
     },
   ]
 
   return (
     <div className="flex flex-col gap-4">
-      <h2 className="text-lg font-semibold text-white">Select Mode</h2>
+      <h2 className="text-lg font-semibold text-white">Select Branch</h2>
       <div className="grid gap-3">
-        {modes.map(function renderModeOption(mode) {
-          const selected = props.value === mode.value
+        {branches.map(function renderBranchOption(branch) {
+          const selected = isBranchSelected(props.value, branch.branch)
           return (
             <button
-              key={mode.value}
+              key={branch.branch}
               type="button"
-              onClick={function onModeClick() {
-                props.onChange(mode.value)
+              onClick={function onBranchClick() {
+                props.onSelect(branch.branch)
               }}
               disabled={props.disabled}
               className={`flex flex-col gap-1 rounded-lg border px-4 py-3 text-left transition ${
@@ -175,9 +229,9 @@ function ModeStep(props: {
                   : 'border-slate-700 bg-slate-900/40 text-slate-300 hover:border-slate-600 hover:bg-slate-800/40'
               }`}
             >
-              <span className="text-sm font-medium">{mode.label}</span>
+              <span className="text-sm font-medium">{branch.label}</span>
               <span className="text-xs text-slate-400">
-                {mode.description}
+                {branch.description}
               </span>
             </button>
           )
@@ -391,13 +445,7 @@ function ConfirmStep(props: {
           <div>
             <p className="text-xs text-slate-400">Type</p>
             <p className="text-sm text-slate-200">
-              {props.interviewType === 'system_design'
-                ? 'System Design'
-                : props.interviewType === 'coding'
-                  ? 'Coding'
-                  : props.interviewType === 'behavioral'
-                    ? 'Behavioral'
-                    : '—'}
+              {getInterviewTypeLabel(props.interviewType)}
             </p>
           </div>
           <button
@@ -414,13 +462,9 @@ function ConfirmStep(props: {
         <div className="h-px bg-slate-800" />
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-xs text-slate-400">Mode</p>
+            <p className="text-xs text-slate-400">Branch</p>
             <p className="text-sm text-slate-200">
-              {props.mode === 'ai_led'
-                ? 'AI-Led'
-                : props.mode === 'peer_to_peer'
-                  ? 'Peer-to-Peer'
-                  : '—'}
+              {getModeBranchLabel(props.mode)}
             </p>
           </div>
           <button
@@ -608,9 +652,9 @@ export function ScheduleDumb(props: ScheduleDumbProps) {
           />
         ) : null}
         {props.step === 'mode' ? (
-          <ModeStep
+          <BranchStep
             value={props.mode}
-            onChange={props.onSetMode}
+            onSelect={props.onSelectBranch}
             disabled={props.isSubmitting}
             error={props.fieldErrors.mode}
           />
@@ -669,11 +713,7 @@ export function ScheduleDumb(props: ScheduleDumbProps) {
               }
               className="inline-flex w-fit items-center justify-center rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-70"
             >
-              {props.successMessage
-                ? 'Submitted'
-                : props.isSubmitting
-                  ? 'Submitting...'
-                  : 'Confirm & Schedule'}
+              {getConfirmSubmitLabel(props.successMessage, props.isSubmitting)}
             </button>
           ) : (
             <button
