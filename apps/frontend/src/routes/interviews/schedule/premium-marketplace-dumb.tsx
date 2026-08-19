@@ -33,6 +33,15 @@ function SlotCard(props: {
 }) {
   const interviewer = props.slot.interviewer
 
+  let ariaLabel: string
+  if (props.bookingDisabled) {
+    ariaLabel = 'Slot unavailable while a claim is in progress'
+  } else if (props.isReserving) {
+    ariaLabel = `Reserving slot with ${interviewer.displayName} at ${formatScheduledTime(props.slot.startTime)}`
+  } else {
+    ariaLabel = `Claim this slot with ${interviewer.displayName} at ${formatScheduledTime(props.slot.startTime)}`
+  }
+
   return (
     <li className="flex flex-col gap-2 rounded-lg border border-slate-700 bg-slate-900/40 p-4">
       <div className="flex items-center gap-3">
@@ -63,11 +72,7 @@ function SlotCard(props: {
         onClick={function onBook() {
           props.onBookSlot(props.slot.slotId)
         }}
-        aria-label={
-          props.isReserving
-            ? `Reserving slot with ${interviewer.displayName} at ${formatScheduledTime(props.slot.startTime)}`
-            : `claim this slot with ${interviewer.displayName} at ${formatScheduledTime(props.slot.startTime)}`
-        }
+        aria-label={ariaLabel}
         disabled={props.isReserving || props.bookingDisabled}
         className="mt-2 inline-flex w-fit items-center justify-center rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-70"
       >
