@@ -16,6 +16,8 @@ export const schedulerCancelNoRefundMessage =
   'Your premium interview was cancelled. Scheduler-initiated cancellations are not refunded.'
 export const interviewerCancelRefundedMessage =
   'Premium interview cancelled. The scheduler\u2019s credit was refunded.'
+export const interviewerSchedulerCancelledMessage =
+  'Premium interview cancelled by the scheduler.'
 
 export function buildCancelSuccessMessage(
   interview:
@@ -45,6 +47,9 @@ export function buildCancelSuccessMessage(
   }
 
   if (interview.interviewer_id === currentUserId) {
+    if (interview.cancellation_reason === null) {
+      return interviewerSchedulerCancelledMessage
+    }
     return interviewerCancelRefundedMessage
   }
 

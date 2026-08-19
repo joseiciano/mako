@@ -51,3 +51,4 @@ infrastructure/backend.tf
 infrastructure/backend-r2.hcl
 
 prompts/*
+code_reviews/

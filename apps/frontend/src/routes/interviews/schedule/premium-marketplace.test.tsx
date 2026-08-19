@@ -411,7 +411,7 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
           'You have a claim in progress. Resolve it before claiming a different slot.',
       })
       const bookButtons = screen.getAllByRole('button', {
-        name: /claim this slot/i,
+        name: /slot unavailable/i,
       })
       expect(bookButtons).toHaveLength(2)
       expect(bookButtons[0]).toHaveProperty('disabled', true)
@@ -538,7 +538,7 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
       const redButtonTime = formatScheduledTime(slotFixture.startTime)
       const redButton = screen.getByRole('button', {
         name: (accessibleName) =>
-          accessibleName.includes('claim') &&
+          accessibleName.toLowerCase().includes('claim') &&
           accessibleName.includes('Interviewer-Red') &&
           accessibleName.includes(redButtonTime),
       })
@@ -547,7 +547,7 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
       const blueButtonTime = formatScheduledTime(secondSlotFixture.startTime)
       const blueButton = screen.getByRole('button', {
         name: (accessibleName) =>
-          accessibleName.includes('claim') &&
+          accessibleName.toLowerCase().includes('claim') &&
           accessibleName.includes('Interviewer-Blue') &&
           accessibleName.includes(blueButtonTime),
       })
@@ -1312,7 +1312,7 @@ describe('premium marketplace phase 3', function premiumMarketplaceSuite() {
       })
 
       const bookButtons = screen.getAllByRole('button', {
-        name: /claim this slot/i,
+        name: /slot unavailable/i,
       })
       expect(bookButtons).toHaveLength(2)
       expect(bookButtons[0]).toHaveProperty('disabled', true)

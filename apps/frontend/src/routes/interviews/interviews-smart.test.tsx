@@ -432,7 +432,7 @@ describe('InterviewsSmart', function interviewsSmartSuite() {
           booking_channel: 'verified_interviewer',
           scheduler_id: 'scheduler-user',
           interviewer_id: 'interviewer-user',
-          cancellation_reason: null,
+          cancellation_reason: 'interviewer_cancelled',
         }),
       ],
     })

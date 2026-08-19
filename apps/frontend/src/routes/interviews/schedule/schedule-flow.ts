@@ -1,4 +1,5 @@
 import type { InterviewType, InterviewMode } from '@mako/shared'
+import { isUuid } from '../../../lib/validation'
 
 export const supportedInterviewTypes: InterviewType[] = ['system_design']
 export const supportedModes: InterviewMode[] = ['ai_led', 'peer_to_peer']
@@ -354,13 +355,6 @@ type V2DraftFields = {
   scheduledAt: 'now' | string | null
   maxMatches: number | null
   slots: FlowSlot[]
-}
-
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
-
-function isUuid(value: unknown): value is string {
-  return typeof value === 'string' && UUID_PATTERN.test(value)
 }
 
 const ISO_8601_TIMESTAMP_PATTERN =

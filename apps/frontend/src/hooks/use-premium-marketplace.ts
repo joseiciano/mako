@@ -22,10 +22,9 @@ import {
 } from '../lib/http-transport'
 import { accountQueryKey } from './use-account'
 import { interviewsQueryRootKey } from './use-interviews'
+import { isUuid } from '../lib/validation'
 
 export const premiumMarketplaceQueryKey = ['premium', 'marketplace', 'system_design'] as const
-
-const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export type ClaimPremiumSlotInput = {
   slotId: string
@@ -108,7 +107,7 @@ export async function claimPremiumSlot(
 ): Promise<PremiumClaimResponse> {
   const parsedParams = premiumClaimParamsSchema.parse({ id: input.slotId })
 
-  if (!uuidPattern.test(input.idempotencyKey)) {
+  if (!isUuid(input.idempotencyKey)) {
     throw new Error('Idempotency-Key must be a valid UUID.')
   }
 
