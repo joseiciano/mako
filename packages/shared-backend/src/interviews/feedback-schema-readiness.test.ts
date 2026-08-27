@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises'
+import { readdir, readFile } from 'node:fs/promises'
 import { describe, expect, it } from 'vitest'
 
 describe('feedback and artifact schema readiness', function feedbackSchemaReadinessSuite() {
@@ -198,6 +198,38 @@ describe('feedback and artifact schema readiness', function feedbackSchemaReadin
     expect(normalizedSchemaDoc).toContain('### RealtimeKit_Webhook_Events')
     expect(normalizedSchemaDoc).toContain('### Feedback_Replay_Audit')
     expect(normalizedSchemaDoc).toContain('### Interview_Transcription_Chunks')
+  })
+
+  it('requires additive migration with efficient bounded uploaded-finalization sweep index', async function run() {
+    const migrationsDirectory = new URL('../../migrations/', import.meta.url)
+    const migrationFiles = await readdir(migrationsDirectory)
+    const candidates = migrationFiles.filter(function isRecordingFinalizationMigration(file) {
+      return /recording/i.test(file) && /finalization|sweep/i.test(file) && file.endsWith('.sql')
+    })
+    expect(candidates.length).toBeGreaterThan(0)
+
+    const migrationSql = normalizeWhitespace(
+      await readFile(new URL(candidates.sort().at(-1)!, migrationsDirectory), 'utf8'),
+    ).toLowerCase()
+    expect(migrationSql).toContain('create index')
+    expect(migrationSql).toContain('interview_recordings')
+    expect(migrationSql).toContain('provider_status')
+    expect(migrationSql).toContain("'uploaded'")
+    expect(migrationSql).toContain('finalization_status')
+    expect(migrationSql).toContain("'pending'")
+    expect(migrationSql).toContain("'failed'")
+    expect(migrationSql).toMatch(/where[\s\S]*provider_status[\s\S]*uploaded/)
+  })
+  it('sweep partial index includes processing finalization_status for orphaned reclaim', async function run() {
+    const migrationsDirectory = new URL('../../migrations/', import.meta.url)
+    const migrationFiles = await readdir(migrationsDirectory)
+    const candidates = migrationFiles.filter(function isRecordingFinalizationMigration(file) {
+      return /recording/i.test(file) && /finalization|sweep/i.test(file) && file.endsWith('.sql')
+    })
+    expect(candidates.length).toBeGreaterThan(0)
+    const migrationSql = normalizeWhitespace(await readFile(new URL(candidates.sort().at(-1)!, migrationsDirectory), 'utf8')).toLowerCase()
+    expect(migrationSql).toContain("'processing'")
+    expect(migrationSql).toMatch(/finalization_status[\s\S]*processing/)
   })
 
   it('marks recording_url and screenshot_urls as deprecated in db-schemas.md', async function run() {

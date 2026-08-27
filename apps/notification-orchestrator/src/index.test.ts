@@ -1000,6 +1000,417 @@ describe('createNotificationWorker factory', function factorySuite() {
     expect(worker).toHaveProperty('scheduled')
   })
 })
+describe('Story 5.11 recording finalization sweep', function recordingFinalizationSuite() {
+  it('exports RecordingFinalizationWorkflow and strict payload schema', async function run() {
+    const mod = (await import('./index')) as Record<string, unknown>
+    expect(mod['RecordingFinalizationWorkflow']).toBeDefined()
+    const schema = (mod['recordingFinalizationPayloadSchema'] ??
+      mod['RecordingFinalizationWorkflowPayloadSchema'] ??
+      (mod['RecordingFinalizationWorkflow'] as Record<string, unknown>)?.['payloadSchema']) as
+      | { safeParse: (v: unknown) => { success: boolean } }
+      | undefined
+    expect(schema).toBeDefined()
+    expect(typeof schema?.safeParse).toBe('function')
+    const validId = '11111111-1111-4111-8111-111111111111'
+    expect(schema?.safeParse({ recording_id: validId, schema_version: 1 }).success).toBe(true)
+    expect(schema?.safeParse({ recording_id: validId, schema_version: 1, extra: 'x' }).success).toBe(false)
+    expect(schema?.safeParse({ recording_id: 'not-a-uuid', schema_version: 1 }).success).toBe(false)
+    expect(schema?.safeParse({ recording_id: validId, schema_version: 2 }).success).toBe(false)
+    expect(schema?.safeParse({ recording_id: validId }).success).toBe(false)
+  })
+
+  it('scheduled sweep claims bounded UPLOADED recordings and calls RECORDING_FINALIZATION_WORKFLOW.createBatch with deterministic IDs', async function run() {
+    const providerIds = ['aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa', 'bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb']
+    const executedSql: string[] = []
+    const recordingCreateBatch = vi.fn(async () => {})
+    const feedbackCreateBatch = vi.fn(async () => {})
+    const { worker } = createSweepHarness({ executedSql, providerIds })
+    const env = {
+      HYPERDRIVE: { connectionString: 'postgresql://localhost:5432/test' },
+      NOTIFICATION_QUEUE: createMockQueue(),
+      RECORDING_FINALIZATION_WORKFLOW: { createBatch: recordingCreateBatch },
+      FEEDBACK_WORKFLOW: { createBatch: feedbackCreateBatch },
+    } as unknown as Parameters<(typeof worker)['scheduled']>[1]
+    await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *', noRetry() {} } as never, env)
+    const normalizedSql = executedSql.map((s) => s.toLowerCase())
+    expect(normalizedSql.some((s) => s.includes('interview_recordings'))).toBe(true)
+    expect(normalizedSql.some((s) => s.includes('uploaded'))).toBe(true)
+    expect(normalizedSql.some((s) => s.includes('limit'))).toBe(true)
+    expect(recordingCreateBatch).toHaveBeenCalledTimes(1)
+    const batchArg = ((recordingCreateBatch.mock.calls as unknown as Array<unknown[]>)[0]?.[0] as Array<{ id: string; params: unknown }>) ?? []
+    expect(batchArg).toHaveLength(providerIds.length)
+    for (const pid of providerIds) {
+      const entry = batchArg.find((e) => e.id === `recording-finalization-v1-${pid}`)
+      expect(entry).toBeDefined()
+      expect(entry?.params).toEqual({ recording_id: pid, schema_version: 1 })
+    }
+    expect(feedbackCreateBatch).not.toHaveBeenCalled()
+  })
+
+  it('does not call RECORDING_FINALIZATION_WORKFLOW.createBatch when no eligible UPLOADED recordings', async function run() {
+    const executedSql: string[] = []
+    const recordingCreateBatch = vi.fn(async () => {})
+    const feedbackCreateBatch = vi.fn(async () => {})
+    const { worker } = createSweepHarness({ executedSql, providerIds: [] })
+    const env = {
+      HYPERDRIVE: { connectionString: 'postgresql://localhost:5432/test' },
+      NOTIFICATION_QUEUE: createMockQueue(),
+      RECORDING_FINALIZATION_WORKFLOW: { createBatch: recordingCreateBatch },
+      FEEDBACK_WORKFLOW: { createBatch: feedbackCreateBatch },
+    } as unknown as Parameters<(typeof worker)['scheduled']>[1]
+    await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *', noRetry() {} } as never, env)
+    expect(executedSql.some((s) => s.toLowerCase().includes('interview_recordings'))).toBe(true)
+    expect(recordingCreateBatch).not.toHaveBeenCalled()
+    expect(feedbackCreateBatch).not.toHaveBeenCalled()
+  })
+
+  it('logs RECORDING_FINALIZATION_WORKFLOW failure without preventing notification dispatch', async function run() {
+    const providerIds = ['cccccccc-cccc-4ccc-cccc-cccccccccccc']
+    const executedSql: string[] = []
+    const recordingCreateBatch = vi.fn(async () => {
+      throw new Error('workflow unavailable')
+    })
+    const feedbackCreateBatch = vi.fn(async () => {})
+    const { worker, logs, queueSentMessages } = createSweepHarnessWithOutbox({ executedSql, recordingCreateBatch, feedbackCreateBatch, providerIds })
+    const env = {
+      HYPERDRIVE: { connectionString: 'postgresql://localhost:5432/test' },
+      NOTIFICATION_QUEUE: createMockQueue(queueSentMessages),
+      RECORDING_FINALIZATION_WORKFLOW: { createBatch: recordingCreateBatch },
+      FEEDBACK_WORKFLOW: { createBatch: feedbackCreateBatch },
+    } as unknown as Parameters<(typeof worker)['scheduled']>[1]
+    await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *', noRetry() {} } as never, env)
+    expect(recordingCreateBatch).toHaveBeenCalledTimes(1)
+    expect(logs.errors.some((e) => JSON.stringify(e).toLowerCase().includes('recording') || e.event.toLowerCase().includes('recording'))).toBe(true)
+    expect(queueSentMessages.length).toBeGreaterThanOrEqual(2)
+    expect(feedbackCreateBatch).not.toHaveBeenCalled()
+  })
+
+  it('restarts errored and terminated instances when createBatch creates no new instance', async function run() {
+    const providerIds = ['ffffffff-ffff-4fff-ffff-ffffffffffff', 'eeeeeeee-eeee-4eee-eeee-eeeeeeeeeeee']
+    const executedSql: string[] = []
+    const restartErrored = vi.fn(async () => {})
+    const restartTerminated = vi.fn(async () => {})
+    const get = vi.fn(async (id: string) => {
+      if (id.includes('ffffffff')) return { id, status: async () => ({ status: 'errored' }), restart: restartErrored }
+      return { id, status: async () => ({ status: 'terminated' }), restart: restartTerminated }
+    })
+    // Simulate no new instance created (deduplicated deterministic ID)
+    const recordingCreateBatch = vi.fn(async () => [])
+    const feedbackCreateBatch = vi.fn(async () => {})
+    const { worker } = createSweepHarness({ executedSql, providerIds })
+    const env = {
+      HYPERDRIVE: { connectionString: 'postgresql://localhost:5432/test' },
+      NOTIFICATION_QUEUE: createMockQueue(),
+      RECORDING_FINALIZATION_WORKFLOW: { createBatch: recordingCreateBatch, get } as unknown as Parameters<(typeof worker)['scheduled']>[1]['RECORDING_FINALIZATION_WORKFLOW'],
+      FEEDBACK_WORKFLOW: { createBatch: feedbackCreateBatch },
+    } as unknown as Parameters<(typeof worker)['scheduled']>[1]
+    await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *', noRetry() {} } as never, env)
+    expect(executedSql.some((s) => s.toLowerCase().includes('limit'))).toBe(true)
+    expect(executedSql.some((s) => s.toLowerCase().includes('interview_recordings'))).toBe(true)
+    expect(recordingCreateBatch).toHaveBeenCalledTimes(1)
+    expect(get).toHaveBeenCalled()
+    expect(restartErrored).toHaveBeenCalledTimes(1)
+    expect(restartTerminated).toHaveBeenCalledTimes(1)
+    expect(feedbackCreateBatch).not.toHaveBeenCalled()
+  })
+
+  it('restarts completed instance with failed output status and does not restart running or waiting instances', async function run() {
+    const completedId = 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa'
+    const runningId = 'bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb'
+    const waitingId = 'cccccccc-cccc-4ccc-cccc-cccccccccccc'
+    const executedSql: string[] = []
+    const restartFailed = vi.fn(async () => {})
+    const restartRunning = vi.fn(async () => {})
+    const restartWaiting = vi.fn(async () => {})
+    const get = vi.fn(async (id: string) => {
+      if (id.includes(completedId)) return { id, status: async () => ({ status: 'completed', output: { status: 'failed' } }), restart: restartFailed }
+      if (id.includes(runningId)) return { id, status: async () => ({ status: 'running' }), restart: restartRunning }
+      return { id, status: async () => ({ status: 'waiting' }), restart: restartWaiting }
+    })
+    const recordingCreateBatch = vi.fn(async () => [])
+    const feedbackCreateBatch = vi.fn(async () => {})
+    const { worker } = createSweepHarness({ executedSql, providerIds: [completedId, runningId, waitingId] })
+    const env = {
+      HYPERDRIVE: { connectionString: 'postgresql://localhost:5432/test' },
+      NOTIFICATION_QUEUE: createMockQueue(),
+      RECORDING_FINALIZATION_WORKFLOW: { createBatch: recordingCreateBatch, get } as unknown as Parameters<(typeof worker)['scheduled']>[1]['RECORDING_FINALIZATION_WORKFLOW'],
+      FEEDBACK_WORKFLOW: { createBatch: feedbackCreateBatch },
+    } as unknown as Parameters<(typeof worker)['scheduled']>[1]
+    await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *', noRetry() {} } as never, env)
+    expect(executedSql.some((s) => s.toLowerCase().includes('interview_recordings'))).toBe(true)
+    expect(recordingCreateBatch).toHaveBeenCalled()
+    expect(get).toHaveBeenCalled()
+    expect(restartFailed).toHaveBeenCalledTimes(1)
+    expect(restartRunning).not.toHaveBeenCalled()
+    expect(restartWaiting).not.toHaveBeenCalled()
+  })
+
+  it('does not restart completed instance when output status is not failed and ignores fabricated checkpoint field', async function run() {
+    const completedFailedCheckpointOnlyId = 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa'
+    const completedSuccessOutputId = 'bbbbbbbb-bbbb-4bbb-bbbb-bbbbbbbbbbbb'
+    const executedSql: string[] = []
+    const restartCheckpointOnly = vi.fn(async () => {})
+    const restartSuccess = vi.fn(async () => {})
+    const get = vi.fn(async (id: string) => {
+      if (id.includes(completedFailedCheckpointOnlyId)) return { id, status: async () => ({ status: 'completed', checkpoint: 'failed' }), restart: restartCheckpointOnly }
+      return { id, status: async () => ({ status: 'completed', output: { status: 'ready' } }), restart: restartSuccess }
+    })
+    const recordingCreateBatch = vi.fn(async () => [])
+    const feedbackCreateBatch = vi.fn(async () => {})
+    const { worker } = createSweepHarness({ executedSql, providerIds: [completedFailedCheckpointOnlyId, completedSuccessOutputId] })
+    const env = {
+      HYPERDRIVE: { connectionString: 'postgresql://localhost:5432/test' },
+      NOTIFICATION_QUEUE: createMockQueue(),
+      RECORDING_FINALIZATION_WORKFLOW: { createBatch: recordingCreateBatch, get } as unknown as Parameters<(typeof worker)['scheduled']>[1]['RECORDING_FINALIZATION_WORKFLOW'],
+      FEEDBACK_WORKFLOW: { createBatch: feedbackCreateBatch },
+    } as unknown as Parameters<(typeof worker)['scheduled']>[1]
+    await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *', noRetry() {} } as never, env)
+    expect(get).toHaveBeenCalled()
+    expect(restartCheckpointOnly).not.toHaveBeenCalled()
+    expect(restartSuccess).not.toHaveBeenCalled()
+  })
+
+  it('never delegates recording transfer to FEEDBACK_WORKFLOW', async function run() {
+    const providerIds = ['dddddddd-dddd-4ddd-dddd-dddddddddddd', 'eeeeeeee-eeee-4eee-eeee-eeeeeeeeeeee']
+    const executedSql: string[] = []
+    const recordingCreateBatch = vi.fn(async () => {})
+    const feedbackCreateBatch = vi.fn(async () => {})
+    const { worker } = createSweepHarness({ executedSql, providerIds })
+    const env = {
+      HYPERDRIVE: { connectionString: 'postgresql://localhost:5432/test' },
+      NOTIFICATION_QUEUE: createMockQueue(),
+      RECORDING_FINALIZATION_WORKFLOW: { createBatch: recordingCreateBatch },
+      FEEDBACK_WORKFLOW: { createBatch: feedbackCreateBatch },
+    } as unknown as Parameters<(typeof worker)['scheduled']>[1]
+    await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *', noRetry() {} } as never, env)
+    expect(recordingCreateBatch).toHaveBeenCalledTimes(1)
+    const batchArg = ((recordingCreateBatch.mock.calls as unknown as Array<unknown[]>)[0]?.[0] as Array<{ params: Record<string, unknown> }>) ?? []
+    for (const entry of batchArg) {
+      expect(entry.params).toHaveProperty('recording_id')
+      expect(entry.params).not.toHaveProperty('interview_id')
+    }
+    expect(feedbackCreateBatch).not.toHaveBeenCalled()
+    expect(executedSql.some((s) => s.toLowerCase().includes('interview_recordings'))).toBe(true)
+  })
+  it('sweep query includes processing rows for recoverable stuck finalizations', async function run() {
+    const providerIds = ['aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa']
+    const executedSql: string[] = []
+    const recordingCreateBatch = vi.fn(async () => {})
+    const feedbackCreateBatch = vi.fn(async () => {})
+    const { worker } = createSweepHarness({ executedSql, providerIds })
+    const env = {
+      HYPERDRIVE: { connectionString: 'postgresql://localhost:5432/test' },
+      NOTIFICATION_QUEUE: createMockQueue(),
+      RECORDING_FINALIZATION_WORKFLOW: { createBatch: recordingCreateBatch },
+      FEEDBACK_WORKFLOW: { createBatch: feedbackCreateBatch },
+    } as unknown as Parameters<(typeof worker)['scheduled']>[1]
+    await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *', noRetry() {} } as never, env)
+    const normalized = executedSql.map((s) => s.toLowerCase())
+    const sweepSql = normalized.find((s) => s.includes('interview_recordings') && s.includes('select'))
+    expect(sweepSql).toBeDefined()
+    expect(sweepSql).toContain('processing')
+    expect(sweepSql).toContain('pending')
+    expect(sweepSql).toContain('failed')
+    expect(sweepSql).toContain('uploaded')
+    expect(sweepSql).toContain('limit')
+  })
+  it('sweep selects and restarts errored processing instance via deterministic id', async function run() {
+    const processingProviderId = 'aaaaaaaa-aaaa-4aaa-aaaa-aaaaaaaaaaaa'
+    const executedSql: string[] = []
+    const restartProcessingErrored = vi.fn(async () => {})
+    const get = vi.fn(async (id: string) => {
+      if (id.includes(processingProviderId)) return { id, status: async () => ({ status: 'errored' }), restart: restartProcessingErrored }
+      return null
+    })
+    let returnedProcessingRows = false
+    const logs = { errors: [] as Array<{ event: string; context: Record<string, unknown> }>, logs: [] as unknown[] }
+    const mockConsole = {
+      error: vi.fn((event: string, context: Record<string, unknown>) => { logs.errors.push({ event, context }) }),
+      log: vi.fn((...args: unknown[]) => { logs.logs.push(args) }),
+    }
+    const mockPool = {
+      async connect() {
+        return {
+          async query(text: string) {
+            executedSql.push(text)
+            const lower = text.toLowerCase()
+            if (lower.includes('interview_recordings') && lower.includes('select')) {
+              if (!lower.includes('processing')) return { rows: [], rowCount: 0 }
+              returnedProcessingRows = true
+              return { rows: [{ provider_recording_id: processingProviderId, provider_status: 'UPLOADED', finalization_status: 'processing' }], rowCount: 1 }
+            }
+            if (lower.includes('from notification_outbox_events')) return { rows: [], rowCount: 0 }
+            if (lower.includes('from notification_reminder_schedules')) return { rows: [], rowCount: 0 }
+            if (lower.includes('from interviews')) return { rows: [], rowCount: 0 }
+            return { rows: [], rowCount: 0 }
+          },
+          async release() {},
+        }
+      },
+    }
+    const worker = createNotificationWorker({ createPool: () => mockPool as never, console: mockConsole })
+    const recordingCreateBatch = vi.fn(async () => [])
+    const feedbackCreateBatch = vi.fn(async () => {})
+    const env = {
+      HYPERDRIVE: { connectionString: 'postgresql://localhost:5432/test' },
+      NOTIFICATION_QUEUE: createMockQueue(),
+      RECORDING_FINALIZATION_WORKFLOW: { createBatch: recordingCreateBatch, get } as unknown as Parameters<(typeof worker)['scheduled']>[1]['RECORDING_FINALIZATION_WORKFLOW'],
+      FEEDBACK_WORKFLOW: { createBatch: feedbackCreateBatch },
+    } as unknown as Parameters<(typeof worker)['scheduled']>[1]
+    await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *', noRetry() {} } as never, env)
+    expect(returnedProcessingRows).toBe(true)
+    expect(recordingCreateBatch).toHaveBeenCalled()
+    expect(get).toHaveBeenCalled()
+    expect(restartProcessingErrored).toHaveBeenCalledTimes(1)
+  })
+
+  function createSweepHarness(opts: { executedSql: string[]; providerIds: string[] }) {
+    const logs = { errors: [] as Array<{ event: string; context: Record<string, unknown> }>, logs: [] as unknown[] }
+    const mockConsole = {
+      error: vi.fn((event: string, context: Record<string, unknown>) => {
+        logs.errors.push({ event, context })
+      }),
+      log: vi.fn((...args: unknown[]) => {
+        logs.logs.push(args)
+      }),
+    }
+    const mockPool = {
+      async connect() {
+        return {
+          async query(text: string) {
+            opts.executedSql.push(text)
+            const lower = text.toLowerCase()
+            if (lower.includes('interview_recordings') && lower.includes('select')) {
+              const rows = opts.providerIds.map((pid) => ({
+                provider_recording_id: pid,
+                provider_status: 'UPLOADED',
+                finalization_status: 'pending',
+              }))
+              return { rows, rowCount: rows.length }
+            }
+            return { rows: [], rowCount: 0 }
+          },
+          async release() {},
+        }
+      },
+    }
+    const worker = createNotificationWorker({ createPool: () => mockPool as never, console: mockConsole })
+    return { worker, logs }
+  }
+
+  function createSweepHarnessWithOutbox(opts: {
+    executedSql: string[]
+    recordingCreateBatch: ReturnType<typeof vi.fn>
+    feedbackCreateBatch: ReturnType<typeof vi.fn>
+    providerIds: string[]
+  }) {
+    const logs = { errors: [] as Array<{ event: string; context: Record<string, unknown> }>, logs: [] as unknown[] }
+    const mockConsole = {
+      error: vi.fn((event: string, context: Record<string, unknown>) => {
+        logs.errors.push({ event, context })
+      }),
+      log: vi.fn((...args: unknown[]) => {
+        logs.logs.push(args)
+      }),
+    }
+    const queueSentMessages: NotificationTransportMessage[] = []
+    const pendingOutboxPayload: NotificationTransportMessage = {
+      event_type: 'interview.match.created',
+      event_id: '11111111-1111-4111-8111-111111111111',
+      idempotency_key: 'interview.match.created:22222222-2222-4222-8222-222222222222',
+      occurred_at: '2026-05-22T10:00:00.000Z',
+      interview: {
+        id: '22222222-2222-4222-8222-222222222222',
+        scheduler_id: '66666666-6666-4666-8666-666666666666',
+        interviewer_id: '33333333-3333-4333-8333-333333333333',
+        type: 'behavioral',
+        mode: 'peer_to_peer',
+        booking_channel: 'standard_match',
+        tier: 'standard',
+        status: 'scheduled',
+        scheduled_at: '2026-05-22T14:00:00.000Z',
+      },
+      participants: {
+        scheduler_user_id: '66666666-6666-4666-8666-666666666666',
+        interviewer_user_id: '33333333-3333-4333-8333-333333333333',
+      },
+    }
+    const mockPool = {
+      async connect() {
+        return {
+          async query(text: string) {
+            opts.executedSql.push(text)
+            const lower = text.toLowerCase()
+            if (lower.includes('from notification_outbox_events')) {
+              return {
+                rows: [
+                  {
+                    idempotency_key: pendingOutboxPayload.idempotency_key,
+                    event_type: 'interview.match.created',
+                    event_payload: pendingOutboxPayload,
+                    status: 'pending',
+                    dispatch_attempts: 0,
+                    last_dispatch_attempted_at: null,
+                    created_at: '2026-05-22T09:59:00.000Z',
+                    updated_at: '2026-05-22T09:59:00.000Z',
+                  },
+                ],
+                rowCount: 1,
+              }
+            }
+            if (lower.includes('from notification_reminder_schedules')) {
+              return {
+                rows: [
+                  {
+                    id: '55555555-5555-4555-8555-555555555555',
+                    interview_id: '44444444-4444-4444-8444-444444444444',
+                    idempotency_key: 'reminder:due:55555555-5555-4555-8555-555555555555',
+                    reminder_due_at: '2026-05-22T10:00:00.000Z',
+                    status: 'pending',
+                    created_at: '2026-05-22T09:00:00.000Z',
+                    updated_at: '2026-05-22T09:00:00.000Z',
+                  },
+                ],
+                rowCount: 1,
+              }
+            }
+            if (lower.includes('from interviews')) {
+              return {
+                rows: [
+                  {
+                    id: '44444444-4444-4444-8444-444444444444',
+                    scheduler_id: '66666666-6666-4666-8666-666666666666',
+                    interviewer_id: '77777777-7777-4777-8777-777777777777',
+                    type: 'behavioral',
+                    mode: 'live',
+                    tier: 'standard',
+                    status: 'scheduled',
+                    scheduled_at: '2026-05-22T14:00:00.000Z',
+                    created_at: '2026-05-22T09:00:00.000Z',
+                    updated_at: '2026-05-22T09:00:00.000Z',
+                  },
+                ],
+                rowCount: 1,
+              }
+            }
+            if (lower.includes('interview_recordings') && lower.includes('select')) {
+              const rows = opts.providerIds.map((pid) => ({
+                provider_recording_id: pid,
+                provider_status: 'UPLOADED',
+                finalization_status: 'pending',
+              }))
+              return { rows, rowCount: rows.length }
+            }
+            return { rows: [], rowCount: 0 }
+          },
+          async release() {},
+        }
+      },
+    }
+    const worker = createNotificationWorker({ createPool: () => mockPool as never, console: mockConsole })
+    return { worker, logs, queueSentMessages }
+  }
+})
 
 function createTestWorker(options?: {
   queryRowsBySqlIncludes?: Record<string, unknown[]>

@@ -42,7 +42,7 @@ export type ArtifactStoragePort = {
     contentType: string
     body: ReadableStream | ArrayBuffer
     captureTimestamp: string
-    artifactKind?: RecordingArtifactKind
+    artifactKind?: ArtifactKind
     participantId?: string
     participantRole?: string
   }): Promise<StoredArtifact>

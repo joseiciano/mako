@@ -31,14 +31,18 @@ export function createArtifactStorage(
 
       const bucket = getRecordingsBucket(recordingsBucket)
       const key = buildRecordingKey(input.interviewId, input.recordingId)
-      const metadata = toR2Metadata({
-        interviewId: input.interviewId,
-        artifactKind: input.artifactKind ?? 'playback_recording',
-        contentType: input.contentType,
-        captureTimestamp: input.captureTimestamp,
-        participantId: input.participantId,
-        participantRole: input.participantRole,
-      })
+      const kind = input.artifactKind ?? 'playback_recording'
+      if (kind !== 'playback_recording' && kind !== 'transcription_audio') {
+        throw new ArtifactValidationError(`Unsupported artifact kind for recording: ${kind}`)
+      }
+        const metadata = toR2Metadata({
+          interviewId: input.interviewId,
+          artifactKind: kind,
+          contentType: input.contentType,
+          captureTimestamp: input.captureTimestamp,
+          participantId: input.participantId,
+          participantRole: input.participantRole,
+        })
 
       await bucket.put({
         key,
