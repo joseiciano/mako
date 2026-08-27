@@ -169,8 +169,12 @@ export class RealtimeKitWebhookService {
     } catch (error) {
       try {
         await executor.query({ text: 'ROLLBACK;', values: [] })
-      } catch {
-        // ignore rollback failure
+      } catch (rollbackError) {
+        console.error({
+          event: 'realtimekit_webhook_rollback_failure',
+          provider_recording_id: id,
+          error_message: rollbackError instanceof Error ? rollbackError.message : String(rollbackError),
+        })
       }
       throw error
     }
@@ -185,8 +189,12 @@ export class RealtimeKitWebhookService {
               params: { recording_id: triggerProviderId, schema_version: 1 },
             },
           ])
-        } catch {
-          // Catch trigger errors and acknowledge 200 so sweep recovers
+        } catch (error) {
+          console.error({
+            event: 'realtimekit_webhook_workflow_trigger_failure',
+            provider_recording_id: triggerProviderId,
+            error_message: error instanceof Error ? error.message : String(error),
+          })
         }
       }
     }

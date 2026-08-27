@@ -82,6 +82,21 @@ function postWebhook(app: Hono<{ Bindings: WorkerBindings }>, raw: string, sig: 
 function postWebhookWithHeaders(app: Hono<{ Bindings: WorkerBindings }>, raw: string, headers: Record<string, string>, env: Record<string, unknown>) {
   return app.request('/api/webhooks/realtimekit', { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: raw }, env as unknown as WorkerBindings)
 }
+function callHas(call: unknown[], needle: string): boolean {
+  for (const arg of call) {
+    if (arg instanceof Error && arg.message.includes(needle)) return true
+    if (typeof arg === 'string' && arg.includes(needle)) return true
+    if (arg && typeof arg === 'object') {
+      const json = JSON.stringify(arg)
+      if (json.includes(needle)) return true
+      for (const v of Object.values(arg as Record<string, unknown>)) {
+        if (v instanceof Error && v.message.includes(needle)) return true
+        if (typeof v === 'string' && (v as string).includes(needle)) return true
+      }
+    }
+  }
+  return false
+}
 beforeAll(async function genKeys() {
   const pair = (await crypto.subtle.generateKey({ name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' }, true, ['sign', 'verify'])) as CryptoKeyPair
   privateKey = pair.privateKey
@@ -374,6 +389,7 @@ describe('POST /api/webhooks/realtimekit boundary', function () {
   })
 
   it('safe workflow-trigger failure still acknowledges 2xx without rolling back checkpoint', async function () {
+    vi.spyOn(console, 'error').mockImplementation(function () {})
     const raw = payload('UPLOADED')
     const sig = await signRaw(raw)
     const order: string[] = []
@@ -555,5 +571,109 @@ describe('POST /api/webhooks/realtimekit boundary', function () {
     const calls = (db.spy as unknown as { mock: { calls: unknown[][] } }).mock.calls
     const hadUpdate = calls.some(function isUpdate(entry) { return typeof entry[0] === 'string' && (entry[0] as string).trim().toUpperCase().startsWith('UPDATE INTERVIEW_RECORDINGS') })
     expect(hadUpdate).toBe(false)
+  })
+})
+describe('POST /api/webhooks/realtimekit logging', function () {
+  it('logs rollback failure with provider recording ID and preserves original transaction error as generic 500', async function () {
+    const raw = payload('UPLOADED')
+    const sig = await signRaw(raw)
+    const db = createDbMock()
+    const wf = createWorkflowMock()
+    const originalError = new Error('tx update failed')
+    const rollbackError = new Error('rollback failed')
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(function () {})
+    const spy = db.spy as unknown as { mockImplementation: (fn: (text: string, ...values: readonly unknown[]) => Promise<{ rows: unknown[]; rowCount?: number }>) => unknown }
+    spy.mockImplementation(async function rollbackFailure(text: string, ...values: readonly unknown[]) {
+      if (text === 'ROLLBACK;' || text === 'ROLLBACK') throw rollbackError
+      if (text.trim().toUpperCase().startsWith('UPDATE INTERVIEW_RECORDINGS')) throw originalError
+      if (text.includes('realtimekit_webhook_events') && text.includes('INSERT')) return { rows: [{ provider_event_id: values[0] }], rowCount: 1 }
+      if (text.includes('interview_recordings') && text.includes('SELECT')) return { rows: [{ id: RECORDING_ID, provider_recording_id: RECORDING_ID, provider_status: 'INVOKED', finalization_status: 'pending' }], rowCount: 1 }
+      if (text === 'BEGIN;' || text === 'BEGIN') return { rows: [] }
+      if (text === 'COMMIT;' || text === 'COMMIT') return { rows: [] }
+      return { rows: [] }
+    })
+    mockWellKnown(publicPem)
+    const app = createApp()
+    const res = await postWebhook(app, raw, sig, EVENT_UUID, { DB: db.query, REALTIMEKIT_WEBHOOK_PUBLIC_KEY_URL: PUBLIC_KEY_URL, RECORDING_FINALIZATION_WORKFLOW: { createBatch: wf.createBatch } })
+    expect(res.status).toBe(500)
+    const body = await res.json() as { error: string }
+    expect(body).toEqual({ error: 'internal error' })
+    expect(JSON.stringify(body)).not.toContain('tx update failed')
+    expect(JSON.stringify(body)).not.toContain('rollback failed')
+    const calls = consoleErrorSpy.mock.calls
+    let rollbackLog: Record<string, unknown> | undefined
+    let controllerLog: Record<string, unknown> | undefined
+    for (const call of calls) {
+      const first = call[0] as Record<string, unknown> | undefined
+      if (first?.event === 'realtimekit_webhook_rollback_failure') rollbackLog = first
+      if (first?.event === 'realtimekit_webhook_request_failure') controllerLog = first
+    }
+    expect(rollbackLog).toEqual({ event: 'realtimekit_webhook_rollback_failure', provider_recording_id: RECORDING_ID, error_message: 'rollback failed' })
+    expect(controllerLog).toEqual({ event: 'realtimekit_webhook_request_failure', webhook_uuid: EVENT_UUID, error_message: 'tx update failed' })
+  })
+
+  it('logs workflow trigger failure with provider recording ID while response remains 200', async function () {
+    const raw = payload('UPLOADED')
+    const sig = await signRaw(raw)
+    const db = createDbMock()
+    const workflowError = new Error('workflow unavailable')
+    const failingWorkflow = vi.fn(async function fail() { throw workflowError })
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(function () {})
+    const spy = db.spy as unknown as { mockImplementation: (fn: (text: string, ...values: readonly unknown[]) => Promise<{ rows: unknown[]; rowCount?: number }>) => unknown }
+    spy.mockImplementation(async function commitThenWorkflow(text: string, ...values: readonly unknown[]) {
+      if (text === 'COMMIT;' || text === 'COMMIT') return { rows: [] }
+      if (text.includes('realtimekit_webhook_events') && text.includes('INSERT')) return { rows: [{ provider_event_id: values[0] }], rowCount: 1 }
+      if (text.includes('interview_recordings') && text.includes('SELECT')) return { rows: [{ id: RECORDING_ID, provider_recording_id: RECORDING_ID, provider_status: 'INVOKED', finalization_status: 'pending' }], rowCount: 1 }
+      if (text.trim().toUpperCase().startsWith('UPDATE INTERVIEW_RECORDINGS')) return { rows: [], rowCount: 1 }
+      if (text === 'BEGIN;' || text === 'BEGIN') return { rows: [] }
+      return { rows: [] }
+    })
+    mockWellKnown(publicPem)
+    const app = createApp()
+    const res = await postWebhook(app, raw, sig, EVENT_UUID, { DB: db.query, REALTIMEKIT_WEBHOOK_PUBLIC_KEY_URL: PUBLIC_KEY_URL, RECORDING_FINALIZATION_WORKFLOW: { createBatch: failingWorkflow } })
+    expect(res.status).toBe(200)
+    const body = await res.json() as { ok: boolean }
+    expect(body).toEqual({ ok: true })
+    const calls = consoleErrorSpy.mock.calls
+    let hasWorkflowLog = false
+    let structured: unknown[] | undefined
+    for (const call of calls) {
+      const typedCall = call as unknown[]
+      if (callHas(typedCall, RECORDING_ID) && callHas(typedCall, 'workflow unavailable')) {
+        hasWorkflowLog = true
+        if (!structured) structured = typedCall
+      }
+    }
+    expect(hasWorkflowLog).toBe(true)
+    expect(structured).toBeDefined()
+    expect(JSON.stringify(structured)).toContain(RECORDING_ID)
+  })
+
+  it('logs safe request context with rtk-uuid and error while response remains generic 500 without leaking signature or payload', async function () {
+    const raw = payload('UPLOADED')
+    const sig = await signRaw(raw)
+    const db = createDbMock()
+    const dbError = new Error('db connection failed')
+    const spy = db.spy as unknown as { mockImplementation: (fn: (text: string, ...values: readonly unknown[]) => Promise<{ rows: unknown[]; rowCount?: number }>) => unknown }
+    spy.mockImplementation(async function dbFailure(text: string) {
+      if (text === 'BEGIN;' || text === 'BEGIN') throw dbError
+      if (text === 'ROLLBACK;' || text === 'ROLLBACK') return { rows: [] }
+      return { rows: [] }
+    })
+    const wf = createWorkflowMock()
+    const consoleErrorSpy = vi.spyOn(console, 'error').mockImplementation(function () {})
+    mockWellKnown(publicPem)
+    const app = createApp()
+    const res = await postWebhook(app, raw, sig, EVENT_UUID, { DB: db.query, REALTIMEKIT_WEBHOOK_PUBLIC_KEY_URL: PUBLIC_KEY_URL, RECORDING_FINALIZATION_WORKFLOW: { createBatch: wf.createBatch } })
+    expect(res.status).toBe(500)
+    const body = await res.json() as { error: string }
+    expect(body).toEqual({ error: 'internal error' })
+    const bodyString = JSON.stringify(body)
+    expect(bodyString).not.toContain(sig)
+    expect(bodyString).not.toContain(RECORDING_ID)
+    expect(bodyString).not.toContain('db connection failed')
+    const calls = consoleErrorSpy.mock.calls
+    expect(calls).toHaveLength(1)
+    expect(calls[0][0]).toEqual({ event: 'realtimekit_webhook_request_failure', webhook_uuid: EVENT_UUID, error_message: 'db connection failed' })
   })
 })

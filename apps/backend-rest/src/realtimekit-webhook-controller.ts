@@ -63,7 +63,12 @@ export function registerRealtimeKitWebhookController(
       }
       return c.json(result.body, result.status as 200)
     } catch (error) {
-      // Do not expose provider bodies
+      console.error({
+        event: 'realtimekit_webhook_request_failure',
+        webhook_uuid: trimmedUuid,
+        error_message: error instanceof Error ? error.message : String(error),
+      })
+      // Do not expose provider bodies or internal errors.
       return c.json({ error: 'internal error' }, 500)
     }
   })
