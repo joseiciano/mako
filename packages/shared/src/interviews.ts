@@ -357,36 +357,6 @@ export const interviewFeedbackStatusResponseSchema = z.object({
   updated_at: z.string().datetime({ offset: true }),
 }).strict()
 
-// ============================================================================
-// RealtimeKit Provider Webhook Schemas (Story 5.11)
-// ============================================================================
-
-export const realtimekitRecordingStateSchema = z.enum([
-  'INVOKED',
-  'RECORDING',
-  'UPLOADING',
-  'UPLOADED',
-  'ERRORED',
-])
-
-export const realtimekitWebhookEventTypeSchema = z.literal('recording.statusUpdate')
-
-// The provider payload may carry additional fields; only the fields the
-// application consumes are validated strictly while unknown provider fields
-// pass through so provider contract additions do not break signature-verified
-// ingestion. Webhook payloads never carry trusted interview/user identifiers.
-export const realtimekitWebhookPayloadSchema = z
-  .object({
-    type: z.string().min(1),
-    recording: z
-      .object({
-        id: z.string().min(1),
-        state: realtimekitRecordingStateSchema,
-      })
-      .passthrough(),
-  })
-  .passthrough()
-
 export const provisionInterviewParamsSchema = z.object({
   id: z.string().uuid(),
 })
@@ -447,8 +417,6 @@ export type RecordingConsentRequest = z.infer<typeof recordingConsentRequestSche
 export type RecordingConsentResponse = z.infer<typeof recordingConsentResponseSchema>
 export type ScreenshotUploadRequest = z.infer<typeof screenshotUploadRequestSchema>
 export type ScreenshotUploadResponse = z.infer<typeof screenshotUploadResponseSchema>
-export type RealtimeKitRecordingState = z.infer<typeof realtimekitRecordingStateSchema>
-export type RealtimeKitWebhookPayload = z.infer<typeof realtimekitWebhookPayloadSchema>
 
 function isSceneWithinByteLimit(scene: Record<string, unknown>): boolean {
   const serialized = JSON.stringify(scene)

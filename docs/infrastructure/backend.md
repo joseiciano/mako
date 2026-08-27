@@ -33,7 +33,7 @@ This document goes over all the tools we will be using for our backend services
   - `NOTIFICATION_QUEUE` — local queue binding (configured in `wrangler.jsonc`)
    - `RECORDINGS_BUCKET` / `SCREENSHOTS_BUCKET` — local R2 buckets (configured via `wrangler r2 bucket create` for local dev)
    - `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and `CLOUDFLARE_REALTIMEKIT_APP_ID` — RealtimeKit recording status API credentials
-   - `REALTIMEKIT_WEBHOOK_PUBLIC_KEY` — optional static webhook-key fallback; primary key source is the provider endpoint
+   - `REALTIMEKIT_WEBHOOK_PUBLIC_KEY_URL` — well-known URL for webhook signature verification, configured as a `vars` binding in `backend-rest/wrangler.jsonc`
   - `AI` — Workers AI binding (for feedback workflow; configured in `notification-orchestrator/wrangler.jsonc`)
   See `docs/system/local-testing.md` for the general local test stack setup.
 - **Cloudflare AI Gateway**: We will interact with our AI providers through Cloudflare's AI Gateway service [Docs](https://developers.cloudflare.com/api/resources/ai_gateway/)

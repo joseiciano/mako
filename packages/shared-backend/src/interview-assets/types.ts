@@ -1,7 +1,5 @@
 export type ArtifactKind = 'playback_recording' | 'transcription_audio' | 'screenshot'
 
-export type RecordingArtifactKind = 'playback_recording' | 'transcription_audio'
-
 export type ArtifactStorageConfig = {
   maxScreenshotBytes: number
   maxScreenshotsPerInterview: number
