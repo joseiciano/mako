@@ -37,8 +37,7 @@ while true; do
   echo "12) VITE_STRIPE_PUBLISHABLE_KEY"
   echo "13) R2_BUCKET_NAME"
   echo "14) R2_ACCOUNT_ID"
-  echo "15) REALTIMEKIT_WEBHOOK_PUBLIC_KEY"
-  echo "16) Done"
+  echo "15) Done"
 
   read -r -p "Enter number: " choice
 
@@ -57,8 +56,7 @@ while true; do
     12) secret_name="VITE_STRIPE_PUBLISHABLE_KEY" ;;
     13) secret_name="R2_BUCKET_NAME" ;;
     14) secret_name="R2_ACCOUNT_ID" ;;
-    15) secret_name="REALTIMEKIT_WEBHOOK_PUBLIC_KEY" ;;
-    16) break ;;
+    15) break ;;
     *)
       echo "Invalid option."
       continue

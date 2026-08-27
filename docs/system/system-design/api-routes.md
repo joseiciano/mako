@@ -564,19 +564,22 @@ Company route behavior:
 
 ### Provider Webhooks
 - **`POST /api/webhooks/realtimekit`**
-  - **Description**: Signed RealtimeKit recording status webhook handler.
-  - **Request Body**: Provider webhook event payload.
+  - **Description**: Signed RealtimeKit recording status webhook handler. Provider webhook route that does not use browser-session authentication.
+  - **Request Body**: Provider webhook event payload (`recording.statusUpdate`).
   - **Response Body**: `200 OK`
   - **Behavior Rules**:
-    - Provider-only boundary; browser-session authentication is not required.
-    - Reads raw request bytes and verifies Base64 RSA-SHA256 `rtk-signature` before parsing JSON.
-    - Validly signed unsupported event types return `200` without side effects.
-    - Idempotent via `provider_event_id` as primary key on `realtimekit_webhook_events`.
-    - Handles recording finalization status transitions (`accepted`, `finalizing`, `processed`, `failed`).
-    - `UPLOADED` acknowledgement triggers deterministic recording-finalization workflow instance.
+    - Reads raw request bytes and verifies Base64 RSA-SHA256 `rtk-signature` using a cached, refreshable public key fetched from `REALTIMEKIT_WEBHOOK_PUBLIC_KEY_URL` (`https://api.realtime.cloudflare.com/.well-known/webhooks.json`) before parsing JSON. Requests with invalid signatures are rejected; no state is mutated. Verification re-fetches the key on first failure and returns `503` when key infrastructure is unavailable.
+    - Idempotent via `rtk-uuid` as `provider_event_id` primary key on `realtimekit_webhook_events`; duplicate delivery is safely acknowledged.
+    - Validates the supported `recording.statusUpdate` payload and acknowledges unsupported, validly signed event types without side effects.
+    - Maps RealtimeKit provider states to internal recording transitions without regression: `INVOKED`/`RECORDING` → `accepted`, `UPLOADING` → `finalizing`, `UPLOADED` → `processed`, `ERRORED` → `failed`. Out-of-order and repeated states are idempotent no-ops with diagnostics preserved.
+    - Resolves the specific `interview_recordings` row and owning interview by persisted provider recording ID rather than trusting interview/user identifiers in webhook payloads.
+    - Persists the accepted webhook event/checkpoint and provider state in one short transaction then returns `2xx` (fast acknowledgement); does not download media in the webhook request. Only safe error codes are persisted for terminal `ERRORED` failures.
+    - On accepted `UPLOADED`, triggers the dedicated `RecordingFinalizationWorkflow` via `RECORDING_FINALIZATION_WORKFLOW.createBatch` with deterministic instance ID `recording-finalization-v1-{provider-recording-id}` and strict payload `{ recording_id: UUID, schema_version: 1 }` (also referenced as `recording_finalization` workflow). The `createBatch` call occurs only after `COMMIT`; trigger failure still returns `2xx` so the scheduled sweep can recover. Duplicate webhook delivery reuses the deterministic instance without parallel copies.
+    - The `RecordingFinalizationWorkflow` fetches fresh recording/track status and short-lived download URLs from RealtimeKit by provider recording ID inside the workflow; signed download URLs are never persisted to SQL, logs, workflow return values, or step state. Downloads are streamed as `ReadableStream` directly to private `RECORDINGS_BUCKET` under canonical keys `interviews/{interviewId}/recording/{artifactUuid}` without materializing the full buffer, validating HTTPS origin, response status, content type, participant/role mapping, and bounded metadata.
+    - Handles participant roles: a single TRACK provider recording ID can return multiple participant files — the workflow iterates every `download_url[].download_urls` entry, parses the encoded `user_id` from the filename, validates it against canonical interview scheduler/interviewer IDs, maps scheduler→`candidate` and peer interviewer→`interviewer`, and persists one `transcription_audio` artifact per file; composite is persisted as a single `playback_recording` artifact only. Never uses mixed composite audio for scoring. Canonical R2 keys remain `interviews/{interviewId}/recording/{artifactUuid}`; provider asset uniqueness is enforced durably.
+    - Bounded sweep recovery: the scheduled `*/5 * * * *` trigger in `notification-orchestrator` owns sweep/restart and is bounded over `UPLOADED` pending/failed rows by recording ID, reuses the same deterministic workflow IDs, restarts terminal skipped instances, and re-invokes `RecordingFinalizationWorkflow` for retry-safe recovery; recording transfer is never delegated to `FEEDBACK_WORKFLOW` or `InterviewFeedbackWorkflow`.
     - Does not expose provider error bodies to clients.
   - **Query Params**: None
-
 ### Artifacts
 - **`POST /api/interviews/:id/artifacts/screenshots`**
   - **Description**: Uploads a whiteboard capture screenshot artifact.
