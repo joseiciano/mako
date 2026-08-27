@@ -35,7 +35,6 @@ Core secrets:
 - `CLOUDFLARE_REALTIMEKIT_APP_ID`
 - `R2_BUCKET_NAME`
 - `R2_ACCOUNT_ID`
-- `REALTIMEKIT_WEBHOOK_PUBLIC_KEY`
 - `DATABASE_URL`
 - `HYPERDRIVE_ID`
 - `BETTER_AUTH_SECRET`
@@ -45,7 +44,6 @@ Core secrets:
 - `NEON_API_KEY`
 - `STRIPE_SECRET_KEY`
 - `VITE_STRIPE_PUBLISHABLE_KEY`
-
 Optional secrets (add when feature is enabled):
 
 - `NEON_DATABASE_URL`
@@ -54,8 +52,8 @@ Optional secrets (add when feature is enabled):
 Secret sync behavior:
 
 - Terraform workflow consumes Cloudflare/Neon/Stripe secrets during infra apply.
-- Backend deploy injects `HYPERDRIVE_ID` into `apps/backend-rest/wrangler.jsonc` before deployment and syncs Worker runtime secrets (`BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `BETTER_AUTH_TRUSTED_ORIGINS`, `STRIPE_SECRET_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`). Postgres runtime access is provided through the Cloudflare Hyperdrive binding. The RealtimeKit app ID (`CLOUDFLARE_REALTIMEKIT_APP_ID`) is provisioned as a Terraform plain-text binding on the backend worker (`infrastructure/main.tf`), so it is not synced as a Wrangler secret there.
-- Notification orchestrator deploy also injects `HYPERDRIVE_ID` into `apps/notification-orchestrator/wrangler.jsonc` before deployment so queue consumers can reach Postgres through Hyperdrive. Its RealtimeKit app ID (`CLOUDFLARE_REALTIMEKIT_APP_ID`) is provisioned as a Terraform plain-text binding on the notification-orchestrator worker (`infrastructure/main.tf`), so it is not synced as a Wrangler secret there; the deploy uses `--keep-vars` to retain the Terraform-owned binding.
+- Backend deploy injects `HYPERDRIVE_ID` into `apps/backend-rest/wrangler.jsonc` before deployment and syncs Worker runtime secrets (`BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `BETTER_AUTH_TRUSTED_ORIGINS`, `STRIPE_SECRET_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_REALTIMEKIT_APP_ID`). Postgres runtime access is provided through the Cloudflare Hyperdrive binding.
+- Notification orchestrator deploy also injects `HYPERDRIVE_ID` into `apps/notification-orchestrator/wrangler.jsonc` before deployment and syncs Worker runtime secrets (`CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_REALTIMEKIT_APP_ID`) for fresh RealtimeKit recording status and short-lived download URL lookup. Postgres runtime access is provided through the Cloudflare Hyperdrive binding.
 - Frontend deploy requires Cloudflare deployment credentials and `VITE_AUTH_BASE_URL`, which is injected at build time so the auth client knows the backend origin. The checkout feature also needs `VITE_STRIPE_PUBLISHABLE_KEY` injected at build time so the Stripe Payment Element can initialize.
 
 ## CI/CD Setup Runbook
@@ -87,7 +85,6 @@ Core secrets (required):
 - `CLOUDFLARE_REALTIMEKIT_APP_ID`
 - `R2_BUCKET_NAME`
 - `R2_ACCOUNT_ID`
-- `REALTIMEKIT_WEBHOOK_PUBLIC_KEY`
 - `DATABASE_URL`
 - `HYPERDRIVE_ID`
 - `BETTER_AUTH_SECRET`

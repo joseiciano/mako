@@ -13,12 +13,8 @@ import {
   interviewCompletedEventSchema,
   interviewPremiumBookedEventSchema,
   reminderDueTransportMessageSchema,
-  RecordingFinalizationRepository,
-  createPostgresConnectionPool,
-  buildRecordingFinalizationInstanceId,
-  DEFAULT_REALTIMEKIT_MAX_SWEEP_ATTEMPTS,
-  DEFAULT_REALTIMEKIT_SWEEP_DELAY_MS,
 } from '@mako/shared-backend'
+import { createPostgresConnectionPool, createSqlQuery, type SqlQueryExecutor } from '@mako/shared-backend'
 import {
   InterviewFeedbackWorkflow,
   feedbackWorkflowPayloadSchema,
@@ -26,16 +22,13 @@ import {
 import type { FeedbackWorkflowPayload } from './workflows/feedback-workflow'
 import {
   RecordingFinalizationWorkflow,
-  recordingFinalizationWorkflowPayloadSchema,
+  recordingFinalizationPayloadSchema,
 } from './workflows/recording-finalization-workflow'
-import type { RecordingFinalizationWorkflowPayload } from './workflows/recording-finalization-workflow'
+import type { RecordingFinalizationPayload } from './workflows/recording-finalization-workflow'
+import { sweepRecordingFinalizations } from './workflows/recording-finalization-sweep'
 
-export {
-  InterviewFeedbackWorkflow,
-  feedbackWorkflowPayloadSchema,
-  RecordingFinalizationWorkflow,
-  recordingFinalizationWorkflowPayloadSchema,
-}
+export { InterviewFeedbackWorkflow, feedbackWorkflowPayloadSchema }
+export { RecordingFinalizationWorkflow, recordingFinalizationPayloadSchema }
 
 export type WorkerBindings = {
   HYPERDRIVE: {
@@ -45,24 +38,18 @@ export type WorkerBindings = {
   SCREENSHOTS_BUCKET?: R2Bucket
   NOTIFICATION_QUEUE: Queue<NotificationTransportMessage>
   FEEDBACK_WORKFLOW?: Workflow<FeedbackWorkflowPayload>
-  RECORDING_FINALIZATION_WORKFLOW?: Workflow<RecordingFinalizationWorkflowPayload>
+  RECORDING_FINALIZATION_WORKFLOW?: Workflow<RecordingFinalizationPayload>
   CLOUDFLARE_ACCOUNT_ID?: string
   CLOUDFLARE_API_TOKEN?: string
   CLOUDFLARE_REALTIMEKIT_APP_ID?: string
 }
-
-export type NotificationWorkerPoolClient = {
-  query(text: string, values: unknown[]): Promise<{ rows: unknown[]; rowCount: number | null }>
-  release(): Promise<void>
-}
-
-export type NotificationWorkerPool = {
-  connect(): Promise<NotificationWorkerPoolClient>
-  end(): Promise<void>
-}
-
 export type NotificationWorkerDependencies = {
-  createPool: (connectionString: string) => NotificationWorkerPool
+  createPool: (connectionString: string) => {
+    connect(): Promise<{
+      query(text: string, values: unknown[]): Promise<{ rows: unknown[]; rowCount: number | null }>
+      release(): Promise<void>
+    }>
+  }
   console: Pick<Console, 'error' | 'log'>
 }
 
@@ -80,15 +67,12 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
       }
 
       const pool = createPool(connectionString)
-      let client: NotificationWorkerPoolClient | null = null
-      let failure: unknown
+      const client = await pool.connect()
 
       try {
-        client = await pool.connect()
-
         const queryExecutor = {
           async query<Row>(queryInput: { text: string; values: readonly unknown[] }) {
-            const result = await client!.query(queryInput.text, [...queryInput.values])
+            const result = await client.query(queryInput.text, [...queryInput.values])
             return {
               rows: result.rows as Row[],
               rowCount: result.rowCount ?? undefined,
@@ -213,11 +197,9 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
             message.retry()
           }
         }
-      } catch (error) {
-        failure = error
+      } finally {
+        await client.release()
       }
-
-      await releaseAndEndPool(pool, client, failure)
     },
 
     async scheduled(_controller: ScheduledController, env: WorkerBindings): Promise<void> {
@@ -228,15 +210,12 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
       }
 
       const pool = createPool(connectionString)
-      let client: NotificationWorkerPoolClient | null = null
-      let failure: unknown
+      const client = await pool.connect()
 
       try {
-        client = await pool.connect()
-
         const queryExecutor = {
           async query<Row>(queryInput: { text: string; values: readonly unknown[] }) {
-            const result = await client!.query(queryInput.text, [...queryInput.values])
+            const result = await client.query(queryInput.text, [...queryInput.values])
             return {
               rows: result.rows as Row[],
               rowCount: result.rowCount ?? undefined,
@@ -260,18 +239,19 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
           },
         }
 
+        try {
+          await sweepRecordingFinalizations(env, queryExecutor as SqlQueryExecutor, consoleLike)
+        } catch (err) {
+          consoleLike.error('recording_finalization_sweep_failed', {
+            error_message: err instanceof Error ? err.message : String(err),
+          })
+        }
+
         await dispatchService.dispatchPendingOutboxEvents(transport, 50)
         await dispatchService.enqueueDueReminders(transport)
-
-        // Sweep pending recording finalization events
-        if (env.RECORDING_FINALIZATION_WORKFLOW) {
-          await sweepRecordingFinalization(queryExecutor, env, consoleLike)
-        }
-      } catch (error) {
-        failure = error
+      } finally {
+        await client.release()
       }
-
-      await releaseAndEndPool(pool, client, failure)
     },
   }
 }
@@ -295,36 +275,6 @@ const worker = createNotificationWorker({
 })
 
 export default worker
-
-async function releaseAndEndPool(
-  pool: NotificationWorkerPool,
-  client: NotificationWorkerPoolClient | null,
-  inFlightError: unknown,
-): Promise<void> {
-  let failure: unknown = inFlightError
-
-  if (client) {
-    try {
-      await client.release()
-    } catch (error) {
-      if (failure === undefined) {
-        failure = error
-      }
-    }
-  }
-
-  try {
-    await pool.end()
-  } catch (error) {
-    if (failure === undefined) {
-      failure = error
-    }
-  }
-
-  if (failure !== undefined) {
-    throw failure
-  }
-}
 
 function isSchemaValidationError(error: unknown): boolean {
   if (
@@ -430,111 +380,3 @@ function extractValidationIssues(error: unknown): Array<{ path: (string | number
   const issues = (error as { issues: Array<{ path: (string | number)[]; message: string }> }).issues
   return issues.map((issue) => ({ path: issue.path, message: issue.message }))
 }
-
-const MAX_SWEEP_CANDIDATES = 10
-const SWEEP_MAX_ATTEMPTS = DEFAULT_REALTIMEKIT_MAX_SWEEP_ATTEMPTS
-
-async function sweepRecordingFinalization(
-  queryExecutor: { query<T>(input: { text: string; values: readonly unknown[] }): Promise<{ rows: T[]; rowCount?: number }> },
-  env: WorkerBindings,
-  logger: { error: (event: string, context: Record<string, unknown>) => void; log: (...args: unknown[]) => void },
-): Promise<void> {
-  const now = new Date().toISOString()
-  const repository = new RecordingFinalizationRepository({ queryExecutor })
-
-  try {
-    const candidates = await repository.listSweepCandidates(MAX_SWEEP_CANDIDATES, now)
-
-    for (const candidate of candidates) {
-      if (!candidate.recording_id) {
-        // Terminal: no recording linkage, exhaust the checkpoint.
-        await repository.updateSweepCheckpoint(
-          candidate.provider_event_id,
-          SWEEP_MAX_ATTEMPTS,
-          null,
-          now,
-        )
-        continue
-      }
-
-      const nextAttempt = new Date(now).getTime() + DEFAULT_REALTIMEKIT_SWEEP_DELAY_MS
-      const nextAttemptAt = new Date(nextAttempt).toISOString()
-
-      if (candidate.attempt_count >= SWEEP_MAX_ATTEMPTS) {
-        await repository.updateSweepCheckpoint(
-          candidate.provider_event_id,
-          candidate.attempt_count + 1,
-          null,
-          now,
-        )
-        logger.error('notification_orchestrator.sweep_exhausted', {
-          provider_event_id: candidate.provider_event_id,
-          recording_id: candidate.recording_id,
-          attempt_count: candidate.attempt_count + 1,
-        })
-        continue
-      }
-
-      try {
-        const instanceId = buildRecordingFinalizationInstanceId(
-          candidate.recording_id,
-          candidate.attempt_count + 1,
-        )
-        await env.RECORDING_FINALIZATION_WORKFLOW!.createBatch([
-          {
-            id: instanceId,
-            params: {
-              provider_recording_id: candidate.recording_id,
-              attempt: candidate.attempt_count + 1,
-            },
-          },
-        ])
-
-        await repository.updateSweepCheckpoint(
-          candidate.provider_event_id,
-          candidate.attempt_count + 1,
-          nextAttemptAt,
-          null,
-        )
-
-        logger.log('[notification-orchestrator] sweep_workflow_triggered', {
-          provider_event_id: candidate.provider_event_id,
-          recording_id: candidate.recording_id,
-          instance_id: instanceId,
-          attempt: candidate.attempt_count + 1,
-        })
-      } catch (error) {
-        const failedAttempt = candidate.attempt_count + 1
-        const exhausted = failedAttempt >= SWEEP_MAX_ATTEMPTS
-
-        // A failed trigger must still advance the bounded attempt counter and
-        // push the checkpoint into the future; at the cap it becomes terminal
-        // so a persistent binding/outage can never retry forever.
-        await repository.updateSweepCheckpoint(
-          candidate.provider_event_id,
-          failedAttempt,
-          exhausted ? null : nextAttemptAt,
-          exhausted ? now : null,
-        )
-
-        logger.error(
-          exhausted
-            ? 'notification_orchestrator.sweep_exhausted'
-            : 'notification_orchestrator.sweep_workflow_trigger_failed',
-          {
-            provider_event_id: candidate.provider_event_id,
-            recording_id: candidate.recording_id,
-            error_message: error instanceof Error ? error.message : String(error),
-            attempt_count: failedAttempt,
-          },
-        )
-      }
-    }
-  } catch (error) {
-    logger.error('notification_orchestrator.sweep_failed', {
-      error_message: error instanceof Error ? error.message : String(error),
-    })
-    throw error
-  }
-}
-

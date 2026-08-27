@@ -4,9 +4,6 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-03-15",
   "compatibility_flags": ["nodejs_compat"],
-  "vars": {
-    "REALTIMEKIT_WEBHOOK_PUBLIC_KEY": ""
-  },
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",
@@ -34,8 +31,8 @@
     {
       "binding": "RECORDING_FINALIZATION_WORKFLOW",
       "name": "recording-finalization-workflow",
-      "class_name": "RecordingFinalizationWorkflow",
-      "script_name": "mako-notification-orchestrator"
+      "script_name": "mako-notification-orchestrator",
+      "class_name": "RecordingFinalizationWorkflow"
     }
   ],
   "ratelimits": [
@@ -48,6 +45,9 @@
       }
     }
   ],
+  "vars": {
+    "REALTIMEKIT_WEBHOOK_PUBLIC_KEY_URL": "https://api.realtime.cloudflare.com/.well-known/webhooks.json"
+  },
   "observability": {
     "enabled": true,
     "logs": {

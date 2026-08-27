@@ -148,23 +148,18 @@ resource "cloudflare_workers_script" "notification_orchestrator" {
     {
       type          = "workflow"
       name          = "FEEDBACK_WORKFLOW"
-      workflow_name = cloudflare_workflow.interview_feedback.workflow_name
-      script_name   = cloudflare_workers_script.notification_orchestrator.script_name
+      workflow_name = var.feedback_workflow_name
+      script_name   = var.notification_orchestrator_worker_script_name
     },
     {
       type          = "workflow"
       name          = "RECORDING_FINALIZATION_WORKFLOW"
-      workflow_name = cloudflare_workflow.recording_finalization.workflow_name
-      script_name   = cloudflare_workers_script.notification_orchestrator.script_name
+      workflow_name = var.recording_finalization_workflow_name
+      script_name   = var.notification_orchestrator_worker_script_name
     },
     {
       type = "ai"
       name = "AI"
-    },
-    {
-      type = "plain_text"
-      name = "CLOUDFLARE_REALTIMEKIT_APP_ID"
-      text = var.realtime_app_id
     }
   ]
 
@@ -232,20 +227,20 @@ resource "cloudflare_workers_script" "backend_api" {
       {
         type          = "workflow"
         name          = "INTERVIEW_WORKFLOW"
-        workflow_name = cloudflare_workflow.interview_lifecycle.workflow_name
-        script_name   = cloudflare_workers_script.notification_orchestrator.script_name
+        workflow_name = var.interview_workflow_name
+        script_name   = var.notification_orchestrator_worker_script_name
       },
       {
         type          = "workflow"
         name          = "RECORDING_FINALIZATION_WORKFLOW"
-        workflow_name = cloudflare_workflow.recording_finalization.workflow_name
-        script_name   = cloudflare_workers_script.notification_orchestrator.script_name
+        workflow_name = var.recording_finalization_workflow_name
+        script_name   = var.notification_orchestrator_worker_script_name
       },
       {
         type = "plain_text"
-        name = "CLOUDFLARE_REALTIMEKIT_APP_ID"
-        text = var.realtime_app_id
-      }
+        name = "REALTIMEKIT_WEBHOOK_PUBLIC_KEY_URL"
+        text = "https://api.realtime.cloudflare.com/.well-known/webhooks.json"
+      },
     ],
     local.ai_gateway_base_url != "" ? [
       {

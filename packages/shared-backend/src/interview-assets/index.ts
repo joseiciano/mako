@@ -9,7 +9,6 @@ export {
   type ArtifactStorageConfig,
   type ArtifactStoragePort,
   type R2BucketPort,
-  type RecordingArtifactKind,
   type StoredArtifact,
 } from './types'
 export { createArtifactStorage, createR2BucketPort } from './artifact-storage'
