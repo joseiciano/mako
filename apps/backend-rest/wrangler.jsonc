@@ -48,6 +48,9 @@
       }
     }
   ],
+  "vars": {
+    "REALTIMEKIT_WEBHOOK_PUBLIC_KEY_URL": "https://api.realtime.cloudflare.com/.well-known/webhooks.json"
+  },
   "observability": {
     "enabled": true,
     "logs": {

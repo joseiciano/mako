@@ -98,24 +98,11 @@ import {
   type DatabaseBinding,
   type HyperdriveBinding,
 } from './database'
+import { registerRealtimeKitWebhookController } from './realtimekit-webhook-controller'
+import { RealtimeKitWebhookSignatureVerifier } from './realtimekit-webhook-signature'
 import { SessionTimerWorkflow } from './workflows/session-timer-workflow'
-import {
-  DEFAULT_REALTIMEKIT_WEBHOOK_PUBLIC_KEY_URL,
-  registerRealtimeKitWebhookController,
-  RealtimeKitWebhookService,
-  RealtimeKitWebhookRepository,
-  createRealtimeKitSignatureVerifier,
-  createRealtimeKitPublicKeyProvider,
-  createRealtimeKitWorkflowTriggerPort,
-  type RealtimeKitWebhookLogger,
-} from '@mako/shared-backend'
 
 export { SessionTimerWorkflow }
-
-type RecordingFinalizationWorkflowPayload = {
-  provider_recording_id: string
-  attempt: number
-}
 
 export type WorkerBindings = {
   DB?: DatabaseBinding
@@ -129,14 +116,15 @@ export type WorkerBindings = {
   CLOUDFLARE_ACCOUNT_ID?: string
   CLOUDFLARE_API_TOKEN?: string
   CLOUDFLARE_REALTIMEKIT_APP_ID?: string
-  REALTIMEKIT_WEBHOOK_PUBLIC_KEY?: string
   AI_GATEWAY_BASE_URL?: string
   SESSION_TIMER_WORKFLOW?: Workflow
-  RECORDING_FINALIZATION_WORKFLOW?: Workflow<RecordingFinalizationWorkflowPayload>
+  RECORDING_FINALIZATION_WORKFLOW?: Workflow<{ recording_id: string; schema_version: 1 }>
+  REALTIMEKIT_WEBHOOK_PUBLIC_KEY_URL?: string
   STRIPE_SECRET_KEY?: string
   STRIPE_WEBHOOK_SECRET?: string
   PREMIUM_MARKETPLACE_RATE_LIMITER?: RateLimiter
 }
+
 
 const demoSession = {
   userId: '11111111-1111-4111-8111-111111111111',
@@ -228,59 +216,10 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
     return stripeClient
   }
 
+  const realtimeKitWebhookVerifierCache = new Map<string, RealtimeKitWebhookSignatureVerifier>()
+  registerRealtimeKitWebhookController(app, realtimeKitWebhookVerifierCache)
+
   app.use('/api/*', applyCorsHeaders)
-
-  // Provider webhook boundary: intentionally registered before the browser-auth
-  // middleware and scoped outside browser-session authentication. Authenticity is
-  // established by the rtk-signature public-key verification inside the service.
-  registerRealtimeKitWebhookController(app, {
-    createService: function createService(context) {
-      const queryExecutor = hasDatabaseAccess(context.bindings)
-        ? createDatabaseQueryExecutor(context.bindings)
-        : undefined
-
-      if (!queryExecutor) {
-        return undefined
-      }
-
-      const webhookRepository = new RealtimeKitWebhookRepository({ queryExecutor })
-
-      const workflowTrigger = context.bindings.RECORDING_FINALIZATION_WORKFLOW
-        ? createRealtimeKitWorkflowTriggerPort(context.bindings.RECORDING_FINALIZATION_WORKFLOW)
-        : undefined
-
-      const workflowLogger: RealtimeKitWebhookLogger = {
-        info(event, context) {
-          console.info({ event, component: 'RealtimeKitWebhook', ...context })
-        },
-        warn(event, context) {
-          console.warn({ event, component: 'RealtimeKitWebhook', ...context })
-        },
-        error(event, context) {
-          console.error({ event, component: 'RealtimeKitWebhook', ...context })
-        },
-      }
-
-      const publicKeyProvider = createRealtimeKitPublicKeyProvider({
-        url: DEFAULT_REALTIMEKIT_WEBHOOK_PUBLIC_KEY_URL,
-        cacheTtlMs: 5 * 60 * 1000,
-        fetch: globalThis.fetch,
-        fallbackPem: context.bindings.REALTIMEKIT_WEBHOOK_PUBLIC_KEY,
-      })
-
-      const signatureVerifier = createRealtimeKitSignatureVerifier({
-        publicKeyProvider,
-        subtle: crypto.subtle,
-      })
-
-      return new RealtimeKitWebhookService(
-        webhookRepository,
-        signatureVerifier,
-        workflowTrigger,
-        workflowLogger,
-      )
-    },
-  })
 
   const authSessionMiddleware = createAuthSessionMiddleware({
     getAuth: function getAuth(context) {
@@ -295,6 +234,7 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
 
     return authSessionMiddleware(c, next)
   })
+
 
   registerAuthController(app, {
     getAuth: function getAuth(context) {
