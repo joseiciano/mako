@@ -29,6 +29,26 @@ vi.mock('#/components/interviews/ai-chat', function () {
   }
 })
 
+vi.mock('./recording-consent-smart', async function () {
+  const React = await import('react')
+  return {
+    RecordingConsentSmart: vi.fn(function MockRecordingConsentSmart() {
+      const [decision, setDecision] = React.useState<null | 'consented' | 'declined'>(null)
+      return (
+        <div data-testid="recording-consent-smart-mock" data-decision={decision ?? ''}>
+          <span>{decision ? `choice:${decision}` : 'no choice'}</span>
+          <button type="button" onClick={function onAllow() { setDecision('consented') }}>
+            Allow mock
+          </button>
+          <button type="button" onClick={function onDecline() { setDecision('declined') }}>
+            Decline mock
+          </button>
+        </div>
+      )
+    }),
+  }
+})
+
 function makeProps(overrides?: Partial<SessionDumbProps>): SessionDumbProps {
   return {
     interview: null,
@@ -514,5 +534,114 @@ describe('SessionDumb', function () {
     )
     const button = screen.getByRole('button', { name: /ending session/i })
     expect(button).toBeDisabled()
+  })
+
+  it('mounts recording consent for loaded pre-join interview and keeps Join actionable', async function () {
+    const user = userEvent.setup()
+    const onJoin = vi.fn()
+    render(
+      <SessionDumb
+        {...makeProps({
+          interview: makeInterview({ status: 'scheduled' }),
+          status: 'idle',
+          onJoin,
+        })}
+      />,
+    )
+    expect(screen.getByTestId('recording-consent-smart-mock')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /join session/i })).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: /join session/i }))
+    expect(onJoin).toHaveBeenCalledOnce()
+    expect(document.body.textContent).not.toMatch(/other participant/i)
+  })
+
+  it('mounts recording consent when provisioned and preserves Start Session, Media, and Whiteboard', async function () {
+    const user = userEvent.setup()
+    const onStartSession = vi.fn()
+    render(
+      <SessionDumb
+        {...makeProps({
+          interview: makeInterview({ status: 'scheduled' }),
+          status: 'provisioned',
+          whiteboardProvisionHandle: 'whiteboard-handle-1',
+          mediaConfig: { realtimeSessionId: 'rt-1', token: 'token-1' },
+          lifecycleControls: {
+            canStart: true,
+            canEnd: false,
+            isTerminal: false,
+            terminalMessage: null,
+            helperMessage: null,
+          },
+          onStartSession,
+        })}
+      />,
+    )
+    expect(screen.getByTestId('recording-consent-smart-mock')).toBeInTheDocument()
+    expect(screen.getByTestId('media-smart-mock')).toBeInTheDocument()
+    expect(screen.getByTestId('whiteboard-smart-mock')).toBeInTheDocument()
+    const startButton = screen.getByRole('button', { name: /start session/i })
+    expect(startButton).toBeInTheDocument()
+    await user.click(startButton)
+    expect(onStartSession).toHaveBeenCalledOnce()
+    expect(document.body.textContent).not.toMatch(/other participant/i)
+  })
+
+  it('keeps AI chat and End Session available alongside recording consent when provisioned', async function () {
+    const user = userEvent.setup()
+    const onEndSession = vi.fn()
+    render(
+      <SessionDumb
+        {...makeProps({
+          interview: makeInterview({ mode: 'ai_led', status: 'ongoing' }),
+          status: 'provisioned',
+          whiteboardProvisionHandle: 'whiteboard-handle-1',
+          mediaConfig: { realtimeSessionId: 'rt-1', token: 'token-1' },
+          lifecycleControls: {
+            canStart: false,
+            canEnd: true,
+            isTerminal: false,
+            terminalMessage: null,
+            helperMessage: null,
+          },
+          timer: {
+            kind: 'running',
+            label: 'In progress',
+            remainingLabel: '15:00',
+            isWarning: false,
+          },
+          onEndSession,
+        })}
+      />,
+    )
+    expect(screen.getByTestId('recording-consent-smart-mock')).toBeInTheDocument()
+    expect(screen.getByTestId('ai-chat-smart-mock')).toBeInTheDocument()
+    expect(screen.getByTestId('media-smart-mock')).toBeInTheDocument()
+    expect(screen.getByText('15:00')).toBeInTheDocument()
+    const endButton = screen.getByRole('button', { name: /end session/i })
+    expect(endButton).toBeInTheDocument()
+    await user.click(endButton)
+    expect(onEndSession).toHaveBeenCalledOnce()
+    expect(document.body.textContent).not.toMatch(/other participant/i)
+  })
+  it('preserves participant consent choice across idle -> joining -> provisioned without remounting (regression)', async function () {
+    const user = userEvent.setup()
+    const interview = makeInterview()
+    const { rerender } = render(<SessionDumb {...makeProps({ interview, status: 'idle' })} />)
+    expect(screen.getByTestId('recording-consent-smart-mock')).toHaveTextContent('no choice')
+    await user.click(screen.getByRole('button', { name: /allow mock/i }))
+    expect(screen.getByTestId('recording-consent-smart-mock')).toHaveTextContent('choice:consented')
+    rerender(<SessionDumb {...makeProps({ interview, status: 'joining' })} />)
+    expect(screen.getByTestId('recording-consent-smart-mock')).toHaveTextContent('choice:consented')
+    rerender(
+      <SessionDumb
+        {...makeProps({
+          interview,
+          status: 'provisioned',
+          whiteboardProvisionHandle: 'whiteboard-handle-1',
+          mediaConfig: { realtimeSessionId: 'rt-1', token: 'token-1' },
+        })}
+      />,
+    )
+    expect(screen.getByTestId('recording-consent-smart-mock')).toHaveTextContent('choice:consented')
   })
 })

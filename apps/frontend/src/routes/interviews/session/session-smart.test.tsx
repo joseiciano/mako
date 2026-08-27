@@ -52,6 +52,14 @@ vi.mock('#/components/interviews/media', function () {
   }
 })
 
+vi.mock('./recording-consent-smart', function () {
+  return {
+    RecordingConsentSmart: vi.fn(function MockRecordingConsentSmart() {
+      return <div data-testid="recording-consent-smart-mock" />
+    }),
+  }
+})
+
 import {
   useInterviewDetail,
   useProvisionInterview,
