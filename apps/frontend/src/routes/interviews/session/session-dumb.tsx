@@ -17,6 +17,7 @@ import {
   formatInterviewStatus,
 } from '#/lib/format-interview'
 import type { LifecycleControls, SessionTimerState } from './session-lifecycle'
+import { RecordingConsentSmart } from './recording-consent-smart'
 
 const JOINABLE_STATUSES = new Set(['scheduled', 'ongoing'])
 
@@ -78,6 +79,13 @@ export function SessionDumb(props: SessionDumbProps) {
           Back to interviews
         </button>
       </header>
+
+      {props.interview ? (
+        <RecordingConsentSmart
+          key={props.interview.id}
+          interview={props.interview}
+        />
+      ) : null}
 
       {renderContent(props)}
     </main>
