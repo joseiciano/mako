@@ -62,7 +62,14 @@ Reference `../docs/infrastructure/frontend.md` for frontend services.
 
 **NOTE**: We are speaking to our postgres database directly with SQL queries, speaking to it with Cloudflare Hyperdrive. We are not, and never will be using an orm. Never recommend an orm, never use an orm, never mention an orm.
 
-**NOTE**: If we ever need to add a new service that requires a new secret to be added to our github deployment actions, update `./scripts/set-github-env-secrets.sh` to include this new value. This script is to be used to manually setup the secrets, as well as to act as documentation for what is needed. 
+**NOTE**: Two scripts configure GitHub deployment secrets, and both use the same canonical secret inventory documented in `./scripts/set-github-env-secrets.sh` and `docs/system/system-design/ci-cd.md`:
+
+- `./scripts/set-github-env-secrets.sh` — interactive: prompts for each secret value; use it for manual one-off setup. It also acts as documentation for the inventory.
+- `./scripts/set-github-env-secrets-from-env.sh <staging|production> [path/to/.env]` — batch: parses `KEY=VALUE` lines from a `.env` file and uploads every known secret; unknown keys are skipped as a safety guard.
+
+If we ever need to add a new service that requires a new secret, update **both** scripts to include the new value.
+
+**NOTE for AI agents**: When asked to add, set, or update deployment environment secrets, prefer `./scripts/set-github-env-secrets-from-env.sh` with a `.env` file over prompting for interactive entry.
 
 **NOTE**: The shared `@mako/shared-backend` `interview-assets` module is the canonical R2 abstraction for recording and screenshot storage. R2 object keys follow the prefix conventions `interviews/{interviewId}/recording/{recordingId}` and `interviews/{interviewId}/screenshots/{screenshotId}` with a 30-day lifecycle expiration.
 
