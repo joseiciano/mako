@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - staging
     paths:
       - apps/**
       - packages/**
@@ -11,10 +12,300 @@ on:
       - pnpm-lock.yaml
       - .github/workflows/deploy-applications.yml
   workflow_dispatch:
+    inputs:
+      environment:
+        description: "Environment to deploy applications to"
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+        required: true
 
+# Staging jobs run on push to the `staging` branch (allowed by that GitHub
+# environment's deployment branch policy) or a staging dispatch. Production
+# jobs run on push to `main` or an explicit production dispatch. Each job reads
+# secrets from its matching GitHub environment.
 jobs:
+  migrate-staging-db:
+    name: Migrate staging database
+    if: github.event_name == 'push' && github.ref == 'refs/heads/staging' || github.event_name == 'workflow_dispatch' && inputs.environment == 'staging'
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      contents: read
+
+    concurrency:
+      group: migrate-staging-db-staging
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate DATABASE_URL secret
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          test -n "$DATABASE_URL" || (echo "Missing DATABASE_URL" && exit 1)
+
+      - name: Run database migrations
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: pnpm db:migrate
+
+  deploy-staging-backend-rest:
+    name: Deploy backend-rest worker (staging)
+    needs:
+      - migrate-staging-db
+      - deploy-staging-notification-orchestrator
+    if: always() && needs.migrate-staging-db.result == 'success' && needs.deploy-staging-notification-orchestrator.result == 'success'
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      contents: read
+
+    concurrency:
+      group: deploy-backend-rest-staging
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate required deployment secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_RUNTIME_API_TOKEN: ${{ secrets.CLOUDFLARE_RUNTIME_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          HYPERDRIVE_ID: ${{ secrets.HYPERDRIVE_ID }}
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          BETTER_AUTH_URL: ${{ secrets.BETTER_AUTH_URL }}
+          BETTER_AUTH_TRUSTED_ORIGINS: ${{ secrets.BETTER_AUTH_TRUSTED_ORIGINS }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN" || (echo "Missing CLOUDFLARE_API_TOKEN" && exit 1)
+          test -n "$CLOUDFLARE_RUNTIME_API_TOKEN" || (echo "Missing CLOUDFLARE_RUNTIME_API_TOKEN" && exit 1)
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || (echo "Missing CLOUDFLARE_ACCOUNT_ID" && exit 1)
+          test -n "$HYPERDRIVE_ID" || (echo "Missing HYPERDRIVE_ID" && exit 1)
+          test -n "$BETTER_AUTH_SECRET" || (echo "Missing BETTER_AUTH_SECRET" && exit 1)
+          test -n "$BETTER_AUTH_URL" || (echo "Missing BETTER_AUTH_URL" && exit 1)
+          test -n "$BETTER_AUTH_TRUSTED_ORIGINS" || (echo "Missing BETTER_AUTH_TRUSTED_ORIGINS" && exit 1)
+          test -n "$STRIPE_SECRET_KEY" || (echo "Missing STRIPE_SECRET_KEY" && exit 1)
+
+      - name: Inject Hyperdrive binding ID into Wrangler config
+        working-directory: apps/backend-rest
+        env:
+          HYPERDRIVE_ID: ${{ secrets.HYPERDRIVE_ID }}
+        run: |
+          node -e "const fs=require('node:fs'); const filePath='wrangler.jsonc'; const placeholder='__HYPERDRIVE_ID__'; const hyperdriveId=process.env.HYPERDRIVE_ID; if (!hyperdriveId) throw new Error('Missing HYPERDRIVE_ID'); const current=fs.readFileSync(filePath, 'utf8'); if (!current.includes(placeholder)) throw new Error('Hyperdrive placeholder not found in wrangler.jsonc'); fs.writeFileSync(filePath, current.replaceAll(placeholder, hyperdriveId));"
+
+      - name: Deploy backend-rest via Wrangler
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          packageManager: pnpm
+          workingDirectory: apps/backend-rest
+          command: deploy --config wrangler.jsonc --keep-vars
+          # --keep-vars retains Terraform-provisioned vars (e.g. AI_GATEWAY_BASE_URL) that are not declared in wrangler.jsonc.
+          # Runtime secrets are synced by the dedicated step below: the action
+          # overwrites process.env.CLOUDFLARE_API_TOKEN with the deploy token,
+          # so the runtime token cannot be uploaded through `secrets:`.
+
+      - name: Sync backend-rest runtime secrets
+        working-directory: apps/backend-rest
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_RUNTIME_API_TOKEN: ${{ secrets.CLOUDFLARE_RUNTIME_API_TOKEN }}
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          BETTER_AUTH_URL: ${{ secrets.BETTER_AUTH_URL }}
+          BETTER_AUTH_TRUSTED_ORIGINS: ${{ secrets.BETTER_AUTH_TRUSTED_ORIGINS }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_REALTIMEKIT_APP_ID: ${{ secrets.CLOUDFLARE_REALTIMEKIT_APP_ID }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+        run: |
+          # Worker secret names stay CLOUDFLARE_API_TOKEN (code bindings read
+          # that name) but the value is the dedicated runtime token.
+          # REALTIMEKIT_APP_ID is optional: absent value skips the upload.
+          printf '%s' "$CLOUDFLARE_RUNTIME_API_TOKEN" | pnpm exec wrangler secret put CLOUDFLARE_API_TOKEN --config wrangler.jsonc
+          printf '%s' "$BETTER_AUTH_SECRET" | pnpm exec wrangler secret put BETTER_AUTH_SECRET --config wrangler.jsonc
+          printf '%s' "$BETTER_AUTH_URL" | pnpm exec wrangler secret put BETTER_AUTH_URL --config wrangler.jsonc
+          printf '%s' "$BETTER_AUTH_TRUSTED_ORIGINS" | pnpm exec wrangler secret put BETTER_AUTH_TRUSTED_ORIGINS --config wrangler.jsonc
+          printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | pnpm exec wrangler secret put CLOUDFLARE_ACCOUNT_ID --config wrangler.jsonc
+          if [[ -n "$CLOUDFLARE_REALTIMEKIT_APP_ID" ]]; then
+            printf '%s' "$CLOUDFLARE_REALTIMEKIT_APP_ID" | pnpm exec wrangler secret put CLOUDFLARE_REALTIMEKIT_APP_ID --config wrangler.jsonc
+          else
+            echo "CLOUDFLARE_REALTIMEKIT_APP_ID not set; skipping RealtimeKit secret upload."
+          fi
+          printf '%s' "$STRIPE_SECRET_KEY" | pnpm exec wrangler secret put STRIPE_SECRET_KEY --config wrangler.jsonc
+
+  deploy-staging-notification-orchestrator:
+    name: Deploy notification-orchestrator worker (staging)
+    needs: migrate-staging-db
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      contents: read
+
+    concurrency:
+      group: deploy-notification-orchestrator-staging
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate required deployment secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_RUNTIME_API_TOKEN: ${{ secrets.CLOUDFLARE_RUNTIME_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_REALTIMEKIT_APP_ID: ${{ secrets.CLOUDFLARE_REALTIMEKIT_APP_ID }}
+          HYPERDRIVE_ID: ${{ secrets.HYPERDRIVE_ID }}
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN" || (echo "Missing CLOUDFLARE_API_TOKEN" && exit 1)
+          test -n "$CLOUDFLARE_RUNTIME_API_TOKEN" || (echo "Missing CLOUDFLARE_RUNTIME_API_TOKEN" && exit 1)
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || (echo "Missing CLOUDFLARE_ACCOUNT_ID" && exit 1)
+          test -n "$HYPERDRIVE_ID" || (echo "Missing HYPERDRIVE_ID" && exit 1)
+          # CLOUDFLARE_REALTIMEKIT_APP_ID is optional in staging until a
+          # RealtimeKit app is provisioned for this account.
+
+      - name: Inject Hyperdrive binding ID into notification-orchestrator Wrangler config
+        working-directory: apps/notification-orchestrator
+        env:
+          HYPERDRIVE_ID: ${{ secrets.HYPERDRIVE_ID }}
+        run: |
+          node -e "const fs=require('node:fs'); const filePath='wrangler.jsonc'; const placeholder='__HYPERDRIVE_ID__'; const hyperdriveId=process.env.HYPERDRIVE_ID; if (!hyperdriveId) throw new Error('Missing HYPERDRIVE_ID'); const current=fs.readFileSync(filePath, 'utf8'); if (!current.includes(placeholder)) throw new Error('Hyperdrive placeholder not found in wrangler.jsonc'); fs.writeFileSync(filePath, current.replaceAll(placeholder, hyperdriveId));"
+
+      - name: Deploy notification-orchestrator via Wrangler
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          packageManager: pnpm
+          workingDirectory: apps/notification-orchestrator
+          command: deploy --config wrangler.jsonc
+          # Runtime secrets are synced by the dedicated step below: the action
+          # overwrites process.env.CLOUDFLARE_API_TOKEN with the deploy token,
+          # so the runtime token cannot be uploaded through `secrets:`.
+
+      - name: Sync notification-orchestrator runtime secrets
+        working-directory: apps/notification-orchestrator
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_RUNTIME_API_TOKEN: ${{ secrets.CLOUDFLARE_RUNTIME_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_REALTIMEKIT_APP_ID: ${{ secrets.CLOUDFLARE_REALTIMEKIT_APP_ID }}
+        run: |
+          # Worker secret names stay CLOUDFLARE_API_TOKEN (code bindings read
+          # that name) but the value is the dedicated runtime token.
+          printf '%s' "$CLOUDFLARE_RUNTIME_API_TOKEN" | pnpm exec wrangler secret put CLOUDFLARE_API_TOKEN --config wrangler.jsonc
+          printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | pnpm exec wrangler secret put CLOUDFLARE_ACCOUNT_ID --config wrangler.jsonc
+          if [[ -n "$CLOUDFLARE_REALTIMEKIT_APP_ID" ]]; then
+            printf '%s' "$CLOUDFLARE_REALTIMEKIT_APP_ID" | pnpm exec wrangler secret put CLOUDFLARE_REALTIMEKIT_APP_ID --config wrangler.jsonc
+          else
+            echo "CLOUDFLARE_REALTIMEKIT_APP_ID not set; skipping RealtimeKit secret upload."
+          fi
+
+  deploy-staging-frontend:
+    name: Deploy frontend worker (staging)
+    needs:
+      - deploy-staging-backend-rest
+      - deploy-staging-notification-orchestrator
+    if: always() && needs.deploy-staging-backend-rest.result == 'success' && needs.deploy-staging-notification-orchestrator.result == 'success'
+    runs-on: ubuntu-latest
+    environment: staging
+    permissions:
+      contents: read
+
+    concurrency:
+      group: deploy-frontend-staging
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate required deployment secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          VITE_AUTH_BASE_URL: ${{ secrets.VITE_AUTH_BASE_URL }}
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN" || (echo "Missing CLOUDFLARE_API_TOKEN" && exit 1)
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || (echo "Missing CLOUDFLARE_ACCOUNT_ID" && exit 1)
+          test -n "$VITE_AUTH_BASE_URL" || (echo "Missing VITE_AUTH_BASE_URL" && exit 1)
+          # VITE_STRIPE_PUBLISHABLE_KEY is optional in staging until checkout
+          # is exercised; the build treats a missing value as disabled checkout.
+
+      - name: Build frontend application
+        working-directory: apps/frontend
+        env:
+          VITE_AUTH_BASE_URL: ${{ secrets.VITE_AUTH_BASE_URL }}
+          VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.VITE_STRIPE_PUBLISHABLE_KEY }}
+        run: pnpm run build
+
+      - name: Deploy frontend via Wrangler
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          packageManager: pnpm
+          workingDirectory: apps/frontend
+          command: deploy
+
   migrate-production-db:
     name: Migrate production database
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' && inputs.environment == 'production'
     runs-on: ubuntu-latest
     environment: production
     permissions:
@@ -56,6 +347,7 @@ jobs:
     needs:
       - migrate-production-db
       - deploy-notification-orchestrator
+    if: always() && needs.migrate-production-db.result == 'success' && needs.deploy-notification-orchestrator.result == 'success'
     runs-on: ubuntu-latest
     environment: production
     permissions:
@@ -84,6 +376,7 @@ jobs:
       - name: Validate required deployment secrets
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_RUNTIME_API_TOKEN: ${{ secrets.CLOUDFLARE_RUNTIME_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           HYPERDRIVE_ID: ${{ secrets.HYPERDRIVE_ID }}
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
@@ -92,6 +385,7 @@ jobs:
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
         run: |
           test -n "$CLOUDFLARE_API_TOKEN" || (echo "Missing CLOUDFLARE_API_TOKEN" && exit 1)
+          test -n "$CLOUDFLARE_RUNTIME_API_TOKEN" || (echo "Missing CLOUDFLARE_RUNTIME_API_TOKEN" && exit 1)
           test -n "$CLOUDFLARE_ACCOUNT_ID" || (echo "Missing CLOUDFLARE_ACCOUNT_ID" && exit 1)
           test -n "$HYPERDRIVE_ID" || (echo "Missing HYPERDRIVE_ID" && exit 1)
           test -n "$BETTER_AUTH_SECRET" || (echo "Missing BETTER_AUTH_SECRET" && exit 1)
@@ -115,23 +409,31 @@ jobs:
           workingDirectory: apps/backend-rest
           command: deploy --config wrangler.jsonc --keep-vars
           # --keep-vars retains Terraform-provisioned vars (e.g. AI_GATEWAY_BASE_URL) that are not declared in wrangler.jsonc.
-          # Runtime Cloudflare token is used by backend-rest for RealtimeKit calls; keep scope limited to required RealtimeKit/meeting operations.
-          secrets: |
-            BETTER_AUTH_SECRET
-            BETTER_AUTH_URL
-            BETTER_AUTH_TRUSTED_ORIGINS
-            CLOUDFLARE_ACCOUNT_ID
-            CLOUDFLARE_API_TOKEN
-            CLOUDFLARE_REALTIMEKIT_APP_ID
-            STRIPE_SECRET_KEY
+          # Runtime secrets are synced by the dedicated step below: the action
+          # overwrites process.env.CLOUDFLARE_API_TOKEN with the deploy token,
+          # so the runtime token cannot be uploaded through `secrets:`.
+
+      - name: Sync backend-rest runtime secrets
+        working-directory: apps/backend-rest
         env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_RUNTIME_API_TOKEN: ${{ secrets.CLOUDFLARE_RUNTIME_API_TOKEN }}
           BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
           BETTER_AUTH_URL: ${{ secrets.BETTER_AUTH_URL }}
           BETTER_AUTH_TRUSTED_ORIGINS: ${{ secrets.BETTER_AUTH_TRUSTED_ORIGINS }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_REALTIMEKIT_APP_ID: ${{ secrets.CLOUDFLARE_REALTIMEKIT_APP_ID }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+        run: |
+          # Worker secret names stay CLOUDFLARE_API_TOKEN (code bindings read
+          # that name) but the value is the dedicated runtime token.
+          printf '%s' "$CLOUDFLARE_RUNTIME_API_TOKEN" | pnpm exec wrangler secret put CLOUDFLARE_API_TOKEN --config wrangler.jsonc
+          printf '%s' "$BETTER_AUTH_SECRET" | pnpm exec wrangler secret put BETTER_AUTH_SECRET --config wrangler.jsonc
+          printf '%s' "$BETTER_AUTH_URL" | pnpm exec wrangler secret put BETTER_AUTH_URL --config wrangler.jsonc
+          printf '%s' "$BETTER_AUTH_TRUSTED_ORIGINS" | pnpm exec wrangler secret put BETTER_AUTH_TRUSTED_ORIGINS --config wrangler.jsonc
+          printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | pnpm exec wrangler secret put CLOUDFLARE_ACCOUNT_ID --config wrangler.jsonc
+          printf '%s' "$CLOUDFLARE_REALTIMEKIT_APP_ID" | pnpm exec wrangler secret put CLOUDFLARE_REALTIMEKIT_APP_ID --config wrangler.jsonc
+          printf '%s' "$STRIPE_SECRET_KEY" | pnpm exec wrangler secret put STRIPE_SECRET_KEY --config wrangler.jsonc
 
   deploy-notification-orchestrator:
     name: Deploy notification-orchestrator worker
@@ -164,11 +466,13 @@ jobs:
       - name: Validate required deployment secrets
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_RUNTIME_API_TOKEN: ${{ secrets.CLOUDFLARE_RUNTIME_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_REALTIMEKIT_APP_ID: ${{ secrets.CLOUDFLARE_REALTIMEKIT_APP_ID }}
           HYPERDRIVE_ID: ${{ secrets.HYPERDRIVE_ID }}
         run: |
           test -n "$CLOUDFLARE_API_TOKEN" || (echo "Missing CLOUDFLARE_API_TOKEN" && exit 1)
+          test -n "$CLOUDFLARE_RUNTIME_API_TOKEN" || (echo "Missing CLOUDFLARE_RUNTIME_API_TOKEN" && exit 1)
           test -n "$CLOUDFLARE_ACCOUNT_ID" || (echo "Missing CLOUDFLARE_ACCOUNT_ID" && exit 1)
           test -n "$CLOUDFLARE_REALTIMEKIT_APP_ID" || (echo "Missing CLOUDFLARE_REALTIMEKIT_APP_ID" && exit 1)
           test -n "$HYPERDRIVE_ID" || (echo "Missing HYPERDRIVE_ID" && exit 1)
@@ -188,16 +492,30 @@ jobs:
           packageManager: pnpm
           workingDirectory: apps/notification-orchestrator
           command: deploy --config wrangler.jsonc
-          secrets: |
-            CLOUDFLARE_ACCOUNT_ID
-            CLOUDFLARE_API_TOKEN
-            CLOUDFLARE_REALTIMEKIT_APP_ID
+          # Runtime secrets are synced by the dedicated step below: the action
+          # overwrites process.env.CLOUDFLARE_API_TOKEN with the deploy token,
+          # so the runtime token cannot be uploaded through `secrets:`.
+
+      - name: Sync notification-orchestrator runtime secrets
+        working-directory: apps/notification-orchestrator
         env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_RUNTIME_API_TOKEN: ${{ secrets.CLOUDFLARE_RUNTIME_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_REALTIMEKIT_APP_ID: ${{ secrets.CLOUDFLARE_REALTIMEKIT_APP_ID }}
+        run: |
+          # Worker secret names stay CLOUDFLARE_API_TOKEN (code bindings read
+          # that name) but the value is the dedicated runtime token.
+          printf '%s' "$CLOUDFLARE_RUNTIME_API_TOKEN" | pnpm exec wrangler secret put CLOUDFLARE_API_TOKEN --config wrangler.jsonc
+          printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | pnpm exec wrangler secret put CLOUDFLARE_ACCOUNT_ID --config wrangler.jsonc
+          printf '%s' "$CLOUDFLARE_REALTIMEKIT_APP_ID" | pnpm exec wrangler secret put CLOUDFLARE_REALTIMEKIT_APP_ID --config wrangler.jsonc
+
   deploy-frontend:
     name: Deploy frontend worker
+    needs:
+      - deploy-backend-rest
+      - deploy-notification-orchestrator
+    if: always() && needs.deploy-backend-rest.result == 'success' && needs.deploy-notification-orchestrator.result == 'success'
     runs-on: ubuntu-latest
     environment: production
     permissions:
