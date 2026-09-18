@@ -5,9 +5,19 @@
 ALTER TABLE interviews
   ADD COLUMN IF NOT EXISTS booking_channel TEXT;
 
-ALTER TABLE interviews
-  ADD CONSTRAINT IF NOT EXISTS interviews_booking_channel_check
-  CHECK (booking_channel IS NULL OR booking_channel IN ('ai_direct', 'standard_match', 'verified_interviewer'));
+-- Postgres has no `ADD CONSTRAINT IF NOT EXISTS`; guard with a catalog check.
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = 'interviews'::regclass AND conname = 'interviews_booking_channel_check'
+  ) THEN
+    ALTER TABLE interviews
+      ADD CONSTRAINT interviews_booking_channel_check
+      CHECK (booking_channel IS NULL OR booking_channel IN ('ai_direct', 'standard_match', 'verified_interviewer'));
+  END IF;
+END
+$$;
 
 -- Partial index to accelerate backfill, readiness checks, and the NOT NULL
 -- contraction migration. All three query WHERE booking_channel IS NULL;
