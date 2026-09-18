@@ -1,3 +1,13 @@
+variable "environment" {
+  description = "Deployment environment provisioned by this Terraform state."
+  type        = string
+
+  validation {
+    condition     = contains(["staging", "production"], var.environment)
+    error_message = "environment must be either staging or production."
+  }
+}
+
 variable "cloudflare_account_id" {
   description = "Cloudflare account ID where resources will be provisioned."
   type        = string
@@ -52,24 +62,6 @@ variable "notification_orchestrator_worker_script_name" {
   type        = string
   default     = "mako-notification-orchestrator"
 }
-
-variable "realtime_app_id" {
-  description = "Cloudflare Realtime app identifier injected into worker bindings."
-  type        = string
-}
-
-variable "interview_workflow_name" {
-  description = "Workflow name used for interview lifecycle orchestration."
-  type        = string
-  default     = "interview-lifecycle"
-}
-
-variable "interview_workflow_class_name" {
-  description = "Workflow class exported by the notification orchestrator Worker script."
-  type        = string
-  default     = "InterviewLifecycleWorkflow"
-}
-
 variable "feedback_workflow_name" {
   description = "Workflow name for interview feedback processing."
   type        = string
@@ -122,6 +114,12 @@ variable "greedy_matcher_cron" {
   description = "Cron expression for the Greedy Matcher Worker."
   type        = string
   default     = "*/10 * * * *"
+}
+
+variable "notification_orchestrator_cron" {
+  description = "Cron expression for the Notification Orchestrator scheduled sweep."
+  type        = string
+  default     = "*/5 * * * *"
 }
 
 variable "ai_gateway_name" {
@@ -181,7 +179,7 @@ variable "queue_batch_size" {
 variable "queue_max_wait_time_ms" {
   description = "Queue consumer max wait time to form a batch."
   type        = number
-  default     = 1000
+  default     = 5000
 }
 
 variable "queue_max_retries" {
@@ -196,8 +194,3 @@ variable "queue_retry_delay_seconds" {
   default     = 30
 }
 
-variable "queue_visibility_timeout_ms" {
-  description = "Queue message visibility timeout in milliseconds."
-  type        = number
-  default     = 30000
-}

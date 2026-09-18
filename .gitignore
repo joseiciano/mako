@@ -47,8 +47,8 @@ override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
-infrastructure/backend.tf
 infrastructure/backend-r2.hcl
+infrastructure/backend.ci.hcl
 
 prompts/*
 code_reviews/

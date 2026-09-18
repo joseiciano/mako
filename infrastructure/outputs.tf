@@ -1,8 +1,8 @@
 output "worker_script_names" {
   description = "Provisioned Cloudflare Worker script names."
   value = {
-    backend_api           = cloudflare_workers_script.backend_api.script_name
-    greedy_matcher        = cloudflare_workers_script.greedy_matcher.script_name
+    backend_api               = cloudflare_workers_script.backend_api.script_name
+    greedy_matcher            = cloudflare_workers_script.greedy_matcher.script_name
     notification_orchestrator = cloudflare_workers_script.notification_orchestrator.script_name
   }
 }
@@ -23,41 +23,25 @@ output "notification_orchestration_queue" {
   }
 }
 
-output "hyperdrive_ids" {
-  description = "Hyperdrive config IDs keyed by environment."
-  value = {
-    for env, cfg in cloudflare_hyperdrive_config.postgres : env => cfg.id
-  }
+output "hyperdrive_id" {
+  description = "Hyperdrive configuration ID for the selected environment."
+  value       = cloudflare_hyperdrive_config.postgres.id
 }
 
-output "neon_project_ids" {
-  description = "Neon project IDs keyed by environment."
-  value = {
-    for env, project in neon_project.db : env => project.id
-  }
-}
-
-output "neon_connection_uris" {
-  description = "Neon direct and pooler connection strings keyed by environment."
+output "database_url" {
+  description = "Direct SSL-required Neon connection URI for migrations in the selected environment."
   sensitive   = true
-  value = {
-    for env, project in neon_project.db : env => {
-      direct = project.connection_uri
-      pooler = project.connection_uri_pooler
-    }
-  }
+  value       = "postgresql://${urlencode(neon_role.app.name)}:${urlencode(neon_role.app.password)}@${neon_project.db.database_host}:5432/${urlencode(neon_database.app.name)}?sslmode=require&channel_binding=require"
 }
 
-output "realtime_binding" {
-  description = "Cloudflare Realtime app identifier used in worker bindings."
-  value = {
-    app_id = var.realtime_app_id
-  }
+output "neon_project_id" {
+  description = "Neon project ID for the selected environment."
+  value       = neon_project.db.id
 }
 
-output "workflow_name" {
-  description = "Provisioned Cloudflare Workflow name."
-  value       = cloudflare_workflow.interview_lifecycle.workflow_name
+output "neon_database_host" {
+  description = "Direct Neon database host for the selected environment."
+  value       = neon_project.db.database_host
 }
 
 output "ai_gateway_base_url" {

@@ -1,21 +1,43 @@
 #!/usr/bin/env bash
 
-# Bulk-set environment-scoped GitHub secrets for the selected environment
-# (staging or production) from a .env file.
+# Batch variant of scripts/set-github-env-secrets.sh.
 #
-# Usage:
-#   scripts/set-github-env-secrets-from-env.sh <staging|production> [path/to/.env]
+# Parses KEY=VALUE lines from a .env file and uploads every *known* secret to
+# the given GitHub deployment environment. Unknown keys are skipped as a
+# safety guard so unrelated .env entries never reach GitHub.
 #
-# The .env file uses KEY=VALUE lines. Lines starting with '#' and blank lines
-# are ignored. Inline 'export ' prefixes are tolerated. Values may be quoted
-# with single or double quotes.
+# Usage: ./scripts/set-github-env-secrets-from-env.sh <staging|production> [path/to/.env]
 #
-# Only keys that belong to the documented secret inventory
-# (docs/system/system-design/ci-cd.md, "Secrets Management Strategy") are
-# uploaded. Unknown keys are reported and skipped so a stray .env variable
-# cannot silently become a GitHub secret.
+# The canonical secret inventory is the menu in scripts/set-github-env-secrets.sh;
+# keep KNOWN_SECRETS below in sync with that list.
 
 set -euo pipefail
+
+KNOWN_SECRETS=(
+  "CLOUDFLARE_ACCOUNT_ID"
+  # Deploy workflows consume this token name directly for Terraform and
+  # Wrangler CI auth; runtime Workers use CLOUDFLARE_RUNTIME_API_TOKEN.
+  "CLOUDFLARE_API_TOKEN"
+  "NEON_API_KEY"
+  "NEON_ORG_ID"
+  "TF_STATE_R2_ACCESS_KEY_ID"
+  "TF_STATE_R2_SECRET_ACCESS_KEY"
+  "CLOUDFLARE_RUNTIME_API_TOKEN"
+  "DATABASE_URL"
+  "HYPERDRIVE_ID"
+  "BETTER_AUTH_SECRET"
+  "BETTER_AUTH_URL"
+  "BETTER_AUTH_TRUSTED_ORIGINS"
+  "VITE_AUTH_BASE_URL"
+  "CLOUDFLARE_REALTIMEKIT_APP_ID"
+  "STRIPE_SECRET_KEY"
+  "STRIPE_WEBHOOK_SECRET"
+  "VITE_STRIPE_PUBLISHABLE_KEY"
+)
+
+usage() {
+  echo "Usage: $0 <staging|production> [path/to/.env]" >&2
+}
 
 if ! command -v gh >/dev/null 2>&1; then
   echo "GitHub CLI (gh) is not installed."
@@ -30,132 +52,93 @@ fi
 REPO="joseiciano/mako"
 
 ENVIRONMENT="${1:-}"
-if [[ "$ENVIRONMENT" != "production" && "$ENVIRONMENT" != "staging" ]]; then
-  echo "Usage: $0 <production|staging> [path/to/.env]"
-  exit 1
-fi
-
 ENV_FILE="${2:-.env}"
-if [[ ! -f "$ENV_FILE" ]]; then
-  echo ".env file not found: $ENV_FILE"
+
+if [[ "$ENVIRONMENT" != "staging" && "$ENVIRONMENT" != "production" ]]; then
+  usage
+  echo "Invalid environment. Choose either 'staging' or 'production'."
   exit 1
 fi
 
-# Canonical secret inventory. Keep in sync with scripts/set-github-env-secrets.sh
-# and docs/system/system-design/ci-cd.md.
-KNOWN_SECRETS=(
-  CLOUDFLARE_ACCOUNT_ID
-  CLOUDFLARE_TERRAFORM_API_TOKEN
-  CLOUDFLARE_DEPLOY_API_TOKEN
-  CLOUDFLARE_RUNTIME_API_TOKEN
-  NEON_API_KEY
-  NEON_ORG_ID
-  TF_STATE_R2_ACCESS_KEY_ID
-  TF_STATE_R2_SECRET_ACCESS_KEY
-  DATABASE_URL
-  HYPERDRIVE_ID
-  BETTER_AUTH_SECRET
-  BETTER_AUTH_URL
-  BETTER_AUTH_TRUSTED_ORIGINS
-  VITE_AUTH_BASE_URL
-  CLOUDFLARE_REALTIMEKIT_APP_ID
-  STRIPE_SECRET_KEY
-  STRIPE_WEBHOOK_SECRET
-  VITE_STRIPE_PUBLISHABLE_KEY
-)
+if [[ ! -f "$ENV_FILE" ]]; then
+  usage
+  echo "Env file not found: $ENV_FILE"
+  exit 1
+fi
 
 is_known_secret() {
-  local key="$1"
   local candidate
   for candidate in "${KNOWN_SECRETS[@]}"; do
-    if [[ "$candidate" == "$key" ]]; then
+    if [[ "$candidate" == "$1" ]]; then
       return 0
     fi
   done
   return 1
 }
 
-# strip_value_quotes removes one layer of matching single or double quotes.
-strip_value_quotes() {
-  local value="$1"
-  if [[ "$value" =~ ^\"(.*)\"$ ]]; then
-    printf '%s' "${BASH_REMATCH[1]}"
-  elif [[ "$value" == \'*\' ]]; then
-    printf '%s' "${value:1:${#value}-2}"
-  else
-    printf '%s' "$value"
-  fi
-}
+set_count=0
+skipped_count=0
+seen=""
 
-declare -A SEEN=()
-SET_COUNT=0
-SKIP_UNKNOWN_COUNT=0
-SKIP_EMPTY_COUNT=0
-
-line_number=0
-while IFS= read -r raw_line || [[ -n "$raw_line" ]]; do
-  line_number=$((line_number + 1))
-  line="$raw_line"
-
-  # Trim leading/trailing whitespace.
+while IFS= read -r raw || [[ -n "$raw" ]]; do
+  line="${raw%$'\r'}"
+  # Trim surrounding whitespace.
   line="${line#"${line%%[![:space:]]*}"}"
   line="${line%"${line##*[![:space:]]}"}"
 
-  # Skip blank lines and comments.
+  # Skip blanks and full-line comments.
   [[ -z "$line" || "$line" == \#* ]] && continue
 
-  # Tolerate an 'export ' prefix.
+  # Allow an optional `export ` prefix.
   line="${line#export }"
 
-  # Require KEY=VALUE.
-  if [[ "$line" != *=* ]]; then
-    echo "WARNING: line $line_number of $ENV_FILE is not KEY=VALUE; skipping: $raw_line"
-    continue
-  fi
+  [[ "$line" != *=* ]] && continue
 
   key="${line%%=*}"
   value="${line#*=}"
 
-  # Trim whitespace around the key.
+  # Trim whitespace around the key and value.
   key="${key%"${key##*[![:space:]]}"}"
-  key="${key#"${key%%[![:space:]]*}"}"
-
-  # Keys must be valid secret names (uppercase with underscores/digits).
-  if [[ ! "$key" =~ ^[A-Z0-9_]+$ ]]; then
-    echo "WARNING: line $line_number has invalid key '$key'; skipping"
-    continue
-  fi
-
-  if ! is_known_secret "$key"; then
-    echo "SKIPPED (not in secret inventory): $key"
-    SKIP_UNKNOWN_COUNT=$((SKIP_UNKNOWN_COUNT + 1))
-    continue
-  fi
-
-  if [[ -n "${SEEN[$key]:-}" ]]; then
-    echo "WARNING: duplicate key '$key' at line $line_number; last value wins"
-  fi
-  SEEN[$key]=1
-
-  # Trim whitespace around the value.
   value="${value#"${value%%[![:space:]]*}"}"
   value="${value%"${value##*[![:space:]]}"}"
 
-  value="$(strip_value_quotes "$value")"
+  [[ -z "$key" ]] && continue
+
+  if ! is_known_secret "$key"; then
+    echo "Skipping unknown key: $key"
+    skipped_count=$((skipped_count + 1))
+    continue
+  fi
+
+  # Strip one pair of matching surrounding quotes.
+  if [[ ${#value} -ge 2 ]]; then
+    first="${value:0:1}"
+    last="${value: -1}"
+    if [[ "$first" == "$last" && ( "$first" == '"' || "$first" == "'" ) ]]; then
+      value="${value:1:${#value}-2}"
+    fi
+  fi
 
   if [[ -z "$value" ]]; then
-    echo "SKIPPED (empty value): $key"
-    SKIP_EMPTY_COUNT=$((SKIP_EMPTY_COUNT + 1))
+    echo "Skipping $key: value is empty."
     continue
   fi
 
   printf '%s' "$value" | gh secret set "$key" --repo "$REPO" --env "$ENVIRONMENT"
   echo "Set $key for environment '$ENVIRONMENT'."
-  SET_COUNT=$((SET_COUNT + 1))
+  set_count=$((set_count + 1))
+  seen+=" $key "
 done < "$ENV_FILE"
 
 echo
-echo "Done. Set $SET_COUNT secret(s), skipped $SKIP_UNKNOWN_COUNT unknown and $SKIP_EMPTY_COUNT empty key(s) in '$ENVIRONMENT' for $REPO."
+echo "Done: set $set_count secret(s) for '$ENVIRONMENT'; skipped $skipped_count unknown key(s)."
+
+for secret in "${KNOWN_SECRETS[@]}"; do
+  if [[ "$seen" != *" $secret "* ]]; then
+    echo "Note: known secret '$secret' is not present in '$ENV_FILE'."
+  fi
+done
+
 echo
-echo "Current secrets in '$ENVIRONMENT':"
+echo "Current secrets in '$ENVIRONMENT' for $REPO:"
 gh secret list --repo "$REPO" --env "$ENVIRONMENT"

@@ -1,3 +1,7 @@
+# Required: which complete environment this invocation provisions.
+# Each environment uses its own Cloudflare account and Neon project.
+environment        = "staging" # or "production"
+
 cloudflare_account_id = "<your-cloudflare-account-id>"
 
 # Cloudflare API token must be account-scoped for the account above and include
@@ -11,14 +15,12 @@ cloudflare_account_id = "<your-cloudflare-account-id>"
 # plus Account read permissions.
 cloudflare_api_token  = "<your-cloudflare-api-token>"
 
-# Realtime app metadata is managed outside Terraform (RealtimeKit/API).
-# This value is injected into worker bindings as CLOUDFLARE_REALTIMEKIT_APP_ID.
-realtime_app_id      = "<your-realtime-app-id>"
-
 neon_api_key  = "<your-neon-api-key>"
 neon_org_id   = "<optional-neon-org-id>"
 neon_region_id = "aws-us-east-1"
 
+# Neon project is created as "<project_name>-<environment>" so staging and
+# production stay distinct even when they share the same Neon organization.
 project_name = "mako"
 
 # AI Gateway: when ai_gateway_name is set, Terraform exposes AI_GATEWAY_BASE_URL
@@ -28,7 +30,18 @@ project_name = "mako"
 ai_gateway_name = ""
 
 # Optional overrides
+# These rename Terraform-owned Worker scripts, R2 buckets, Queues, Workflows,
+# and cron triggers. The defaults below already match the committed Wrangler
+# configuration (apps/*/wrangler.jsonc), so a Wrangler deploy followed by
+# terraform plan produces no binding or trigger drift. Overriding any
+# Terraform-owned Worker, bucket, Queue, Workflow, or notification cron name is
+# NOT a Terraform-only change: it requires updating the corresponding committed
+# Wrangler configuration in the same change. A Terraform-only override violates
+# the no-drift contract.
 # recordings_bucket_name = "mako-recordings"
 # screenshots_bucket_name = "mako-screenshots"
 # notification_orchestration_queue_name = "notification-orchestration"
 # greedy_matcher_cron = "*/10 * * * *"
+# notification_orchestrator_cron = "*/5 * * * *"
+# feedback_workflow_name = "feedback-workflow"
+# recording_finalization_workflow_name = "recording-finalization-workflow"

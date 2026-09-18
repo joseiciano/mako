@@ -40,7 +40,7 @@ Infrastructure and Terraform state:
 | Secret | Purpose | Format / example |
 |---|---|---|
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID of this environment's account | 32-character account ID (e.g. `e7d95c90bfc96c0320a2a51bc889461a`) |
-| `CLOUDFLARE_TERRAFORM_API_TOKEN` | Account API token Terraform uses to manage Workers, Queues, R2, Hyperdrive, and Workflows | `cfat_…` with Account Settings Read + Workers Scripts, R2, Queues, Hyperdrive Write |
+| `CLOUDFLARE_API_TOKEN` | Account API token for CI: Terraform provider and Wrangler deploys; never exposed to Workers | `cfat_…` with Account Settings Read + Workers Scripts, R2, Queues, Hyperdrive Write |
 | `NEON_API_KEY` | Neon API key Terraform uses to manage the project, role, and database | Neon API key |
 | `NEON_ORG_ID` | Neon organization ID the Terraform project belongs to | `org-…` |
 | `TF_STATE_R2_ACCESS_KEY_ID` | Access Key ID of the bucket-scoped R2 token for `mako-terraform-state` (Object Read & Write) | 32-character access key |
@@ -50,8 +50,7 @@ Applications:
 
 | Secret | Purpose | Format / example |
 |---|---|---|
-| `CLOUDFLARE_DEPLOY_API_TOKEN` | Account API token for Wrangler deploys in CI only; never exposed to Workers | `cfat_…` scoped to Workers deployments |
-| `CLOUDFLARE_RUNTIME_API_TOKEN` | Account API token used by Workers at runtime; synced as the Worker secret `CLOUDFLARE_API_TOKEN` | `cfat_…` with minimal RealtimeKit scopes |
+| `CLOUDFLARE_RUNTIME_API_TOKEN` | Account API token used by Workers at runtime; synced after deploy as the Worker secret `CLOUDFLARE_API_TOKEN` | `cfat_…` with minimal RealtimeKit scopes |
 | `DATABASE_URL` | Direct SSL Neon migration URI from `terraform output database_url`; contains credentials | `postgresql://mako_app:***@ep-…neon.tech:5432/mako?sslmode=require&channel_binding=require` |
 | `HYPERDRIVE_ID` | Hyperdrive config ID from `terraform output hyperdrive_id`; replaces `__HYPERDRIVE_ID__` placeholders | 32-hex |
 | `BETTER_AUTH_SECRET` | Better Auth signing secret | long random string (≥32 chars) |
@@ -66,9 +65,8 @@ Applications:
 Secret sync behavior:
 
 - Terraform workflow consumes Cloudflare/Neon/Stripe secrets during infra apply.
-- Backend deploy injects `HYPERDRIVE_ID` into `apps/backend-rest/wrangler.jsonc` before deployment and syncs Worker runtime secrets (`BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `BETTER_AUTH_TRUSTED_ORIGINS`, `STRIPE_SECRET_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_REALTIMEKIT_APP_ID`). Postgres runtime access is provided through the Cloudflare Hyperdrive binding.
-- Notification orchestrator deploy also injects `HYPERDRIVE_ID` into `apps/notification-orchestrator/wrangler.jsonc` before deployment and syncs Worker runtime secrets (`CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_REALTIMEKIT_APP_ID`) for fresh RealtimeKit recording status and short-lived download URL lookup. Postgres runtime access is provided through the Cloudflare Hyperdrive binding.
-- Frontend deploy requires Cloudflare deployment credentials and `VITE_AUTH_BASE_URL`, which is injected at build time so the auth client knows the backend origin. The checkout feature also needs `VITE_STRIPE_PUBLISHABLE_KEY` injected at build time so the Stripe Payment Element can initialize.
+- Backend deploy injects `HYPERDRIVE_ID` into `apps/backend-rest/wrangler.jsonc` before deployment, then syncs Worker runtime secrets (`BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `BETTER_AUTH_TRUSTED_ORIGINS`, `STRIPE_SECRET_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_REALTIMEKIT_APP_ID`, and the runtime token as the Worker secret `CLOUDFLARE_API_TOKEN`) via `wrangler secret put` after deploy; wrangler-action overwrites `CLOUDFLARE_API_TOKEN` in its own environment with the deploy token, so `CLOUDFLARE_RUNTIME_API_TOKEN` cannot ride the action's `secrets:` list. Postgres runtime access is provided through the Cloudflare Hyperdrive binding.
+- Notification orchestrator deploy also injects `HYPERDRIVE_ID` into `apps/notification-orchestrator/wrangler.jsonc` before deployment and syncs Worker runtime secrets (`CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_REALTIMEKIT_APP_ID`, and the runtime token as the Worker secret `CLOUDFLARE_API_TOKEN`) for fresh RealtimeKit recording status and short-lived download URL lookup. Postgres runtime access is provided through the Cloudflare Hyperdrive binding.
 
 ## CI/CD Setup Runbook
 
@@ -95,10 +93,8 @@ Add these under **Settings → Environments → production → Secrets and varia
 Core secrets (required):
 
 - `CLOUDFLARE_ACCOUNT_ID`
-- `CLOUDFLARE_TERRAFORM_API_TOKEN`
-- `CLOUDFLARE_DEPLOY_API_TOKEN`
+- `CLOUDFLARE_API_TOKEN`
 - `CLOUDFLARE_RUNTIME_API_TOKEN`
-- `NEON_API_KEY`
 - `NEON_ORG_ID`
 - `TF_STATE_R2_ACCESS_KEY_ID`
 - `TF_STATE_R2_SECRET_ACCESS_KEY`
@@ -114,9 +110,7 @@ Core secrets (required):
 
 Secret sync behavior:
 
-- Terraform workflow consumes Cloudflare/Neon/Stripe secrets during infra apply.
-- Backend deploy injects `HYPERDRIVE_ID` into `apps/backend-rest/wrangler.jsonc` before deployment and syncs Worker runtime secrets (`BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `BETTER_AUTH_TRUSTED_ORIGINS`, `STRIPE_SECRET_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_RUNTIME_API_TOKEN`, `CLOUDFLARE_REALTIMEKIT_APP_ID`). Postgres runtime access is provided through the Cloudflare Hyperdrive binding.
-- Notification orchestrator deploy also injects `HYPERDRIVE_ID` into `apps/notification-orchestrator/wrangler.jsonc` before deployment and syncs Worker runtime secrets (`CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_RUNTIME_API_TOKEN`, `CLOUDFLARE_REALTIMEKIT_APP_ID`) for fresh RealtimeKit recording status and short-lived download URL lookup. Postgres runtime access is provided through the Cloudflare Hyperdrive binding.
+- Terraform workflow consumes Cloudflare/Neon/Stripe secrets during infra apply; the backend and notification-orchestrator deploys sync the runtime token as described above.
 - Frontend deploy requires Cloudflare deployment credentials and `VITE_AUTH_BASE_URL`, which is injected at build time so the auth client knows the backend origin. The checkout feature also needs `VITE_STRIPE_PUBLISHABLE_KEY` injected at build time so the Stripe Payment Element can initialize.
 
 #### 3) Verify Cloudflare Token Scope
@@ -134,8 +128,7 @@ Use a least-privilege Cloudflare API token that can deploy Workers and manage on
 ### Troubleshooting
 
 - **Missing secret errors**: secret is absent or misnamed in the `production` environment.
-- **Wrangler auth/account failures**: verify `CLOUDFLARE_DEPLOY_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` match the same account.
-- **Terraform apply skipped**: no `*.tf` files found in `infrastructure/` (current workflow behavior).
+- **Wrangler auth/account failures**: verify `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` match the same account.
 - **Backend runtime missing DB/Stripe/auth access**: verify `HYPERDRIVE_ID` was injected into `wrangler.jsonc`, confirm the deployed Worker has the `HYPERDRIVE` binding, then verify `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `BETTER_AUTH_TRUSTED_ORIGINS`, and `STRIPE_SECRET_KEY` and confirm Wrangler secret sync succeeded.
 - **Frontend build or runtime auth errors**: verify `VITE_AUTH_BASE_URL` is set and points to the deployed backend-rest Worker URL.
 
