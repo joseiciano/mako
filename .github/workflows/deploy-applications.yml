@@ -290,6 +290,9 @@ jobs:
       - name: Build frontend application
         working-directory: apps/frontend
         env:
+          # TanStack Start/Vite build exhausts the default 2 GiB Node heap on
+          # standard runners; widen it explicitly for both environments.
+          NODE_OPTIONS: --max-old-space-size=6144
           VITE_AUTH_BASE_URL: ${{ secrets.VITE_AUTH_BASE_URL }}
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.VITE_STRIPE_PUBLISHABLE_KEY }}
         run: pnpm run build
@@ -556,6 +559,7 @@ jobs:
       - name: Build frontend application
         working-directory: apps/frontend
         env:
+          NODE_OPTIONS: --max-old-space-size=6144
           VITE_AUTH_BASE_URL: ${{ secrets.VITE_AUTH_BASE_URL }}
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.VITE_STRIPE_PUBLISHABLE_KEY }}
         run: pnpm run build
