@@ -1,3 +1,5 @@
+import { WorkflowEntrypoint } from "cloudflare:workers"
+
 export default {
   async queue(batch, env) {
     for (const message of batch.messages) {
@@ -5,14 +7,10 @@ export default {
       console.log("notification-orchestrator bootstrap defers message", body)
       message.retry()
     }
-
-    if (env.REALTIME_APP_ID) {
-      console.log("realtime binding configured")
-    }
   },
 }
 
-export class InterviewLifecycleWorkflow {
+export class InterviewFeedbackWorkflow extends WorkflowEntrypoint {
   async run(event, step) {
     await step.do("log-start", async () => {
       console.log("workflow started", JSON.stringify(event))
@@ -20,7 +18,20 @@ export class InterviewLifecycleWorkflow {
 
     return {
       status: "ok",
-      workflow: "interview-lifecycle",
+      workflow: "feedback",
+    }
+  }
+}
+
+export class RecordingFinalizationWorkflow extends WorkflowEntrypoint {
+  async run(event, step) {
+    await step.do("log-start", async () => {
+      console.log("workflow started", JSON.stringify(event))
+    })
+
+    return {
+      status: "ok",
+      workflow: "recording-finalization",
     }
   }
 }

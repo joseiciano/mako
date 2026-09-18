@@ -1,16 +1,9 @@
 locals {
-  environments = {
-    development = "dev"
-    production  = "prod"
-  }
-
   ai_gateway_base_url = var.ai_gateway_name != "" ? "https://gateway.ai.cloudflare.com/v1/${var.cloudflare_account_id}/${var.ai_gateway_name}" : ""
 }
 
 resource "neon_project" "db" {
-  for_each = local.environments
-
-  name                      = "${var.project_name}-${each.value}"
+  name                      = "${var.project_name}-${var.environment}"
   org_id                    = var.neon_org_id != "" ? var.neon_org_id : null
   region_id                 = var.neon_region_id
   pg_version                = var.neon_pg_version
@@ -19,35 +12,29 @@ resource "neon_project" "db" {
 }
 
 resource "neon_role" "app" {
-  for_each = neon_project.db
-
-  project_id = each.value.id
-  branch_id  = each.value.default_branch_id
+  project_id = neon_project.db.id
+  branch_id  = neon_project.db.default_branch_id
   name       = var.neon_app_role_name
 }
 
 resource "neon_database" "app" {
-  for_each = neon_project.db
-
-  project_id = each.value.id
-  branch_id  = each.value.default_branch_id
+  project_id = neon_project.db.id
+  branch_id  = neon_project.db.default_branch_id
   name       = var.neon_database_name
-  owner_name = neon_role.app[each.key].name
+  owner_name = neon_role.app.name
 }
 
 resource "cloudflare_hyperdrive_config" "postgres" {
-  for_each = neon_project.db
-
   account_id = var.cloudflare_account_id
-  name       = "${var.project_name}-${each.key}-hyperdrive"
+  name       = "${var.project_name}-${var.environment}-hyperdrive"
 
   origin = {
     scheme   = "postgresql"
-    host     = each.value.database_host
+    host     = neon_project.db.database_host
     port     = 5432
-    database = each.value.database_name
-    user     = each.value.database_user
-    password = each.value.database_password
+    database = neon_database.app.name
+    user     = neon_role.app.name
+    password = neon_role.app.password
   }
 
   caching = {
@@ -74,36 +61,50 @@ resource "cloudflare_r2_bucket_lifecycle" "recordings_retention" {
   account_id  = var.cloudflare_account_id
   bucket_name = cloudflare_r2_bucket.recordings.name
 
-  rule {
+  rules = [{
     id      = "30-day-raw-artifact-retention"
     enabled = true
-
-    abort_incomplete_multipart_uploads {
-      days_after_initiation = 1
+    conditions = {
+      prefix = ""
     }
-
-    expiration {
-      days = 30
+    abort_multipart_uploads_transition = {
+      condition = {
+        max_age = 86400
+        type    = "Age"
+      }
     }
-  }
+    delete_objects_transition = {
+      condition = {
+        max_age = 2592000
+        type    = "Age"
+      }
+    }
+  }]
 }
 
 resource "cloudflare_r2_bucket_lifecycle" "screenshots_retention" {
   account_id  = var.cloudflare_account_id
   bucket_name = cloudflare_r2_bucket.screenshots.name
 
-  rule {
+  rules = [{
     id      = "30-day-raw-artifact-retention"
     enabled = true
-
-    abort_incomplete_multipart_uploads {
-      days_after_initiation = 1
+    conditions = {
+      prefix = ""
     }
-
-    expiration {
-      days = 30
+    abort_multipart_uploads_transition = {
+      condition = {
+        max_age = 86400
+        type    = "Age"
+      }
     }
-  }
+    delete_objects_transition = {
+      condition = {
+        max_age = 2592000
+        type    = "Age"
+      }
+    }
+  }]
 }
 
 resource "cloudflare_queue" "notification_orchestration" {
@@ -143,25 +144,34 @@ resource "cloudflare_workers_script" "notification_orchestrator" {
     {
       type = "hyperdrive"
       name = "HYPERDRIVE"
-      id   = cloudflare_hyperdrive_config.postgres["production"].id
+      id   = cloudflare_hyperdrive_config.postgres.id
     },
     {
       type          = "workflow"
       name          = "FEEDBACK_WORKFLOW"
       workflow_name = var.feedback_workflow_name
-      script_name   = var.notification_orchestrator_worker_script_name
+      class_name    = var.feedback_workflow_class_name
     },
     {
       type          = "workflow"
       name          = "RECORDING_FINALIZATION_WORKFLOW"
       workflow_name = var.recording_finalization_workflow_name
-      script_name   = var.notification_orchestrator_worker_script_name
+      class_name    = var.recording_finalization_workflow_class_name
     },
     {
       type = "ai"
       name = "AI"
     }
   ]
+
+  observability = {
+    enabled = true
+
+    logs = {
+      enabled         = true
+      invocation_logs = true
+    }
+  }
 
   lifecycle {
     ignore_changes = [
@@ -178,13 +188,6 @@ resource "cloudflare_workflow" "interview_feedback" {
   workflow_name = var.feedback_workflow_name
   script_name   = cloudflare_workers_script.notification_orchestrator.script_name
   class_name    = var.feedback_workflow_class_name
-}
-
-resource "cloudflare_workflow" "interview_lifecycle" {
-  account_id    = var.cloudflare_account_id
-  workflow_name = var.interview_workflow_name
-  script_name   = cloudflare_workers_script.notification_orchestrator.script_name
-  class_name    = var.interview_workflow_class_name
 }
 
 resource "cloudflare_workflow" "recording_finalization" {
@@ -222,19 +225,29 @@ resource "cloudflare_workers_script" "backend_api" {
       {
         type = "hyperdrive"
         name = "HYPERDRIVE"
-        id   = cloudflare_hyperdrive_config.postgres["production"].id
+        id   = cloudflare_hyperdrive_config.postgres.id
       },
       {
         type          = "workflow"
-        name          = "INTERVIEW_WORKFLOW"
-        workflow_name = var.interview_workflow_name
-        script_name   = var.notification_orchestrator_worker_script_name
+        name          = "SESSION_TIMER_WORKFLOW"
+        workflow_name = "session-timer-workflow"
+        class_name    = "SessionTimerWorkflow"
       },
       {
         type          = "workflow"
         name          = "RECORDING_FINALIZATION_WORKFLOW"
         workflow_name = var.recording_finalization_workflow_name
         script_name   = var.notification_orchestrator_worker_script_name
+        class_name    = var.recording_finalization_workflow_class_name
+      },
+      {
+        type         = "ratelimit"
+        name         = "PREMIUM_MARKETPLACE_RATE_LIMITER"
+        namespace_id = "1001"
+        simple = {
+          limit  = 60
+          period = 60
+        }
       },
       {
         type = "plain_text"
@@ -250,6 +263,31 @@ resource "cloudflare_workers_script" "backend_api" {
       }
     ] : []
   )
+
+  observability = {
+    enabled = true
+
+    logs = {
+      enabled         = true
+      invocation_logs = true
+    }
+  }
+
+  lifecycle {
+    ignore_changes = [
+      content_file,
+      content_sha256,
+      main_module,
+      compatibility_date,
+    ]
+  }
+}
+
+resource "cloudflare_workflow" "session_timer" {
+  account_id    = var.cloudflare_account_id
+  workflow_name = "session-timer-workflow"
+  script_name   = cloudflare_workers_script.backend_api.script_name
+  class_name    = "SessionTimerWorkflow"
 }
 
 resource "cloudflare_workers_script" "greedy_matcher" {
@@ -264,7 +302,7 @@ resource "cloudflare_workers_script" "greedy_matcher" {
     {
       type = "hyperdrive"
       name = "HYPERDRIVE"
-      id   = cloudflare_hyperdrive_config.postgres["production"].id
+      id   = cloudflare_hyperdrive_config.postgres.id
     }
   ]
 }
@@ -280,11 +318,22 @@ resource "cloudflare_workers_cron_trigger" "greedy_matcher" {
   ]
 }
 
-resource "cloudflare_queue_consumer" "notification_orchestrator" {
+resource "cloudflare_workers_cron_trigger" "notification_orchestrator" {
   account_id  = var.cloudflare_account_id
-  queue_id    = cloudflare_queue.notification_orchestration.queue_id
-  type        = "worker"
   script_name = cloudflare_workers_script.notification_orchestrator.script_name
+
+  schedules = [
+    {
+      cron = var.notification_orchestrator_cron
+    }
+  ]
+}
+
+resource "cloudflare_queue_consumer" "notification_orchestrator" {
+  account_id        = var.cloudflare_account_id
+  queue_id          = cloudflare_queue.notification_orchestration.queue_id
+  type              = "worker"
+  script_name       = cloudflare_workers_script.notification_orchestrator.script_name
   dead_letter_queue = cloudflare_queue.notification_orchestration_dlq.queue_name
 
   settings = {

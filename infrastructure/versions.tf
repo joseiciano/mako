@@ -1,15 +1,15 @@
 terraform {
-  required_version = ">= 1.6.0"
+  required_version = ">= 1.10.0, < 2.0.0"
 
   required_providers {
     cloudflare = {
       source  = "cloudflare/cloudflare"
-      version = "~> 5.18"
+      version = "~> 5.25"
     }
 
     neon = {
       source  = "kislerdm/neon"
-      version = "~> 0.13"
+      version = "~> 0.13.0"
     }
   }
 }
