@@ -1815,19 +1815,19 @@ function buildListParticipantInterviewsQuery(
   return createSqlQuery(
     `
       SELECT
-        id,
-        scheduler_id,
-        scheduler_alias,
-        interviewer_id,
-        interviewer_alias,
-        type,
-        mode,
-        booking_channel,
-        tier,
-        status,
-        scheduled_at,
-        created_at,
-        updated_at,
+        participant_interviews.id,
+        participant_interviews.scheduler_id,
+        participant_interviews.scheduler_alias,
+        participant_interviews.interviewer_id,
+        participant_interviews.interviewer_alias,
+        participant_interviews.type,
+        participant_interviews.mode,
+        participant_interviews.booking_channel,
+        participant_interviews.tier,
+        participant_interviews.status,
+        participant_interviews.scheduled_at,
+        participant_interviews.created_at,
+        participant_interviews.updated_at,
         pr.reason AS cancellation_reason
       FROM (
         SELECT
@@ -1872,7 +1872,7 @@ function buildListParticipantInterviewsQuery(
       -- rows and pagination remains correct over the UNION ALL.
       LEFT JOIN premium_booking_credit_refunds pr
         ON pr.interview_id = participant_interviews.id
-      ORDER BY scheduled_at ASC, id ASC
+      ORDER BY participant_interviews.scheduled_at ASC, participant_interviews.id ASC
       LIMIT ${limitPlaceholder}
       OFFSET ${offsetPlaceholder};
     `,
