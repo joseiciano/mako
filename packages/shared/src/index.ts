@@ -47,6 +47,7 @@ export {
   aiChatMaxHistoryMessages,
   aiChatMaxMessageLength,
   aiChatMaxSceneBytes,
+  artifactAvailabilityResponseSchema,
   artifactAvailabilitySchema,
   artifactKindSchema,
   bookingChannelSchema,

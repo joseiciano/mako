@@ -338,6 +338,12 @@ export const artifactAvailabilitySchema = z.enum([
   'failed',
 ])
 
+export const artifactAvailabilityResponseSchema = z
+  .object({
+    availability: artifactAvailabilitySchema,
+  })
+  .strict()
+
 // Legacy freeform feedback field stays tolerant for DB rows
 export const interviewFeedbackRowSchema = z.record(z.string(), jsonValueSchema).nullable()
 
@@ -411,6 +417,7 @@ export type FeedbackUnavailableReason = z.infer<typeof feedbackUnavailableReason
 export type FeedbackErrorCode = z.infer<typeof feedbackErrorCodeSchema>
 export type ArtifactKind = z.infer<typeof artifactKindSchema>
 export type ArtifactAvailability = z.infer<typeof artifactAvailabilitySchema>
+export type ArtifactAvailabilityResponse = z.infer<typeof artifactAvailabilityResponseSchema>
 export type InterviewFeedbackStatusResponse = z.infer<typeof interviewFeedbackStatusResponseSchema>
 export type ConsentDecision = z.infer<typeof consentDecisionSchema>
 export type RecordingConsentRequest = z.infer<typeof recordingConsentRequestSchema>

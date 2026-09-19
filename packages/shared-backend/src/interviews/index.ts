@@ -62,6 +62,20 @@ export {
   ScreenshotService,
 } from './screenshot-service'
 export {
+  ArtifactReadRepository,
+  type ReadableArtifactRow,
+} from './artifact-read-repository'
+export {
+  ArtifactReadService,
+  ArtifactRangeNotSatisfiable,
+  createInterviewArtifactUrlSource,
+  recordingRouteUrl,
+  screenshotRouteUrl,
+  type ArtifactStreamRequest,
+  type ArtifactStreamResult,
+  type InterviewArtifactUrlSource,
+} from './artifact-read-service'
+export {
   registerInterviewController,
   type InterviewControllerOptions,
 } from './interview-controller'

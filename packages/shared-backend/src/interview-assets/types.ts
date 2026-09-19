@@ -21,6 +21,18 @@ export type StoredArtifact = {
   metadata: ArtifactMetadata
 }
 
+export type R2Range = { offset: number; length: number }
+
+export type R2GetObjectResult = {
+  body: ReadableStream
+  metadata: Record<string, string>
+  /** Total object size in bytes when the backing store reports it. */
+  size?: number
+  /** Quoted strong ETag when the backing store reports one. */
+  etag?: string
+  contentType?: string
+}
+
 export type R2BucketPort = {
   put(input: {
     key: string
@@ -28,8 +40,13 @@ export type R2BucketPort = {
     contentType: string
     metadata: Record<string, string>
   }): Promise<void>
-  head(key: string): Promise<{ size: number; contentType: string; metadata: Record<string, string> } | null>
-  get(key: string): Promise<{ body: ReadableStream; metadata: Record<string, string> } | null>
+  head(key: string): Promise<{
+    size: number
+    contentType: string
+    etag?: string
+    metadata: Record<string, string>
+  } | null>
+  get(key: string, options?: { range?: R2Range }): Promise<R2GetObjectResult | null>
   delete(key: string): Promise<void>
 }
 
@@ -53,8 +70,9 @@ export type ArtifactStoragePort = {
   }): Promise<StoredArtifact>
   getRecording(interviewId: string, recordingId: string): Promise<{ body: ReadableStream; metadata: ArtifactMetadata } | null>
   getScreenshot(interviewId: string, screenshotId: string): Promise<{ body: ReadableStream; metadata: ArtifactMetadata } | null>
+  getObject(key: string, range?: R2Range): Promise<R2GetObjectResult | null>
   deleteArtifact(key: string): Promise<void>
-  headArtifact(key: string): Promise<{ size: number; contentType: string } | null>
+  headArtifact(key: string): Promise<{ size: number; contentType: string; etag?: string } | null>
 }
 
 export class ArtifactValidationError extends Error {
