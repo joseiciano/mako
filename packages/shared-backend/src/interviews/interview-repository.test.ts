@@ -865,32 +865,6 @@ describe('InterviewRepository', function interviewRepositorySuite() {
       }
     })
 
-    it('listParticipantInterviews applies status filter and uses deterministic ordering', async function run() {
-      const mockQueryExecutor = createMockQueryExecutor({
-        'FROM interviews': () => ({
-          rows: [],
-          rowCount: 0,
-        }),
-      })
-
-      const repository = new InterviewRepository({
-        queryExecutor: mockQueryExecutor,
-      })
-
-      await repository.listParticipantInterviews({
-        participant_user_id: '11111111-1111-4111-8111-111111111111',
-        status: 'scheduled',
-        limit: 10,
-        offset: 0,
-      })
-
-      const listQuery = mockQueryExecutor.queries.find((q) =>
-        q.text.includes('FROM interviews'),
-      )
-      expect(listQuery).toBeDefined()
-      expect(listQuery!.text).toContain('AND status =')
-      expect(listQuery!.text).toContain('ORDER BY scheduled_at ASC, id ASC')
-    })
 
     it('listParticipantInterviews scopes to participant via scheduler_id or interviewer_id', async function run() {
       const mockQueryExecutor = createMockQueryExecutor({

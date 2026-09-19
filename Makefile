@@ -29,3 +29,13 @@ envs:
 	  read -r -p "Which ENV should we set? [production | staging]: " environment; \
 	fi; \
 	bash $(SECRETS_SCRIPT) "$$environment" "$(ENV_FILE)"
+
+## Dispatch the staging application deployment workflow from the staging branch.
+.PHONY: deploy-staging
+deploy-staging:
+	gh workflow run deploy-applications.yml --ref staging -f environment=staging
+
+## Dispatch the production application deployment workflow from the main branch.
+.PHONY: deploy-production
+deploy-production:
+	gh workflow run deploy-applications.yml --ref main -f environment=production
