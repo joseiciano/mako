@@ -17,6 +17,7 @@ import { InterviewService } from './interview-service'
 import { registerInterviewController } from './interview-controller'
 import {
   InterviewNotFoundError,
+  type GetParticipantInterviewByIdInput,
   type InterviewSession,
 } from './types'
 
@@ -37,6 +38,8 @@ const interviewId = '33333333-3333-4333-8333-333333333333'
 const recordingId = '55555555-5555-4555-8555-555555555555'
 const screenshotId = '44444444-4444-4444-8444-444444444444'
 const secondScreenshotId = '66666666-6666-4666-8666-666666666666'
+const recordingObjectKey = `interviews/${interviewId}/recordings/${recordingId}/recording.webm`
+const screenshotObjectKey = `interviews/${interviewId}/screenshots/${screenshotId}`
 
 const session: InterviewSession = {
   userId: participantUserId,
@@ -55,7 +58,7 @@ function createRecordingRow(
     id: recordingId,
     interview_id: interviewId,
     artifact_kind: 'playback_recording',
-    object_key: `interviews/${interviewId}/recordings/${recordingId}/recording.webm`,
+    object_key: recordingObjectKey,
     content_metadata: null,
     finalized_at: '2026-02-01T00:00:00.000Z',
     expires_at: '2030-01-01T00:00:00.000Z',
@@ -71,7 +74,7 @@ function createScreenshotRow(
     id: screenshotId,
     interview_id: interviewId,
     artifact_kind: 'screenshot',
-    object_key: `interviews/${interviewId}/screenshots/${screenshotId}`,
+    object_key: screenshotObjectKey,
     content_metadata: null,
     finalized_at: '2026-02-01T00:00:00.000Z',
     expires_at: '2030-01-01T00:00:00.000Z',
@@ -126,14 +129,23 @@ function streamOf(bytes: Uint8Array): ReadableStream {
 }
 
 function createStorageFake(options: {
+  expectedKey: string
   head: { size: number; contentType: string; etag?: string } | null
   objectBytes?: Uint8Array | null
 }): ArtifactStoragePort {
   return {
-    headArtifact: async function headArtifact() {
+    headArtifact: async function headArtifact(key: string) {
+      if (key !== options.expectedKey) {
+        throw new Error(`Unexpected artifact storage key for head: ${key}`)
+      }
+
       return options.head
     },
-    getObject: function getObject(_key: string, range?: R2Range) {
+    getObject: function getObject(key: string, range?: R2Range) {
+      if (key !== options.expectedKey) {
+        throw new Error(`Unexpected artifact storage key for get: ${key}`)
+      }
+
       if (options.objectBytes === undefined || options.objectBytes === null) {
         return Promise.resolve(null)
       }
@@ -165,6 +177,8 @@ function createMockQueryExecutor(handlers: ExecutorHandlers) {
         return { rows: [], rowCount: 0 } as { rows: Row[]; rowCount: number }
       }
 
+      validateArtifactQueryValues(query)
+
       for (const [key, handler] of Object.entries(handlers)) {
         if (query.text.includes(key)) {
           return handler(query) as { rows: Row[]; rowCount: number }
@@ -172,7 +186,39 @@ function createMockQueryExecutor(handlers: ExecutorHandlers) {
       }
 
       throw new Error(`Unexpected query: ${query.text}`)
-    },
+    }
+  }
+}
+
+function validateArtifactQueryValues(query: SqlQuery): void {
+  let expected: readonly unknown[] | null = null
+
+  if (query.text.includes('id = $2')) {
+    expected = [interviewId, screenshotId]
+  } else if (query.text.includes('playback_recording')) {
+    expected = [interviewId]
+  } else if (query.text.includes('interview_recordings')) {
+    expected = [interviewId]
+  } else if (query.text.includes('ORDER BY created_at ASC')) {
+    expected = [interviewId]
+  }
+
+  if (expected === null) {
+    return
+  }
+
+  if (query.values.length !== expected.length) {
+    throw new Error(
+      `Unexpected query parameter count: ${query.values.length} (expected ${expected.length})`,
+    )
+  }
+
+  for (const [index, expectedValue] of expected.entries()) {
+    if (query.values[index] !== expectedValue) {
+      throw new Error(
+        `Unexpected query parameter at ${index}: ${String(query.values[index])}`,
+      )
+    }
   }
 }
 
@@ -182,14 +228,37 @@ function rows(...values: unknown[]): ExecutorHandler {
   }
 }
 
-// Handler keys are matched in insertion order; "id = $2" must win over the
-// screenshot list handler because both queries contain 'screenshot'.
+function expectQueryValues(
+  expected: readonly unknown[],
+  handler: ExecutorHandler,
+): ExecutorHandler {
+  return function validateQueryValues(query) {
+    if (query.values.length !== expected.length) {
+      throw new Error(
+        `Unexpected query parameter count: ${query.values.length} (expected ${expected.length})`,
+      )
+    }
+
+    for (const [index, expectedValue] of expected.entries()) {
+      if (query.values[index] !== expectedValue) {
+        throw new Error(
+          `Unexpected query parameter at ${index}: ${String(query.values[index])}`,
+        )
+      }
+    }
+
+    return handler(query)
+  }
+}
+
+// Handler keys are distinct, stable query fragments: each matches exactly one
+// artifact-read query regardless of match order.
 function recordingHandlers(): ExecutorHandlers {
   return {
-    playback_recording: rows(),
-    interview_recordings: rows(),
-    'id = $2': rows(),
-    "artifact_kind = 'screenshot'": rows(),
+    playback_recording: expectQueryValues([interviewId], rows()),
+    interview_recordings: expectQueryValues([interviewId], rows()),
+    'id = $2': expectQueryValues([interviewId, screenshotId], rows()),
+    'ORDER BY created_at ASC': expectQueryValues([interviewId], rows()),
   }
 }
 
@@ -203,7 +272,18 @@ function createInterviewRepositoryStub(
     createDirectInterview: async function createDirectInterview() {
       throw new Error('Direct interview creation is unused in artifact tests.')
     },
-    getParticipantInterviewById: async function getParticipantInterviewById() {
+    getParticipantInterviewById: async function getParticipantInterviewById(
+      input: GetParticipantInterviewByIdInput,
+    ) {
+      if (
+        input.interview_id !== interviewId ||
+        input.participant_user_id !== participantUserId
+      ) {
+        throw new Error(
+          `Unexpected participant lookup: ${input.interview_id}/${input.participant_user_id}`,
+        )
+      }
+
       return participantDetail
     },
   } as unknown as ConstructorParameters<typeof InterviewRepository>[0])
@@ -270,6 +350,7 @@ async function getScreenshot(
 
 function liveRecordingStorage(): ArtifactStoragePort {
   return createStorageFake({
+    expectedKey: recordingObjectKey,
     head: { size: RECORDING_BYTES.length, contentType: 'video/webm', etag: '"rec-etag-1"' },
     objectBytes: toBytes(RECORDING_BYTES),
   })
@@ -350,6 +431,32 @@ describe('GET /api/interviews/:id/artifacts/recording', function recordingRouteS
     expect(response.headers.get('content-range')).toBeNull()
     expect(await response.text()).toBe(RECORDING_BYTES)
   })
+  it('falls back to the recording media type when metadata and R2 report text/html', async function run() {
+    const handlers = recordingHandlers()
+    handlers.playback_recording = rows(
+      createRecordingRow({ content_metadata: { contentType: 'text/html' } }),
+    )
+    const app = createArtifactApp({
+      session,
+      handlers,
+      storage: createStorageFake({
+        expectedKey: recordingObjectKey,
+        head: {
+          size: RECORDING_BYTES.length,
+          contentType: 'text/html',
+          etag: '"rec-etag-unsafe"',
+        },
+        objectBytes: toBytes(RECORDING_BYTES),
+      }),
+    })
+
+    const response = await getRecording(app)
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('video/webm')
+    expect(await response.text()).toBe(RECORDING_BYTES)
+  })
+
 
   it('does not leak object keys or bucket names in a successful response', async function run() {
     const handlers = recordingHandlers()
@@ -456,6 +563,23 @@ describe('recording range requests', function recordingRangeSuite() {
     expect(response.headers.get('content-range')).toBeNull()
     expect(await response.text()).toBe(RECORDING_BYTES)
   })
+
+  it('serves an end-before-start range as a full 200 response', async function run() {
+    const app = createArtifactApp({
+      session,
+      handlers,
+      storage: liveRecordingStorage(),
+    })
+
+    const response = await getRecording(app, { range: 'bytes=10-2' })
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-length')).toBe(
+      String(RECORDING_BYTES.length),
+    )
+    expect(response.headers.get('content-range')).toBeNull()
+    expect(await response.text()).toBe(RECORDING_BYTES)
+  })
 })
 
 describe('recording availability states', function recordingAvailabilitySuite() {
@@ -516,7 +640,23 @@ describe('recording availability states', function recordingAvailabilitySuite() 
       handlers: Object.assign(recordingHandlers(), {
         playback_recording: rows(createRecordingRow()),
       }),
-      storage: createStorageFake({ head: null, objectBytes: toBytes(RECORDING_BYTES) }),
+      storage: createStorageFake({
+        expectedKey: recordingObjectKey,
+        head: null,
+        objectBytes: toBytes(RECORDING_BYTES),
+      }),
+      expectedAvailability: 'failed',
+    },
+    {
+      name: 'finalized row whose storage object vanishes between head and get is failed',
+      handlers: Object.assign(recordingHandlers(), {
+        playback_recording: rows(createRecordingRow()),
+      }),
+      storage: createStorageFake({
+        expectedKey: recordingObjectKey,
+        head: { size: RECORDING_BYTES.length, contentType: 'video/webm' },
+        objectBytes: null,
+      }),
       expectedAvailability: 'failed',
     },
     {
@@ -524,6 +664,32 @@ describe('recording availability states', function recordingAvailabilitySuite() 
       handlers: Object.assign(recordingHandlers(), {
         playback_recording: rows(
           createRecordingRow({ expires_at: '2026-01-01T00:00:00.000Z' }),
+        ),
+      }),
+      storage: liveRecordingStorage(),
+      expectedAvailability: 'expired',
+    },
+    {
+      name: 'expired artifact row with a null object key is expired',
+      handlers: Object.assign(recordingHandlers(), {
+        playback_recording: rows(
+          createRecordingRow({
+            object_key: null,
+            expires_at: '2026-01-01T00:00:00.000Z',
+          }),
+        ),
+      }),
+      storage: liveRecordingStorage(),
+      expectedAvailability: 'expired',
+    },
+    {
+      name: 'tombstoned artifact row with a null object key is expired',
+      handlers: Object.assign(recordingHandlers(), {
+        playback_recording: rows(
+          createRecordingRow({
+            object_key: null,
+            deleted_at: '2026-03-01T00:00:00.000Z',
+          }),
         ),
       }),
       storage: liveRecordingStorage(),
@@ -618,9 +784,73 @@ describe('recording conditional requests', function conditionalRequestSuite() {
   })
 })
 
+describe('recording If-Range requests', function ifRangeSuite() {
+  const handlers = Object.assign(recordingHandlers(), {
+    playback_recording: rows(createRecordingRow()),
+  })
+
+  it('keeps a bounded range when If-Range matches the current strong ETag', async function run() {
+    const app = createArtifactApp({
+      session,
+      handlers,
+      storage: liveRecordingStorage(),
+    })
+
+    const response = await getRecording(app, {
+      range: 'bytes=0-9',
+      'if-range': '"rec-etag-1"',
+    })
+
+    expect(response.status).toBe(206)
+    expect(response.headers.get('content-range')).toBe('bytes 0-9/17')
+    expect(await response.text()).toBe(RECORDING_BYTES.slice(0, 10))
+  })
+
+  const fallbackCases: Array<{
+    name: string
+    ifRange: string
+    storage?: ArtifactStoragePort
+  }> = [
+    { name: 'nonmatching strong ETag', ifRange: '"different-etag"' },
+    { name: 'weak ETag', ifRange: 'W/"rec-etag-1"' },
+    { name: 'malformed validator', ifRange: '"rec-etag-1' },
+    { name: 'date validator', ifRange: 'Wed, 21 Oct 2015 07:28:00 GMT' },
+    {
+      name: 'any validator when current ETag is unavailable',
+      ifRange: '"rec-etag-1"',
+      storage: createStorageFake({
+        expectedKey: recordingObjectKey,
+        head: { size: RECORDING_BYTES.length, contentType: 'video/webm' },
+        objectBytes: toBytes(RECORDING_BYTES),
+      }),
+    },
+  ]
+
+  for (const fallbackCase of fallbackCases) {
+    it(`falls back to full response for ${fallbackCase.name}`, async function run() {
+      const app = createArtifactApp({
+        session,
+        handlers,
+        storage: fallbackCase.storage ?? liveRecordingStorage(),
+      })
+
+      const response = await getRecording(app, {
+        range: 'bytes=0-9',
+        'if-range': fallbackCase.ifRange,
+      })
+
+      expect(response.status).toBe(200)
+      expect(response.headers.get('content-range')).toBeNull()
+      expect(response.headers.get('content-length')).toBe(String(RECORDING_BYTES.length))
+      expect(await response.text()).toBe(RECORDING_BYTES)
+    })
+  }
+})
+
 describe('GET /api/interviews/:id/artifacts/screenshots/:captureId', function screenshotRouteSuite() {
   function liveScreenshotStorage(): ArtifactStoragePort {
     return createStorageFake({
+      expectedKey: screenshotObjectKey,
       head: {
         size: SCREENSHOT_BYTES.length,
         contentType: 'image/png',
@@ -718,12 +948,33 @@ describe('GET /api/interviews/:id/artifacts/screenshots/:captureId', function sc
     expect(response.status).toBe(409)
     expect(await response.json()).toEqual({ availability: 'expired' })
   })
+  for (const [state, override] of [
+    ['expired', { object_key: null, expires_at: '2026-01-01T00:00:00.000Z' }],
+    ['tombstoned', { object_key: null, deleted_at: '2026-03-01T00:00:00.000Z' }],
+  ] as const) {
+    it(`returns 409 expired for a null-key ${state} screenshot row`, async function run() {
+      const app = createArtifactApp({
+        session,
+        handlers: Object.assign(recordingHandlers(), {
+          'id = $2': rows(createScreenshotRow(override)),
+        }),
+        storage: liveScreenshotStorage(),
+      })
+
+      const response = await getScreenshot(app)
+
+      expect(response.status).toBe(409)
+      expect(await response.json()).toEqual({ availability: 'expired' })
+    })
+  }
+
 
   it('returns 409 not_created when a live screenshot row has no storage object', async function run() {
     const app = createArtifactApp({
       session,
       handlers: screenshotHandlers(),
       storage: createStorageFake({
+        expectedKey: screenshotObjectKey,
         head: null,
         objectBytes: toBytes(SCREENSHOT_BYTES),
       }),
@@ -743,7 +994,7 @@ describe('interview detail artifact URL mapping', function detailMappingSuite() 
   ) {
     return createMockQueryExecutor({
       playback_recording: recordingRow === null ? rows() : rows(recordingRow),
-      "artifact_kind = 'screenshot'": rows(...screenshotRows),
+      'ORDER BY created_at ASC': rows(...screenshotRows),
     } as ExecutorHandlers)
   }
 
@@ -793,6 +1044,22 @@ describe('interview detail artifact URL mapping', function detailMappingSuite() 
       screenshotRouteUrl(interviewId, secondScreenshotId),
     ])
   })
+  it('keeps unfinalized screenshots live while withholding unfinalized recordings', async function run() {
+    const service = createDetailService(
+      createMappingExecutor(
+        createRecordingRow({ finalized_at: null }),
+        [createScreenshotRow({ finalized_at: null })],
+      ),
+    )
+
+    const result = await service.getInterview(session, { id: interviewId })
+
+    expect(result.interview.recording_url).toBeNull()
+    expect(result.interview.screenshot_urls).toEqual([
+      screenshotRouteUrl(interviewId, screenshotId),
+    ])
+  })
+
 
   it('maps expired artifacts to null recording_url and empty screenshot_urls', async function run() {
     const service = createDetailService(
@@ -830,6 +1097,25 @@ describe('interview detail artifact URL mapping', function detailMappingSuite() 
     expect(result.interview.recording_url).toBe(
       `/api/interviews/${interviewId}/artifacts/recording`,
     )
+    expect(result.interview.screenshot_urls).toEqual([
+      screenshotRouteUrl(interviewId, secondScreenshotId),
+    ])
+  })
+
+  it('filters rows with a null object key out of the detail URL mapping', async function run() {
+    const service = createDetailService(
+      createMappingExecutor(createRecordingRow({ object_key: null }), [
+        createScreenshotRow({ object_key: null }),
+        createScreenshotRow({
+          id: secondScreenshotId,
+          object_key: `interviews/${interviewId}/screenshots/${secondScreenshotId}`,
+        }),
+      ]),
+    )
+
+    const result = await service.getInterview(session, { id: interviewId })
+
+    expect(result.interview.recording_url).toBeNull()
     expect(result.interview.screenshot_urls).toEqual([
       screenshotRouteUrl(interviewId, secondScreenshotId),
     ])
