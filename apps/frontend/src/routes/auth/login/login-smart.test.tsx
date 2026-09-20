@@ -86,10 +86,10 @@ describe('LoginSmart', function () {
     signInEmailMock.mockReset()
   })
 
-  it('calls auth client with email and password and navigates on success', async function () {
+  it('renders the verified banner and signs verified users in to the dashboard', async function () {
     signInEmailMock.mockResolvedValue({ data: {} })
 
-    renderWithQueryClient(<LoginSmart />)
+    renderWithQueryClient(<LoginSmart search={{ verified: true }} />)
 
     fireEvent.change(screen.getByLabelText('Email'), {
       target: { value: 'user@example.com' },
@@ -103,12 +103,90 @@ describe('LoginSmart', function () {
       expect(signInEmailMock).toHaveBeenCalledWith({
         email: 'user@example.com',
         password: 'securepass123',
+        callbackURL: new URL(
+          '/login?verified=true',
+          window.location.origin,
+        ).toString(),
+      })
+    })
+    await waitFor(function () {
+      expect(navigateMock).toHaveBeenCalledWith({ to: AUTHENTICATED_REDIRECT_PATH })
+    })
+    expect(screen.queryByText(/fresh verification link/i)).toBeNull()
+  })
+
+  it('maps the structured EMAIL_NOT_VERIFIED error to generic verification guidance', async function () {
+    signInEmailMock.mockResolvedValue({
+      error: {
+        code: 'EMAIL_NOT_VERIFIED',
+        message: 'User email is not verified',
+        status: 403,
+      },
+    })
+
+    renderWithQueryClient(<LoginSmart search={{ verified: false }} />)
+
+    fireEvent.change(screen.getByLabelText('Email'), {
+      target: { value: 'user@example.com' },
+    })
+    fireEvent.change(screen.getByLabelText('Password'), {
+      target: { value: 'securepass123' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /log in/i }))
+
+    await waitFor(function () {
+      expect(signInEmailMock).toHaveBeenCalledWith({
+        email: 'user@example.com',
+        password: 'securepass123',
+        callbackURL: new URL(
+          '/login?verified=true',
+          window.location.origin,
+        ).toString(),
       })
     })
 
     await waitFor(function () {
-      expect(navigateMock).toHaveBeenCalledWith({ to: AUTHENTICATED_REDIRECT_PATH })
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        /fresh verification link/i,
+      )
     })
+    expect(screen.getByRole('alert')).toHaveTextContent(/check your email/i)
+    expect(screen.queryByText('User email is not verified')).toBeNull()
+    expect(screen.queryByText('EMAIL_NOT_VERIFIED')).toBeNull()
+    expect(navigateMock).not.toHaveBeenCalledWith({
+      to: AUTHENTICATED_REDIRECT_PATH,
+    })
+  })
+
+  it('renders the verified callback banner as an accessible status message', function () {
+    renderWithQueryClient(<LoginSmart search={{ verified: true }} />)
+
+    expect(screen.getByRole('status')).toHaveTextContent(/verif/i)
+  })
+
+  it('renders the expired-link banner with guidance instead of the raw query value', function () {
+    renderWithQueryClient(<LoginSmart search={{ error: 'TOKEN_EXPIRED' }} />)
+
+    const banner = screen.getByRole('alert')
+    expect(banner).toHaveTextContent(/expired/i)
+    expect(banner.textContent).not.toContain('TOKEN_EXPIRED')
+  })
+
+  it('renders the invalid-link banner with guidance instead of the raw query value', function () {
+    renderWithQueryClient(<LoginSmart search={{ error: 'INVALID_TOKEN' }} />)
+
+    const banner = screen.getByRole('alert')
+    expect(banner).toHaveTextContent(/invalid/i)
+    expect(banner.textContent).not.toContain('INVALID_TOKEN')
+  })
+
+  it('shows only the link-error banner when verified and error are both present', function () {
+    renderWithQueryClient(
+      <LoginSmart search={{ verified: true, error: 'TOKEN_EXPIRED' }} />,
+    )
+
+    expect(screen.getByRole('alert')).toHaveTextContent(/expired/i)
+    expect(screen.queryByRole('status')).toBeNull()
   })
 
   it('displays a form error when the auth client returns an error', async function () {
