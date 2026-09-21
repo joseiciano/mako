@@ -1,7 +1,7 @@
 ---
 goal: Deploy isolated staging and production stacks through Terraform and GitHub Actions
 date_created: 2026-09-09
-last_updated: 2026-09-21
+last_updated: 2026-09-21 (promotion enforcement dropped per operator decision)
 status: In Progress
 tags: [infrastructure, terraform, cloudflare, neon, github-actions, deployment]
 ---
@@ -22,7 +22,7 @@ The current Terraform state, Cloudflare resources, and Neon databases are dispos
 - CI renders `backend.ci.hcl` from `backend-r2.hcl.example` with the selected account's R2 S3 endpoint and initializes Terraform against the environment's isolated state bucket using bucket-scoped R2 credentials.
 - `scripts/set-github-env-secrets.sh` and `scripts/set-github-env-secrets-from-env.sh` configure the complete 17-secret per-environment inventory.
 - The `staging` branch exists, contains all of `main`, and deploys successfully to the `staging` GitHub Environment; production bootstrap has not run.
-- Promotion enforcement (branch rulesets and the `promotion-policy` quality-gate check) is not yet implemented.
+- Promotion enforcement (branch rulesets, `promotion-policy` quality-gate check) was dropped per operator decision on 2026-09-21; the staging-first promotion path is process discipline only.
 
 ## 1. Requirements & Constraints
 
@@ -249,22 +249,12 @@ The current Terraform state, Cloudflare resources, and Neon databases are dispos
 
 - **GOAL-006**: Make feature work flow through staging before production while preserving protected branch history.
 
-- [ ] **TASK-031**: Protect `staging` and `main` with repository rulesets.
-  - Require pull requests and the existing `Lint, Typecheck, and Test` check on both branches.
-  - Require the `promotion-policy` check and at least one approving review on `main`.
-  - Disallow direct pushes, force pushes, branch deletion, and administrator bypass on both branches.
-  - Enable merge commits in repository settings; feature pull requests may still use squash merges, but promotion pull requests must use merge commits.
-- [ ] **TASK-032**: Document and enforce the promotion path.
-  - Merge completed feature branches into `staging`; feature pull requests may use squash merging.
-  - Let the staging `Deploy Stack` run finish successfully for the resulting staging commit.
-  - Promote `staging` to `main` only through an approved pull request whose head commit has a successful staging deployment.
-  - Merge the `staging` → `main` promotion pull request with a merge commit, not squash or rebase, so staging commits remain ancestors of `main`.
-- [ ] **TASK-033**: Implement the required `promotion-policy` job in `.github/workflows/quality-gate.yml`.
-  - For pull requests targeting `main`, require `github.head_ref == 'staging'`.
-  - Use read-only Actions/deployments API access to verify that the exact pull-request head SHA completed the staging `Deploy Stack` successfully.
-  - Pass without the deployment lookup for pull requests targeting `staging`.
-  - Route every normal, urgent, and emergency fix through `staging`; this plan intentionally defines no production-only bypass path.
-  - Never reset or force-push a protected environment branch.
+- [x] **TASK-031**: Protect `staging` and `main` with repository rulesets.
+  - Decision (2026-09-21): dropped per operator choice. No rulesets; direct pushes to `main` are not blocked by CI. Promotion enforcement is process discipline only.
+- [x] **TASK-032**: Document and enforce the promotion path.
+  - Documented path: feature branches merge into `staging`, staging deploys run on push, then `staging` promotes to `main` through a pull request. Enforcement beyond documentation was dropped with TASK-031/TASK-033.
+- [x] **TASK-033**: Implement the required `promotion-policy` job in `.github/workflows/quality-gate.yml`.
+  - Decision (2026-09-21): dropped per operator choice. `quality-gate.yml` runs lint, typecheck, and tests on every pull request with no staging-deployment verification for promotions to `main`.
 
 ### Implementation Phase 7: Bootstrap and verify both environments
 
