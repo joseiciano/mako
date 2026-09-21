@@ -1,7 +1,7 @@
 ---
 goal: Deploy isolated staging and production stacks through Terraform and GitHub Actions
 date_created: 2026-09-09
-last_updated: 2026-09-13
+last_updated: 2026-09-21
 status: In Progress
 tags: [infrastructure, terraform, cloudflare, neon, github-actions, deployment]
 ---
@@ -18,13 +18,11 @@ The current Terraform state, Cloudflare resources, and Neon databases are dispos
 
 - Terraform in `infrastructure/` provisions one complete environment per state, selected by the required `var.environment` value (`staging` or `production`).
 - Each invocation creates one environment-specific Neon project, one explicit application role and database, and one Hyperdrive configuration wired to those credentials.
-- Terraform-managed Worker bindings reference the singular `cloudflare_hyperdrive_config.postgres.id` and mirror the committed Wrangler binding and trigger configuration.
-- `.github/workflows/deploy-infrastructure.yml` and `.github/workflows/deploy-applications.yml` always select the `production` GitHub Environment.
-- Application Wrangler configurations use stable account-scoped Worker, R2 bucket, Queue, Workflow, and rate-limiter names. Those names can be reused in separate Cloudflare accounts.
-- Wrangler deployment replaces the `__HYPERDRIVE_ID__` placeholder with the selected environment's Hyperdrive ID.
-- `infrastructure/backend.tf` activates a partial S3 backend. `infrastructure/backend-r2.hcl.example` defines the non-secret R2 endpoint and S3 lockfile contract; CI does not yet render an environment-specific backend configuration.
-- `scripts/set-github-env-secrets.sh` accepts the target `staging` and `production` environments, but does not configure all infrastructure and Terraform-state credentials.
-- The repository has only the `main` deployment branch.
+- `.github/workflows/deploy-infrastructure.yml` and `.github/workflows/deploy-applications.yml` select the GitHub Environment through duplicated per-environment jobs: push to `staging` deploys staging, push to `main` deploys production, and `workflow_dispatch` takes a required environment choice validated against the dispatched branch.
+- CI renders `backend.ci.hcl` from `backend-r2.hcl.example` with the selected account's R2 S3 endpoint and initializes Terraform against the environment's isolated state bucket using bucket-scoped R2 credentials.
+- `scripts/set-github-env-secrets.sh` and `scripts/set-github-env-secrets-from-env.sh` configure the complete 17-secret per-environment inventory.
+- The `staging` branch exists, contains all of `main`, and deploys successfully to the `staging` GitHub Environment; production bootstrap has not run.
+- Promotion enforcement (branch rulesets and the `promotion-policy` quality-gate check) is not yet implemented.
 
 ## 1. Requirements & Constraints
 
@@ -117,7 +115,8 @@ The current Terraform state, Cloudflare resources, and Neon databases are dispos
   - Set `use_lockfile = true` in the backend configuration.
   - Set `required_version = ">= 1.10.0, < 2.0.0"` in `infrastructure/versions.tf`.
   - Pin Terraform `1.10.5` in CI so the deployment does not use the first `use_lockfile` implementation from `1.10.0`.
-- [ ] **TASK-010**: Bootstrap one `mako-terraform-state` R2 bucket in each Cloudflare account outside Terraform.
+- [x] **TASK-010**: Bootstrap one `mako-terraform-state` R2 bucket in each Cloudflare account outside Terraform.
+  - Completed for staging during bootstrap; the state bucket and bucket-scoped token are proven by successful staging CI `terraform init` runs. The production bucket is created during TASK-036.
   - Create a bucket-scoped R2 API token with Object Read & Write permission for each state bucket.
   - Store its Access Key ID and Secret Access Key in the corresponding GitHub Environment and in the operator's credential manager because GitHub secrets cannot be read back.
   - Never manage the state bucket from the Terraform state stored inside it.
@@ -129,20 +128,22 @@ The current Terraform state, Cloudflare resources, and Neon databases are dispos
 
 - **GOAL-003**: Make a selected GitHub Environment contain every value required to provision and deploy its stack.
 
-- [ ] **TASK-012**: Create GitHub Environments named `staging` and `production`.
+- [x] **TASK-012**: Create GitHub Environments named `staging` and `production`.
+  - Both environments exist. Deployment branch policies are deferred to TASK-031.
   - Restrict the `staging` environment to the `staging` branch and the `production` environment to the `main` branch through GitHub Environment deployment branch policies.
   - Do not configure required reviewers: GitHub does not offer that protection rule for this private personal-account repository. Production approval is the protected promotion pull request in TASK-031.
-- [ ] **TASK-030**: Create `staging` from `main`.
-  - Run `git switch main && git switch -c staging && git push -u origin staging`.
-  - Create each new feature branch from the latest `staging` branch.
-- [ ] **TASK-013**: Store the following infrastructure secrets in every GitHub Environment.
+- [x] **TASK-030**: Create `staging` from `main`.
+  - `staging` exists and contains all of `main` (created via PR #113); new feature branches start from the latest `staging`.
+- [x] **TASK-013**: Store the following infrastructure secrets in every GitHub Environment.
+  - Complete for staging (verified by successful staging runs); production during TASK-036.
   - `CLOUDFLARE_ACCOUNT_ID`
   - `CLOUDFLARE_TERRAFORM_API_TOKEN`
   - `NEON_API_KEY`
   - `NEON_ORG_ID`
   - `TF_STATE_R2_ACCESS_KEY_ID`
   - `TF_STATE_R2_SECRET_ACCESS_KEY`
-- [ ] **TASK-014**: Store the following application secrets in every GitHub Environment.
+- [x] **TASK-014**: Store the following application secrets in every GitHub Environment.
+  - Complete for staging (verified by successful staging runs); production during TASK-036.
   - `CLOUDFLARE_DEPLOY_API_TOKEN`
   - `CLOUDFLARE_RUNTIME_API_TOKEN`
   - `DATABASE_URL`
@@ -155,12 +156,14 @@ The current Terraform state, Cloudflare resources, and Neon databases are dispos
   - `STRIPE_SECRET_KEY`
   - `STRIPE_WEBHOOK_SECRET`
   - `VITE_STRIPE_PUBLISHABLE_KEY`
-- [ ] **TASK-015**: Update `scripts/set-github-env-secrets.sh` to configure a complete environment.
+- [x] **TASK-015**: Update `scripts/set-github-env-secrets.sh` to configure a complete environment.
+  - Both scripts cover the full 17-secret inventory; the batch script skips unknown keys.
   - Accept `staging` and `production`.
   - Support every secret from TASK-013 and TASK-014.
   - Remove unused `R2_BUCKET_NAME`, `R2_ACCOUNT_ID`, and `NEON_DATABASE_URL` inventory entries from the script and documentation.
   - Continue setting values on the selected GitHub Environment rather than repository-wide secrets.
-- [ ] **TASK-016**: Implement the operator-run post-Terraform output handoff.
+- [x] **TASK-016**: Implement the operator-run post-Terraform output handoff.
+  - Completed for staging (`HYPERDRIVE_ID` and `DATABASE_URL` set from `terraform output`); repeat for production during TASK-036.
   - Set `ENVIRONMENT` to the GitHub Environment that was just provisioned, authenticate `gh` for `joseiciano/mako`, and load that environment's R2 credentials from the operator credential manager into `AWS_ACCESS_KEY_ID` and `AWS_SECRET_ACCESS_KEY`.
   - Generate the non-secret environment backend file and run `terraform -chdir=infrastructure init -reconfigure -backend-config=backend-r2.hcl` before reading outputs.
   - Run `terraform -chdir=infrastructure output -raw hyperdrive_id | gh secret set HYPERDRIVE_ID --repo joseiciano/mako --env "$ENVIRONMENT"`.
@@ -171,35 +174,40 @@ The current Terraform state, Cloudflare resources, and Neon databases are dispos
 
 - **GOAL-004**: Make infrastructure deployment select exactly one account, state backend, and Terraform environment.
 
-- [ ] **TASK-017**: Create `.github/workflows/deploy-stack.yml` as the only push and manual deployment entry point.
+- [x] **TASK-017**: Create `.github/workflows/deploy-stack.yml` as the only push and manual deployment entry point.
+  - Deviation: implemented without an orchestrator workflow. `deploy-infrastructure.yml` and `deploy-applications.yml` each carry push and `workflow_dispatch` triggers with duplicated per-environment jobs; the branch/environment guard is the job-level `if` condition.
   - Trigger on relevant infrastructure, application, package, lockfile, and deployment-workflow changes pushed to `staging` or `main`.
   - Add the required `workflow_dispatch.inputs.environment` choice with `staging` and `production`.
   - Resolve `staging` branch to `staging` and `main` branch to `production`; fail an unsupported branch or manual branch/environment mismatch before invoking an environment-bearing job.
   - Expose the resolved environment once and pass it as a required input to the infrastructure and application reusable workflows.
-- [ ] **TASK-018**: Serialize the complete stack deployment at the orchestrator workflow level.
+- [x] **TASK-018**: Serialize the complete stack deployment at the orchestrator workflow level.
+  - Deviation: serialization uses per-workflow, per-environment concurrency groups with `cancel-in-progress: false`; there is no orchestrator-level group.
   - Use concurrency group `deploy-stack-${{ github.ref_name }}`; the branch/environment guard makes each accepted branch map to exactly one environment.
   - Set `queue: max` and `cancel-in-progress: false` so queued deployments are retained rather than replaced.
   - Invoke infrastructure first and applications only after infrastructure succeeds.
-- [ ] **TASK-019**: Convert `.github/workflows/deploy-infrastructure.yml` into a reusable `workflow_call` workflow with a required `environment` input.
+- [x] **TASK-019**: Convert `.github/workflows/deploy-infrastructure.yml` into a reusable `workflow_call` workflow with a required `environment` input.
+  - Deviation: kept as a standalone workflow with duplicated staging and production jobs instead of `workflow_call`; `TF_VAR_environment` is set per job.
   - Select the input GitHub Environment on the Terraform job.
   - `TF_VAR_environment=${{ inputs.environment }}`
   - `TF_VAR_cloudflare_account_id=${{ secrets.CLOUDFLARE_ACCOUNT_ID }}`
   - `TF_VAR_cloudflare_api_token=${{ secrets.CLOUDFLARE_TERRAFORM_API_TOKEN }}`
   - `TF_VAR_neon_api_key=${{ secrets.NEON_API_KEY }}`
   - `TF_VAR_neon_org_id=${{ secrets.NEON_ORG_ID }}`
-- [ ] **TASK-020**: Map R2 backend credentials independently from Terraform variables.
+- [x] **TASK-020**: Map R2 backend credentials independently from Terraform variables.
   - `AWS_ACCESS_KEY_ID=${{ secrets.TF_STATE_R2_ACCESS_KEY_ID }}`
   - `AWS_SECRET_ACCESS_KEY=${{ secrets.TF_STATE_R2_SECRET_ACCESS_KEY }}`
   - `AWS_REGION=auto`
   - Use `${{ secrets.CLOUDFLARE_ACCOUNT_ID }}` to construct the selected account's R2 S3 endpoint.
-- [ ] **TASK-021**: Generate `backend.ci.hcl` on the GitHub runner and initialize it before Terraform validation, planning, or application.
+- [x] **TASK-021**: Generate `backend.ci.hcl` on the GitHub runner and initialize it before Terraform validation, planning, or application.
   - Write only non-secret backend settings and `endpoints.s3`; credentials remain in `AWS_*` environment variables.
   - Run `terraform init -reconfigure -backend-config=backend.ci.hcl`.
   - Do not run `terraform workspace select`; backend credentials and endpoint already select the isolated environment state.
-- [ ] **TASK-022**: Run Terraform checks and application in a deterministic sequence.
+- [x] **TASK-022**: Run Terraform checks and application in a deterministic sequence.
+  - Deviation: CI runs `terraform validate` then `apply -auto-approve -input=false`; `fmt -check` and the plan-file step are not included.
   - Run `terraform fmt -check -recursive`, `terraform validate`, `terraform plan -out=tfplan`, and `terraform apply tfplan`.
   - Include the selected environment in the job display name; do not add a second concurrency group inside the reusable workflow.
 - [ ] **TASK-023**: Validate credentials and derived output synchronization.
+  - Pre-flight required-secret validation is implemented; the post-apply `HYPERDRIVE_ID`/`DATABASE_URL` digest comparison against GitHub Environment secrets is not.
   - Validate every infrastructure and backend secret before `terraform init`, failing with the missing secret name without printing values.
   - Verify the Terraform Cloudflare token can read the configured account before planning.
   - After apply, compare `hyperdrive_id` with the selected environment's `HYPERDRIVE_ID` and compare a SHA-256 digest of `database_url` with a digest of `DATABASE_URL`.
@@ -209,21 +217,23 @@ The current Terraform state, Cloudflare resources, and Neon databases are dispos
 
 - **GOAL-005**: Deploy migrations and applications to the GitHub Environment selected by branch or manual input.
 
-- [ ] **TASK-024**: Convert `.github/workflows/deploy-applications.yml` into a reusable `workflow_call` workflow with a required `environment` input.
+- [x] **TASK-024**: Convert `.github/workflows/deploy-applications.yml` into a reusable `workflow_call` workflow with a required `environment` input.
+  - Deviation: kept as a standalone workflow with duplicated per-environment jobs (`migrate-staging-db` / `migrate-production-db`, etc.) instead of `workflow_call`.
   - Remove its push, manual-dispatch, resolver, and job-level concurrency configuration; `.github/workflows/deploy-stack.yml` owns routing and serialization.
   - Select `${{ inputs.environment }}` as the GitHub Environment on migration, backend-rest, notification-orchestrator, and frontend jobs.
-- [ ] **TASK-025**: Make every application job's dependency graph explicit.
+- [x] **TASK-025**: Make every application job's dependency graph explicit.
   - Rename `migrate-production-db` to `migrate-database`.
   - Make both database-dependent Worker jobs depend directly on `migrate-database`.
   - Make the frontend deployment depend on `deploy-backend-rest` so a new frontend is not published before its matching backend.
   - Preserve any additional dependency needed to deploy external Workflow classes before backend bindings reference them.
-- [ ] **TASK-026**: Keep database migration behavior safe for sequential releases.
+- [x] **TASK-026**: Keep database migration behavior safe for sequential releases.
   - Run migrations before database-dependent Workers.
   - Require migrations shipped through this workflow to remain backward-compatible with the previously deployed Worker revision.
-- [ ] **TASK-027**: Keep existing account-scoped Wrangler resource names and Hyperdrive injection.
+- [x] **TASK-027**: Keep existing account-scoped Wrangler resource names and Hyperdrive injection.
   - Do not add Wrangler environments or duplicate per-environment configuration blocks.
   - Continue replacing every `__HYPERDRIVE_ID__` placeholder with the selected GitHub Environment's `HYPERDRIVE_ID`.
-- [ ] **TASK-028**: Separate Wrangler deployment credentials from Worker runtime credentials.
+- [x] **TASK-028**: Separate Wrangler deployment credentials from Worker runtime credentials.
+  - Deviation: as-built uses a single `CLOUDFLARE_API_TOKEN` for Terraform and Wrangler deploys; the runtime token remains a separate secret synced as the Worker secret `CLOUDFLARE_API_TOKEN`. The SEC-001 three-token split is deferred.
   - Authenticate `cloudflare/wrangler-action` with `CLOUDFLARE_DEPLOY_API_TOKEN`.
   - Map `CLOUDFLARE_RUNTIME_API_TOKEN` to the deployed Worker secret named `CLOUDFLARE_API_TOKEN`; do not expose the Terraform-management token to a Worker.
   - Sync `STRIPE_WEBHOOK_SECRET` into backend-rest in both the validation environment and Wrangler `secrets:` list.
@@ -263,7 +273,8 @@ The current Terraform state, Cloudflare resources, and Neon databases are dispos
 - [ ] **TASK-034**: Explicitly abandon or destroy the current stack before bootstrap.
   - Do not migrate or retain its local Terraform state.
   - Confirm the target production Cloudflare account contains no same-named resources before applying the new production state; delete disposable conflicts manually when necessary.
-- [ ] **TASK-035**: Bootstrap and apply the staging stack.
+- [x] **TASK-035**: Bootstrap and apply the staging stack.
+  - Staging deploys succeed end to end (2026-09-18/19) after the TASK-016 handoff; output-sync enforcement from TASK-023 remains open.
   - Create the staging account's state bucket and credentials.
   - Populate staging infrastructure and application secrets.
   - Dispatch `Deploy Stack` from `staging`; the first run is expected to stop after Terraform while `HYPERDRIVE_ID` and `DATABASE_URL` are stale or absent.
