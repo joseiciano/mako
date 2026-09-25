@@ -124,6 +124,9 @@ resource "cloudflare_workers_script" "notification_orchestrator" {
   content_sha256     = filesha256("${path.module}/workers/notification-orchestrator.js")
   main_module        = "notification-orchestrator.js"
   compatibility_date = var.workers_compatibility_date
+  # Wrangler deploys both Workers with nodejs_compat; without this the
+  # provider's computed_optional null would strip the flag on the next apply.
+  compatibility_flags = ["nodejs_compat"]
 
   bindings = [
     {
@@ -165,11 +168,19 @@ resource "cloudflare_workers_script" "notification_orchestrator" {
   ]
 
   observability = {
-    enabled = true
+    enabled            = true
+    head_sampling_rate = 1
 
     logs = {
-      enabled         = true
-      invocation_logs = true
+      enabled            = true
+      invocation_logs    = true
+      head_sampling_rate = 1
+      persist            = true
+    }
+
+    traces = {
+      enabled            = false
+      head_sampling_rate = 1
     }
   }
 
@@ -178,7 +189,6 @@ resource "cloudflare_workers_script" "notification_orchestrator" {
       content_file,
       content_sha256,
       main_module,
-      compatibility_date,
     ]
   }
 }
@@ -204,6 +214,9 @@ resource "cloudflare_workers_script" "backend_api" {
   content_sha256     = filesha256("${path.module}/workers/backend-api.js")
   main_module        = "backend-api.js"
   compatibility_date = var.workers_compatibility_date
+  # Wrangler deploys both Workers with nodejs_compat; without this the
+  # provider's computed_optional null would strip the flag on the next apply.
+  compatibility_flags = ["nodejs_compat"]
 
   bindings = concat(
     [
@@ -265,11 +278,19 @@ resource "cloudflare_workers_script" "backend_api" {
   )
 
   observability = {
-    enabled = true
+    enabled            = true
+    head_sampling_rate = 1
 
     logs = {
-      enabled         = true
-      invocation_logs = true
+      enabled            = true
+      invocation_logs    = true
+      head_sampling_rate = 1
+      persist            = true
+    }
+
+    traces = {
+      enabled            = false
+      head_sampling_rate = 1
     }
   }
 
