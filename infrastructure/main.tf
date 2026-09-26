@@ -1,5 +1,13 @@
 locals {
   ai_gateway_base_url = var.ai_gateway_name != "" ? "https://gateway.ai.cloudflare.com/v1/${var.cloudflare_account_id}/${var.ai_gateway_name}" : ""
+  auth_email_from     = "noreply@${var.email_sending_domain}"
+}
+
+resource "cloudflare_email_sending_subdomain" "auth" {
+  zone_id                    = var.email_sending_zone_id
+  name                       = var.email_sending_domain
+  preview_enabled            = false
+  drop_suppressed_recipients = false
 }
 
 resource "neon_project" "db" {
@@ -117,13 +125,31 @@ resource "cloudflare_queue" "notification_orchestration_dlq" {
   queue_name = "notification-orchestration-dlq"
 }
 
-resource "cloudflare_workers_script" "notification_orchestrator" {
+resource "cloudflare_worker" "notification_orchestrator" {
+  account_id = var.cloudflare_account_id
+  name       = var.notification_orchestrator_worker_script_name
+
+  observability = {
+    enabled = true
+
+    logs = {
+      enabled         = true
+      invocation_logs = true
+    }
+  }
+}
+
+resource "cloudflare_worker_version" "notification_orchestrator" {
   account_id         = var.cloudflare_account_id
-  script_name        = var.notification_orchestrator_worker_script_name
-  content_file       = "${path.module}/workers/notification-orchestrator.js"
-  content_sha256     = filesha256("${path.module}/workers/notification-orchestrator.js")
-  main_module        = "notification-orchestrator.js"
+  worker_id          = cloudflare_worker.notification_orchestrator.id
   compatibility_date = var.workers_compatibility_date
+  main_module        = "notification-orchestrator.js"
+
+  modules = [{
+    name         = "notification-orchestrator.js"
+    content_file = "${path.module}/workers/notification-orchestrator.js"
+    content_type = "application/javascript+module"
+  }]
 
   bindings = [
     {
@@ -164,46 +190,75 @@ resource "cloudflare_workers_script" "notification_orchestrator" {
     }
   ]
 
-  observability = {
-    enabled = true
-
-    logs = {
-      enabled         = true
-      invocation_logs = true
-    }
-  }
-
   lifecycle {
     ignore_changes = [
-      content_file,
-      content_sha256,
-      main_module,
+      bindings,
       compatibility_date,
+      main_module,
+      modules,
     ]
+  }
+}
+
+resource "cloudflare_workers_deployment" "notification_orchestrator" {
+  account_id  = var.cloudflare_account_id
+  script_name = cloudflare_worker.notification_orchestrator.name
+  strategy    = "percentage"
+
+  versions = [{
+    version_id = cloudflare_worker_version.notification_orchestrator.id
+    percentage = 100
+  }]
+
+  lifecycle {
+    ignore_changes = [versions]
   }
 }
 
 resource "cloudflare_workflow" "interview_feedback" {
   account_id    = var.cloudflare_account_id
   workflow_name = var.feedback_workflow_name
-  script_name   = cloudflare_workers_script.notification_orchestrator.script_name
+  script_name   = cloudflare_worker.notification_orchestrator.name
   class_name    = var.feedback_workflow_class_name
+
+  depends_on = [cloudflare_workers_deployment.notification_orchestrator]
 }
 
 resource "cloudflare_workflow" "recording_finalization" {
   account_id    = var.cloudflare_account_id
   workflow_name = var.recording_finalization_workflow_name
-  script_name   = cloudflare_workers_script.notification_orchestrator.script_name
+  script_name   = cloudflare_worker.notification_orchestrator.name
   class_name    = var.recording_finalization_workflow_class_name
+
+  depends_on = [cloudflare_workers_deployment.notification_orchestrator]
 }
 
-resource "cloudflare_workers_script" "backend_api" {
+resource "cloudflare_worker" "backend_api" {
+  account_id = var.cloudflare_account_id
+  name       = var.backend_worker_script_name
+
+  observability = {
+    enabled             = true
+    redact_query_string = true
+
+    logs = {
+      enabled         = true
+      invocation_logs = true
+    }
+  }
+}
+
+resource "cloudflare_worker_version" "backend_api" {
   account_id         = var.cloudflare_account_id
-  script_name        = var.backend_worker_script_name
-  content_file       = "${path.module}/workers/backend-api.js"
-  content_sha256     = filesha256("${path.module}/workers/backend-api.js")
-  main_module        = "backend-api.js"
+  worker_id          = cloudflare_worker.backend_api.id
   compatibility_date = var.workers_compatibility_date
+  main_module        = "backend-api.js"
+
+  modules = [{
+    name         = "backend-api.js"
+    content_file = "${path.module}/workers/backend-api.js"
+    content_type = "application/javascript+module"
+  }]
 
   bindings = concat(
     [
@@ -254,6 +309,16 @@ resource "cloudflare_workers_script" "backend_api" {
         name = "REALTIMEKIT_WEBHOOK_PUBLIC_KEY_URL"
         text = "https://api.realtime.cloudflare.com/.well-known/webhooks.json"
       },
+      {
+        type                     = "send_email"
+        name                     = "EMAIL"
+        allowed_sender_addresses = [local.auth_email_from]
+      },
+      {
+        type = "plain_text"
+        name = "AUTH_EMAIL_FROM"
+        text = local.auth_email_from
+      },
     ],
     local.ai_gateway_base_url != "" ? [
       {
@@ -264,30 +329,40 @@ resource "cloudflare_workers_script" "backend_api" {
     ] : []
   )
 
-  observability = {
-    enabled = true
-
-    logs = {
-      enabled         = true
-      invocation_logs = true
-    }
-  }
-
   lifecycle {
     ignore_changes = [
-      content_file,
-      content_sha256,
-      main_module,
+      bindings,
       compatibility_date,
+      main_module,
+      modules,
     ]
+  }
+
+  depends_on = [cloudflare_email_sending_subdomain.auth]
+}
+
+resource "cloudflare_workers_deployment" "backend_api" {
+  account_id  = var.cloudflare_account_id
+  script_name = cloudflare_worker.backend_api.name
+  strategy    = "percentage"
+
+  versions = [{
+    version_id = cloudflare_worker_version.backend_api.id
+    percentage = 100
+  }]
+
+  lifecycle {
+    ignore_changes = [versions]
   }
 }
 
 resource "cloudflare_workflow" "session_timer" {
   account_id    = var.cloudflare_account_id
   workflow_name = "session-timer-workflow"
-  script_name   = cloudflare_workers_script.backend_api.script_name
+  script_name   = cloudflare_worker.backend_api.name
   class_name    = "SessionTimerWorkflow"
+
+  depends_on = [cloudflare_workers_deployment.backend_api]
 }
 
 resource "cloudflare_workers_script" "greedy_matcher" {
@@ -320,7 +395,7 @@ resource "cloudflare_workers_cron_trigger" "greedy_matcher" {
 
 resource "cloudflare_workers_cron_trigger" "notification_orchestrator" {
   account_id  = var.cloudflare_account_id
-  script_name = cloudflare_workers_script.notification_orchestrator.script_name
+  script_name = cloudflare_worker.notification_orchestrator.name
 
   schedules = [
     {
@@ -333,7 +408,7 @@ resource "cloudflare_queue_consumer" "notification_orchestrator" {
   account_id        = var.cloudflare_account_id
   queue_id          = cloudflare_queue.notification_orchestration.queue_id
   type              = "worker"
-  script_name       = cloudflare_workers_script.notification_orchestrator.script_name
+  script_name       = cloudflare_worker.notification_orchestrator.name
   dead_letter_queue = cloudflare_queue.notification_orchestration_dlq.queue_name
 
   settings = {

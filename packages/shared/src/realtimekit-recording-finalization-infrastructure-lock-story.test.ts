@@ -29,27 +29,54 @@ describe('story 5.11 realtimekit recording finalization infrastructure lock', fu
     expect(terraformMain).toContain('var.recording_finalization_workflow_class_name')
 
     // both workers bind the workflow for handoff (webhook) and sweep (scheduled)
-    expect(terraformMain).toContain('resource "cloudflare_workers_script" "notification_orchestrator"')
-    expect(terraformMain).toContain('resource "cloudflare_workers_script" "backend_api"')
-    // binding name appears at least twice (once per worker)
+    // via the provider v5.25 split-resource model: bindings live on the
+    // create-only bootstrap versions, and the workflow resources depend on the
+    // bootstrap deployments so exported classes exist before workflow creation.
+    expect(terraformMain).toContain(
+      'resource "cloudflare_worker_version" "notification_orchestrator"',
+    )
+    expect(terraformMain).toContain('resource "cloudflare_worker_version" "backend_api"')
     const bindingMatches = terraformMain.match(/RECORDING_FINALIZATION_WORKFLOW/g) ?? []
     expect(bindingMatches.length).toBeGreaterThanOrEqual(2)
 
-    // Stable binding references: workflow bindings must use vars/literals, not resource references that create cycles
-    const notifStart = terraformMain.indexOf('resource "cloudflare_workers_script" "notification_orchestrator"')
-    const workflowStart = terraformMain.indexOf('resource "cloudflare_workflow" "interview_feedback"')
-    const notifBlock = terraformMain.slice(notifStart, workflowStart)
+    // Stable binding references: workflow bindings must use vars/literals, not
+    // resource references that create cycles with cloudflare_workflow.
+    const notifVersionStart = terraformMain.indexOf(
+      'resource "cloudflare_worker_version" "notification_orchestrator"',
+    )
+    const notifDeploymentStart = terraformMain.indexOf(
+      'resource "cloudflare_workers_deployment" "notification_orchestrator"',
+    )
+    const notifBlock = terraformMain.slice(notifVersionStart, notifDeploymentStart)
     expect(notifBlock).toContain('var.recording_finalization_workflow_name')
-    expect(notifBlock).toContain('var.notification_orchestrator_worker_script_name')
+    expect(notifBlock).toContain('var.recording_finalization_workflow_class_name')
+    expect(notifBlock).toContain('name          = "RECORDING_FINALIZATION_WORKFLOW"')
     expect(notifBlock).not.toContain('cloudflare_workflow.recording_finalization.workflow_name')
-    expect(notifBlock).not.toContain('cloudflare_workers_script.notification_orchestrator.script_name')
+    expect(notifBlock).not.toContain(
+      'cloudflare_worker_version.notification_orchestrator.id',
+    )
 
-    const backendStart = terraformMain.indexOf('resource "cloudflare_workers_script" "backend_api"')
-    const backendBlock = terraformMain.slice(backendStart, backendStart + 4000)
+    const backendVersionStart = terraformMain.indexOf(
+      'resource "cloudflare_worker_version" "backend_api"',
+    )
+    const backendBlock = terraformMain.slice(backendVersionStart, backendVersionStart + 4000)
     expect(backendBlock).toContain('var.recording_finalization_workflow_name')
     expect(backendBlock).toContain('var.notification_orchestrator_worker_script_name')
+    expect(backendBlock).toContain('name          = "RECORDING_FINALIZATION_WORKFLOW"')
     expect(backendBlock).not.toContain('cloudflare_workflow.recording_finalization.workflow_name')
-  })
+
+    // Workflow resources target the notification-orchestrator identity and
+    // wait for the bootstrap deployment before creation.
+    const workflowResources = terraformMain.match(
+      /resource "cloudflare_workflow" "recording_finalization" \{[\s\S]*?\n\}/,
+    )?.[0] ?? ''
+    expect(workflowResources).toContain('cloudflare_worker.notification_orchestrator.name')
+    expect(workflowResources).toContain('var.recording_finalization_workflow_name')
+    expect(workflowResources).toContain('var.recording_finalization_workflow_class_name')
+    expect(workflowResources).toContain(
+      'depends_on = [cloudflare_workers_deployment.notification_orchestrator]',
+    )
+   })
 
   it('notification-orchestrator wrangler mirrors workflow class locally', function () {
     const orchestratorWrangler = readRepositoryFile('apps', 'notification-orchestrator', 'wrangler.jsonc')

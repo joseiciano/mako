@@ -44,8 +44,7 @@ export function registerAuthController<Bindings extends ControllerBindings>(
 
       return c.json(
         {
-          error:
-            'Better Auth is not configured. Set HYPERDRIVE and BETTER_AUTH_SECRET.',
+          error: 'Authentication is temporarily unavailable.',
         },
         503,
       )

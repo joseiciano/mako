@@ -37,12 +37,45 @@ export async function handleSignOutSuccess(
   await navigate(LOGGED_OUT_REDIRECT_PATH)
 }
 
+export class AuthFlowError extends Error {
+  readonly code?: string
+  readonly status?: number
+
+  constructor(
+    message: string,
+    details: { code?: string; status?: number } = {},
+  ) {
+    super(message)
+    this.name = 'AuthFlowError'
+    this.code = details.code
+    this.status = details.status
+  }
+}
+
 export function throwIfAuthResultHasError(result: AuthResult): void {
   if (result.error == null) {
     return
   }
 
-  throw new Error(getAuthErrorMessage(result.error))
+  if (typeof result.error === 'object' && result.error !== null) {
+    const { code, message, status } = result.error as {
+      code?: unknown
+      message?: unknown
+      status?: unknown
+    }
+
+    throw new AuthFlowError(
+      typeof message === 'string' && message.trim().length > 0
+        ? message
+        : 'Something went wrong. Please try again.',
+      {
+        code: typeof code === 'string' ? code : undefined,
+        status: typeof status === 'number' ? status : undefined,
+      },
+    )
+  }
+
+  throw new AuthFlowError(getAuthErrorMessage(result.error))
 }
 
 export function getAuthErrorMessage(error: unknown): string {

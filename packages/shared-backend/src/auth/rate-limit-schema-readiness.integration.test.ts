@@ -1,27 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { Client } from 'pg'
-
-function resolveTestDatabaseUrl(): string {
-  const databaseUrl = process.env.DATABASE_URL
-
-  if (!databaseUrl) {
-    throw new Error(
-      'DATABASE_URL is required. Example: DATABASE_URL=postgres://... pnpm db:test:reset',
-    )
-  }
-
-  const parsed = new URL(databaseUrl)
-  const isLocal =
-    parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1'
-
-  if (!isLocal || !parsed.pathname.endsWith('_test')) {
-    throw new Error(
-      'Refusing to run readiness checks against a non-local database. DATABASE_URL must point to a local "_test" database.',
-    )
-  }
-
-  return databaseUrl
-}
+import { resolveLocalTestDatabaseUrl } from '../database/test-database-url'
 
 type RateLimitColumn = {
   column_name: string
@@ -33,7 +12,7 @@ describe('rateLimit schema readiness', function rateLimitSchemaReadinessSuite() 
   let client: Client
 
   beforeAll(async function connect() {
-    client = new Client({ connectionString: resolveTestDatabaseUrl() })
+    client = new Client({ connectionString: resolveLocalTestDatabaseUrl() })
     await client.connect()
   })
 

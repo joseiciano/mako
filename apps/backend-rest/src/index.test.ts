@@ -1,5 +1,5 @@
 import * as sharedBackend from '@mako/shared-backend'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from 'vitest'
 import { createApp, type WorkerBindings } from './index'
 
 function createMockStripeClient(overrides: {
@@ -74,13 +74,16 @@ describe('backend-rest smoke tests', function () {
 
   it('mounts Better Auth routes and returns 503 when auth runtime env is missing', async function () {
     const app = createApp()
+    const createBetterAuthSpy = vi.spyOn(sharedBackend, 'createBetterAuth')
     const response = await app.request('/api/auth/get-session')
 
     expect(response.status).toBe(503)
-    await expect(response.json()).resolves.toEqual({
-      error:
-        'Better Auth is not configured. Set HYPERDRIVE and BETTER_AUTH_SECRET.',
-    })
+    expect(createBetterAuthSpy).not.toHaveBeenCalled()
+
+    const body = (await response.json()) as { error?: unknown }
+    expect(typeof body.error).toBe('string')
+    expect(String(body.error)).not.toContain('postgres://')
+    expect(String(body.error)).not.toContain('test-secret')
   })
 
   it('returns CORS preflight headers for configured frontend origins', async function () {
@@ -948,6 +951,7 @@ describe('backend-rest smoke tests', function () {
         connectionString: 'postgres://hyperdrive.local/mako',
       },
       BETTER_AUTH_SECRET: 'test-secret',
+      AUTH_EMAIL_VERIFICATION_ENFORCED: 'false',
     }
 
     const accountResponse = await getAccount(app, hyperdriveEnv)
@@ -1096,6 +1100,7 @@ describe('backend-rest smoke tests', function () {
         connectionString: 'postgres://hyperdrive.local/mako',
       },
       BETTER_AUTH_SECRET: 'test-secret',
+      AUTH_EMAIL_VERIFICATION_ENFORCED: 'false',
     }
 
     const response = await createAvailability(app, {}, hyperdriveEnv)
@@ -1165,6 +1170,7 @@ describe('backend-rest smoke tests', function () {
         connectionString: 'postgres://hyperdrive.local/mako',
       },
       BETTER_AUTH_SECRET: 'test-secret',
+      AUTH_EMAIL_VERIFICATION_ENFORCED: 'false',
     }
 
     const response = await createAvailability(
@@ -2199,6 +2205,308 @@ function compareInterviewRecords(
   if (leftId > rightId) {
     return 1
   }
-
   return 0
 }
+
+type MockedBetterAuthOptions = {
+  sendVerificationEmail?: (input: { email: string; url: string }) => Promise<void>
+}
+
+describe('auth request boundary', function () {
+  const SIGNUP_EMAIL = 'boundary-candidate@mako.dev'
+  const SIGNUP_PASSWORD = 'correct-horse-battery'
+  const VERIFICATION_URL =
+    'https://mako-backend.icianojn.workers.dev/api/auth/verify-email?token=boundary-token'
+  const PII_SENTINEL = 'sentinel-pii-boundary-9c2e'
+
+  function createSendEmailFake(
+    overrides: { sendImplementation?: () => Promise<EmailSendResult> } = {},
+  ) {
+    const messages: unknown[] = []
+    const email = {
+      send: vi.fn(async function send(message: unknown) {
+        messages.push(message)
+        return overrides.sendImplementation
+          ? overrides.sendImplementation()
+          : { messageId: 'cf-message-1' }
+      }),
+    } as unknown as SendEmail
+    return { email, messages }
+  }
+
+  function createExecutionContextFake() {
+    const promises: Promise<unknown>[] = []
+    const executionCtx = {
+      waitUntil: vi.fn(function waitUntil(promise: Promise<unknown>) {
+        promises.push(promise)
+      }),
+      passThroughOnException() {},
+    } as unknown as ExecutionContext
+    return { executionCtx, promises }
+  }
+
+  function createAuthEnv(
+    overrides: Partial<WorkerBindings> & Record<string, unknown> = {},
+  ): WorkerBindings {
+    const env: Record<string, unknown> = {
+      HYPERDRIVE: { connectionString: 'postgres://hyperdrive.local/mako' },
+      BETTER_AUTH_SECRET: 'test-secret',
+      EMAIL: createSendEmailFake().email,
+      AUTH_EMAIL_FROM: 'noreply@mako.test',
+      AUTH_EMAIL_VERIFICATION_ENFORCED: 'false',
+      ...overrides,
+    }
+    return env as WorkerBindings
+  }
+
+  function mockRequestScopedAuth(createBetterAuthSpy: MockInstance): void {
+    createBetterAuthSpy.mockImplementation(function createMockedAuth(
+      options: Record<string, unknown> & MockedBetterAuthOptions,
+    ) {
+      return {
+        handler: async function handleAuthRequest() {
+          await options.sendVerificationEmail?.({
+            email: SIGNUP_EMAIL,
+            url: VERIFICATION_URL,
+          })
+
+          return new Response(
+            JSON.stringify({
+              user: { id: 'auth-user-1', email: SIGNUP_EMAIL },
+              token: null,
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          )
+        },
+        api: {
+          getSession: vi.fn(async function getSession() {
+            return null
+          }),
+        },
+      }
+    })
+  }
+
+  function postSignUp(
+    app: ReturnType<typeof createApp>,
+    env: WorkerBindings,
+    executionCtx?: ExecutionContext,
+  ) {
+    return app.request(
+      '/api/auth/sign-up/email',
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          email: SIGNUP_EMAIL,
+          password: SIGNUP_PASSWORD,
+          name: 'Boundary Candidate',
+        }),
+      },
+      env,
+      executionCtx,
+    )
+  }
+
+  it('skips the auth-session middleware on /api/auth/* so exactly one auth instance is constructed', async function () {
+    const app = createApp()
+    const createBetterAuthSpy = vi.spyOn(sharedBackend, 'createBetterAuth')
+    mockRequestScopedAuth(createBetterAuthSpy)
+
+    const { executionCtx } = createExecutionContextFake()
+
+    const response = await app.request(
+      '/api/auth/get-session',
+      {},
+      createAuthEnv(),
+      executionCtx,
+    )
+
+    expect(response.status).toBe(200)
+    expect(createBetterAuthSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    {
+      name: 'missing EMAIL binding',
+      overrides: { EMAIL: undefined },
+      expectedLog: undefined,
+    },
+    {
+      name: 'missing AUTH_EMAIL_FROM',
+      overrides: { AUTH_EMAIL_FROM: undefined },
+      expectedLog: undefined,
+    },
+    {
+      name: 'blank AUTH_EMAIL_FROM',
+      overrides: { AUTH_EMAIL_FROM: '   ' },
+      expectedLog: undefined,
+    },
+    {
+      name: 'missing HYPERDRIVE',
+      overrides: { HYPERDRIVE: undefined },
+      expectedLog: undefined,
+    },
+    {
+      name: 'missing AUTH_EMAIL_VERIFICATION_ENFORCED',
+      overrides: { AUTH_EMAIL_VERIFICATION_ENFORCED: undefined },
+      expectedLog: {
+        event: 'auth.config.missing',
+        missing: ['AUTH_EMAIL_VERIFICATION_ENFORCED'],
+      },
+    },
+    {
+      name: 'invalid AUTH_EMAIL_VERIFICATION_ENFORCED',
+      overrides: { AUTH_EMAIL_VERIFICATION_ENFORCED: 'TRUE' },
+      expectedLog: {
+        event: 'auth.config.enforced_invalid',
+        binding: 'AUTH_EMAIL_VERIFICATION_ENFORCED',
+      },
+    },
+  ])(
+    'returns 503 before Better Auth when runtime configuration has $name',
+    async function ({
+      overrides,
+      expectedLog,
+    }: {
+      overrides: Record<string, unknown>
+      expectedLog?: Record<string, unknown>
+    }) {
+      const app = createApp()
+      const createBetterAuthSpy = vi.spyOn(sharedBackend, 'createBetterAuth')
+      mockRequestScopedAuth(createBetterAuthSpy)
+      const consoleErrorSpy = vi
+        .spyOn(console, 'error')
+        .mockImplementation(() => {})
+
+      try {
+        const response = await postSignUp(app, createAuthEnv(overrides))
+
+        expect(response.status).toBe(503)
+        expect(createBetterAuthSpy).not.toHaveBeenCalled()
+
+        const body = (await response.json()) as { error?: unknown }
+        expect(typeof body.error).toBe('string')
+        expect(String(body.error)).not.toContain('test-secret')
+
+        expect(consoleErrorSpy).toHaveBeenCalled()
+
+        if (expectedLog) {
+          const structuredLogs = consoleErrorSpy.mock.calls
+            .map(function toFirstArgument(call) {
+              return call[0]
+            })
+            .filter(function isObject(log): log is Record<string, unknown> {
+              return typeof log === 'object' && log !== null
+            })
+
+          expect(structuredLogs).toContainEqual(
+            expect.objectContaining(expectedLog),
+          )
+        }
+
+        const serializedLogs = JSON.stringify(consoleErrorSpy.mock.calls)
+        expect(serializedLogs).not.toContain(SIGNUP_EMAIL)
+        expect(serializedLogs).not.toContain(VERIFICATION_URL)
+      } finally {
+        consoleErrorSpy.mockRestore()
+      }
+    },
+  )
+
+  it('registers verification delivery on each request’s own execution context', async function () {
+    const app = createApp()
+    const createBetterAuthSpy = vi.spyOn(sharedBackend, 'createBetterAuth')
+    mockRequestScopedAuth(createBetterAuthSpy)
+    const emailBindingA = createSendEmailFake()
+    const emailBindingB = createSendEmailFake()
+    const ctxA = createExecutionContextFake()
+    const ctxB = createExecutionContextFake()
+
+    const [responseA, responseB] = await Promise.all([
+      postSignUp(app, createAuthEnv({ EMAIL: emailBindingA.email }), ctxA.executionCtx),
+      postSignUp(app, createAuthEnv({ EMAIL: emailBindingB.email }), ctxB.executionCtx),
+    ])
+
+    expect(responseA.status).toBe(200)
+    expect(responseB.status).toBe(200)
+
+    expect(ctxA.promises).toHaveLength(1)
+    expect(ctxB.promises).toHaveLength(1)
+    expect(ctxA.promises[0]).not.toBe(ctxB.promises[0])
+
+    await Promise.all([ctxA.promises[0], ctxB.promises[0]])
+
+    expect(emailBindingA.email.send).toHaveBeenCalledTimes(1)
+    expect(emailBindingB.email.send).toHaveBeenCalledTimes(1)
+    expect(emailBindingA.messages[0]).toMatchObject({ to: SIGNUP_EMAIL })
+    expect(emailBindingB.messages[0]).toMatchObject({ to: SIGNUP_EMAIL })
+  })
+
+  it('keeps signup successful when the provider rejects after the response is returned', async function () {
+    const app = createApp()
+    const createBetterAuthSpy = vi.spyOn(sharedBackend, 'createBetterAuth')
+    mockRequestScopedAuth(createBetterAuthSpy)
+    const consoleErrorSpy = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {})
+    const consoleWarnSpy = vi
+      .spyOn(console, 'warn')
+      .mockImplementation(() => {})
+    const consoleInfoSpy = vi
+      .spyOn(console, 'info')
+      .mockImplementation(() => {})
+    const emailBinding = createSendEmailFake({
+      sendImplementation: async function rejectSend(): Promise<EmailSendResult> {
+        throw {
+          code: 'E_RECIPIENT_SUPPRESSED',
+          message: `provider suppressed ${SIGNUP_EMAIL} ${PII_SENTINEL}`,
+        }
+      },
+    })
+    const ctx = createExecutionContextFake()
+
+    try {
+      const response = await postSignUp(
+        app,
+        createAuthEnv({ EMAIL: emailBinding.email }),
+        ctx.executionCtx,
+      )
+
+      expect(response.status).toBe(200)
+      expect(ctx.promises).toHaveLength(1)
+      await expect(ctx.promises[0]).resolves.toBeUndefined()
+
+      const loggedCalls = [
+        ...consoleErrorSpy.mock.calls,
+        ...consoleWarnSpy.mock.calls,
+        ...consoleInfoSpy.mock.calls,
+      ]
+      const rejectedEvent = loggedCalls.find(function isRejectedEvent(call) {
+        const log = call[0]
+        return (
+          typeof log === 'object' &&
+          log !== null &&
+          'event' in log &&
+          log.event === 'auth.verification_email.rejected'
+        )
+      })
+      expect(rejectedEvent?.[0]).toMatchObject({
+        event: 'auth.verification_email.rejected',
+        provider: 'cloudflare',
+        outcome: 'rejected',
+        errorCode: 'E_RECIPIENT_SUPPRESSED',
+      })
+
+      const serializedLogs = JSON.stringify(loggedCalls)
+      expect(serializedLogs).not.toContain(SIGNUP_EMAIL)
+      expect(serializedLogs).not.toContain(VERIFICATION_URL)
+      expect(serializedLogs).not.toContain(PII_SENTINEL)
+      expect(serializedLogs).not.toContain('provider suppressed')
+    } finally {
+      consoleErrorSpy.mockRestore()
+      consoleWarnSpy.mockRestore()
+      consoleInfoSpy.mockRestore()
+    }
+  })
+})

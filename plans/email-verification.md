@@ -65,9 +65,9 @@ Use the native Worker binding. Do not use the Email Service REST API or give the
 - `packages/shared-backend/migrations/20260425120000_add_better_auth_schema.sql` already contains `user.emailVerified` and the core Better Auth tables.
 - No database migration is required for Better Auth’s built-in verification state. A migration is required if Better Auth database-backed rate limiting is enabled.
 - `apps/backend-rest/wrangler.jsonc` has no `send_email` binding.
-- Terraform owns persistent resources and bindings; committed Wrangler configuration mirrors those bindings for application deployment and local development.
-- Staging and production use separate Cloudflare accounts and Terraform state.
-- The pinned Cloudflare provider `5.25.0` supports `cloudflare_email_sending_subdomain` and `send_email` Worker bindings.
+- Terraform owns persistent non-Worker infrastructure and Worker identity/observability settings through `cloudflare_worker`, including backend query-string redaction. It creates one bootstrap version/deployment for a fresh Worker; Wrangler owns subsequent application versions, bindings, triggers, and deployments.
+- Staging and production use separate Cloudflare accounts, Terraform state, GitHub Environments, and environment-scoped configuration.
+- Cloudflare provider `5.25.0` exposes query-string redaction through the split `cloudflare_worker` resource. The legacy `cloudflare_workers_script` resource and Wrangler `4.73.0` do not expose that setting.
 
 # Implementation plan
 
@@ -87,10 +87,12 @@ Prerequisites:
 
 - Both sending domains use Cloudflare DNS.
 - Both accounts use Workers Paid if mail must reach arbitrary recipients.
-- The Terraform/CI Cloudflare token has Email Sending edit access for the selected zone in addition to its existing Worker permissions.
-- `CLOUDFLARE_RUNTIME_API_TOKEN` does not need Email Sending permissions because the Worker binding handles authorization.
+- The environment-scoped CI token `CLOUDFLARE_API_TOKEN` has Email Sending edit access for the selected zone in addition to its Terraform and Wrangler permissions.
+- `CLOUDFLARE_RUNTIME_API_TOKEN` remains a separate runtime-only credential and does not need Email Sending permissions because the Worker binding handles authorization.
 
-Store zone IDs and domains as GitHub environment variables rather than secrets. They are public configuration values, so the existing secret setup scripts do not need new entries.
+Store zone IDs, domains, and the enforcement flag as GitHub environment variables rather than secrets. They are public configuration values, so the existing secret setup scripts do not need new entries.
+
+Each environment defines the non-secret variable `AUTH_EMAIL_VERIFICATION_ENFORCED` as the exact string `false` for Deployment A and `true` only for the enforcement rollout. The committed local Wrangler default is `false`; missing or differently cased values are invalid. The application workflow maps the same validated value into the frontend build as `VITE_AUTH_EMAIL_VERIFICATION_ENFORCED` so signup behavior and backend enforcement switch together.
 
 Adopt these policy decisions:
 
@@ -143,15 +145,15 @@ Keeping `drop_suppressed_recipients` false ensures a suppressed recipient produc
 
 Do not independently create `cf-bounce` MX, SPF, DKIM, DMARC, or return-path records with `cloudflare_dns_record`. Cloudflare Email Service creates and manages those records, and some remain locked for the lifetime of the configuration.
 
-Extend `cloudflare_workers_script.backend_api.bindings` with:
+Add the initial bootstrap version's bindings through `cloudflare_worker_version`:
 
 - A `send_email` binding named `EMAIL`.
 - `allowed_sender_addresses = [local.auth_email_from]`.
 - A plain-text binding named `AUTH_EMAIL_FROM` containing `local.auth_email_from`.
 
-Add an explicit dependency on `cloudflare_email_sending_subdomain.auth` so the domain is provisioned before the backend binding is finalized.
+Create the backend identity and set `observability.redact_query_string = true` with `cloudflare_worker`. Create one initial code-and-binding version through `cloudflare_worker_version` and deploy it through `cloudflare_workers_deployment`; those version/deployment resources are bootstrap-only. After bootstrap, Wrangler owns application versions, bindings, triggers, and deployments, while Terraform continues to own Worker identity and observability settings.
 
-Enable query-string redaction for backend Worker observability. The Terraform setting must be mirrored in Wrangler.
+After Wrangler deploys, the orchestrator invokes the reusable infrastructure workflow again for the same environment and commit. This settings-reconciliation apply reasserts and verifies `cloudflare_worker.observability.redact_query_string` without uploading code or replacing Wrangler's application version. A failed reconciliation blocks the deployment and verification enforcement.
 
 No email binding is required on:
 
@@ -181,15 +183,17 @@ Update:
 - `docs/infrastructure/management.md`
 - `docs/infrastructure/backend.md`
 
-Document Email Service as Terraform-owned persistent infrastructure and list `EMAIL` and `AUTH_EMAIL_FROM` under `backend-rest` bindings.
+Document Email Service and Worker identity/observability settings as Terraform-owned; document bootstrap code/bindings/deployment as create-only and list `EMAIL` and `AUTH_EMAIL_FROM` as Wrangler-owned `backend-rest` bindings after bootstrap.
 
-## Phase 3: Mirror bindings in Wrangler and CI
+## Phase 3: Bootstrap with Terraform, then deploy with Wrangler and CI
 
-Continue the repository ownership convention:
+Use one explicit ownership transition:
 
-- Terraform owns persistent resources and deployed bindings.
-- Wrangler deploys application code and supports local development.
-- Committed Wrangler bindings mirror Terraform bindings exactly.
+- Terraform provisions persistent non-Worker resources and owns Worker identity and observability settings through `cloudflare_worker`.
+- Terraform creates one initial code-and-binding version through `cloudflare_worker_version` and deploys it through `cloudflare_workers_deployment` solely to bootstrap a fresh Worker.
+- Wrangler owns later application versions/deployments and Worker configuration, bindings, and triggers.
+- Committed Wrangler configuration carries the application-facing bindings and local defaults needed for normal deployment and development.
+- Query-string redaction remains a Terraform-owned identity setting. After Wrangler deployment, the orchestrator runs infrastructure settings reconciliation to reassert and verify it without replacing application code.
 
 ### `apps/backend-rest/wrangler.jsonc`
 
@@ -198,7 +202,8 @@ Add safe local defaults:
 ```jsonc
 {
   "vars": {
-    "AUTH_EMAIL_FROM": "noreply@example.invalid"
+    "AUTH_EMAIL_FROM": "noreply@example.invalid",
+    "AUTH_EMAIL_VERIFICATION_ENFORCED": "false"
   },
   "send_email": [
     {
@@ -209,49 +214,35 @@ Add safe local defaults:
 }
 ```
 
-Mirror query-string redaction in the existing observability configuration. Regenerate Wrangler binding types after adding the binding rather than maintaining a divergent handwritten binding shape where project tooling supports generation.
+Regenerate Wrangler binding types after adding the bindings rather than maintaining a divergent handwritten binding shape where project tooling supports generation. Do not add unsupported `redact_query_string` configuration to Wrangler.
 
 During ordinary `wrangler dev`, Cloudflare simulates delivery, logs the message, and saves its content to local files without sending real mail. Do not commit `"remote": true`.
 
-### `.github/workflows/deploy-infrastructure.yml`
+### Deployment workflow contract
 
-For both staging and production jobs:
+`.github/workflows/deploy.yml` is the only push and manual deployment entry point. It maps `staging` to the `staging` GitHub Environment and `main` to `production`, rejects manual branch/environment mismatches, and calls the reusable workflows in this order: infrastructure bootstrap/apply, applications through `needs`, then post-deploy infrastructure settings reconciliation. Every invocation uses the same required `environment` and commit SHA.
 
-1. Read `${{ vars.EMAIL_SENDING_ZONE_ID }}` and `${{ vars.EMAIL_SENDING_DOMAIN }}` from the matching GitHub environment.
-2. Export them as `TF_VAR_email_sending_zone_id` and `TF_VAR_email_sending_domain`.
-3. Validate that neither value is empty before `terraform apply`.
-4. Expose and inspect the `email_sending_enabled` output after apply.
+For the reusable infrastructure workflow:
 
-Terraform apply is provisioning, not the final readiness gate. Verification enforcement remains blocked until the domain is enabled and a controlled staging send succeeds.
+1. Read `${{ vars.EMAIL_SENDING_ZONE_ID }}` and `${{ vars.EMAIL_SENDING_DOMAIN }}` from the selected GitHub Environment.
+2. Export them as `TF_VAR_email_sending_zone_id` and `TF_VAR_email_sending_domain` and reject empty values before apply.
+3. Authenticate Terraform with the same environment-scoped `CLOUDFLARE_API_TOKEN` used later by Wrangler; keep `CLOUDFLARE_RUNTIME_API_TOKEN` separate.
+4. After apply, bounded-loop a Terraform refresh and reread `email_sending_enabled` until it becomes `true` or the retry limit is exhausted. One immediate output read is not a readiness gate.
 
-### `.github/workflows/deploy-applications.yml`
+Terraform's first apply is provisioning, not the complete promotion gate. Verification enforcement remains blocked until bounded domain readiness, a controlled staging send, and the post-application Terraform settings reconciliation all succeed.
 
-Before each staging and production `backend-rest` deployment:
+For each staging and production backend deployment in the reusable application workflow:
 
-1. Validate `EMAIL_SENDING_DOMAIN`.
-2. Derive `AUTH_EMAIL_FROM=noreply@$EMAIL_SENDING_DOMAIN`.
-3. Replace both `noreply@example.invalid` occurrences in `wrangler.jsonc`.
-4. Fail if either expected placeholder was absent or any placeholder remains.
-5. Validate or regenerate Wrangler binding types.
-6. Deploy normally with `--keep-vars`.
+1. Validate `EMAIL_SENDING_DOMAIN`, derive `AUTH_EMAIL_FROM=noreply@$EMAIL_SENDING_DOMAIN`, and require `AUTH_EMAIL_VERIFICATION_ENFORCED` to be exactly `true` or `false`.
+2. Render the same enforcement value into the backend Wrangler binding and expose it to the frontend build as `VITE_AUTH_EMAIL_VERIFICATION_ENFORCED`; do not allow backend and frontend rollout states to differ.
+3. Replace and validate the safe sender placeholders so the deployed sender value and allowlist match.
+4. Synchronize every required Worker runtime secret before `wrangler deploy`, including `CLOUDFLARE_RUNTIME_API_TOKEN` under the Worker secret name `CLOUDFLARE_API_TOKEN`. Fresh bootstrap Workers must satisfy Wrangler's `secrets.required` before their first application deployment.
+5. Deploy with the shared CI credential `CLOUDFLARE_API_TOKEN` and `--keep-vars`.
+6. Return control to the orchestrator, which invokes the reusable infrastructure workflow again to reassert and verify the Terraform-owned `cloudflare_worker` query-string-redaction setting without replacing the Wrangler application version.
 
-This keeps the Wrangler deployment and Terraform sender allowlist identical.
+The selected GitHub Environment must include required `NEON_API_KEY` for Terraform and `VITE_AUTH_BASE_URL` for the frontend build. There are no separate Terraform and Wrangler CI token names.
 
-### CI documentation and scripts
-
-Update `docs/system/system-design/ci-cd.md` with:
-
-- The two environment variables.
-- The required Email Sending permission on the Terraform deployment token.
-- Sender-address derivation and Wrangler rendering.
-- The infrastructure-readiness gate required before verification enforcement.
-
-Do not update:
-
-- `scripts/set-github-env-secrets.sh`
-- `scripts/set-github-env-secrets-from-env.sh`
-
-No new secret is required.
+Do not update the secret setup scripts solely for the non-secret email variables or enforcement flag.
 
 ## Phase 4: Add the Cloudflare email adapter
 
@@ -282,7 +273,7 @@ This is intentionally best-effort background delivery. A provider rejection is o
 
 ### `packages/shared-backend/src/auth/auth-config.ts`
 
-Extend `CreateBetterAuthOptions` with a provider-independent callback:
+Extend `CreateBetterAuthOptions` with a provider-independent callback and an explicit `emailVerificationEnforced` boolean parsed from the Worker binding:
 
 ```ts
 type SendVerificationEmail = (input: {
@@ -305,7 +296,7 @@ emailVerification: {
 },
 emailAndPassword: {
   enabled: true,
-  requireEmailVerification: true,
+  requireEmailVerification: options.emailVerificationEnforced,
 },
 rateLimit: {
   enabled: true,
@@ -317,6 +308,8 @@ advanced: {
   },
 },
 ```
+
+`apps/backend-rest` must parse `AUTH_EMAIL_VERIFICATION_ENFORCED` from the exact strings `true` and `false`; any other or missing value is invalid runtime configuration. Deployment A supplies `false`, and Deployment B changes the environment variable to `true` without a code fork.
 
 Configure Better Auth logging so signup and sign-in cannot emit email addresses or verification URLs. Prefer disabling Better Auth’s default logger or routing it through an explicit redacting logger rather than attempting to sanitize arbitrary strings after logging.
 
@@ -332,12 +325,13 @@ Do not rely on Better Auth’s in-memory rate-limit storage in a distributed Wor
 
 ### `apps/backend-rest/src/index.ts`
 
-- Use generated Worker binding types where available; otherwise extend the existing binding type with `EMAIL` and `AUTH_EMAIL_FROM` without unsafe casts.
+- Use generated Worker binding types where available; otherwise extend the existing binding type with `EMAIL`, `AUTH_EMAIL_FROM`, and `AUTH_EMAIL_VERIFICATION_ENFORCED` without unsafe casts.
 - Make `createWorkerAuth()` return `503` before invoking Better Auth if any of these are unavailable:
   - `HYPERDRIVE`
   - `BETTER_AUTH_SECRET`
   - `EMAIL`
   - `AUTH_EMAIL_FROM`
+  - `AUTH_EMAIL_VERIFICATION_ENFORCED` unless it is exactly `true` or `false`
 - Capture the current Hono execution context and pass a request-specific verification callback into Better Auth.
 - Skip auth-session middleware for `/api/auth/*`, since Better Auth owns those endpoints.
 - Update missing-runtime-configuration responses and structured logs without exposing configuration values.
@@ -360,14 +354,18 @@ Use a typed application error rather than reducing every response to a plain `Er
 
 ### Signup
 
-Update `apps/frontend/src/routes/auth/signup/signup-smart.tsx`:
+Update `apps/frontend/src/routes/auth/signup/signup-smart.tsx` and its build-time configuration so the validated GitHub Environment value drives both sides of rollout. The application workflow maps `AUTH_EMAIL_VERIFICATION_ENFORCED` to `VITE_AUTH_EMAIL_VERIFICATION_ENFORCED`, which accepts only exact `true` or `false`.
+
+When the value is `false`, preserve the existing signup behavior: successful signup calls `handleAuthSuccess()`, updates the session, and navigates to `/dashboard`. This is the Deployment A and rollback path.
+
+When the value is `true`:
 
 - Pass an absolute frontend callback URL to `authClient.signUp.email()`, for example `new URL("/login?verified=true", window.location.origin).toString()`.
 - Ensure the frontend origin is included in `BETTER_AUTH_TRUSTED_ORIGINS`.
 - On successful or enumeration-safe synthetic signup, do not call `handleAuthSuccess()`.
-- Navigate to `/verify-email`.
-- Do not invalidate the session query or navigate to `/dashboard`.
+- Navigate to `/verify-email` without invalidating the session query or navigating to `/dashboard`.
 
+The frontend build must fail on a missing or invalid value rather than silently choosing a rollout state. Backend enforcement and frontend navigation therefore switch together from the same environment variable.
 Add:
 
 ```text
@@ -500,23 +498,18 @@ Using normal `wrangler dev` without `remote: true`:
 
 ### Infrastructure readiness
 
-For each environment:
+For each environment, run the orchestrated deployment with `AUTH_EMAIL_VERIFICATION_ENFORCED=false`. The infrastructure reusable workflow validates, plans, applies, then performs a bounded refresh/poll for `cloudflare_email_sending_subdomain.auth.enabled=true`; a single immediate Terraform output read is insufficient.
 
-```text
-terraform validate
-terraform plan
-terraform apply
-```
+The same orchestrator run invokes applications only after infrastructure succeeds. Then confirm:
 
-Then confirm:
-
-- `cloudflare_email_sending_subdomain.auth.enabled` is true.
 - Cloudflare shows valid SPF, DKIM, DMARC, and return-path records.
-- Terraform and Wrangler produce no binding drift.
-- `backend-rest` has `EMAIL` and `AUTH_EMAIL_FROM` bindings.
+- `backend-rest` has the expected `EMAIL`, `AUTH_EMAIL_FROM`, and enforcement bindings after Wrangler takes ownership of the application script.
 - The sender allowlist exactly matches the configured sender.
-- Query-string redaction is enabled in both Terraform and Wrangler.
+- Required Worker runtime secrets were synchronized before the Wrangler deployment.
+- The final infrastructure settings-reconciliation apply reasserted and verified query-string redaction on the Terraform-owned Worker identity without replacing Wrangler's deployed version.
 - A controlled staging send is accepted before verification enforcement is promoted.
+
+If post-application settings reconciliation fails, the deployment is blocked.
 
 ### Staging end-to-end verification
 
@@ -535,34 +528,35 @@ Using unique controlled inboxes:
 
 # Rollout order
 
-Use separate deployment increments or an explicit manual promotion gate. The infrastructure and application workflows have independent triggers and must not be assumed to execute in order.
+`.github/workflows/deploy.yml` is the only deployment entry point. In each run it resolves the environment and invokes, for the same commit SHA, the reusable infrastructure bootstrap/apply, the reusable application deployment through `needs`, and a final infrastructure settings reconciliation through `needs`. Operators do not run or order those phases independently.
 
 ## Deployment A: infrastructure readiness
 
-- Terraform Email Sending domain.
-- Cloudflare-managed DNS onboarding.
-- `EMAIL` and `AUTH_EMAIL_FROM` bindings.
-- Sender restrictions and suppressed-recipient behavior.
-- Query-string redaction.
-- Wrangler and CI parity.
-- Local simulation.
-- Enabled-domain check and controlled staging delivery.
-- No Better Auth verification policy change.
+Set the selected GitHub Environment's `AUTH_EMAIL_VERIFICATION_ENFORCED` variable to the exact string `false`, then run the orchestrator. Deployment A covers:
 
-Deployment A is complete only after the domain reports enabled, DNS records are valid, the controlled send succeeds, and Terraform/Wrangler show no binding drift.
+- Terraform Email Sending domain and create-only Worker bootstrap.
+- Cloudflare-managed DNS onboarding.
+- Wrangler ownership of the application script with `EMAIL`, `AUTH_EMAIL_FROM`, and sender restrictions.
+- Pre-deploy synchronization of every required Worker runtime secret.
+- Bounded enabled-domain readiness polling.
+- Post-application infrastructure reconciliation that reasserts and verifies the Terraform-owned `cloudflare_worker` query-string-redaction setting without replacing Wrangler's application version.
+- Local simulation and controlled staging delivery.
+- No Better Auth verification enforcement.
+
+Deployment A is complete only after the bounded readiness poll succeeds, DNS records are valid, Wrangler's deployed bindings are correct, runtime secrets were present before deployment, the controlled send succeeds, and the final Terraform settings reconciliation succeeds. If reconciliation fails, Deployment A is not complete.
 
 ## Deployment B: verification enforcement
+
+Change `AUTH_EMAIL_VERIFICATION_ENFORCED` to the exact string `true` in staging and run the orchestrator again. Deployment B covers:
 
 - Request-scoped Better Auth construction.
 - Cloudflare email adapter and safe observability.
 - Database-backed Better Auth rate limiting and its migration.
-- Verification enforcement and one-hour token expiry.
+- Environment-enabled verification enforcement and one-hour token expiry.
 - Signup, verification, and login frontend changes.
-- Tests and documentation.
-- Staging end-to-end verification.
-- Production canary with a controlled inbox.
+- Tests, documentation, and staging end-to-end verification.
 
-Coordinate backend and frontend promotion because the old frontend treats a successful signup as authenticated. Do not deploy enforcement before Deployment A passes its readiness gate.
+Promote the same configuration to production only after staging passes, set the production variable to `true`, run the orchestrator from `main`, and complete the controlled-inbox canary. Rollback sets the affected environment variable to `false` and redeploys applications while leaving the proven Email Service infrastructure in place.
 
 # Definition of done
 
@@ -573,8 +567,8 @@ Coordinate backend and frontend promotion because the old frontend treats a succ
 - Missing runtime email configuration returns `503` before account creation.
 - Provider failures leave accounts unverified and recoverable through correct-password sign-in.
 - Local development sends no real email by default.
-- Staging and production sending domains are independently Terraform-managed.
-- Terraform and Wrangler binding and observability definitions remain drift-free.
+- Staging and production sending domains and Worker identity/observability settings are independently Terraform-managed; Terraform code/binding versions and deployments are create-only bootstrap resources, and Wrangler owns application versions, bindings, triggers, and deployments afterward.
+- Terraform enables query-string redaction through `cloudflare_worker`, and every orchestrated deployment finishes with infrastructure settings reconciliation that reasserts and verifies it without replacing Wrangler's application version; failure blocks deployment and enforcement.
 - Application logs, Worker logs, and message previews contain no recipient addresses, verification URLs, tokens, or message bodies.
 - Duplicate signup and unverified sign-in behavior do not disclose account existence.
 - Invalid and expired links cannot display a verification-success state.

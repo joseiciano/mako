@@ -120,7 +120,6 @@ describe('SessionTimerWorkflow', function () {
         },
         timestamp: new Date(),
         instanceId: 'instance-1',
-        workflowName: 'session-timer',
       },
       step,
     )
@@ -162,7 +161,6 @@ describe('SessionTimerWorkflow', function () {
         },
         timestamp: new Date(),
         instanceId: 'instance-1',
-        workflowName: 'session-timer',
       },
       step,
     )
@@ -208,7 +206,6 @@ describe('SessionTimerWorkflow', function () {
         },
         timestamp: new Date(),
         instanceId: 'instance-1',
-        workflowName: 'session-timer',
       },
       step,
     )
@@ -247,7 +244,6 @@ describe('SessionTimerWorkflow', function () {
         },
         timestamp: new Date(),
         instanceId: 'instance-1',
-        workflowName: 'session-timer',
       },
       step,
     )
@@ -288,7 +284,6 @@ describe('SessionTimerWorkflow', function () {
           },
           timestamp: new Date(),
           instanceId: 'instance-1',
-          workflowName: 'session-timer',
         },
         step,
       )
@@ -340,7 +335,6 @@ describe('SessionTimerWorkflow', function () {
           },
           timestamp: new Date(),
           instanceId: 'instance-1',
-          workflowName: 'session-timer',
         },
         step,
       )

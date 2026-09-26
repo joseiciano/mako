@@ -9,24 +9,29 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as RegisterRouteImport } from './routes/register'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated.settings'
-import { Route as AuthenticatedInterviewsRouteImport } from './routes/_authenticated.interviews'
-import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated.dashboard'
+import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
+import { Route as LoginRouteImport } from './routes/login'
+import { Route as RegisterRouteImport } from './routes/register'
+import { Route as VerifyEmailRouteImport } from './routes/verify-email'
 import { Route as AuthenticatedBillingRouteImport } from './routes/_authenticated.billing'
-import { Route as AuthenticatedSettingsProfileRouteImport } from './routes/_authenticated.settings.profile'
-import { Route as AuthenticatedSettingsInterviewerAvailabilityRouteImport } from './routes/_authenticated.settings.interviewer-availability'
-import { Route as AuthenticatedInterviewsNewRouteImport } from './routes/_authenticated.interviews.new'
+import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated.dashboard'
+import { Route as AuthenticatedInterviewsRouteImport } from './routes/_authenticated.interviews'
+import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated.settings'
 import { Route as AuthenticatedInterviewsIdRouteImport } from './routes/_authenticated.interviews.$id'
-import { Route as AuthenticatedInterviewsIdSessionRouteImport } from './routes/_authenticated.interviews.$id.session'
+import { Route as AuthenticatedInterviewsNewRouteImport } from './routes/_authenticated.interviews.new'
+import { Route as AuthenticatedSettingsInterviewerAvailabilityRouteImport } from './routes/_authenticated.settings.interviewer-availability'
+import { Route as AuthenticatedSettingsProfileRouteImport } from './routes/_authenticated.settings.profile'
 import { Route as AuthenticatedInterviewsIdFeedbackRouteImport } from './routes/_authenticated.interviews.$id.feedback'
+import { Route as AuthenticatedInterviewsIdSessionRouteImport } from './routes/_authenticated.interviews.$id.session'
 
-const RegisterRoute = RegisterRouteImport.update({
-  id: '/register',
-  path: '/register',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const AuthenticatedRoute = AuthenticatedRouteImport.update({
+  id: '/_authenticated',
   getParentRoute: () => rootRouteImport,
 } as any)
 const LoginRoute = LoginRouteImport.update({
@@ -34,23 +39,19 @@ const LoginRoute = LoginRouteImport.update({
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedRoute = AuthenticatedRouteImport.update({
-  id: '/_authenticated',
+const RegisterRoute = RegisterRouteImport.update({
+  id: '/register',
+  path: '/register',
   getParentRoute: () => rootRouteImport,
 } as any)
-const IndexRoute = IndexRouteImport.update({
-  id: '/',
-  path: '/',
+const VerifyEmailRoute = VerifyEmailRouteImport.update({
+  id: '/verify-email',
+  path: '/verify-email',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
-  id: '/settings',
-  path: '/settings',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
-const AuthenticatedInterviewsRoute = AuthenticatedInterviewsRouteImport.update({
-  id: '/interviews',
-  path: '/interviews',
+const AuthenticatedBillingRoute = AuthenticatedBillingRouteImport.update({
+  id: '/billing',
+  path: '/billing',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
 const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
@@ -58,22 +59,21 @@ const AuthenticatedDashboardRoute = AuthenticatedDashboardRouteImport.update({
   path: '/dashboard',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
-const AuthenticatedBillingRoute = AuthenticatedBillingRouteImport.update({
-  id: '/billing',
-  path: '/billing',
+const AuthenticatedInterviewsRoute = AuthenticatedInterviewsRouteImport.update({
+  id: '/interviews',
+  path: '/interviews',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
-const AuthenticatedSettingsProfileRoute =
-  AuthenticatedSettingsProfileRouteImport.update({
-    id: '/profile',
-    path: '/profile',
-    getParentRoute: () => AuthenticatedSettingsRoute,
-  } as any)
-const AuthenticatedSettingsInterviewerAvailabilityRoute =
-  AuthenticatedSettingsInterviewerAvailabilityRouteImport.update({
-    id: '/interviewer-availability',
-    path: '/interviewer-availability',
-    getParentRoute: () => AuthenticatedSettingsRoute,
+const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
+  id: '/settings',
+  path: '/settings',
+  getParentRoute: () => AuthenticatedRoute,
+} as any)
+const AuthenticatedInterviewsIdRoute =
+  AuthenticatedInterviewsIdRouteImport.update({
+    id: '/$id',
+    path: '/$id',
+    getParentRoute: () => AuthenticatedInterviewsRoute,
   } as any)
 const AuthenticatedInterviewsNewRoute =
   AuthenticatedInterviewsNewRouteImport.update({
@@ -81,17 +81,17 @@ const AuthenticatedInterviewsNewRoute =
     path: '/new',
     getParentRoute: () => AuthenticatedInterviewsRoute,
   } as any)
-const AuthenticatedInterviewsIdRoute =
-  AuthenticatedInterviewsIdRouteImport.update({
-    id: '/$id',
-    path: '/$id',
-    getParentRoute: () => AuthenticatedInterviewsRoute,
+const AuthenticatedSettingsInterviewerAvailabilityRoute =
+  AuthenticatedSettingsInterviewerAvailabilityRouteImport.update({
+    id: '/interviewer-availability',
+    path: '/interviewer-availability',
+    getParentRoute: () => AuthenticatedSettingsRoute,
   } as any)
-const AuthenticatedInterviewsIdSessionRoute =
-  AuthenticatedInterviewsIdSessionRouteImport.update({
-    id: '/session',
-    path: '/session',
-    getParentRoute: () => AuthenticatedInterviewsIdRoute,
+const AuthenticatedSettingsProfileRoute =
+  AuthenticatedSettingsProfileRouteImport.update({
+    id: '/profile',
+    path: '/profile',
+    getParentRoute: () => AuthenticatedSettingsRoute,
   } as any)
 const AuthenticatedInterviewsIdFeedbackRoute =
   AuthenticatedInterviewsIdFeedbackRouteImport.update({
@@ -99,11 +99,18 @@ const AuthenticatedInterviewsIdFeedbackRoute =
     path: '/feedback',
     getParentRoute: () => AuthenticatedInterviewsIdRoute,
   } as any)
+const AuthenticatedInterviewsIdSessionRoute =
+  AuthenticatedInterviewsIdSessionRouteImport.update({
+    id: '/session',
+    path: '/session',
+    getParentRoute: () => AuthenticatedInterviewsIdRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
+  '/verify-email': typeof VerifyEmailRoute
   '/billing': typeof AuthenticatedBillingRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/interviews': typeof AuthenticatedInterviewsRouteWithChildren
@@ -119,6 +126,7 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
+  '/verify-email': typeof VerifyEmailRoute
   '/billing': typeof AuthenticatedBillingRoute
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/interviews': typeof AuthenticatedInterviewsRouteWithChildren
@@ -136,6 +144,7 @@ export interface FileRoutesById {
   '/_authenticated': typeof AuthenticatedRouteWithChildren
   '/login': typeof LoginRoute
   '/register': typeof RegisterRoute
+  '/verify-email': typeof VerifyEmailRoute
   '/_authenticated/billing': typeof AuthenticatedBillingRoute
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/interviews': typeof AuthenticatedInterviewsRouteWithChildren
@@ -153,6 +162,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/register'
+    | '/verify-email'
     | '/billing'
     | '/dashboard'
     | '/interviews'
@@ -168,6 +178,7 @@ export interface FileRouteTypes {
     | '/'
     | '/login'
     | '/register'
+    | '/verify-email'
     | '/billing'
     | '/dashboard'
     | '/interviews'
@@ -184,6 +195,7 @@ export interface FileRouteTypes {
     | '/_authenticated'
     | '/login'
     | '/register'
+    | '/verify-email'
     | '/_authenticated/billing'
     | '/_authenticated/dashboard'
     | '/_authenticated/interviews'
@@ -201,22 +213,16 @@ export interface RootRouteChildren {
   AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
   LoginRoute: typeof LoginRoute
   RegisterRoute: typeof RegisterRoute
+  VerifyEmailRoute: typeof VerifyEmailRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/register': {
-      id: '/register'
-      path: '/register'
-      fullPath: '/register'
-      preLoaderRoute: typeof RegisterRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/_authenticated': {
@@ -226,25 +232,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/': {
-      id: '/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof IndexRouteImport
+    '/login': {
+      id: '/login'
+      path: '/login'
+      fullPath: '/login'
+      preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/settings': {
-      id: '/_authenticated/settings'
-      path: '/settings'
-      fullPath: '/settings'
-      preLoaderRoute: typeof AuthenticatedSettingsRouteImport
-      parentRoute: typeof AuthenticatedRoute
+    '/register': {
+      id: '/register'
+      path: '/register'
+      fullPath: '/register'
+      preLoaderRoute: typeof RegisterRouteImport
+      parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/interviews': {
-      id: '/_authenticated/interviews'
-      path: '/interviews'
-      fullPath: '/interviews'
-      preLoaderRoute: typeof AuthenticatedInterviewsRouteImport
+    '/verify-email': {
+      id: '/verify-email'
+      path: '/verify-email'
+      fullPath: '/verify-email'
+      preLoaderRoute: typeof VerifyEmailRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/_authenticated/billing': {
+      id: '/_authenticated/billing'
+      path: '/billing'
+      fullPath: '/billing'
+      preLoaderRoute: typeof AuthenticatedBillingRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/dashboard': {
@@ -254,33 +267,19 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedDashboardRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/billing': {
-      id: '/_authenticated/billing'
-      path: '/billing'
-      fullPath: '/billing'
-      preLoaderRoute: typeof AuthenticatedBillingRouteImport
+    '/_authenticated/interviews': {
+      id: '/_authenticated/interviews'
+      path: '/interviews'
+      fullPath: '/interviews'
+      preLoaderRoute: typeof AuthenticatedInterviewsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
-    '/_authenticated/settings/profile': {
-      id: '/_authenticated/settings/profile'
-      path: '/profile'
-      fullPath: '/settings/profile'
-      preLoaderRoute: typeof AuthenticatedSettingsProfileRouteImport
-      parentRoute: typeof AuthenticatedSettingsRoute
-    }
-    '/_authenticated/settings/interviewer-availability': {
-      id: '/_authenticated/settings/interviewer-availability'
-      path: '/interviewer-availability'
-      fullPath: '/settings/interviewer-availability'
-      preLoaderRoute: typeof AuthenticatedSettingsInterviewerAvailabilityRouteImport
-      parentRoute: typeof AuthenticatedSettingsRoute
-    }
-    '/_authenticated/interviews/new': {
-      id: '/_authenticated/interviews/new'
-      path: '/new'
-      fullPath: '/interviews/new'
-      preLoaderRoute: typeof AuthenticatedInterviewsNewRouteImport
-      parentRoute: typeof AuthenticatedInterviewsRoute
+    '/_authenticated/settings': {
+      id: '/_authenticated/settings'
+      path: '/settings'
+      fullPath: '/settings'
+      preLoaderRoute: typeof AuthenticatedSettingsRouteImport
+      parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/interviews/$id': {
       id: '/_authenticated/interviews/$id'
@@ -289,18 +288,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedInterviewsIdRouteImport
       parentRoute: typeof AuthenticatedInterviewsRoute
     }
-    '/_authenticated/interviews/$id/session': {
-      id: '/_authenticated/interviews/$id/session'
-      path: '/session'
-      fullPath: '/interviews/$id/session'
-      preLoaderRoute: typeof AuthenticatedInterviewsIdSessionRouteImport
-      parentRoute: typeof AuthenticatedInterviewsIdRoute
+    '/_authenticated/interviews/new': {
+      id: '/_authenticated/interviews/new'
+      path: '/new'
+      fullPath: '/interviews/new'
+      preLoaderRoute: typeof AuthenticatedInterviewsNewRouteImport
+      parentRoute: typeof AuthenticatedInterviewsRoute
+    }
+    '/_authenticated/settings/interviewer-availability': {
+      id: '/_authenticated/settings/interviewer-availability'
+      path: '/interviewer-availability'
+      fullPath: '/settings/interviewer-availability'
+      preLoaderRoute: typeof AuthenticatedSettingsInterviewerAvailabilityRouteImport
+      parentRoute: typeof AuthenticatedSettingsRoute
+    }
+    '/_authenticated/settings/profile': {
+      id: '/_authenticated/settings/profile'
+      path: '/profile'
+      fullPath: '/settings/profile'
+      preLoaderRoute: typeof AuthenticatedSettingsProfileRouteImport
+      parentRoute: typeof AuthenticatedSettingsRoute
     }
     '/_authenticated/interviews/$id/feedback': {
       id: '/_authenticated/interviews/$id/feedback'
       path: '/feedback'
       fullPath: '/interviews/$id/feedback'
       preLoaderRoute: typeof AuthenticatedInterviewsIdFeedbackRouteImport
+      parentRoute: typeof AuthenticatedInterviewsIdRoute
+    }
+    '/_authenticated/interviews/$id/session': {
+      id: '/_authenticated/interviews/$id/session'
+      path: '/session'
+      fullPath: '/interviews/$id/session'
+      preLoaderRoute: typeof AuthenticatedInterviewsIdSessionRouteImport
       parentRoute: typeof AuthenticatedInterviewsIdRoute
     }
   }
@@ -379,6 +399,7 @@ const rootRouteChildren: RootRouteChildren = {
   AuthenticatedRoute: AuthenticatedRouteWithChildren,
   LoginRoute: LoginRoute,
   RegisterRoute: RegisterRoute,
+  VerifyEmailRoute: VerifyEmailRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -6,6 +6,7 @@ export {
   type BetterAuthSessionState,
   type BetterAuthSessionUser,
   type CreateBetterAuthOptions,
+  type SendVerificationEmail,
 } from './auth-config'
 export {
   registerAuthController,

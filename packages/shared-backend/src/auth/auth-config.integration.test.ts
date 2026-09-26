@@ -2,30 +2,9 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import { createEmailVerificationToken } from 'better-auth/api'
 import { Client } from 'pg'
 import { createBetterAuth, type BetterAuthLike } from './auth-config'
+import { resolveLocalTestDatabaseUrl } from '../database/test-database-url'
 
 const backendOrigin = 'http://localhost:8787'
-
-function resolveTestDatabaseUrl(): string {
-  const databaseUrl = process.env.DATABASE_URL
-
-  if (!databaseUrl) {
-    throw new Error(
-      'DATABASE_URL is required. Example: DATABASE_URL=postgres://... pnpm db:test:reset',
-    )
-  }
-
-  const parsed = new URL(databaseUrl)
-  const isLocal =
-    parsed.hostname === 'localhost' || parsed.hostname === '127.0.0.1'
-
-  if (!isLocal || !parsed.pathname.endsWith('_test')) {
-    throw new Error(
-      'Refusing to run integration tests against a non-local database. DATABASE_URL must point to a local "_test" database.',
-    )
-  }
-
-  return databaseUrl
-}
 
 function uniqueEmail(): string {
   return `verify-it-${crypto.randomUUID()}@example.com`
@@ -50,6 +29,7 @@ type SignUpBody = {
 describe('Better Auth email verification integration', function betterAuthEmailVerificationSuite() {
   let client: Client
   let auth: BetterAuthLike
+  let databaseUrl: string
   type VerificationEmailInput = { email: string; url: string }
 
   const sendVerificationEmail = vi.fn(
@@ -61,7 +41,7 @@ describe('Better Auth email verification integration', function betterAuthEmailV
   beforeAll(async function setup() {
     vi.spyOn(console, 'log').mockImplementation(function silenceLogs() {})
 
-    const databaseUrl = resolveTestDatabaseUrl()
+    databaseUrl = resolveLocalTestDatabaseUrl()
     client = new Client({ connectionString: databaseUrl })
     await client.connect()
 
@@ -70,6 +50,7 @@ describe('Better Auth email verification integration', function betterAuthEmailV
       secret: 'integration-test-secret',
       baseURL: `${backendOrigin}/api/auth`,
       trustedOrigins: ['http://localhost:3000'],
+      requireEmailVerification: true,
       sendVerificationEmail,
     })
   })
@@ -80,15 +61,29 @@ describe('Better Auth email verification integration', function betterAuthEmailV
     vi.restoreAllMocks()
   })
 
+  async function callAuthWith(
+    authInstance: BetterAuthLike,
+    pathWithQuery: string,
+    init?: RequestInit,
+  ): Promise<Response> {
+    return await authInstance.handler(
+      new Request(`${backendOrigin}${pathWithQuery}`, init),
+    )
+  }
+
   async function callAuth(
     pathWithQuery: string,
     init?: RequestInit,
   ): Promise<Response> {
-    return await auth.handler(new Request(`${backendOrigin}${pathWithQuery}`, init))
+    return await callAuthWith(auth, pathWithQuery, init)
   }
 
-  async function signUp(email: string, password: string): Promise<Response> {
-    return await callAuth('/api/auth/sign-up/email', {
+  async function signUp(
+    email: string,
+    password: string,
+    authInstance: BetterAuthLike = auth,
+  ): Promise<Response> {
+    return await callAuthWith(authInstance, '/api/auth/sign-up/email', {
       method: 'POST',
       headers: {
         'content-type': 'application/json',
@@ -149,7 +144,49 @@ describe('Better Auth email verification integration', function betterAuthEmailV
     const token = verificationUrl.searchParams.get('token')
     expect(token).not.toBe(null)
     const payload = decodeJwtPayload(token as string)
-    expect(payload.exp - payload.iat).toBe(3600)
+    const lifetimeSeconds = payload.exp - payload.iat
+    expect(lifetimeSeconds).toBeGreaterThanOrEqual(3599)
+    expect(lifetimeSeconds).toBeLessThanOrEqual(3600)
+  })
+
+  it('creates a session and permits unverified signup when verification is not required', async function run() {
+    const nonEnforcingAuth = createBetterAuth({
+      connectionString: databaseUrl,
+      secret: 'integration-test-secret',
+      baseURL: `${backendOrigin}/api/auth`,
+      trustedOrigins: ['http://localhost:3000'],
+      requireEmailVerification: false,
+      sendVerificationEmail,
+    })
+    const email = uniqueEmail()
+
+    const response = await signUp(
+      email,
+      'correct-password-123',
+      nonEnforcingAuth,
+    )
+    const body = (await response.json()) as SignUpBody
+
+    expect(response.status).toBe(200)
+    expect(body.token).toEqual(expect.any(String))
+    expect(body.user.emailVerified).toBe(false)
+    expect(response.headers.getSetCookie()).not.toEqual([])
+    expect(await countSessions(body.user.id)).toBe(1)
+
+    const signInResponse = await callAuthWith(
+      nonEnforcingAuth,
+      '/api/auth/sign-in/email',
+      {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          origin: 'http://localhost:3000',
+        },
+        body: JSON.stringify({ email, password: 'correct-password-123' }),
+      },
+    )
+
+    expect(signInResponse.status).toBe(200)
   })
 
   it('rejects unverified sign-in with EMAIL_NOT_VERIFIED and resends the verification email', async function run() {

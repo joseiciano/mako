@@ -22,18 +22,36 @@ export type BetterAuthLike = {
   }
 }
 
+export type SendVerificationEmail = (input: {
+  email: string
+  url: string
+}) => Promise<void>
+
+const authCache = new Map<string, BetterAuthLike>()
+
 export type CreateBetterAuthOptions = {
   connectionString: string
   secret: string
   baseURL: string
+  requireEmailVerification: boolean
   trustedOrigins?: readonly string[]
+  sendVerificationEmail?: SendVerificationEmail
 }
-
-const authCache = new Map<string, BetterAuthLike>()
 export function createBetterAuth(options: CreateBetterAuthOptions): BetterAuthLike {
   const normalizedOptions = normalizeCreateBetterAuthOptions(options)
-  const cacheKey = JSON.stringify(normalizedOptions)
-  const cachedAuth = authCache.get(cacheKey)
+
+  // Options containing a request-scoped sendVerificationEmail callback must
+  // never be cached: the callback closes over one Worker request's
+  // execution context, and reusing it from another request would deliver
+  // verification email work on the wrong request's lifetime. Session-only
+  // (callback-free) options remain safely cacheable.
+  const hasRequestScopedCallback = options.sendVerificationEmail !== undefined
+  let cachedAuth: BetterAuthLike | undefined
+  let cacheKey: string | undefined
+  if (!hasRequestScopedCallback) {
+    cacheKey = JSON.stringify(normalizedOptions)
+    cachedAuth = authCache.get(cacheKey)
+  }
 
   if (cachedAuth) {
     return cachedAuth
@@ -50,12 +68,37 @@ export function createBetterAuth(options: CreateBetterAuthOptions): BetterAuthLi
     trustedOrigins: normalizedOptions.trustedOrigins
       ? [...normalizedOptions.trustedOrigins]
       : undefined,
+    logger: {
+      disabled: true,
+    },
     emailAndPassword: {
       enabled: true,
+      requireEmailVerification: normalizedOptions.requireEmailVerification,
+    },
+    emailVerification: {
+      sendVerificationEmail: options.sendVerificationEmail
+        ? function adaptSendVerificationEmail({ user, url }) {
+            return options.sendVerificationEmail!({
+              email: user.email,
+              url,
+            })
+          }
+        : undefined,
+      expiresIn: 3600,
+      sendOnSignUp: true,
+      sendOnSignIn: true,
+      autoSignInAfterVerification: false,
+    },
+    rateLimit: {
+      enabled: true,
+      storage: 'database',
     },
     advanced: {
       database: {
         generateId: () => crypto.randomUUID(),
+      },
+      ipAddress: {
+        ipAddressHeaders: ['cf-connecting-ip'],
       },
       ...(shouldUseSecureCookies
         ? {
@@ -70,9 +113,12 @@ export function createBetterAuth(options: CreateBetterAuthOptions): BetterAuthLi
     },
   }) as BetterAuthLike
 
-  authCache.set(cacheKey, auth)
+  if (cacheKey !== undefined) {
+    authCache.set(cacheKey, auth)
+  }
   return auth
 }
+
 
 export function parseTrustedOrigins(value: string | undefined): string[] {
   if (typeof value !== 'string') {
@@ -101,6 +147,7 @@ function normalizeCreateBetterAuthOptions(
     connectionString: options.connectionString,
     secret: options.secret,
     baseURL: options.baseURL,
+    requireEmailVerification: options.requireEmailVerification,
     trustedOrigins,
   }
 }

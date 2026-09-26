@@ -18,8 +18,8 @@ The current Terraform state, Cloudflare resources, and Neon databases are dispos
 
 - Terraform in `infrastructure/` provisions one complete environment per state, selected by the required `var.environment` value (`staging` or `production`).
 - Each invocation creates one environment-specific Neon project, one explicit application role and database, and one Hyperdrive configuration wired to those credentials.
-- Terraform-managed Worker bindings reference the singular `cloudflare_hyperdrive_config.postgres.id` and mirror the committed Wrangler binding and trigger configuration.
-- `.github/workflows/deploy-infrastructure.yml` and `.github/workflows/deploy-applications.yml` always select the `production` GitHub Environment.
+- Terraform provisions non-Worker resources plus Worker identity/observability settings and references them from split Worker resources; committed Wrangler configuration mirrors the application-facing bindings after bootstrap.
+- Deployment workflows previously targeted only the `production` GitHub Environment; the accepted contract uses both required `staging` and `production` environments through one orchestrator.
 - Application Wrangler configurations use stable account-scoped Worker, R2 bucket, Queue, Workflow, and rate-limiter names. Those names can be reused in separate Cloudflare accounts.
 - Wrangler deployment replaces the `__HYPERDRIVE_ID__` placeholder with the selected environment's Hyperdrive ID.
 - `infrastructure/backend.tf` activates a partial S3 backend. `infrastructure/backend-r2.hcl.example` defines the non-secret R2 endpoint and S3 lockfile contract; CI does not yet render an environment-specific backend configuration.
@@ -39,22 +39,25 @@ The current Terraform state, Cloudflare resources, and Neon databases are dispos
 - **REQ-009**: Run database migrations with the `DATABASE_URL` from the selected GitHub Environment before deploying database-dependent Workers.
 - **REQ-010**: Inject the selected environment's `HYPERDRIVE_ID` into the existing `__HYPERDRIVE_ID__` Wrangler placeholders. No environment-specific resource-name templating is required.
 - **REQ-011**: Expose singular Terraform outputs for `hyperdrive_id`, `database_url`, `neon_project_id`, and `neon_database_host`; mark the connection URL sensitive.
-- **REQ-012**: Serialize the complete infrastructure → migration → application deployment for one environment while allowing staging and production deployments to run independently.
+- **REQ-012**: Serialize the complete infrastructure → readiness → migration → application → settings-reconciliation deployment for one environment while allowing staging and production deployments to run independently.
 - **REQ-013**: Configure environment-specific application origins and provider credentials, including Better Auth, frontend API origin, Stripe, and RealtimeKit values.
 - **REQ-014**: Stop an application deployment when Terraform has recreated Neon or Hyperdrive and the selected GitHub Environment still contains stale `DATABASE_URL` or `HYPERDRIVE_ID` values.
 - **REQ-015**: Require a successful staging deployment for the exact staging commit before that commit may be promoted to `main`.
-- **SEC-001**: Use separate least-privilege Cloudflare tokens for Terraform management, Wrangler deployment, and Worker runtime API access; scope every token to its target account. Use bucket-scoped R2 credentials for the corresponding Terraform-state bucket.
+- **REQ-016**: Confirm infrastructure readiness with a bounded Terraform refresh/poll after apply; a single immediate output assertion is not a readiness gate.
+- **REQ-017**: Synchronize every Worker's required runtime secrets before its Wrangler deployment, including for fresh bootstrap Workers.
+- **REQ-018**: Reassert Terraform-owned Worker identity/observability settings through a post-deploy infrastructure reconciliation apply after every application deployment.
+- **SEC-001**: Use one environment-scoped CI token named `CLOUDFLARE_API_TOKEN` for both the Terraform provider and Wrangler; keep the separate least-privilege `CLOUDFLARE_RUNTIME_API_TOKEN` for Worker runtime API access. Scope every token to its target account and use bucket-scoped R2 credentials for the corresponding Terraform-state bucket.
 - **SEC-002**: Require an approved, protected `staging` → `main` pull request before production deployment. GitHub Environment required-reviewer gates are not part of this private personal-account repository design.
 - **SEC-003**: Never write backend credentials, Terraform variables containing secrets, database URLs, or generated backend configuration containing secrets to the repository.
 - **SEC-004**: Prevent staging credentials from reading or modifying production Terraform state.
 - **CON-001**: The current stack is disposable. Do not migrate, import, retain, or recover its Terraform state or Neon data as part of this cutover.
 - **CON-002**: Create each Terraform-state R2 bucket outside the application Terraform stack because Terraform cannot store state in a bucket before that bucket exists.
-- **CON-003**: Terraform owns persistent Cloudflare resources, Worker bindings, triggers, and bootstrap scripts. Wrangler owns application Worker code and runtime secrets; committed Wrangler configuration must mirror Terraform-owned bindings and triggers exactly.
-- **CON-004**: Ignore Wrangler-owned script content fields on every Terraform-managed Worker that Wrangler deploys. Do not ignore Terraform-owned bindings or triggers.
+- **CON-003**: Terraform owns persistent non-Worker Cloudflare resources and Worker identity/observability settings, including query-string redaction, through the split Worker resources. Terraform creates only the first bootstrap version/deployment; Wrangler owns application Worker versions, bindings, triggers, and runtime secrets afterward.
+- **CON-004**: Do not rely on `ignore_changes` over script content. After Wrangler deploys an application, the orchestrator invokes Terraform again to reassert Worker identity/observability settings without uploading code or replacing Wrangler's version/deployment.
 - **CON-005**: Do not add an ORM; database access and migrations continue using the repository's SQL-based infrastructure.
 - **CON-006**: Cloudflare R2 does not expose S3 bucket versioning through its S3 compatibility API. State versioning is not required for this disposable cutover, and R2 bucket locks must not cover the live state or `.tflock` keys because Terraform must overwrite and delete them.
 - **GUD-001**: Declare `var.environment` without a default so an omitted value cannot silently target production.
-- **GUD-002**: Resolve the deployment environment once in the stack deployment workflow and pass it to reusable infrastructure and application workflows.
+- **GUD-002**: Resolve the deployment environment once in the orchestrator and pass it to each reusable infrastructure and application invocation, including the post-deploy settings-reconciliation invocation.
 - **PAT-001**: Use the same environment names everywhere: Terraform input, GitHub Environment, branch mapping, job output, logs, and documentation.
 
 ## 2. Implementation Steps
@@ -92,12 +95,12 @@ The current Terraform state, Cloudflare resources, and Neon databases are dispos
   - URL-encode credentials and include the required Neon TLS query parameters.
 - [x] **TASK-042**: Reconcile Terraform and Wrangler ownership before creating either environment.
   - Add `InterviewFeedbackWorkflow` and `RecordingFinalizationWorkflow` exports to `infrastructure/workers/notification-orchestrator.js` so every Terraform-created Workflow class exists during a fresh apply.
-  - Replace the unused `cloudflare_workflow.interview_lifecycle` resource and `INTERVIEW_WORKFLOW` binding with `cloudflare_workflow.session_timer`, named `session-timer-workflow`, targeting `cloudflare_workers_script.backend_api` and class `SessionTimerWorkflow`.
+  - Replace the unused `cloudflare_workflow.interview_lifecycle` resource and `INTERVIEW_WORKFLOW` binding with `cloudflare_workflow.session_timer`, named `session-timer-workflow`, targeting the backend Worker and class `SessionTimerWorkflow`.
   - Add a matching bootstrap `SessionTimerWorkflow` export to `infrastructure/workers/backend-api.js`, remove the obsolete `interview_workflow_name` and `interview_workflow_class_name` variables, and remove or update the `workflow_name` output so it no longer references `interview_lifecycle`.
-  - Represent `PREMIUM_MARKETPLACE_RATE_LIMITER` in the Terraform `backend_api` binding set and keep namespace ID `1001` mirrored in Wrangler.
+  - Represent `PREMIUM_MARKETPLACE_RATE_LIMITER` in the backend bootstrap binding set and keep namespace ID `1001` mirrored in Wrangler.
   - Add the notification-orchestrator scheduled trigger to Terraform and align its Queue consumer batch timeout, retry count, retry delay, and dead-letter Queue with `apps/notification-orchestrator/wrangler.jsonc`.
-  - Add the existing script-content `ignore_changes` fields to `cloudflare_workers_script.backend_api`; keep `greedy_matcher` Terraform-owned because no Wrangler application deploys it.
-  - Update both Wrangler configurations to mirror every Terraform-owned binding and trigger exactly. A Wrangler deploy followed by `terraform plan` must produce no binding or trigger drift.
+  - Adopt the split Worker resource model: `cloudflare_worker` identities with Terraform-owned identity/observability settings, plus `cloudflare_worker_version`/`cloudflare_workers_deployment` only for the first bootstrap version/deployment. Do not carry legacy script-content `ignore_changes`; the post-deploy settings-reconciliation invocation reasserts identity settings instead.
+  - Wrangler owns application versions, bindings, triggers, and script content after bootstrap; committed Wrangler configuration carries the application-facing bindings, and Terraform must not overwrite a later Wrangler version/deployment.
 ### Implementation Phase 2: Activate isolated R2 remote state
 
 - **GOAL-002**: Give each environment an independently authenticated remote state backend.
@@ -137,13 +140,12 @@ The current Terraform state, Cloudflare resources, and Neon databases are dispos
   - Create each new feature branch from the latest `staging` branch.
 - [ ] **TASK-013**: Store the following infrastructure secrets in every GitHub Environment.
   - `CLOUDFLARE_ACCOUNT_ID`
-  - `CLOUDFLARE_TERRAFORM_API_TOKEN`
+  - `CLOUDFLARE_API_TOKEN`
   - `NEON_API_KEY`
   - `NEON_ORG_ID`
   - `TF_STATE_R2_ACCESS_KEY_ID`
   - `TF_STATE_R2_SECRET_ACCESS_KEY`
 - [ ] **TASK-014**: Store the following application secrets in every GitHub Environment.
-  - `CLOUDFLARE_DEPLOY_API_TOKEN`
   - `CLOUDFLARE_RUNTIME_API_TOKEN`
   - `DATABASE_URL`
   - `HYPERDRIVE_ID`
@@ -155,6 +157,7 @@ The current Terraform state, Cloudflare resources, and Neon databases are dispos
   - `STRIPE_SECRET_KEY`
   - `STRIPE_WEBHOOK_SECRET`
   - `VITE_STRIPE_PUBLISHABLE_KEY`
+  - Also define the non-secret environment variables `EMAIL_SENDING_ZONE_ID`, `EMAIL_SENDING_DOMAIN`, and `AUTH_EMAIL_VERIFICATION_ENFORCED` (exact `true`/`false`, initially `false`); they are GitHub Environment variables, not secrets.
 - [ ] **TASK-015**: Update `scripts/set-github-env-secrets.sh` to configure a complete environment.
   - Accept `staging` and `production`.
   - Support every secret from TASK-013 and TASK-014.
@@ -165,26 +168,25 @@ The current Terraform state, Cloudflare resources, and Neon databases are dispos
   - Generate the non-secret environment backend file and run `terraform -chdir=infrastructure init -reconfigure -backend-config=backend-r2.hcl` before reading outputs.
   - Run `terraform -chdir=infrastructure output -raw hyperdrive_id | gh secret set HYPERDRIVE_ID --repo joseiciano/mako --env "$ENVIRONMENT"`.
   - Run `terraform -chdir=infrastructure output -raw database_url | gh secret set DATABASE_URL --repo joseiciano/mako --env "$ENVIRONMENT"` so the sensitive value is passed through standard input rather than printed.
-  - Repeat this synchronization whenever the Neon project or Hyperdrive configuration is recreated, then rerun the stack deployment for the same branch and environment.
+  - Repeat this synchronization whenever the Neon project or Hyperdrive configuration is recreated, then rerun the orchestrator for the same branch and environment.
 
 ### Implementation Phase 4: Route Terraform deployments safely
 
 - **GOAL-004**: Make infrastructure deployment select exactly one account, state backend, and Terraform environment.
 
-- [ ] **TASK-017**: Create `.github/workflows/deploy-stack.yml` as the only push and manual deployment entry point.
+- [ ] **TASK-017**: Create `.github/workflows/deploy.yml` as the only push and manual deployment entry point.
   - Trigger on relevant infrastructure, application, package, lockfile, and deployment-workflow changes pushed to `staging` or `main`.
   - Add the required `workflow_dispatch.inputs.environment` choice with `staging` and `production`.
   - Resolve `staging` branch to `staging` and `main` branch to `production`; fail an unsupported branch or manual branch/environment mismatch before invoking an environment-bearing job.
-  - Expose the resolved environment once and pass it as a required input to the infrastructure and application reusable workflows.
-- [ ] **TASK-018**: Serialize the complete stack deployment at the orchestrator workflow level.
-  - Use concurrency group `deploy-stack-${{ github.ref_name }}`; the branch/environment guard makes each accepted branch map to exactly one environment.
-  - Set `queue: max` and `cancel-in-progress: false` so queued deployments are retained rather than replaced.
-  - Invoke infrastructure first and applications only after infrastructure succeeds.
+  - Expose the resolved environment once and pass it as a required input to the reusable infrastructure and application workflows.
+- [ ] **TASK-018**: Serialize the complete deployment at the orchestrator workflow level.
+  - Concurrency groups remain branch/environment-scoped at the orchestrator level so the same environment serializes deployments and different environments may proceed independently.
+  - Invoke infrastructure bootstrap/apply first, applications only through `needs`, then post-deploy infrastructure settings reconciliation after applications succeed.
 - [ ] **TASK-019**: Convert `.github/workflows/deploy-infrastructure.yml` into a reusable `workflow_call` workflow with a required `environment` input.
   - Select the input GitHub Environment on the Terraform job.
   - `TF_VAR_environment=${{ inputs.environment }}`
   - `TF_VAR_cloudflare_account_id=${{ secrets.CLOUDFLARE_ACCOUNT_ID }}`
-  - `TF_VAR_cloudflare_api_token=${{ secrets.CLOUDFLARE_TERRAFORM_API_TOKEN }}`
+  - `TF_VAR_cloudflare_api_token=${{ secrets.CLOUDFLARE_API_TOKEN }}`
   - `TF_VAR_neon_api_key=${{ secrets.NEON_API_KEY }}`
   - `TF_VAR_neon_org_id=${{ secrets.NEON_ORG_ID }}`
 - [ ] **TASK-020**: Map R2 backend credentials independently from Terraform variables.
@@ -210,12 +212,12 @@ The current Terraform state, Cloudflare resources, and Neon databases are dispos
 - **GOAL-005**: Deploy migrations and applications to the GitHub Environment selected by branch or manual input.
 
 - [ ] **TASK-024**: Convert `.github/workflows/deploy-applications.yml` into a reusable `workflow_call` workflow with a required `environment` input.
-  - Remove its push, manual-dispatch, resolver, and job-level concurrency configuration; `.github/workflows/deploy-stack.yml` owns routing and serialization.
+  - Remove its push, manual-dispatch, resolver, and job-level concurrency configuration; `.github/workflows/deploy.yml` owns routing, serialization, and final settings reconciliation.
   - Select `${{ inputs.environment }}` as the GitHub Environment on migration, backend-rest, notification-orchestrator, and frontend jobs.
 - [ ] **TASK-025**: Make every application job's dependency graph explicit.
-  - Rename `migrate-production-db` to `migrate-database`.
-  - Make both database-dependent Worker jobs depend directly on `migrate-database`.
-  - Make the frontend deployment depend on `deploy-backend-rest` so a new frontend is not published before its matching backend.
+  - Rename `migrate-production-db` to `migrate-db`.
+  - Make both database-dependent Worker jobs (`deploy-backend-rest`, `deploy-notification-orchestrator`) depend directly on `migrate-db`.
+  - Make the frontend deployment (`deploy-frontend`) depend on `deploy-backend-rest` so a new frontend is not published before its matching backend.
   - Preserve any additional dependency needed to deploy external Workflow classes before backend bindings reference them.
 - [ ] **TASK-026**: Keep database migration behavior safe for sequential releases.
   - Run migrations before database-dependent Workers.
@@ -223,17 +225,28 @@ The current Terraform state, Cloudflare resources, and Neon databases are dispos
 - [ ] **TASK-027**: Keep existing account-scoped Wrangler resource names and Hyperdrive injection.
   - Do not add Wrangler environments or duplicate per-environment configuration blocks.
   - Continue replacing every `__HYPERDRIVE_ID__` placeholder with the selected GitHub Environment's `HYPERDRIVE_ID`.
-- [ ] **TASK-028**: Separate Wrangler deployment credentials from Worker runtime credentials.
-  - Authenticate `cloudflare/wrangler-action` with `CLOUDFLARE_DEPLOY_API_TOKEN`.
-  - Map `CLOUDFLARE_RUNTIME_API_TOKEN` to the deployed Worker secret named `CLOUDFLARE_API_TOKEN`; do not expose the Terraform-management token to a Worker.
-  - Sync `STRIPE_WEBHOOK_SECRET` into backend-rest in both the validation environment and Wrangler `secrets:` list.
+- [ ] **TASK-028**: Keep the CI token separate from Worker runtime credentials.
+  - Authenticate `cloudflare/wrangler-action` with the environment-scoped CI secret `CLOUDFLARE_API_TOKEN`.
+  - Map `CLOUDFLARE_RUNTIME_API_TOKEN` to the deployed Worker secret named `CLOUDFLARE_API_TOKEN`; do not expose the CI deployment token to Worker runtime code.
+  - Synchronize every required secret before `wrangler deploy` rather than after, because Wrangler `secrets.required` must pass for a fresh bootstrap Worker.
   - Continue syncing the selected environment's `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_REALTIMEKIT_APP_ID`, Better Auth values, Stripe values, and `HYPERDRIVE_ID` where each application consumes them.
 - [ ] **TASK-029**: Validate environment-specific runtime configuration before deployment.
-  - Require `BETTER_AUTH_URL` and `VITE_AUTH_BASE_URL` to identify the selected backend's `/api/auth` URL.
+  - Require `BETTER_AUTH_URL` and required `VITE_AUTH_BASE_URL` to identify the selected backend's `/api/auth` URL.
   - Require every comma-separated `BETTER_AUTH_TRUSTED_ORIGINS` entry to be an allowed origin for the selected frontend; document that general API requests derive `/api` from `VITE_AUTH_BASE_URL` unless `VITE_API_BASE_URL` is deliberately added later.
   - Require Stripe `sk_test_`/`pk_test_` values in staging and `sk_live_`/`pk_live_` values in production without printing values.
   - Require a non-empty, environment-specific `STRIPE_WEBHOOK_SECRET` and register the matching backend `/api/payments/webhook` endpoint in Stripe.
   - Require each Cloudflare account's own RealtimeKit application ID.
+
+### Implementation Phase 5a: Post-deploy settings reconciliation
+
+- **GOAL-005A**: Guarantee Terraform-owned Worker settings after every application deployment.
+
+- [ ] **TASK-043**: Add the post-deploy settings-reconciliation invocation.
+  - The orchestrator invokes the reusable infrastructure workflow a second time after applications with `needs: [resolve-environment, applications]`, the same resolved environment, and the same commit SHA.
+  - The reconciliation apply reasserts Worker identity/observability settings, including query-string redaction, without uploading code, replacing Wrangler bindings, or overwriting the deployed application version.
+  - Fail the run if reconciliation cannot apply or verify the identity settings.
+  - Dependencies: `TASK-018`, `TASK-019`.
+  - Completion: every orchestrated deployment ends with Terraform-owned Worker identity settings verified.
 
 ### Implementation Phase 6: Establish staging-first feature development and production promotion
 
@@ -246,12 +259,12 @@ The current Terraform state, Cloudflare resources, and Neon databases are dispos
   - Enable merge commits in repository settings; feature pull requests may still use squash merges, but promotion pull requests must use merge commits.
 - [ ] **TASK-032**: Document and enforce the promotion path.
   - Merge completed feature branches into `staging`; feature pull requests may use squash merging.
-  - Let the staging `Deploy Stack` run finish successfully for the resulting staging commit.
+  - Let the staging `Deploy` orchestrator run finish successfully for the resulting staging commit.
   - Promote `staging` to `main` only through an approved pull request whose head commit has a successful staging deployment.
   - Merge the `staging` → `main` promotion pull request with a merge commit, not squash or rebase, so staging commits remain ancestors of `main`.
 - [ ] **TASK-033**: Implement the required `promotion-policy` job in `.github/workflows/quality-gate.yml`.
   - For pull requests targeting `main`, require `github.head_ref == 'staging'`.
-  - Use read-only Actions/deployments API access to verify that the exact pull-request head SHA completed the staging `Deploy Stack` successfully.
+  - Use read-only Actions/deployments API access to verify that the exact pull-request head SHA completed the staging `Deploy` orchestrator successfully.
   - Pass without the deployment lookup for pull requests targeting `staging`.
   - Route every normal, urgent, and emergency fix through `staging`; this plan intentionally defines no production-only bypass path.
   - Never reset or force-push a protected environment branch.
@@ -266,8 +279,8 @@ The current Terraform state, Cloudflare resources, and Neon databases are dispos
 - [ ] **TASK-035**: Bootstrap and apply the staging stack.
   - Create the staging account's state bucket and credentials.
   - Populate staging infrastructure and application secrets.
-  - Dispatch `Deploy Stack` from `staging`; the first run is expected to stop after Terraform while `HYPERDRIVE_ID` and `DATABASE_URL` are stale or absent.
-  - Complete TASK-016, rerun `Deploy Stack`, and require the full staging deployment to succeed.
+  - Dispatch the `Deploy` orchestrator from `staging`; the first run is expected to stop after Terraform while `HYPERDRIVE_ID` and `DATABASE_URL` are stale or absent.
+  - Complete TASK-016, rerun the orchestrator, and require the full staging deployment to succeed.
 - [ ] **TASK-036**: Repeat the complete infrastructure, output handoff, and application bootstrap for production from `main` only after staging passes.
 - [ ] **TASK-037**: Execute the staging environment-isolation smoke tests in TEST-005 through TEST-007.
 - [ ] **TASK-038**: Promote the verified staging revision through an approved `staging` → `main` pull request, deploy production, and execute the production smoke tests.
@@ -298,7 +311,7 @@ The current Terraform state, Cloudflare resources, and Neon databases are dispos
 ## 5. Files
 
 - **FILE-001**: `infrastructure/variables.tf` — add required `environment`; remove unused `realtime_app_id`.
-- **FILE-002**: `infrastructure/main.tf` — replace environment collections with singular Neon and Hyperdrive resources; update bindings.
+- **FILE-002**: `infrastructure/main.tf` — replace environment collections with singular Neon and Hyperdrive resources; adopt split Worker identity/settings plus create-only bootstrap version/deployment resources.
 - **FILE-003**: `infrastructure/outputs.tf` — expose singular environment outputs; remove collection and RealtimeKit outputs.
 - **FILE-004**: `infrastructure/versions.tf` — require a Cloudflare provider version supporting Worker rate-limit bindings; in Phase 2, require a Terraform version supporting S3 lockfiles.
 - **FILE-005**: `infrastructure/backend.tf` — commit the partial S3 backend declaration.
@@ -308,8 +321,8 @@ The current Terraform state, Cloudflare resources, and Neon databases are dispos
 - **FILE-009**: `infrastructure/README.md` — document one-environment-per-state behavior and R2 backend bootstrap.
 - **FILE-010**: `infrastructure/tfplan` — remove the tracked generated plan artifact.
 - **FILE-011**: `.gitignore` — allow committed `infrastructure/backend.tf` while retaining ignores for generated backend configuration, state, and plan files.
-- **FILE-012**: `.github/workflows/deploy-infrastructure.yml` — add two-environment resolution, backend initialization, Terraform variable mapping, secret validation, and environment concurrency.
-- **FILE-013**: `.github/workflows/deploy-applications.yml` — add two-environment resolution, selected GitHub Environments, generalized migration naming, and environment concurrency.
+- **FILE-012**: `.github/workflows/deploy-infrastructure.yml` — reusable `workflow_call` workflow with a required `environment` input, selected GitHub Environment, backend initialization, Terraform variable mapping, secret validation, and bounded readiness polling.
+- **FILE-013**: `.github/workflows/deploy-applications.yml` — reusable `workflow_call` workflow with a required `environment` input, selected GitHub Environments, `migrate-db` naming, configuration rendering, and pre-deploy secret synchronization.
 - **FILE-014**: `scripts/set-github-env-secrets.sh` — configure the complete staging or production infrastructure/backend secret inventory.
 - **FILE-015**: `docs/infrastructure/backend.md` — document per-environment Cloudflare, Neon, Hyperdrive, database, and backend configuration.
 - **FILE-016**: `docs/infrastructure/frontend.md` — document environment-specific frontend origins and backend URLs.
@@ -319,24 +332,26 @@ The current Terraform state, Cloudflare resources, and Neon databases are dispos
 - **FILE-020**: `infrastructure/workers/backend-api.js` — bootstrap the `SessionTimerWorkflow` export required for a fresh apply.
 - **FILE-021**: `infrastructure/workers/notification-orchestrator.js` — bootstrap the feedback and recording-finalization Workflow exports required for a fresh apply.
 - **FILE-022**: `apps/notification-orchestrator/wrangler.jsonc` — mirror Terraform-owned Queue retry settings and the scheduled trigger.
+- **FILE-023**: `.github/workflows/deploy.yml` — the only push/manual orchestrator: `resolve-environment` guard, `infrastructure`, `applications`, and `post-deploy-settings-reconciliation` jobs.
 
-`apps/backend-rest/wrangler.jsonc` already matches the Terraform-owned backend bindings. `apps/frontend/wrangler.jsonc` requires no Phase 1 changes. All committed Wrangler configurations retain the existing account-scoped names because the environments use separate Cloudflare accounts.
+`apps/backend-rest/wrangler.jsonc` already matches the application-facing backend bindings after bootstrap. `apps/frontend/wrangler.jsonc` requires no Phase 1 changes. All committed Wrangler configurations retain the existing account-scoped names because the environments use separate Cloudflare accounts.
 
 ## 6. Testing
 
 - **TEST-001**: Run `terraform fmt -check -recursive` in `infrastructure/` and require success.
 - **TEST-002**: Run `terraform init -backend=false` followed by `terraform validate` and require success without environment credentials.
-- **TEST-003**: Initialize each environment's R2 backend and run `terraform plan` with its GitHub Environment inputs. Each plan must contain one Neon project, one Neon role, one Neon database, one Hyperdrive configuration, and the expected Cloudflare resources for that account.
+- **TEST-003**: Initialize each environment's R2 backend and run `terraform plan` with its GitHub Environment inputs. Each plan must contain one Neon project, one Neon role, one Neon database, one Hyperdrive configuration, split Worker identity/settings with create-only bootstrap versions, and the expected Cloudflare resources for that account.
 - **TEST-004**: Confirm the two backends store independent state and that a job authenticated for staging cannot read or modify production state. Start two operations against one environment and confirm the S3 lockfile prevents concurrent state mutation.
 - **TEST-005**: For each deployed environment, create or exercise a database record, an R2 object, a Queue message, and the relevant Worker endpoint; confirm that the effects appear only in the selected Cloudflare account and Neon project.
 - **TEST-006**: Confirm each frontend calls its matching backend and that Better Auth accepts only the configured environment origins.
 - **TEST-007**: Confirm staging uses Stripe test-mode credentials and its staging webhook secret, while production uses live-mode credentials and its production webhook secret.
-- **TEST-008**: Dispatch each workflow manually from its matching branch and environment and require success. Dispatch `staging` from `main` and `production` from `staging` and require rejection before credentials or Terraform are used.
+- **TEST-008**: Dispatch the orchestrator manually from its matching branch and environment and require success. Dispatch `staging` from `main` and `production` from `staging` and require rejection before credentials or Terraform are used.
 - **TEST-009**: Merge an infrastructure change from a feature branch into staging, then promote staging to main; confirm each deployment targets the expected GitHub Environment, Cloudflare account, backend state, and Neon project.
 - **TEST-010**: Promote an application change through the same feature branch → staging → main path and confirm migrations and all Worker deployments use the selected environment's secrets.
 - **TEST-011**: Start deployments to two different environments and confirm they can proceed independently; start two deployments to one environment and confirm its concurrency group serializes them.
 - **TEST-012**: Confirm production deployment starts only after a protected `staging` → `main` pull request is merged.
 - **TEST-013**: Open a feature-branch pull request directly to `main` and require the promotion-policy check to fail; open a `staging` → `main` pull request and require it to pass. After merge, confirm the staging head commit is an ancestor of the resulting production merge commit.
+- **TEST-014**: Confirm infrastructure readiness fails when the bounded polling window exhausts without `email_sending_enabled=true`, that applications do not start, and that the post-deploy settings-reconciliation apply reasserts Terraform-owned Worker identity settings after applications.
 
 ## 7. Risks & Assumptions
 

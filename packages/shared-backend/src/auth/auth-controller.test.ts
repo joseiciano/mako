@@ -33,7 +33,7 @@ describe('registerAuthController', function () {
     expect(handler).toHaveBeenCalledTimes(1)
   })
 
-  it('returns 503 when Better Auth runtime config is missing', async function () {
+  it('returns a generic 503 when Better Auth runtime config is missing', async function () {
     const app = new Hono<{ Bindings: Record<string, never> }>()
     registerAuthController(app, {
       getAuth: function getAuth() {
@@ -45,9 +45,36 @@ describe('registerAuthController', function () {
 
     expect(response.status).toBe(503)
     await expect(response.json()).resolves.toEqual({
-      error:
-        'Better Auth is not configured. Set HYPERDRIVE and BETTER_AUTH_SECRET.',
+      error: 'Authentication is temporarily unavailable.',
     })
+  })
+
+  it('fails closed on the sign-up path without enumerating configuration details', async function () {
+    const app = new Hono<{ Bindings: Record<string, never> }>()
+    registerAuthController(app, {
+      getAuth: function getAuth() {
+        return null
+      },
+    })
+
+    const response = await app.request('/api/auth/sign-up/email', {
+      method: 'POST',
+      body: JSON.stringify({
+        email: 'test@example.com',
+        password: 'secret123',
+      }),
+      headers: {
+        'content-type': 'application/json',
+      },
+    })
+
+    expect(response.status).toBe(503)
+
+    const body = (await response.json()) as { error: string }
+    expect(body.error).toBe('Authentication is temporarily unavailable.')
+    expect(body.error).not.toContain('HYPERDRIVE')
+    expect(body.error).not.toContain('BETTER_AUTH_SECRET')
+    expect(body.error).not.toContain('EMAIL')
   })
 
   describe('structured logging for registration requests', function () {
