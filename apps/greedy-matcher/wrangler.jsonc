@@ -1,0 +1,21 @@
+{
+  "name": "mako-greedy-matcher",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-03-15",
+  "hyperdrive": [
+    {
+      "binding": "HYPERDRIVE",
+      "id": "__HYPERDRIVE_ID__"
+    }
+  ],
+  "triggers": {
+    "crons": ["*/10 * * * *"]
+  },
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    }
+  }
+}

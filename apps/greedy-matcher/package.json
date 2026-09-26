@@ -1,0 +1,16 @@
+{
+  "name": "@mako/greedy-matcher",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "wrangler deploy",
+    "typecheck": "tsc --noEmit",
+    "cf-typegen": "wrangler types --env-interface WorkerBindings"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "latest",
+    "typescript": "^5.8.2",
+    "wrangler": "^4.4.0"
+  }
+}
