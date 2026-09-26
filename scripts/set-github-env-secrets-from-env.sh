@@ -15,13 +15,11 @@ set -euo pipefail
 
 KNOWN_SECRETS=(
   "CLOUDFLARE_ACCOUNT_ID"
-  # Deploy workflows consume this token name directly for Terraform and
+  # Deploy workflows consume this token name directly for bootstrap-script and
   # Wrangler CI auth; runtime Workers use CLOUDFLARE_RUNTIME_API_TOKEN.
   "CLOUDFLARE_API_TOKEN"
   "NEON_API_KEY"
   "NEON_ORG_ID"
-  "TF_STATE_R2_ACCESS_KEY_ID"
-  "TF_STATE_R2_SECRET_ACCESS_KEY"
   "CLOUDFLARE_RUNTIME_API_TOKEN"
   "DATABASE_URL"
   "HYPERDRIVE_ID"
