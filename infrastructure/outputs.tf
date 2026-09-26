@@ -1,9 +1,9 @@
 output "worker_script_names" {
   description = "Provisioned Cloudflare Worker script names."
   value = {
-    backend_api               = cloudflare_workers_script.backend_api.script_name
+    backend_api               = cloudflare_worker.backend_api.name
     greedy_matcher            = cloudflare_workers_script.greedy_matcher.script_name
-    notification_orchestrator = cloudflare_workers_script.notification_orchestrator.script_name
+    notification_orchestrator = cloudflare_worker.notification_orchestrator.name
   }
 }
 
@@ -47,4 +47,29 @@ output "neon_database_host" {
 output "ai_gateway_base_url" {
   description = "Computed AI Gateway base URL (empty when ai_gateway_name is not set)."
   value       = local.ai_gateway_base_url
+}
+
+output "email_sending_domain" {
+  description = "Environment-specific Cloudflare Email Sending domain."
+  value       = cloudflare_email_sending_subdomain.auth.name
+}
+
+output "auth_email_from" {
+  description = "Derived sender address allowed by the backend EMAIL binding."
+  value       = local.auth_email_from
+}
+
+output "email_sending_enabled" {
+  description = "Whether Cloudflare reports the sending domain ready; this is domain readiness, not proof of message delivery."
+  value       = cloudflare_email_sending_subdomain.auth.enabled
+}
+
+output "email_sending_dkim_selector" {
+  description = "Cloudflare-managed DKIM selector for the sending domain."
+  value       = cloudflare_email_sending_subdomain.auth.dkim_selector
+}
+
+output "email_sending_return_path_domain" {
+  description = "Cloudflare-managed return-path domain used for bounce handling."
+  value       = cloudflare_email_sending_subdomain.auth.return_path_domain
 }

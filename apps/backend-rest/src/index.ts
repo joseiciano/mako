@@ -102,27 +102,18 @@ import { registerRealtimeKitWebhookController } from './realtimekit-webhook-cont
 import { RealtimeKitWebhookSignatureVerifier } from './realtimekit-webhook-signature'
 import { SessionTimerWorkflow } from './workflows/session-timer-workflow'
 
+import { createCloudflareVerificationEmailSender } from './auth-verification-email'
 export { SessionTimerWorkflow }
 
-export type WorkerBindings = {
+export type WorkerBindings = Partial<
+  Omit<GeneratedWorkerBindings, 'DB' | 'HYPERDRIVE'>
+> & {
   DB?: DatabaseBinding
   HYPERDRIVE?: HyperdriveBinding
-  RECORDINGS_BUCKET?: R2Bucket
-  SCREENSHOTS_BUCKET?: R2Bucket
-  BETTER_AUTH_SECRET?: string
-  BETTER_AUTH_URL?: string
-  BETTER_AUTH_TRUSTED_ORIGINS?: string
-  NOTIFICATION_QUEUE?: Queue
-  CLOUDFLARE_ACCOUNT_ID?: string
-  CLOUDFLARE_API_TOKEN?: string
-  CLOUDFLARE_REALTIMEKIT_APP_ID?: string
+  // Provisioned outside the Wrangler config contract; this entry is needed
+  // until `cf-typegen` regenerates types with the committed Wrangler var.
+  AUTH_EMAIL_VERIFICATION_ENFORCED?: string
   AI_GATEWAY_BASE_URL?: string
-  SESSION_TIMER_WORKFLOW?: Workflow
-  RECORDING_FINALIZATION_WORKFLOW?: Workflow<{ recording_id: string; schema_version: 1 }>
-  REALTIMEKIT_WEBHOOK_PUBLIC_KEY_URL?: string
-  STRIPE_SECRET_KEY?: string
-  STRIPE_WEBHOOK_SECRET?: string
-  PREMIUM_MARKETPLACE_RATE_LIMITER?: RateLimiter
 }
 
 
@@ -227,20 +218,10 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
     },
   })
 
-  app.use('/api/*', async function applyAuthSessionMiddlewareScoped(c, next) {
-    if (c.req.path.startsWith('/api/webhooks/')) {
-      return next()
-    }
-
-    return authSessionMiddleware(c, next)
-  })
+  app.use('/api/*', async function applyAuthSessionMiddlewareScoped(c, next) { if (c.req.path.startsWith('/api/webhooks/') || c.req.path.startsWith('/api/auth/')) { return next() } return authSessionMiddleware(c, next) })
 
 
-  registerAuthController(app, {
-    getAuth: function getAuth(context) {
-      return createWorkerAuth(context)
-    },
-  })
+  registerAuthController(app, { getAuth: function getAuth(context) { return createRequestScopedAuth(context) } })
 
   registerAccountController(app, {
     createService: function createService(context) {
@@ -1016,17 +997,38 @@ function createWorkerAuth(
   const bindings = context.env ?? {}
   const databaseUrl = bindings.HYPERDRIVE?.connectionString
   const secret = bindings.BETTER_AUTH_SECRET
+  const enforcedBinding = parseEnforcedBinding(
+    bindings.AUTH_EMAIL_VERIFICATION_ENFORCED,
+  )
 
+  if ('missing' in enforcedBinding || 'invalid' in enforcedBinding) {
+    console.error(
+      'missing' in enforcedBinding
+        ? {
+            event: 'auth.config.enforced_missing',
+            level: 'error',
+            binding: 'AUTH_EMAIL_VERIFICATION_ENFORCED',
+            message: 'Auth enforcement binding is required.',
+          }
+        : {
+            event: 'auth.config.enforced_invalid',
+            level: 'error',
+            binding: 'AUTH_EMAIL_VERIFICATION_ENFORCED',
+            message: 'Auth enforcement binding must be exactly true or false.',
+          },
+    )
+    return null
+  }
   if (!databaseUrl || !secret) {
     return null
   }
-
   const baseURL = resolveBetterAuthBaseUrl(context)
 
   return createBetterAuth({
     connectionString: databaseUrl,
     secret,
     baseURL,
+    requireEmailVerification: enforcedBinding.enforced,
     trustedOrigins: parseConfiguredOrigins(
       bindings.BETTER_AUTH_TRUSTED_ORIGINS,
       baseURL,
@@ -1077,4 +1079,109 @@ function parseConfiguredOrigins(
 
   origins.add(new URL(baseURL).origin)
   return Array.from(origins)
+}
+
+type EnforcedBindingParse =
+  | { enforced: boolean }
+  | { missing: true }
+  | { invalid: true }
+
+/**
+ * Parses the enforcement binding into a boolean. Only the exact lowercase
+ * strings "true" and "false" are accepted; any other or missing value is
+ * runtime misconfiguration so auth fails closed before Better Auth exists.
+ */
+function parseEnforcedBinding(
+  value: string | undefined,
+): EnforcedBindingParse {
+  if (value === undefined) {
+    return { missing: true }
+  }
+
+  if (value === 'true') {
+    return { enforced: true }
+  }
+
+  if (value === 'false') {
+    return { enforced: false }
+  }
+
+  return { invalid: true }
+}
+
+
+/**
+ * Builds a request-scoped Better Auth instance whose verification-email
+ * callback delivers on the originating request's execution context.
+ * Returns null with a fixed missing-configuration event when any required
+ * runtime binding is absent; registerAuthController then responds 503
+ * before Better Auth can create an account. Because the callback closes
+ * over one request's execution context, this instance is never cached.
+ */
+function createRequestScopedAuth(
+  context: Context<{ Bindings: WorkerBindings }>,
+) {
+  const bindings = context.env ?? {}
+  const databaseUrl = bindings.HYPERDRIVE?.connectionString
+  const secret = bindings.BETTER_AUTH_SECRET
+  const email = bindings.EMAIL
+  const authEmailFrom = bindings.AUTH_EMAIL_FROM?.trim()
+  const enforcedBinding = parseEnforcedBinding(
+    bindings.AUTH_EMAIL_VERIFICATION_ENFORCED,
+  )
+  const missingBindings = [
+    ...(databaseUrl ? [] : ['HYPERDRIVE']),
+    ...(secret ? [] : ['BETTER_AUTH_SECRET']),
+    ...(email ? [] : ['EMAIL']),
+    ...(authEmailFrom ? [] : ['AUTH_EMAIL_FROM']),
+    ...('missing' in enforcedBinding ? ['AUTH_EMAIL_VERIFICATION_ENFORCED'] : []),
+  ]
+
+  if (missingBindings.length > 0) {
+    console.error({
+      event: 'auth.config.missing',
+      level: 'error',
+      message: 'Auth runtime configuration is incomplete.',
+      missing: missingBindings,
+    })
+    return null
+  }
+  if ('invalid' in enforcedBinding) {
+    console.error({
+      event: 'auth.config.enforced_invalid',
+      level: 'error',
+      binding: 'AUTH_EMAIL_VERIFICATION_ENFORCED',
+      message: 'Auth enforcement binding must be exactly true or false.',
+    })
+    return null
+  }
+  if ('missing' in enforcedBinding) {
+    return null
+  }
+  if (!databaseUrl || !secret || !email || !authEmailFrom) {
+    return null
+  }
+
+  const baseURL = resolveBetterAuthBaseUrl(context)
+  const sendVerificationEmail = createCloudflareVerificationEmailSender({
+    email,
+    from: authEmailFrom,
+    waitUntil: function waitForDelivery(promise) {
+      context.executionCtx.waitUntil(promise)
+    },
+    logger: function logVerificationEmailTelemetry(event) {
+      console.info(event)
+    },
+  })
+  return createBetterAuth({
+    connectionString: databaseUrl,
+    secret,
+    baseURL,
+    requireEmailVerification: enforcedBinding.enforced,
+    trustedOrigins: parseConfiguredOrigins(
+      bindings.BETTER_AUTH_TRUSTED_ORIGINS,
+      baseURL,
+    ),
+    sendVerificationEmail,
+  })
 }

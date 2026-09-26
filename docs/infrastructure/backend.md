@@ -9,6 +9,7 @@ This document goes over all the tools we will be using for our backend services
 - **Cloudflare Realtime**: We will be using Cloudflare Realtime to serve our web streaming. [Docs](https://developers.cloudflare.com/api/resources/realtime_kit/)
 **Note**: We will **ALWAYS** be using **Cloudflare RealtimeKit,** **NEVER** use Cloudflare Calls. It is outdated. 
   - Backend room provisioning requires `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and `CLOUDFLARE_REALTIMEKIT_APP_ID` for the `POST /api/interviews/:id/provision` route.
+- **Cloudflare Email Service**: A native Worker `send_email` binding named `EMAIL` on the backend worker only. Cloudflare Email Service delivers Better Auth-generated verification links; no REST or SMTP email client, provider API token, Resend package, or notification-queue path exists for verification mail. [Docs](https://developers.cloudflare.com/email-routing/email-workers/send-email-workers/)
 - **Cloudflare Workflows**: We use Workflows to orchestrate the interview lifecycle. This handles the 60-minute interview timer, emits structured `timer_warning`/`timer_completed` logs, and converges on a guarded lifecycle transition upon completion. Realtime warning delivery, session locking, and AI feedback generation are future scope. [Docs](https://developers.cloudflare.com/api/resources/workflows/)
 - **Feedback Workflow (InterviewFeedbackWorkflow)**: A dedicated Cloudflare Workflow for post-interview feedback processing that runs in the notification-orchestrator Worker alongside the existing `InterviewLifecycleWorkflow`. It is triggered idempotently from `interview.completed` queue events with a deterministic instance ID `feedback-v1-{interview_id}`, so duplicate events never spawn duplicate feedback runs. It is provisioned for future transcription/analysis steps (Stories 5.16/5.17); the Workers AI binding is configured but not yet invoked; the AI Gateway will be wired in a future story.
 - **Recording Finalization Workflow (RecordingFinalizationWorkflow)**: A dedicated notification-orchestrator Workflow triggered by signed RealtimeKit `UPLOADED` events. It refreshes provider state by recording ID, streams composite playback and participant tracks into private R2, persists artifact rows, and derives interview recording readiness only after required objects are visible. Workflow instances use `recording-finalize-v1-{provider_recording_id}-{attempt}`; scheduled sweeps retry bounded accepted/failed checkpoints.
@@ -35,6 +36,7 @@ This document goes over all the tools we will be using for our backend services
    - `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, and `CLOUDFLARE_REALTIMEKIT_APP_ID` — RealtimeKit recording status API credentials
    - `REALTIMEKIT_WEBHOOK_PUBLIC_KEY_URL` — well-known URL for webhook signature verification, configured as a `vars` binding in `backend-rest/wrangler.jsonc`
   - `AI` — Workers AI binding (for feedback workflow; configured in `notification-orchestrator/wrangler.jsonc`)
+  - `EMAIL` — backend-rest-only `send_email` binding whose allowlist contains exactly the derived sender address (see *Email Service Infrastructure* below)
   See `docs/system/local-testing.md` for the general local test stack setup.
 - **Cloudflare AI Gateway**: We will interact with our AI providers through Cloudflare's AI Gateway service [Docs](https://developers.cloudflare.com/api/resources/ai_gateway/)
 - **Stripe**: We use Stripe to handle payments and the pay-per-credit system for scheduling interviews. We will use Stripe Checkout for purchases and webhooks to fulfill credits in our database. [Docs](https://docs.stripe.com/api)
@@ -51,7 +53,29 @@ This document goes over all the tools we will be using for our backend services
 
 ## Environment Variables & Secrets
 
-The backend worker reads the following secrets from Cloudflare Workers bindings (set via `wrangler secret put` or `.dev.vars` for local development). CI/CD deployment secrets are managed via `./scripts/set-github-env-secrets.sh`.
+The backend worker reads secrets from Cloudflare Workers bindings (`wrangler secret put`) or `.dev.vars` locally. For deployed environments, copy `.env.staging.example` / `.env.production.example` to their gitignored counterparts and run `make envs-staging .env.staging` or `make envs-production .env.production`; these targets upload both GitHub secrets and non-secret variables.
+
+### Email Service Infrastructure
+
+`scripts/bootstrap.sh` owns the persistent Email Sending resources (the sending subdomain is created via the zone-scoped Email Service REST API with `preview_enabled: false` and `drop_suppressed_recipients: false`, followed by a 12-attempt readiness poll on every run). The backend Worker's `EMAIL` and `AUTH_EMAIL_FROM` bindings are owned by the committed `apps/backend-rest/wrangler.jsonc` and rendered by CI. Each environment must supply its own non-secret GitHub variables `EMAIL_SENDING_ZONE_ID` and `EMAIL_SENDING_DOMAIN`, and those zone, domain, token, and account values belong to that environment's Cloudflare account—staging must never reference production resources or vice versa.
+
+Operator-supplied prerequisites before running `scripts/bootstrap.sh`:
+
+- Cloudflare DNS is authoritative for the selected zone and the zone contains `EMAIL_SENDING_DOMAIN`.
+- The CI token (`CLOUDFLARE_API_TOKEN`, not `CLOUDFLARE_RUNTIME_API_TOKEN`) has Email Sending edit permission in addition to its existing permissions.
+- The environment's Cloudflare plan permits delivery to the intended recipients; until satisfied, restrict sending to controlled verified destinations.
+
+Provisioned state (never duplicate these with ad-hoc DNS records or ad-hoc Wrangler bindings):
+
+- One Email Sending subdomain per environment with `preview_enabled = false` and `drop_suppressed_recipients = false`. Readiness checks verify both values after provisioning because new domains enable previews by default.
+- `AUTH_EMAIL_FROM = noreply@$EMAIL_SENDING_DOMAIN`, rendered by CI into the committed Wrangler config placeholder, exposed as a non-secret `plain_text` binding, and never uploaded as a secret.
+- The `EMAIL` binding's `allowed_sender_addresses` allowlist contains exactly that derived sender.
+- The backend Worker's observability sets `redact_query_string = true` so invocation telemetry cannot retain verification JWT query parameters. Wrangler 4.73.0 cannot express this setting in wrangler.jsonc, so `scripts/ensure-redact-query-string.sh` reasserts it via the Workers API after every backend deploy; readiness requires verifying the setting survives deployment (TEST-005).
+- Cloudflare Email Service manages the domain's MX, SPF, DKIM, DMARC, and return-path records automatically.
+
+After bootstrap, the readiness poll output reports `enabled` for the domain; re-running `scripts/bootstrap.sh` re-verifies it. `enabled = true` means Cloudflare reports the domain ready—it is not proof of mailbox delivery. Readiness evidence, a controlled staging send, and query-string-redaction preservation must pass before verification enforcement is promoted; see the Email Verification Deployment Gate in `docs/infrastructure/management.md`.
+
+Application logs must never contain recipient addresses, verification URLs, tokens, message bodies, or raw provider error messages. Email Service necessarily retains its own provider-side delivery metadata; that boundary is documented in the operational monitoring section.
 
 ### Stripe
 
@@ -80,11 +104,11 @@ The backend worker communicates with Cloudflare Workers AI (or Cloudflare AI Gat
 |---|---|
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID. Used by the AI responder to construct the Workers AI REST endpoint URL. |
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API token with Workers AI permissions. Used as the Bearer token for AI provider requests. |
-| `AI_GATEWAY_BASE_URL` | Optional. AI Gateway base URL (e.g. `https://gateway.ai.cloudflare.com/v1/{accountId}/{gatewayId}`). When set, the responder derives the gateway ID from the last URL segment and sends it via the `cf-aig-gateway-id` header for observability and routing. When absent, the responder makes the direct Workers AI call without the header. Provisioned by Terraform as a `plain_text` binding when `ai_gateway_name` is set. |
+| `AI_GATEWAY_BASE_URL` | Optional. AI Gateway base URL (e.g. `https://gateway.ai.cloudflare.com/v1/{accountId}/{gatewayId}`). When set, the responder derives the gateway ID from the last URL segment and sends it via the `cf-aig-gateway-id` header for observability and routing. When absent, the responder makes the direct Workers AI call without the header. Not committed to `wrangler.jsonc`; no environment currently configures a gateway. |
 
 **Local development**: add `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` to `apps/backend-rest/.dev.vars`. `AI_GATEWAY_BASE_URL` is optional for local dev; add it to `.dev.vars` only when testing AI Gateway routing, otherwise omit it to use the direct Workers AI endpoint.
 
-**Binding flow**: `AI_GATEWAY_BASE_URL` is provisioned as a `plain_text` binding by Terraform (not a secret), so `wrangler.jsonc` intentionally does not declare this var. The backend-rest deploy step runs `wrangler deploy --keep-vars` so the existing Terraform-managed var is preserved and not removed by the deploy. If you deploy without Terraform, set the value via `wrangler vars put AI_GATEWAY_BASE_URL <url>`.
+**Binding flow**: `wrangler.jsonc` intentionally does not declare `AI_GATEWAY_BASE_URL`; the responder treats its absence as the supported direct-Workers-AI mode. If a gateway is ever adopted, add the literal gateway URL as a committed `plain_text` var in `wrangler.jsonc` (a static committed value, never a CI-rendered placeholder) — do not rely on out-of-band vars, because `wrangler deploy` without `--keep-vars` removes undeclared vars.
 
 **Endpoint resolution**: The responder (`packages/shared-backend/src/interviews/ai-gateway-responder.ts`) always builds the Cloudflare REST endpoint at runtime:
 - `https://api.cloudflare.com/client/v4/accounts/{accountId}/ai/v1/chat/completions`
@@ -168,3 +192,37 @@ The AI Gateway is used for feedback analysis (separate from AI chat). The analys
 - Provider/model identifiers remain server configuration. They are not client-selectable API fields.
 - The response is validated against the strict feedback v1 schema before persistence.
 - Model name, raw provider response, token usage, system prompt, and provider error text are not persisted in the client feedback object.
+
+### Auth Email Verification Retention and Monitoring
+
+Better Auth verification links are stateless one-hour HS256 JWTs; request, response, and redirect contracts are documented in `docs/system/system-design/api-routes.md`. This section covers retention, fixed telemetry, and privacy boundaries for operators.
+
+**Never-verified account retention (30 days)**:
+- Policy: email/password accounts that have a password credential and remain unverified (`emailVerified = false`) 30 days after creation are deleted together with their dependent credential rows.
+- Social-only accounts are excluded. An unverified email on a social-provider account is not an abandonment signal; filtering deletion on `emailVerified` alone would remove active social accounts.
+- Current automation gap: the repository has no auth-account cleanup scheduler, and none is added by the verification change. The notification-orchestrator is explicitly excluded from this cleanup. Retention is documented policy without automated enforcement until a separately reviewed follow-up lands.
+- Required follow-up contract: transactional, idempotent deletion of the user row and dependent credential/session data selected only among password credentials, no email addresses in deletion logs, and outstanding verification links stop working once the account is deleted (token verification still succeeds, but no user is found).
+
+**Fixed events and operator alerts**:
+
+| Condition | Signal | Operator response |
+|---|---|---|
+| Verification email accepted | `auth.verification_email.accepted` structured log | Expected on signup or unverified sign-in. Acceptance and queueing only; never mailbox-delivery proof. |
+| Provider send rejection | `auth.verification_email.rejected` with `provider`, `outcome`, and an allowlisted `errorCode`; unknown codes map to `UNKNOWN` without raw provider text | Check the sender/domain configuration and Email Service logs. The account stays recoverable through correct-password sign-in. |
+| Suppressed recipient | `auth.verification_email.rejected` with `E_RECIPIENT_SUPPRESSED` | Restrict testing to controlled verified destinations and confirm the mailbox accepted previous sends. |
+| Daily Email Service limit exceeded | `auth.verification_email.rejected` with `E_DAILY_LIMIT_EXCEEDED` | Stop nonessential sends and wait for the account's daily reset or raise the limit. |
+| Invalid sender or sending domain | `auth.verification_email.rejected` with `E_SENDER_NOT_VERIFIED` or `E_SENDER_DOMAIN_NOT_AVAILABLE` | Compare `AUTH_EMAIL_FROM` against the derived sender (`noreply@$EMAIL_SENDING_DOMAIN`) and the bootstrap's email-domain readiness output. |
+| Better Auth rate limiting | Database-backed `rateLimit` table; auth requests exceeding limits receive HTTP 429 | Investigate abusive sources at the edge and tune limits. Raw IPs are never written to logs. |
+| Missing runtime binding or configuration | `auth.config.missing` containing only the missing binding names; `/api/auth/*` responds `503` before Better Auth runs | Restore `HYPERDRIVE`, `BETTER_AUTH_SECRET`, `EMAIL`, or `AUTH_EMAIL_FROM` bindings. |
+| Background send-promise rejection | Rejected `waitUntil` promise surfaces as `auth.verification_email.rejected` with `UNKNOWN` | Correlate with provider incidents; signup state is unaffected and accounts remain recoverable. |
+
+The adapter emits only the allowlisted provider `errorCode` values `E_VALIDATION_ERROR`, `E_FIELD_MISSING`, `E_SENDER_NOT_VERIFIED`, `E_SENDER_DOMAIN_NOT_AVAILABLE`, `E_RECIPIENT_NOT_ALLOWED`, `E_RECIPIENT_SUPPRESSED`, `E_RATE_LIMIT_EXCEEDED`, `E_DAILY_LIMIT_EXCEEDED`, `E_DELIVERY_FAILED`, and `E_INTERNAL_SERVER_ERROR`; any other provider error maps to `UNKNOWN`. A recipient outside the environment's allowed destinations surfaces as `E_RECIPIENT_NOT_ALLOWED`.
+
+`EmailSendResult.messageId` records provider acceptance or queueing only and must never be reported as proof of mailbox delivery; mailbox confirmation requires a controlled inbox canary.
+
+**Privacy boundaries**:
+- Application logs emit fixed event names with safe metadata only. They never contain recipient addresses, verification URLs, JWT tokens, callback query strings, message bodies, or raw provider error messages, and Better Auth's logger is disabled.
+- The backend Worker's observability sets `redact_query_string = true` so invocation telemetry cannot retain verification JWT query parameters; `scripts/ensure-redact-query-string.sh` reasserts this setting after every backend deploy because Wrangler 4.73.0 cannot express it in wrangler.jsonc.
+- Cloudflare Email Service necessarily retains its own provider-side delivery, bounce, and suppression metadata. That provider-controlled retention is outside the application no-PII contract.
+- Message previews are disabled (`preview_enabled = false`) so Email Service does not retain message bodies; a newly provisioned domain enables previews by default, so readiness must verify the setting.
+- Local `wrangler dev` simulates sends and writes message content, including verification links, to local files. Those simulator artifacts are sensitive ephemeral data: they stay gitignored, use controlled non-personal addresses, and are deleted after smoke testing.

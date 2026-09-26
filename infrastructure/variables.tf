@@ -13,6 +13,30 @@ variable "cloudflare_account_id" {
   type        = string
 }
 
+variable "email_sending_zone_id" {
+  description = "Cloudflare zone ID that contains the environment's Email Sending domain."
+  type        = string
+
+  validation {
+    condition     = trimspace(var.email_sending_zone_id) != ""
+    error_message = "email_sending_zone_id must not be empty."
+  }
+}
+
+variable "email_sending_domain" {
+  description = "Lowercase Email Sending domain within the selected Cloudflare zone."
+  type        = string
+
+  validation {
+    condition = (
+      var.email_sending_domain == lower(trimspace(var.email_sending_domain)) &&
+      length(var.email_sending_domain) <= 253 &&
+      can(regex("^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?$", var.email_sending_domain))
+    )
+    error_message = "email_sending_domain must be a lowercase fully qualified domain name without a scheme, path, port, whitespace, wildcard, or @."
+  }
+}
+
 variable "cloudflare_api_token" {
   description = "Cloudflare API token with account-level permissions for Workers, Queues, R2, Hyperdrive, and Workflows."
   type        = string

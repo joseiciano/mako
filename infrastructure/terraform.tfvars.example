@@ -4,6 +4,12 @@ environment        = "staging" # or "production"
 
 cloudflare_account_id = "<your-cloudflare-account-id>"
 
+# Required non-secret Email Service inputs. The zone must contain the sending
+# domain, use authoritative Cloudflare DNS, and belong to this environment's
+# Cloudflare account.
+email_sending_zone_id = "<your-email-sending-zone-id>"
+email_sending_domain  = "mail.staging-example.com"
+
 # Cloudflare API token must be account-scoped for the account above and include
 # write/edit permissions for resources managed by this stack:
 # - Workers scripts/bindings
@@ -12,6 +18,7 @@ cloudflare_account_id = "<your-cloudflare-account-id>"
 # - R2 buckets
 # - Hyperdrive configs
 # - Workflows
+# - Email Sending
 # plus Account read permissions.
 cloudflare_api_token  = "<your-cloudflare-api-token>"
 

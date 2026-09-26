@@ -11,44 +11,26 @@ function readRepositoryFile(...segments: string[]): string {
 }
 
 describe('story 5.11 realtimekit recording finalization infrastructure lock', function () {
-  it('terraform owns cloudflare_workflow recording_finalization targeting notification-orchestrator and binds RECORDING_FINALIZATION_WORKFLOW in both workers', function () {
-    const terraformMain = readRepositoryFile('infrastructure', 'main.tf')
-    const terraformVariables = readRepositoryFile('infrastructure', 'variables.tf')
+  it('recording-finalization workflow is owned by committed wrangler configs and bound in both workers', function () {
+    const orchestratorWrangler = readRepositoryFile('apps', 'notification-orchestrator', 'wrangler.jsonc')
+    const backendWrangler = readRepositoryFile('apps', 'backend-rest', 'wrangler.jsonc')
+    const backendIndex = readRepositoryFile('apps', 'backend-rest', 'src', 'index.ts')
 
-    expect(terraformMain).toContain('resource "cloudflare_workflow" "recording_finalization"')
-    expect(terraformMain).toContain('RECORDING_FINALIZATION_WORKFLOW')
+    // Terraform ownership was removed by the wrangler migration
+    // (plans/wrangler-migration.md). Both workers declare the workflow binding
+    // with the stable name/class; the backend binds the external script_name
+    // for direct webhook handoff, and the orchestrator runs the class for the
+    // scheduled sweep.
+    expect(orchestratorWrangler).toContain('"name": "recording-finalization-workflow"')
+    expect(orchestratorWrangler).toContain('"class_name": "RecordingFinalizationWorkflow"')
+    expect(backendWrangler).toContain('"name": "recording-finalization-workflow"')
+    expect(backendWrangler).toContain('"class_name": "RecordingFinalizationWorkflow"')
+    expect(backendWrangler).toContain('"script_name": "mako-notification-orchestrator"')
 
-    // variables for workflow ownership (name + class)
-    expect(terraformVariables).toContain('recording_finalization_workflow_name')
-    expect(terraformVariables).toContain('recording_finalization_workflow_class_name')
-    expect(terraformVariables).toContain('RecordingFinalizationWorkflow')
-
-    // workflow resource itself may reference script resource (allowed)
-    expect(terraformMain).toContain('resource "cloudflare_workflow" "recording_finalization"')
-    expect(terraformMain).toContain('var.recording_finalization_workflow_name')
-    expect(terraformMain).toContain('var.recording_finalization_workflow_class_name')
-
-    // both workers bind the workflow for handoff (webhook) and sweep (scheduled)
-    expect(terraformMain).toContain('resource "cloudflare_workers_script" "notification_orchestrator"')
-    expect(terraformMain).toContain('resource "cloudflare_workers_script" "backend_api"')
-    // binding name appears at least twice (once per worker)
-    const bindingMatches = terraformMain.match(/RECORDING_FINALIZATION_WORKFLOW/g) ?? []
+    const bindingMatches = (orchestratorWrangler + backendWrangler + backendIndex).match(
+      /RECORDING_FINALIZATION_WORKFLOW/g,
+    ) ?? []
     expect(bindingMatches.length).toBeGreaterThanOrEqual(2)
-
-    // Stable binding references: workflow bindings must use vars/literals, not resource references that create cycles
-    const notifStart = terraformMain.indexOf('resource "cloudflare_workers_script" "notification_orchestrator"')
-    const workflowStart = terraformMain.indexOf('resource "cloudflare_workflow" "interview_feedback"')
-    const notifBlock = terraformMain.slice(notifStart, workflowStart)
-    expect(notifBlock).toContain('var.recording_finalization_workflow_name')
-    expect(notifBlock).toContain('var.notification_orchestrator_worker_script_name')
-    expect(notifBlock).not.toContain('cloudflare_workflow.recording_finalization.workflow_name')
-    expect(notifBlock).not.toContain('cloudflare_workers_script.notification_orchestrator.script_name')
-
-    const backendStart = terraformMain.indexOf('resource "cloudflare_workers_script" "backend_api"')
-    const backendBlock = terraformMain.slice(backendStart, backendStart + 4000)
-    expect(backendBlock).toContain('var.recording_finalization_workflow_name')
-    expect(backendBlock).toContain('var.notification_orchestrator_worker_script_name')
-    expect(backendBlock).not.toContain('cloudflare_workflow.recording_finalization.workflow_name')
   })
 
   it('notification-orchestrator wrangler mirrors workflow class locally', function () {

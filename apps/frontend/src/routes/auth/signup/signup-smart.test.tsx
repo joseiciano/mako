@@ -89,8 +89,8 @@ describe('SignupSmart', function () {
     signUpEmailMock.mockReset()
   })
 
-  it('calls auth client with name, email, and password and navigates on success', async function () {
-    signUpEmailMock.mockResolvedValue({ data: {} })
+  it('sends the absolute verified callback and navigates to verify-email on success', async function () {
+    signUpEmailMock.mockResolvedValue({ data: { user: { id: 'user-1' } } })
 
     renderWithQueryClient(<SignupSmart />)
 
@@ -110,12 +110,78 @@ describe('SignupSmart', function () {
         name: 'Jose User',
         email: 'jose@example.com',
         password: 'password123',
+        callbackURL: new URL(
+          '/login?verified=true',
+          window.location.origin,
+        ).toString(),
       })
     })
 
     await waitFor(function () {
-      expect(navigateMock).toHaveBeenCalledWith({ to: AUTHENTICATED_REDIRECT_PATH })
+      expect(navigateMock).toHaveBeenCalledWith({ to: '/verify-email' })
     })
+    expect(navigateMock).not.toHaveBeenCalledWith({
+      to: AUTHENTICATED_REDIRECT_PATH,
+    })
+  })
+
+  it('navigates to verify-email for a synthetic duplicate signup response', async function () {
+    signUpEmailMock.mockResolvedValue({ data: { user: null, token: null } })
+
+    renderWithQueryClient(<SignupSmart />)
+
+    fireEvent.change(screen.getByLabelText('Name'), {
+      target: { value: 'Jose User' },
+    })
+    fireEvent.change(screen.getByLabelText('Email'), {
+      target: { value: 'jose@example.com' },
+    })
+    fireEvent.change(screen.getByLabelText('Password'), {
+      target: { value: 'password123' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /create account/i }))
+
+    await waitFor(function () {
+      expect(navigateMock).toHaveBeenCalledWith({ to: '/verify-email' })
+    })
+    expect(navigateMock).not.toHaveBeenCalledWith({
+      to: AUTHENTICATED_REDIRECT_PATH,
+    })
+  })
+
+  it('does not invalidate the auth session on successful signup', async function () {
+    signUpEmailMock.mockResolvedValue({ data: { user: { id: 'user-1' } } })
+
+    const queryClient = new QueryClient({
+      defaultOptions: {
+        queries: { retry: false },
+        mutations: { retry: false },
+      },
+    })
+    const invalidateQueries = vi.spyOn(queryClient, 'invalidateQueries')
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <SignupSmart />
+      </QueryClientProvider>,
+    )
+
+    fireEvent.change(screen.getByLabelText('Name'), {
+      target: { value: 'Jose User' },
+    })
+    fireEvent.change(screen.getByLabelText('Email'), {
+      target: { value: 'jose@example.com' },
+    })
+    fireEvent.change(screen.getByLabelText('Password'), {
+      target: { value: 'password123' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /create account/i }))
+
+    await waitFor(function () {
+      expect(navigateMock).toHaveBeenCalledWith({ to: '/verify-email' })
+    })
+
+    expect(invalidateQueries).not.toHaveBeenCalled()
   })
 
   it('displays a form error when the auth client returns an error', async function () {
