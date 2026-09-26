@@ -28,7 +28,7 @@ describe('story 4.3 notification transport reliability and idempotency lock', fu
     expect(deployWorkflow).toContain(
       'Deploy notification-orchestrator worker (${{ inputs.environment }})',
     )
-    expect(deployWorkflow).toContain('workingDirectory: apps/notification-orchestrator')
+    // Queues are bootstrap-owned; the workflow must not create queues inline.
     expect(deployWorkflow).toContain(
       'Inject Hyperdrive binding ID into notification-orchestrator Wrangler config',
     )
@@ -40,33 +40,25 @@ describe('story 4.3 notification transport reliability and idempotency lock', fu
     expect(orchestratorWorkflow).toContain('deploy-applications.yml')
     expect(orchestratorWorkflow).toContain('needs:')
   })
-
   it('notification-orchestrator queue consumer config keeps DLQ for exhausted retries', function () {
     const notificationOrchestratorWrangler = readRepositoryFile(
       'apps',
       'notification-orchestrator',
       'wrangler.jsonc',
     )
-    const terraformMain = readRepositoryFile('infrastructure', 'main.tf')
+    const bootstrap = readRepositoryFile('scripts', 'bootstrap.sh')
 
     expect(notificationOrchestratorWrangler).toContain(
       '"dead_letter_queue": "notification-orchestration-dlq"',
     )
-    // The consumer's DLQ contract is enforced twice: Wrangler config and the
-    // Terraform queue consumer.
-    expect(terraformMain).toContain('dead_letter_queue = cloudflare_queue.notification_orchestration_dlq.queue_name')
+    // The DLQ is created by the bootstrap (not inline in the deploy workflow),
+    // and the consumer's dead-letter target is pinned in the wrangler config.
+    expect(bootstrap).toContain('notification-orchestration-dlq')
   })
 
-  it('locks notification-oriented queue and worker naming across terraform and worker placeholders', function () {
-    const terraformMain = readRepositoryFile('infrastructure', 'main.tf')
-    const greedyMatcherWorker = readRepositoryFile('infrastructure', 'workers', 'greedy-matcher.js')
-    const backendApiWorker = readRepositoryFile('infrastructure', 'workers', 'backend-api.js')
-    const notificationOrchestratorWorker = readRepositoryFile(
-      'infrastructure',
-      'workers',
-      'notification-orchestrator.js',
-    )
+  it('locks notification-oriented queue and worker naming across wrangler configs and workflow classes', function () {
     const backendRestWrangler = readRepositoryFile('apps', 'backend-rest', 'wrangler.jsonc')
+    const orchestratorWrangler = readRepositoryFile('apps', 'notification-orchestrator', 'wrangler.jsonc')
     const backendRestIndex = readRepositoryFile('apps', 'backend-rest', 'src', 'index.ts')
     const sessionTimerWorkflow = readRepositoryFile(
       'apps',
@@ -76,35 +68,19 @@ describe('story 4.3 notification transport reliability and idempotency lock', fu
       'session-timer-workflow.ts',
     )
 
-    expect(terraformMain).toContain('resource "cloudflare_queue" "notification_orchestration"')
-    expect(terraformMain).toContain('resource "cloudflare_queue" "notification_orchestration_dlq"')
-    expect(terraformMain).toContain('queue_name = "notification-orchestration-dlq"')
-    expect(terraformMain).not.toContain('var.notification_orchestration_dlq_queue_name')
-    expect(terraformMain).toContain(
-      'resource "cloudflare_queue_consumer" "notification_orchestrator"',
-    )
-    expect(terraformMain).toContain(
-      'queue_name = cloudflare_queue.notification_orchestration.queue_name',
-    )
-    expect(terraformMain).toContain(
-      'script_name       = cloudflare_worker.notification_orchestrator.name',
-    )
-    expect(terraformMain).toContain('dead_letter_queue = cloudflare_queue.notification_orchestration_dlq.queue_name')
-
-    expect(terraformMain).not.toContain('interview_provisioning')
-    expect(terraformMain).not.toContain('interview_provisioner')
-
-    expect(greedyMatcherWorker).toContain('MUST NOT send any messages to the notification')
-    expect(greedyMatcherWorker).not.toContain('env.NOTIFICATION_QUEUE.send(payload)')
-    expect(greedyMatcherWorker).not.toContain('INTERVIEW_PROVISIONING_QUEUE')
-
-    expect(backendApiWorker).toContain('env.NOTIFICATION_QUEUE ? "configured" : "missing"')
-    expect(backendApiWorker).not.toContain('INTERVIEW_PROVISIONING_QUEUE')
-
-    expect(notificationOrchestratorWorker).toContain('notification-orchestrator bootstrap defers message')
-    expect(notificationOrchestratorWorker).toContain('message.retry()')
-    expect(notificationOrchestratorWorker).not.toContain('message.ack()')
-    expect(notificationOrchestratorWorker).not.toContain('interview-provisioner')
+    // Terraform ownership was removed by the wrangler migration
+    // (plans/wrangler-migration.md): the queue and worker names are pinned in
+    // the committed wrangler configs, and the bootstrap script provisions the
+    // queues with the same stable names.
+    const bootstrap = readRepositoryFile('scripts', 'bootstrap.sh')
+    expect(bootstrap).toContain('notification-orchestration')
+    expect(bootstrap).toContain('notification-orchestration-dlq')
+    expect(orchestratorWrangler).toContain('"binding": "NOTIFICATION_QUEUE"')
+    expect(orchestratorWrangler).toContain('"queue": "notification-orchestration"')
+    expect(orchestratorWrangler).toContain('"dead_letter_queue": "notification-orchestration-dlq"')
+    expect(orchestratorWrangler).not.toContain('INTERVIEW_PROVISIONING_QUEUE')
+    expect(orchestratorWrangler).not.toContain('interview-provisioning')
+    expect(orchestratorWrangler).not.toContain('interview_provisioner')
 
     expect(backendRestWrangler).toContain('"binding": "NOTIFICATION_QUEUE"')
     expect(backendRestWrangler).toContain('"queue": "notification-orchestration"')
@@ -119,7 +95,8 @@ describe('story 4.3 notification transport reliability and idempotency lock', fu
   })
 
   it('keeps realtime and workflow ownership separate from notification transport', function () {
-    const terraformMain = readRepositoryFile('infrastructure', 'main.tf')
+    const backendRestWrangler = readRepositoryFile('apps', 'backend-rest', 'wrangler.jsonc')
+    const orchestratorWrangler = readRepositoryFile('apps', 'notification-orchestrator', 'wrangler.jsonc')
     const storyDocument = readRepositoryFile(
       'docs',
       'product',
@@ -130,9 +107,11 @@ describe('story 4.3 notification transport reliability and idempotency lock', fu
     )
 
     // In-session lifecycle timers stay on the backend worker's own workflow;
-    // the notification transport has no interview_lifecycle workflow resource.
-    expect(terraformMain).toContain('resource "cloudflare_workflow" "session_timer"')
-    expect(terraformMain).not.toContain('resource "cloudflare_workflow" "interview_lifecycle"')
+    // the notification transport has no interview_lifecycle workflow anywhere.
+    expect(backendRestWrangler).toContain('"name": "session-timer-workflow"')
+    expect(backendRestWrangler).not.toContain('interview-lifecycle')
+    expect(orchestratorWrangler).not.toContain('interview-lifecycle')
+    expect(orchestratorWrangler).toContain('"name": "feedback-workflow"')
     expect(storyDocument).toContain(
       'Keep Cloudflare Workflow ownership separate for in-session lifecycle timers.',
     )
@@ -156,44 +135,4 @@ describe('story 4.3 notification transport reliability and idempotency lock', fu
     )
   })
 
-  it('keeps terraform notification-orchestrator as create-only bootstrap while wrangler owns runtime config', function () {
-    const terraformMain = readRepositoryFile('infrastructure', 'main.tf')
-
-    // Provider v5.25 split-resource model: Terraform owns the identity and one
-    // create-only bootstrap version/deployment; every mutable field Wrangler
-    // controls is lifecycle-ignored so a later apply can never upload bootstrap
-    // content over the Wrangler application version or move traffic back.
-    const identityBlock =
-      terraformMain.match(/resource "cloudflare_worker" "notification_orchestrator" \{[\s\S]*?\n\}/)?.[0] ?? ''
-    const versionBlock =
-      terraformMain.match(/resource "cloudflare_worker_version" "notification_orchestrator" \{[\s\S]*?\n\}/)?.[0] ?? ''
-    const deploymentBlock =
-      terraformMain.match(/resource "cloudflare_workers_deployment" "notification_orchestrator" \{[\s\S]*?\n\}/)?.[0] ?? ''
-
-    expect(identityBlock).toContain(
-      'resource "cloudflare_worker" "notification_orchestrator"',
-    )
-    expect(identityBlock).toContain('name       = var.notification_orchestrator_worker_script_name')
-
-    expect(versionBlock).toContain('lifecycle {')
-    expect(versionBlock).toContain('ignore_changes = [')
-    expect(versionBlock).toContain('bindings')
-    expect(versionBlock).toContain('compatibility_date')
-    expect(versionBlock).toContain('main_module')
-    expect(versionBlock).toContain('modules')
-    // Bootstrap content only: the real application bundle is deployed by Wrangler.
-    expect(versionBlock).toContain('"${path.module}/workers/notification-orchestrator.js"')
-
-    expect(deploymentBlock).toContain('strategy    = "percentage"')
-    expect(deploymentBlock).toContain('ignore_changes = [versions]')
-
-    // The bootstrap version carries the transport bindings a fresh environment
-    // needs before Wrangler takes over.
-    expect(versionBlock).toContain('name       = "NOTIFICATION_QUEUE"')
-    expect(versionBlock).toContain(
-      'queue_name = cloudflare_queue.notification_orchestration.queue_name',
-    )
-    expect(versionBlock).toContain('name = "HYPERDRIVE"')
-    expect(versionBlock).not.toContain('name = "REALTIME_APP_ID"')
-  })
 })

@@ -11,7 +11,7 @@ Resource creation happens once per environment by running `scripts/bootstrap.sh 
 ### Managed Resources
 - **Neon**: project `mako-<environment>` (pg 17, 6h history retention, aws-us-east-1), role `mako_app`, database `mako`. A freshly created role's password is reset once and the direct `DATABASE_URL` is printed for GitHub secrets; existing environments never touch the role password.
 - **Cloudflare Hyperdrive**: `mako-<environment>-hyperdrive` (direct Neon origin — same URI as `DATABASE_URL`; Hyperdrive itself pools connections; caching max-age 60 / swr 15, origin connection limit 20). The printed ID goes into the `HYPERDRIVE_ID` GitHub secret.
-- **Cloudflare Queues**: `notification-orchestration` and `notification-orchestration-dlq` (created before the first orchestrator deploy so the consumer binding resolves).
+- **Cloudflare Queues**: `notification-orchestration` and `notification-orchestration-dlq` (created before the first orchestrator deploy so the consumer binding resolves). The queue is for async post-commit worker hand-off (notification/orchestration events, not join-time session provisioning).
 - **Cloudflare R2**: `mako-recordings` and `mako-screenshots` (location hint `enam`) with the 30-day retention lifecycle rule (delete objects at 2,592,000s, abort multipart uploads at 86,400s), re-asserted on every run.
 - **Cloudflare Email Service**: the environment's sending subdomain via the zone-scoped REST API with `preview_enabled=false` and `drop_suppressed_recipients=false`, followed by a 12-attempt readiness poll. Cloudflare manages the domain-authentication and return-path DNS records; nothing in the repo duplicates them.
 
