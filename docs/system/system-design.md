@@ -22,7 +22,7 @@ For frontend technologies, refer to `../infrastructure/frontend.md`.
 
 For backend technologies, refer to `../infrastructure/backend.md`.
 
-For infrastructure management (Terraform & Wrangler), refer to `../infrastructure/management.md`.
+For infrastructure management (bootstrap script & Wrangler), refer to `../infrastructure/management.md`.
 
 ## Diagrams
 Reference `docs/system/system-design/diagrams.md`

@@ -2,135 +2,127 @@
 
 ## GitHub Actions
 
-We utilize GitHub Actions for our CI/CD pipeline to ensure code quality and automate deployments.
-
-- **Linting & Type Checking**: Automated checks run on every push and pull request to enforce coding standards and catch errors early.
-- **Automated Deployment**: Successful merges to the main branch trigger automated deployments to our staging and production environments.
+GitHub Actions provides the quality gate and one ordered deployment path for both required environments. Pushes to `staging` deploy the staging environment; pushes to `main` deploy production. Manual deployments use the same path and must select the environment that matches the branch (`staging`/`staging` or `main`/`production`).
 
 ### Workflow Files
 
 - **Quality Gate** (`.github/workflows/quality-gate.yml`)
-  - Trigger: every pull request targeting `main`
-  - Steps: install dependencies, run `pnpm lint`, `pnpm typecheck`, and `pnpm test`
-- **Infrastructure Deployment** (`.github/workflows/deploy-infrastructure.yml`)
-  - Trigger: pushes to `main` that modify `infrastructure/**`
-  - Steps: `terraform init`, `terraform validate`, and `terraform apply -auto-approve`
+  - Trigger: every pull request targeting `staging` or `main`.
+  - Steps: install dependencies, run linting, type checking, and tests.
+- **Deployment Orchestrator** (`.github/workflows/deploy.yml`)
+  - This is the only workflow with push and `workflow_dispatch` deployment triggers.
+  - It resolves the environment once from the branch, rejects an unsupported branch or a manual branch/environment mismatch, and passes the required `environment` string (`staging` or `production`) to the applications reusable workflow.
+  - It checks out the orchestrator run's exact commit SHA; every downstream job deploys one revision.
+  - Resource creation is NOT part of this pipeline. One-time provisioning runs via `scripts/bootstrap.sh` per environment (see below); CI only deploys code.
 - **Application Deployment** (`.github/workflows/deploy-applications.yml`)
-  - Trigger: pushes to `main` that modify app/shared code paths
-  - Steps: migrate production database, then deploy backend-rest, notification-orchestrator, and frontend workers through `cloudflare/wrangler-action`
-  - Migration requirements:
-    - Production migrations must be backward-compatible because the database is migrated before the backend deploys.
-    - The `DATABASE_URL` secret used by CI must target the same database as the production Hyperdrive binding.
-    - Using a dedicated migration credential for `DATABASE_URL` is preferred.
-    - Production environment approvals are recommended for schema-changing releases.
+  - Trigger: reusable `workflow_call` only, with required string input `environment`.
+  - Ordered jobs: migrate-db → notification-orchestrator → backend-rest → greedy-matcher → frontend. Concurrency groups `deploy-<worker>-${environment}` serialize retries and prevent overlapping deploys per environment.
+  - Runs backward-compatible migrations first, then deploys each Worker with plain `wrangler deploy` from the committed `wrangler.jsonc` (the `__HYPERDRIVE_ID__` placeholder is injected from the `HYPERDRIVE_ID` secret at deploy time).
+  - Required runtime secrets are synchronized before each Worker deploy: Wrangler's `secrets.required` validation must see the secrets before the first application script deployment.
+  - After the backend deploy, `scripts/ensure-redact-query-string.sh` reasserts Worker-level `redact_query_string` via the Workers API (Wrangler 4.73.0 cannot express the setting in wrangler.jsonc) and verifies it.
 
-### Secrets Management Strategy
+### Resource Ownership: Bootstrap Script and Wrangler
 
-Secrets are managed in GitHub as environment-scoped secrets (for example, `staging` and `production`) with the same secret keys in each environment, then consumed by deployment workflows.
+| Concern | Owner |
+|---|---|
+| Neon project, role (`mako_app`), and database | `scripts/bootstrap.sh` (one-time, per environment, idempotent) |
+| Hyperdrive config (pooled Neon origin, caching max-age 60 / swr 15, connection limit 20) | `scripts/bootstrap.sh` |
+| Queues `notification-orchestration` / `-dlq` | `scripts/bootstrap.sh` (queues exist before the first orchestrator deploy) |
+| R2 buckets `mako-recordings` / `mako-screenshots` (enam) + 30-day lifecycle rules | `scripts/bootstrap.sh` |
+| Email Sending subdomain with `preview_enabled=false`, `drop_suppressed_recipients=false`, and readiness poll | `scripts/bootstrap.sh` |
+| Workers: `mako-backend-rest`, `mako-notification-orchestrator`, `mako-frontend`, `mako-greedy-matcher` (incl. crons, queue consumer, workflow resources) | Wrangler deploys from committed configs |
+| Backend Worker-level `redact_query_string` | `scripts/ensure-redact-query-string.sh` post-deploy step (Wrangler config limitation) |
+| Worker runtime secrets | Wrangler synchronization before deployment |
 
-Each environment (`staging`, `production`) defines the same secret keys; values differ per environment. Two scripts configure them:
+`scripts/bootstrap.sh` is idempotent: run it against an already-provisioned environment and every existing resource is detected and skipped (exit 0). It never handles secret values; it prints resource IDs (Hyperdrive ID) and, for a newly created Neon role only, the connection strings to paste into GitHub secrets. Resetting an existing role's password would invalidate the live `DATABASE_URL`/`HYPERDRIVE_CONNECTION_STRING`, so the bootstrap skips the password path on already-provisioned environments.
 
-- `scripts/set-github-env-secrets.sh` — interactive; prompts for each value. Use for manual setup.
-- `scripts/set-github-env-secrets-from-env.sh <staging|production> [path/to/.env]` — batch; parses a `.env` file (`KEY=VALUE` lines) and uploads every known secret, skipping unknown keys.
+### GitHub Environment Configuration
 
-Keep both scripts in sync with the inventory tables below. When configuring secrets from an existing `.env` file, prefer the batch script.
+Both GitHub Environments are required:
 
-Infrastructure and Terraform state:
+- `staging`, restricted to the `staging` branch.
 
-| Secret | Purpose | Format / example |
+The environments use the same keys with environment-specific values. Staging and production use separate Cloudflare accounts, Neon projects, URLs, and Email Sending domains.
+
+#### Secrets
+
+Provisioning and bootstrap credentials:
+
+| Secret | Purpose |
+|---|---|
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID for the selected environment |
+| `CLOUDFLARE_API_TOKEN` | The single environment-scoped CI token used by the bootstrap script and Wrangler; it must cover Workers, Queues, R2, Hyperdrive, Workflows, and Email Sending (zone) edit permissions and is never exposed to Worker runtime code |
+| `NEON_API_KEY` | Required Neon API key used by `scripts/bootstrap.sh` to create the environment's project, role, and database |
+| `NEON_ORG_ID` | Neon organization that owns the environment's project |
+
+Application and runtime values:
+
+| Secret | Purpose |
+|---|---|
+| `CLOUDFLARE_RUNTIME_API_TOKEN` | Separate least-privilege token used by deployed Workers at runtime; synchronized to the Worker secret named `CLOUDFLARE_API_TOKEN` and never used by the bootstrap script or CI deploys |
+
+| `DATABASE_URL` | Direct SSL Neon URI used by the migration job; it must target the same database as the environment's Hyperdrive binding |
+| `HYPERDRIVE_ID` | Environment's Hyperdrive configuration ID injected into Wrangler configuration |
+| `BETTER_AUTH_SECRET` | Better Auth signing secret |
+| `BETTER_AUTH_URL` | Environment-specific backend base URL used by Better Auth |
+| `BETTER_AUTH_TRUSTED_ORIGINS` | Comma-separated origins accepted by Better Auth |
+| `VITE_AUTH_BASE_URL` | Required backend origin baked into the frontend build; it must identify the selected environment's backend |
+| `CLOUDFLARE_REALTIMEKIT_APP_ID` | RealtimeKit application belonging to the selected Cloudflare account |
+| `STRIPE_SECRET_KEY` | Environment-specific Stripe secret key |
+| `STRIPE_WEBHOOK_SECRET` | Signing secret for the environment's backend webhook endpoint |
+| `VITE_STRIPE_PUBLISHABLE_KEY` | Stripe publishable key baked into the frontend build |
+
+`CLOUDFLARE_API_TOKEN` is the only CI Cloudflare token name. Do not create separate bootstrap and Wrangler deployment token aliases. `CLOUDFLARE_RUNTIME_API_TOKEN` remains separate because it is application runtime authority, not CI deployment authority.
+
+#### Non-secret Variables
+
+| Variable | Purpose | Accepted value / example |
 |---|---|---|
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID of this environment's account | 32-character account ID (e.g. `e7d95c90bfc96c0320a2a51bc889461a`) |
-| `CLOUDFLARE_API_TOKEN` | Account API token for CI: Terraform provider and Wrangler deploys; never exposed to Workers | `cfat_…` with Account Settings Read + Workers Scripts, R2, Queues, Hyperdrive Write |
-| `NEON_API_KEY` | Neon API key Terraform uses to manage the project, role, and database | Neon API key |
-| `NEON_ORG_ID` | Neon organization ID the Terraform project belongs to | `org-…` |
-| `TF_STATE_R2_ACCESS_KEY_ID` | Access Key ID of the bucket-scoped R2 token for `mako-terraform-state` (Object Read & Write) | 32-character access key |
-| `TF_STATE_R2_SECRET_ACCESS_KEY` | Secret Access Key of the same R2 token | shown once at token creation |
+| `EMAIL_SENDING_ZONE_ID` | Cloudflare zone containing the environment's sending domain | 32-character zone ID |
+| `EMAIL_SENDING_DOMAIN` | Environment-specific sending domain, created by `scripts/bootstrap.sh` in that zone | `mail.staging.example.com` |
+| `AUTH_EMAIL_VERIFICATION_ENFORCED` | Controls both backend Better Auth enforcement and the frontend signup flow for the selected environment | Exact string `true` or `false` |
 
-Applications:
+The committed Wrangler config derives `AUTH_EMAIL_FROM` as `noreply@${EMAIL_SENDING_DOMAIN}` (CI renders it into the committed `noreply@example.invalid` placeholder), exposes it to `backend-rest` as a non-secret plain-text binding, and restricts the `EMAIL` binding's sender allowlist to that address. `AUTH_EMAIL_FROM` is not stored in GitHub.
 
-| Secret | Purpose | Format / example |
-|---|---|---|
-| `CLOUDFLARE_RUNTIME_API_TOKEN` | Account API token used by Workers at runtime; synced after deploy as the Worker secret `CLOUDFLARE_API_TOKEN` | `cfat_…` with minimal RealtimeKit scopes |
-| `DATABASE_URL` | Direct SSL Neon migration URI from `terraform output database_url`; contains credentials | `postgresql://mako_app:***@ep-…neon.tech:5432/mako?sslmode=require&channel_binding=require` |
-| `HYPERDRIVE_ID` | Hyperdrive config ID from `terraform output hyperdrive_id`; replaces `__HYPERDRIVE_ID__` placeholders | 32-hex |
-| `BETTER_AUTH_SECRET` | Better Auth signing secret | long random string (≥32 chars) |
-| `BETTER_AUTH_URL` | Backend base URL Better Auth uses | `https://mako-backend-rest.<subdomain>.workers.dev` |
-| `BETTER_AUTH_TRUSTED_ORIGINS` | Comma-separated origins allowed by Better Auth for this environment | `https://<frontend>,https://<backend>` |
-| `VITE_AUTH_BASE_URL` | Backend origin baked into the frontend at build time; same value as `BETTER_AUTH_URL` | URL |
-| `CLOUDFLARE_REALTIMEKIT_APP_ID` | RealtimeKit application ID belonging to this environment's Cloudflare account | RealtimeKit app ID |
-| `STRIPE_SECRET_KEY` | Stripe secret key for this environment | `sk_test_…` in staging, `sk_live_…` in production |
-| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret for the backend `/api/payments/webhook` endpoint | `whsec_…` |
-| `VITE_STRIPE_PUBLISHABLE_KEY` | Stripe publishable key baked into the frontend | `pk_test_…` in staging, `pk_live_…` in production |
 
-Secret sync behavior:
+The committed local Wrangler default for `AUTH_EMAIL_VERIFICATION_ENFORCED` is `false`. The application workflow renders the same validated value into the backend binding and maps it to the frontend build as `VITE_AUTH_EMAIL_VERIFICATION_ENFORCED`; both consumers accept only exact lowercase `true` or `false`. When false, the frontend retains the existing immediate-authentication signup behavior. Deployment A keeps the GitHub Environment variable at `false` while infrastructure, binding parity, controlled delivery, and redaction preservation are proven. Deployment B changes the variable to `true` in staging first so backend enforcement and frontend verification navigation switch together, completes staging verification, and only then changes production to `true`.
 
-- Terraform workflow consumes Cloudflare/Neon/Stripe secrets during infra apply.
-- Backend deploy injects `HYPERDRIVE_ID` into `apps/backend-rest/wrangler.jsonc` before deployment, then syncs Worker runtime secrets (`BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `BETTER_AUTH_TRUSTED_ORIGINS`, `STRIPE_SECRET_KEY`, `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_REALTIMEKIT_APP_ID`, and the runtime token as the Worker secret `CLOUDFLARE_API_TOKEN`) via `wrangler secret put` after deploy; wrangler-action overwrites `CLOUDFLARE_API_TOKEN` in its own environment with the deploy token, so `CLOUDFLARE_RUNTIME_API_TOKEN` cannot ride the action's `secrets:` list. Postgres runtime access is provided through the Cloudflare Hyperdrive binding.
-- Notification orchestrator deploy also injects `HYPERDRIVE_ID` into `apps/notification-orchestrator/wrangler.jsonc` before deployment and syncs Worker runtime secrets (`CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_REALTIMEKIT_APP_ID`, and the runtime token as the Worker secret `CLOUDFLARE_API_TOKEN`) for fresh RealtimeKit recording status and short-lived download URL lookup. Postgres runtime access is provided through the Cloudflare Hyperdrive binding.
+Operator prerequisites that GitHub cannot establish are: the zone is authoritative in Cloudflare DNS and contains the sending domain, `CLOUDFLARE_API_TOKEN` has Email Sending edit permission, and the account plan permits the intended recipients.
 
-## CI/CD Setup Runbook
+### Runtime Secret Synchronization
 
-This runbook explains how the CI/CD workflows operate and what must be configured in GitHub.
+The application workflow synchronizes required Worker secrets before each Wrangler deploy. Backend secrets include Better Auth, Stripe, Cloudflare account and RealtimeKit values, plus `CLOUDFLARE_RUNTIME_API_TOKEN` under the Worker secret name `CLOUDFLARE_API_TOKEN`. Notification-orchestrator receives its required Cloudflare account, RealtimeKit, and runtime-token secrets the same way. Postgres runtime access continues through Hyperdrive.
 
-### Required GitHub Configuration
+Pre-deploy synchronization is part of the bootstrap contract, not a post-deploy cleanup step. A secret synchronization failure stops the deployment before Wrangler publishes the application script.
 
-#### 1) Create Environments
+### Setup and Deployment Runbook
 
-In GitHub repository settings:
+1. Create both required GitHub Environments and apply their branch restrictions.
+2. Run `scripts/bootstrap.sh <staging|production>` with `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `NEON_API_KEY`, `NEON_ORG_ID`, `EMAIL_SENDING_ZONE_ID`, and `EMAIL_SENDING_DOMAIN` set. The script creates/verifies the Neon project, Hyperdrive config, queues, R2 buckets with lifecycle rules, and Email Sending domain, then prints the `HYPERDRIVE_ID` and (new projects only) the `DATABASE_URL` / `HYPERDRIVE_CONNECTION_STRING` values.
+3. Add every secret and variable above to both environments with environment-specific values (`make envs` with a .env file, or `scripts/set-github-env-secrets.sh` interactively). Set `HYPERDRIVE_ID` from the bootstrap output.
+4. Grant the single `CLOUDFLARE_API_TOKEN` only the account and zone permissions needed by the bootstrap script and Wrangler. Keep `CLOUDFLARE_RUNTIME_API_TOKEN` least-privileged for runtime calls.
+5. Set `AUTH_EMAIL_VERIFICATION_ENFORCED=false` until Email Service delivery is verified.
+6. Run migrations once per fresh environment (`pnpm db:migrate` with the environment's `DATABASE_URL`).
+7. Merge to `staging` or `main`, or dispatch `.github/workflows/deploy.yml` from the matching branch and environment. Do not dispatch the reusable workflows directly.
+8. Observe one run in this order: environment guard → migrations → notification-orchestrator → backend-rest (+ redaction reassert) → greedy-matcher → frontend.
 
-1. Go to **Settings → Environments**.
-2. Create environments:
-   - `production` (required)
-   - `staging` (optional now, recommended)
-3. Add protection rules for `production` as needed (reviewers, wait timers, etc.).
+### Email Verification Deployment Gate
 
-> All current deploy workflows target the `production` environment.
+- **Deployment A (`AUTH_EMAIL_VERIFICATION_ENFORCED=false`)**: run `scripts/bootstrap.sh` (provisions Email Service and verifies readiness), then deploy the bindings, verify `preview_enabled=false` and `drop_suppressed_recipients=false`, validate Cloudflare-managed DNS and sender restrictions, perform a controlled staging send, and confirm the post-deploy redaction reassert ran.
+- **Deployment B (`AUTH_EMAIL_VERIFICATION_ENFORCED=true`)**: the same application workflow enables backend enforcement and builds the frontend verification flow from the same validated value, then verifies the complete signup/verification/login flow in staging before promoting the contract to production and running the controlled canary.
 
-#### 2) Add Environment Secrets
-
-Add these under **Settings → Environments → production → Secrets and variables → Actions**.
-
-Core secrets (required):
-
-- `CLOUDFLARE_ACCOUNT_ID`
-- `CLOUDFLARE_API_TOKEN`
-- `CLOUDFLARE_RUNTIME_API_TOKEN`
-- `NEON_ORG_ID`
-- `TF_STATE_R2_ACCESS_KEY_ID`
-- `TF_STATE_R2_SECRET_ACCESS_KEY`
-- `DATABASE_URL`
-- `HYPERDRIVE_ID`
-- `BETTER_AUTH_SECRET`
-- `BETTER_AUTH_URL`
-- `BETTER_AUTH_TRUSTED_ORIGINS`
-- `CLOUDFLARE_REALTIMEKIT_APP_ID`
-- `STRIPE_SECRET_KEY`
-- `STRIPE_WEBHOOK_SECRET`
-- `VITE_STRIPE_PUBLISHABLE_KEY`
-
-Secret sync behavior:
-
-- Terraform workflow consumes Cloudflare/Neon/Stripe secrets during infra apply; the backend and notification-orchestrator deploys sync the runtime token as described above.
-- Frontend deploy requires Cloudflare deployment credentials and `VITE_AUTH_BASE_URL`, which is injected at build time so the auth client knows the backend origin. The checkout feature also needs `VITE_STRIPE_PUBLISHABLE_KEY` injected at build time so the Stripe Payment Element can initialize.
-
-#### 3) Verify Cloudflare Token Scope
-
-Use a least-privilege Cloudflare API token that can deploy Workers and manage only the resources Terraform needs.
-
-#### 4) Merge and Observe
-
-1. Open a PR and verify **Quality Gate** passes.
-2. Merge to `main`:
-   - `infrastructure/**` changes trigger **Deploy Infrastructure**.
-   - app/package path changes trigger **Deploy Applications**.
-3. Check Actions logs for missing secrets, Terraform failures, or Wrangler deploy errors.
+The application pipeline is not independently ordered by an operator: `.github/workflows/deploy.yml` establishes the job ordering. The operator controls only the false-to-true environment-variable promotion after Deployment A evidence passes. Rollback changes `AUTH_EMAIL_VERIFICATION_ENFORCED` back to `false` and redeploys both backend and frontend behavior together while leaving proven Email Service infrastructure in place.
 
 ### Troubleshooting
 
-- **Missing secret errors**: secret is absent or misnamed in the `production` environment.
-- **Wrangler auth/account failures**: verify `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` match the same account.
-- **Backend runtime missing DB/Stripe/auth access**: verify `HYPERDRIVE_ID` was injected into `wrangler.jsonc`, confirm the deployed Worker has the `HYPERDRIVE` binding, then verify `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `BETTER_AUTH_TRUSTED_ORIGINS`, and `STRIPE_SECRET_KEY` and confirm Wrangler secret sync succeeded.
-- **Frontend build or runtime auth errors**: verify `VITE_AUTH_BASE_URL` is set and points to the deployed backend-rest Worker URL.
+- **Missing configuration**: confirm the value exists in the selected GitHub Environment, including required `NEON_API_KEY`, `HYPERDRIVE_ID`, `VITE_AUTH_BASE_URL`, and all three non-secret variables.
+- **Manual deployment rejected**: dispatch from `staging` with `staging`, or from `main` with `production`.
+- **Email Sending not ready**: inspect Email Sending domain/DNS state; re-run `scripts/bootstrap.sh` (its readiness poll is part of every run). Do not start the backend deployment until the domain reports enabled.
+- **Wrangler authentication failure**: verify `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` belong to the same selected environment.
+- **Worker runtime authentication failure**: verify pre-deploy synchronization used `CLOUDFLARE_RUNTIME_API_TOKEN` for the Worker secret named `CLOUDFLARE_API_TOKEN`.
+- **Backend runtime configuration failure**: verify Hyperdrive rendering and the required Better Auth, Stripe, Email, and enforcement bindings.
+- **Frontend auth failure**: verify `VITE_AUTH_BASE_URL` points to the selected environment's deployed backend.
+- **Redaction reassert failure**: `scripts/ensure-redact-query-string.sh` failed to set/verify `redact_query_string`; stop promotion, inspect the script error, and rerun the backend deploy job. Do not bypass the redaction step.
 
 ## Pull Request Guidelines
 

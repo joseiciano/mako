@@ -1,44 +1,59 @@
 # Infrastructure Management
 
-**Last reconciled**: 2026-03-30 (Documentation Drift Resolution Plan)
+**Last reconciled**: 2026-09-25 (Wrangler migration — Terraform removed)
 
-To ensure our infrastructure is reproducible, version-controlled, and easily scalable, we utilize a hybrid approach for managing our Cloudflare-based stack.
+Infrastructure is managed with committed declarative configs plus a one-time idempotent bootstrap runbook; there is no Terraform, no state backend, and no plan/apply step.
 
-## Terraform (Infrastructure as Code)
+## One-Time Provisioning (`scripts/bootstrap.sh`)
 
-We use **Terraform** to manage all persistent infrastructure components. This allows us to define our environment in code and maintain consistency across staging and production.
+Resource creation happens once per environment by running `scripts/bootstrap.sh <staging|production>` with `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, `NEON_API_KEY`, `NEON_ORG_ID`, `EMAIL_SENDING_ZONE_ID`, and `EMAIL_SENDING_DOMAIN`. The script is idempotent: existing resources are detected and skipped (exit 0), and it re-verifies Email Sending readiness on every run.
 
 ### Managed Resources
-- **Cloudflare Workers**: Provisioning the worker scripts and their associated bindings.
-- **Cloudflare Worker Cron Triggers**: Provisioning scheduled executions for background workers (e.g., matcher runs).
-- **Cloudflare Queues**: Provisioning queue producers/consumers and bindings for async post-commit worker hand-off (notification/orchestration events, not join-time session provisioning).
-- **Cloudflare R2**: Bucket creation, CORS configurations, and lifecycle rules.
-- **Cloudflare Hyperdrive**: Database connection pooling and configuration for Neon/Postgres.
-- **Cloudflare AI Gateway**: Analytics and caching configurations for AI providers.
-- **Cloudflare Workflows**: Orchestration logic for the interview lifecycle.
-- **Secrets Management**: Provisioning and managing environment variables and secrets across Cloudflare.
+- **Neon**: project `mako-<environment>` (pg 17, 6h history retention, aws-us-east-1), role `mako_app`, database `mako`. A freshly created role's password is reset once and the pooled/direct connection strings are printed for GitHub secrets; existing environments never touch the role password.
+- **Cloudflare Hyperdrive**: `mako-<environment>-hyperdrive` (pooled Neon origin, caching max-age 60 / swr 15, origin connection limit 20). The printed ID goes into the `HYPERDRIVE_ID` GitHub secret.
+- **Cloudflare Queues**: `notification-orchestration` and `notification-orchestration-dlq` (created before the first orchestrator deploy so the consumer binding resolves).
+- **Cloudflare R2**: `mako-recordings` and `mako-screenshots` (location hint `enam`) with the 30-day retention lifecycle rule (delete objects at 2,592,000s, abort multipart uploads at 86,400s), re-asserted on every run.
+- **Cloudflare Email Service**: the environment's sending subdomain via the zone-scoped REST API with `preview_enabled=false` and `drop_suppressed_recipients=false`, followed by a 12-attempt readiness poll. Cloudflare manages the domain-authentication and return-path DNS records; nothing in the repo duplicates them.
 
-### Why Terraform?
-- **State Management**: It tracks the current state of our infrastructure, preventing manual configuration drift.
-- **Reproducibility**: Easily stand up identical environments (e.g., a new "preview" or "staging" environment) with a single command.
-- **CI/CD Integration**: Infrastructure changes are peer-reviewed in Pull Requests and automatically applied upon merging to the `main` branch.
+Everything else is owned by committed Wrangler configs: Workers (`mako-backend-rest`, `mako-notification-orchestrator`, `mako-greedy-matcher`, `mako-frontend`), cron triggers, the queue consumer, and Workflow resources are all created by plain `wrangler deploy` runs in CI. The backend's Worker-level `redact_query_string` is the one setting Wrangler 4.73.0 cannot express, so `scripts/ensure-redact-query-string.sh` reasserts it after every backend deploy.
 
 ---
 
-## Wrangler (Developer Experience)
+## Wrangler (Deploys and Developer Experience)
 
-While Terraform manages the "plumbing," **Wrangler** remains our primary tool for local development and rapid iteration.
+**Wrangler** deploys all applications and serves local development.
 
 ### Usage
+- **Deploys**: `wrangler deploy` from each app directory (CI does this; the `__HYPERDRIVE_ID__` placeholder is injected from the `HYPERDRIVE_ID` secret at deploy time).
 - **Local Emulation**: Using `wrangler dev` to simulate the Cloudflare environment (Workers, R2, KV) locally.
 - **Tail Logs**: Using `wrangler tail` for real-time debugging of deployed workers.
-- **Rapid Prototyping**: Testing new worker logic before formalizing the infrastructure in Terraform.
 
 ---
 
 ## Deployment Strategy
 
-1. **Infrastructure Changes**: Modified via Terraform in the `/infrastructure` directory. These changes must be merged and applied before code that depends on them is deployed.
-2. **Application Code**: Deployed via GitHub Actions using the official Cloudflare Wrangler action. This ensures that our Hono-based routes and business logic are updated safely.
+1. **Resource changes**: edit `scripts/bootstrap.sh` and re-run it against the affected environment; it converges the pinned resources.
+2. **Application changes**: deployed via GitHub Actions using the official Cloudflare Wrangler action. This ensures that our Hono-based routes and business logic are updated safely.
 
-> **Operational Note**: Cloudflare Queues and other persistent resources must be created and owned by Terraform only. Do not use ad-hoc `wrangler` create commands in application deploy workflows. If a resource already exists outside Terraform state, operators must import it into Terraform state or delete and recreate it under Terraform control before the next apply.
+> **Operational Note**: Queues and other persistent resources are created by `scripts/bootstrap.sh`, never by ad-hoc `wrangler create` commands in application deploy workflows. If a resource is missing, run the bootstrap instead of creating it inline.
+
+## Email Verification Deployment Gate
+
+Email verification is promoted in two separately approved deployments. Independent infrastructure and application workflow triggers do not establish ordering; the operator, not GitHub Actions, must enforce this gate.
+
+### Deployment A: infrastructure readiness
+
+Run `scripts/bootstrap.sh` to provision/verify the Email Service domain and deploy the backend bindings while verification enforcement remains disabled. For staging and production, approver-visible evidence must show:
+
+- email sending domain reports `enabled=true` in the bootstrap readiness poll (domain readiness only, never mailbox-delivery proof)
+- `preview_enabled=false` and `drop_suppressed_recipients=false`
+- valid Cloudflare-managed MX, SPF, DKIM, DMARC, and return-path state
+- backend-only `EMAIL` and `AUTH_EMAIL_FROM` bindings with the exact derived sender allowlist
+- backend Worker query-string redaction enabled before and after the staging Wrangler deployment
+- one controlled staging send accepted by Email Service, with no recipient, verification URL, token, body, or raw provider message in application logs
+
+Deployment B is blocked until all Deployment A readiness evidence passes. In particular, the post-deploy redaction step (`scripts/ensure-redact-query-string.sh`) must confirm `observability.redact_query_string` remains enabled after every staging Wrangler deployment. Deployment A's rollback boundary is bootstrap and binding configuration only; do not enable verification behavior, and revert the failed configuration before retrying.
+
+### Deployment B: verification enforcement
+
+Promote coordinated backend and frontend verification behavior only after Deployment A approval. Record the staging end-to-end results and production controlled-inbox canary required by the feature plan. If enforcement fails, roll back the backend and frontend application releases together while leaving the proven Email Service infrastructure in place; do not let the old frontend receive enforced unverified-signup responses.
