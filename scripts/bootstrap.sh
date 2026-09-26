@@ -21,9 +21,9 @@
 #   EMAIL_SENDING_ZONE_ID    Cloudflare zone containing the sending domain
 #   EMAIL_SENDING_DOMAIN     sending domain to provision in that zone
 # Optional env:
-#   HYPERDRIVE_CONNECTION_STRING  Neon pooled connection string for the
-#                                 mako_app role; required only when the
-#                                 Hyperdrive config does not exist yet.
+#   DATABASE_URL  direct Neon URI for the mako_app role; required only when
+#                 the Hyperdrive config does not exist yet (also the value
+#                 CI uses for migrations).
 #
 # Never prints or stores secret values (SEC-004/REQ-006) — only resource IDs
 # and operator next-step instructions. This script never writes into apps/.
@@ -142,34 +142,30 @@ fi
 
 # Role password: reset ONLY when the role (or its project) is freshly created
 # — the role-create response does not expose a usable password, so
-# reset_password is how the bootstrap obtains the credential for the pooled
-# connection string. On already-provisioned environments resetting would
-# invalidate the live DATABASE_URL / HYPERDRIVE_CONNECTION_STRING (RISK-006),
+# reset_password is how the bootstrap obtains the credential for building
+# the direct connection string (DATABASE_URL). On already-provisioned
+# environments resetting would invalidate the live DATABASE_URL (RISK-006),
 # so it is skipped.
 if [ "$NEON_CREATED" = "yes" ] || [ "$ROLE_IS_NEW" = "yes" ]; then
   echo
   echo "    Fresh $NEON_ROLE role — resetting its password and printing the"
-  echo "    connection strings to paste into GitHub secrets (REQ-002/RISK-006):"
+  echo "    DATABASE_URL to paste into GitHub secrets (REQ-002/RISK-006):"
   RESET_RESPONSE="$(curl -fsS -X POST \
     "$NEON_API/projects/$NEON_PROJECT_ID/branches/$NEON_DEFAULT_BRANCH_ID/roles/$NEON_ROLE/reset_password" \
     -H "Authorization: Bearer $NEON_API_KEY")"
   ROLE_PASSWORD="$(printf '%s' "$RESET_RESPONSE" | jq -r '.role.password')"
   NEON_HOST="$(printf '%s' "$RESET_RESPONSE" | jq -r '.operations[0].endpoint_id // empty')"
-  # Fetch endpoint host for building connection strings.
+  # Fetch endpoint host for building the connection string.
   NEON_HOST="$(curl -fsS "$NEON_API/projects/$NEON_PROJECT_ID/endpoints" \
     -H "Authorization: Bearer $NEON_API_KEY" \
     | jq -r --arg ep "$NEON_HOST" '.endpoints[] | select(.id == $ep or $ep == "") | .host' | head -n 1)"
-  POOLED_HOST="$(printf '%s' "$NEON_HOST" | sed "s/${NEON_HOST%%.*}/${NEON_HOST%%.*}-pooler/")"
   cat <<EOF
 
-    >>> Set these GitHub Environment secrets for "$ENVIRONMENT" (values are
-    >>> printed once; never commit them):
+    >>> Set this GitHub Environment secret for "$ENVIRONMENT" (value is
+    >>> printed once; never commit it):
 
-      DATABASE_URL (direct, for migrations):
+      DATABASE_URL (direct, for migrations AND the Hyperdrive origin):
         postgresql://$NEON_ROLE:$ROLE_PASSWORD@$NEON_HOST:5432/$NEON_DATABASE?sslmode=require
-
-      HYPERDRIVE_CONNECTION_STRING (pooled, for the Hyperdrive origin below):
-        postgresql://$NEON_ROLE:$ROLE_PASSWORD@$POOLED_HOST:5432/$NEON_DATABASE?sslmode=require
 
 EOF
 else
@@ -178,10 +174,12 @@ fi
 echo
 
 # ---------------------------------------------------------------------------
-# Hyperdrive: mako-$ENVIRONMENT-hyperdrive wired to the Neon pooled endpoint.
-# Detection-first: an existing config is skipped without needing the
-# connection string; the string is only required when creating (classprints
-# pattern). Flags mirror Terraform: caching max-age 60, swr 15, limit 20.
+# Hyperdrive: mako-$ENVIRONMENT-hyperdrive wired to the Neon origin.
+# Detection-first: an existing config is skipped without needing
+# DATABASE_URL; it is only required when creating (classprints pattern).
+# The direct Neon host is used (same URI as DATABASE_URL) so the migrated
+# Hyperdrive keeps the origin Terraform configured; Hyperdrive itself pools
+# connections. Flags mirror Terraform: caching max-age 60, swr 15, limit 20.
 # ---------------------------------------------------------------------------
 if wrangler hyperdrive list 2>/dev/null | grep -q "\b$HYPERDRIVE_NAME\b"; then
   echo "hyperdrive  : $HYPERDRIVE_NAME (exists, skipped)"
@@ -191,13 +189,13 @@ if wrangler hyperdrive list 2>/dev/null | grep -q "\b$HYPERDRIVE_NAME\b"; then
       | sed -n 's/^ *\([0-9a-f]\{32\} *\).*'"$HYPERDRIVE_NAME"'.*/\1/p' | tr -d ' ' | head -n 1 || true)"
   fi
 else
-  : "${HYPERDRIVE_CONNECTION_STRING:?HYPERDRIVE_CONNECTION_STRING must be set to create the $HYPERDRIVE_NAME config}"
+  : "${DATABASE_URL:?DATABASE_URL must be set to create the $HYPERDRIVE_NAME config}"
   CREATE_OUTPUT="$(wrangler hyperdrive create "$HYPERDRIVE_NAME" \
-    --connection-string "$HYPERDRIVE_CONNECTION_STRING" \
+    --connection-string "$DATABASE_URL" \
     --max-age 60 --swr 15 --origin-connection-limit 20 2>&1 || true)"
   HYPERDRIVE_ID="$(printf '%s' "$CREATE_OUTPUT" | sed -n 's/.*config: \([0-9a-f]*\).*/\1/p' | head -n 1)"
   if [ -z "$HYPERDRIVE_ID" ]; then
-    echo "hyperdrive  : CREATE FAILED — check HYPERDRIVE_CONNECTION_STRING" >&2
+    echo "hyperdrive  : CREATE FAILED — check DATABASE_URL" >&2
     printf '%s\n' "$CREATE_OUTPUT" >&2
     exit 1
   fi
@@ -321,11 +319,11 @@ Next steps (manual; secrets never pass through this script — SEC-004):
   1. Set the HYPERDRIVE_ID GitHub Environment secret:
        $(if [ -n "${HYPERDRIVE_ID:-}" ]; then echo "$HYPERDRIVE_ID"; else echo "wrangler hyperdrive list  # copy the id for $HYPERDRIVE_NAME"; fi)
 
-  2. If this is a NEW Neon project, paste the values printed above into:
+  2. If this is a NEW Neon project, paste the DATABASE_URL printed above into
        .env.$ENVIRONMENT
-     DATABASE_URL gets the direct URI; HYPERDRIVE_CONNECTION_STRING gets the
-     pooled URI. Re-run make bootstrap-$ENVIRONMENT .env.$ENVIRONMENT, then
-     put the resulting Hyperdrive ID into HYPERDRIVE_ID in the same file.
+     Re-run make bootstrap-$ENVIRONMENT .env.$ENVIRONMENT (it creates the
+     Hyperdrive config from that URI), then put the printed Hyperdrive ID
+     into HYPERDRIVE_ID in the same file.
 
   3. Upload every GitHub Environment secret and non-secret variable from that
      gitignored file:

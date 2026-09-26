@@ -26,7 +26,7 @@ GitHub Actions provides the quality gate and one ordered deployment path for bot
 | Concern | Owner |
 |---|---|
 | Neon project, role (`mako_app`), and database | `scripts/bootstrap.sh` (one-time, per environment, idempotent) |
-| Hyperdrive config (pooled Neon origin, caching max-age 60 / swr 15, connection limit 20) | `scripts/bootstrap.sh` |
+| Hyperdrive config (direct Neon origin, caching max-age 60 / swr 15, connection limit 20) | `scripts/bootstrap.sh` |
 | Queues `notification-orchestration` / `-dlq` | `scripts/bootstrap.sh` (queues exist before the first orchestrator deploy) |
 | R2 buckets `mako-recordings` / `mako-screenshots` (enam) + 30-day lifecycle rules | `scripts/bootstrap.sh` |
 | Email Sending subdomain with `preview_enabled=false`, `drop_suppressed_recipients=false`, and readiness poll | `scripts/bootstrap.sh` |
@@ -34,7 +34,7 @@ GitHub Actions provides the quality gate and one ordered deployment path for bot
 | Backend Worker-level `redact_query_string` | `scripts/ensure-redact-query-string.sh` post-deploy step (Wrangler config limitation) |
 | Worker runtime secrets | Wrangler synchronization before deployment |
 
-`scripts/bootstrap.sh` is idempotent: run it against an already-provisioned environment and every existing resource is detected and skipped (exit 0). It never handles secret values; it prints resource IDs (Hyperdrive ID) and, for a newly created Neon role only, the connection strings to paste into GitHub secrets. Resetting an existing role's password would invalidate the live `DATABASE_URL`/`HYPERDRIVE_CONNECTION_STRING`, so the bootstrap skips the password path on already-provisioned environments.
+`scripts/bootstrap.sh` is idempotent: run it against an already-provisioned environment and every existing resource is detected and skipped (exit 0). It never handles secret values; it prints resource IDs (Hyperdrive ID) and, for a newly created Neon role only, the `DATABASE_URL` to paste into GitHub secrets. Resetting an existing role's password would invalidate the live `DATABASE_URL`, so the bootstrap skips the password path on already-provisioned environments.
 
 ### GitHub Environment Configuration
 
@@ -99,7 +99,7 @@ Pre-deploy synchronization is part of the bootstrap contract, not a post-deploy 
 
 1. Create both required GitHub Environments and apply their branch restrictions.
 2. Copy the matching template (`cp .env.staging.example .env.staging` or `cp .env.production.example .env.production`), fill it, then run `make bootstrap-staging .env.staging` or `make bootstrap-production .env.production`. The target exports the file into the one-time idempotent bootstrap, which creates/verifies the Neon project, Hyperdrive config, queues, R2 buckets with lifecycle rules, and Email Sending domain.
-3. Put the bootstrap's direct/pooled Neon URIs and `HYPERDRIVE_ID` back into the same gitignored file, re-run bootstrap, then run `make envs-staging .env.staging` or `make envs-production .env.production`. That uploads every known GitHub secret and the three non-secret environment variables.
+3. On a fresh Neon project, paste the `DATABASE_URL` the bootstrap prints back into the same gitignored file, re-run bootstrap (it creates the Hyperdrive config from that direct URI — Hyperdrive itself provides pooling, so no separate pooled URI is needed), set `HYPERDRIVE_ID` from the summary, then run `make envs-staging .env.staging` or `make envs-production .env.production`. That uploads every known GitHub secret and the three non-secret environment variables.
 4. Grant the single `CLOUDFLARE_API_TOKEN` only the account and zone permissions needed by the bootstrap script and Wrangler. Keep `CLOUDFLARE_RUNTIME_API_TOKEN` least-privileged for runtime calls.
 5. Set `AUTH_EMAIL_VERIFICATION_ENFORCED=false` until Email Service delivery is verified.
 6. Run migrations once per fresh environment (`pnpm db:migrate` with the environment's `DATABASE_URL`).
