@@ -33,6 +33,16 @@ KNOWN_SECRETS=(
   "VITE_STRIPE_PUBLISHABLE_KEY"
 )
 
+# Values deliberately present in the shared env file but not uploaded as
+# GitHub Secrets. The Makefile sends the three variables through
+# set-github-env-vars-from-env.sh; the connection string is bootstrap-only.
+NON_SECRET_KEYS=(
+  "EMAIL_SENDING_ZONE_ID"
+  "EMAIL_SENDING_DOMAIN"
+  "AUTH_EMAIL_VERIFICATION_ENFORCED"
+  "HYPERDRIVE_CONNECTION_STRING"
+)
+
 usage() {
   echo "Usage: $0 <staging|production> [path/to/.env]" >&2
 }
@@ -74,6 +84,16 @@ is_known_secret() {
   return 1
 }
 
+is_non_secret_key() {
+  local candidate
+  for candidate in "${NON_SECRET_KEYS[@]}"; do
+    if [[ "$candidate" == "$1" ]]; then
+      return 0
+    fi
+  done
+  return 1
+}
+
 set_count=0
 skipped_count=0
 seen=""
@@ -101,6 +121,11 @@ while IFS= read -r raw || [[ -n "$raw" ]]; do
   value="${value%"${value##*[![:space:]]}"}"
 
   [[ -z "$key" ]] && continue
+
+  if is_non_secret_key "$key"; then
+    echo "Skipping non-secret/bootstrap-only key: $key"
+    continue
+  fi
 
   if ! is_known_secret "$key"; then
     echo "Skipping unknown key: $key"

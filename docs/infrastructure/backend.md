@@ -53,7 +53,7 @@ This document goes over all the tools we will be using for our backend services
 
 ## Environment Variables & Secrets
 
-The backend worker reads the following secrets from Cloudflare Workers bindings (set via `wrangler secret put` or `.dev.vars` for local development). CI/CD deployment secrets are managed via `./scripts/set-github-env-secrets.sh`.
+The backend worker reads secrets from Cloudflare Workers bindings (`wrangler secret put`) or `.dev.vars` locally. For deployed environments, copy `.env.staging.example` / `.env.production.example` to their gitignored counterparts and run `make envs-staging .env.staging` or `make envs-production .env.production`; these targets upload both GitHub secrets and non-secret variables.
 
 ### Email Service Infrastructure
 

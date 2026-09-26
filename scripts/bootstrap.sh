@@ -321,19 +321,18 @@ Next steps (manual; secrets never pass through this script — SEC-004):
   1. Set the HYPERDRIVE_ID GitHub Environment secret:
        $(if [ -n "${HYPERDRIVE_ID:-}" ]; then echo "$HYPERDRIVE_ID"; else echo "wrangler hyperdrive list  # copy the id for $HYPERDRIVE_NAME"; fi)
 
-  2. If this is a NEW Neon project, set (values printed above):
-       DATABASE_URL, HYPERDRIVE_CONNECTION_STRING
-     then create the Hyperdrive config if it does not exist yet and re-run
-     this script to confirm everything is detected and skipped.
+  2. If this is a NEW Neon project, paste the values printed above into:
+       .env.$ENVIRONMENT
+     DATABASE_URL gets the direct URI; HYPERDRIVE_CONNECTION_STRING gets the
+     pooled URI. Re-run make bootstrap-$ENVIRONMENT .env.$ENVIRONMENT, then
+     put the resulting Hyperdrive ID into HYPERDRIVE_ID in the same file.
 
-  3. Set the remaining GitHub Environment secrets for "$ENVIRONMENT" (make envs
-     with a .env file, or scripts/set-github-env-secrets.sh):
-       CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_RUNTIME_API_TOKEN,
-       BETTER_AUTH_SECRET, BETTER_AUTH_URL, BETTER_AUTH_TRUSTED_ORIGINS,
-       VITE_AUTH_BASE_URL, CLOUDFLARE_REALTIMEKIT_APP_ID,
-       STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET, VITE_STRIPE_PUBLISHABLE_KEY
-     and the non-secret variables:
-       EMAIL_SENDING_ZONE_ID, EMAIL_SENDING_DOMAIN, AUTH_EMAIL_VERIFICATION_ENFORCED
+  3. Upload every GitHub Environment secret and non-secret variable from that
+     gitignored file:
+       make envs-$ENVIRONMENT .env.$ENVIRONMENT
+
+     This sets the Worker/CI secrets plus EMAIL_SENDING_ZONE_ID,
+     EMAIL_SENDING_DOMAIN, and AUTH_EMAIL_VERIFICATION_ENFORCED.
 
   4. Before the first deploy, run migrations:
        pnpm db:migrate  (with DATABASE_URL set to this environment's value)
