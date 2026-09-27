@@ -114,6 +114,8 @@ export type WorkerBindings = Partial<
   // until `cf-typegen` regenerates types with the committed Wrangler var.
   AUTH_EMAIL_VERIFICATION_ENFORCED?: string
   AI_GATEWAY_BASE_URL?: string
+  STRIPE_SECRET_KEY?: string
+  STRIPE_WEBHOOK_SECRET?: string
 }
 
 

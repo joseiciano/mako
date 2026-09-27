@@ -86,6 +86,8 @@ Application logs must never contain recipient addresses, verification URLs, toke
 
 **Local development**: add both values to `apps/backend-rest/.dev.vars`.
 
+**Staging optionality**: staging may omit both Stripe secrets until payment testing begins. The Worker still deploys and unrelated routes remain available; payment-client calls use a disabled fallback key, and the webhook endpoint returns `500 Webhook secret is not configured.` Production CI requires both values.
+
 **Webhook endpoint**: register `https://api.mako.example.com/api/payments/webhook` in the Stripe Dashboard. For local testing, use the Stripe CLI to forward events (see `docs/system/local-testing.md`).
 
 ### Rate Limiters
