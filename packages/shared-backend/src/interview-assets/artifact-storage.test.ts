@@ -388,6 +388,91 @@ describe('headArtifact', function headArtifactSuite() {
   })
 })
 
+describe('getObject', function getObjectSuite() {
+  it('routes recording keys to the recordings bucket and surfaces metadata', async function run() {
+    const recordingsBucket = createMockBucket()
+    const body = new ReadableStream()
+    vi.mocked(recordingsBucket.get).mockResolvedValue({
+      body,
+      metadata: {},
+      size: 1024,
+      etag: '"rec-etag"',
+      contentType: 'audio/webm',
+    })
+    const { storage, screenshotsBucket } = createStorage(recordingsBucket)
+    const key = buildRecordingKey(interviewId, recordingId)
+
+    const result = await storage.getObject(key)
+
+    expect(recordingsBucket.get).toHaveBeenCalledExactlyOnceWith(key)
+    expect(screenshotsBucket.get).not.toHaveBeenCalled()
+    expect(result).toEqual({
+      body,
+      metadata: {},
+      size: 1024,
+      etag: '"rec-etag"',
+      contentType: 'audio/webm',
+    })
+  })
+
+  it('routes screenshot keys to the screenshots bucket', async function run() {
+    const screenshotsBucket = createMockBucket()
+    const body = new ReadableStream()
+    vi.mocked(screenshotsBucket.get).mockResolvedValue({
+      body,
+      metadata: {},
+      contentType: 'image/png',
+    })
+    const { storage, recordingsBucket } = createStorage(createMockBucket(), screenshotsBucket)
+    const key = buildScreenshotKey(interviewId, screenshotId)
+
+    const result = await storage.getObject(key)
+
+    expect(screenshotsBucket.get).toHaveBeenCalledExactlyOnceWith(key)
+    expect(recordingsBucket.get).not.toHaveBeenCalled()
+    expect(result).toEqual({
+      body,
+      metadata: {},
+      contentType: 'image/png',
+    })
+  })
+
+  it('passes a requested range through to the backing bucket', async function run() {
+    const recordingsBucket = createMockBucket()
+    vi.mocked(recordingsBucket.get).mockResolvedValue({
+      body: new ReadableStream(),
+      metadata: {},
+      size: 20,
+    })
+    const { storage } = createStorage(recordingsBucket)
+    const key = buildRecordingKey(interviewId, recordingId)
+
+    await storage.getObject(key, { offset: 10, length: 20 })
+
+    expect(recordingsBucket.get).toHaveBeenCalledExactlyOnceWith(key, {
+      range: { offset: 10, length: 20 },
+    })
+  })
+
+  it('returns null for missing objects', async function run() {
+    const { storage } = createStorage()
+
+    const recordingObject = await storage.getObject(buildRecordingKey(interviewId, recordingId))
+    const screenshotObject = await storage.getObject(buildScreenshotKey(interviewId, screenshotId))
+
+    expect(recordingObject).toBeNull()
+    expect(screenshotObject).toBeNull()
+  })
+
+  it('rejects unrecognized key prefixes', async function run() {
+    const { storage } = createStorage()
+
+    await expect(storage.getObject('unexpected/prefix/key')).rejects.toThrow(
+      'Cannot get artifact with unrecognized key prefix',
+    )
+  })
+})
+
 describe('artifact metadata', function metadataSuite() {
   it('does not contain PII unless explicitly provided', async function run() {
     const { storage, recordingsBucket } = createStorage()
@@ -444,6 +529,9 @@ describe('createR2BucketPort', function r2PortSuite() {
   type MockR2BucketObject = {
     body: ReadableStream
     customMetadata?: Record<string, string>
+    size?: number
+    httpEtag?: string
+    httpMetadata?: { contentType?: string }
   }
 
   function createMockR2Bucket() {
@@ -518,6 +606,35 @@ describe('createR2BucketPort', function r2PortSuite() {
 
     expect(bucket.get).toHaveBeenCalledExactlyOnceWith('interviews/abc/recording/rec-1')
     expect(result).toEqual({ body, metadata: { captureTimestamp } })
+  })
+
+  it('wraps get with a range option and surfaces size, etag, and contentType', async function run() {
+    const bucket = createMockR2Bucket()
+    const body = new ReadableStream()
+    vi.mocked(bucket.get).mockResolvedValue({
+      body,
+      size: 100,
+      httpEtag: '"etag-1"',
+      httpMetadata: { contentType: 'image/png' },
+      customMetadata: { interviewId: 'abc' },
+    })
+    const port = createR2BucketPort(bucket as unknown as R2Bucket)
+
+    const result = await port.get('interviews/abc/screenshots/shot-1', {
+      range: { offset: 10, length: 20 },
+    })
+
+    expect(bucket.get).toHaveBeenCalledExactlyOnceWith(
+      'interviews/abc/screenshots/shot-1',
+      { range: { offset: 10, length: 20 } },
+    )
+    expect(result).toEqual({
+      body,
+      metadata: { interviewId: 'abc' },
+      size: 100,
+      etag: '"etag-1"',
+      contentType: 'image/png',
+    })
   })
 
   it('wraps get and returns null for missing objects', async function run() {

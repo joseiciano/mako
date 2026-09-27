@@ -412,6 +412,7 @@
 
 - **`GET /api/interviews/:id`**
   - **Description**: Retrieves the interview detail payload for a participant. Includes detail-only fields such as `recording_url`, `screenshot_urls`, and `feedback`. Collaboration credentials (`realtime_session_id`, `excalidraw_room_id`, `excalidraw_key`) are provision-only and remain available via `POST /api/interviews/:id/provision`.
+  - **Artifact URL Mapping**: `recording_url` and `screenshot_urls` are populated only from available (non-expired, non-tombstoned, and for playback recordings finalized) normalized `interview_artifacts` rows, as same-origin authorized route URLs (`/api/interviews/:id/artifacts/recording`, `/api/interviews/:id/artifacts/screenshots/:captureId`). Legacy database URL columns are never surfaced, and object keys remain backend-only.
   - **Request Body**: None
   - **Response Body**:
     ```json
@@ -610,23 +611,28 @@ Company route behavior:
 - **`GET /api/interviews/:id/artifacts/recording`**
   - **Description**: Participant-authorized streaming of the session recording.
   - **Request Body**: None
-  - **Response Body**: Binary stream (recording file) or JSON with artifact availability status.
+  - **Response Body**: Binary stream (recording file) or `409 Conflict` JSON `{ "availability": "not_created | processing | expired | failed" }`.
   - **Behavior Rules**:
-    - Route is participant-only.
-    - Streams the object directly on success (no availability status field returned).
-    - Returns artifact availability status (`not_created`, `processing`, `expired`, `failed`) when the artifact cannot be streamed.
-    - Raw object keys, provider download URLs, and public `r2.dev` URLs are never returned.
+    - Route is participant-only. Unauthenticated requests return `401`; authenticated non-participants receive the established `404` interview-not-found semantics.
+    - Resolves the normalized `interview_artifacts` row server-side; never accepts or returns raw R2 object keys. Raw object keys, provider download URLs, and public `r2.dev` URLs are never returned in responses or logs.
+    - On success, streams the R2 object body directly (no full-object buffering) with `200` (`206` for satisfied range requests). No availability status field is present on stream responses.
+    - Supports single-range `Range: bytes=...` requests for browser media playback: satisfied ranges answer `206` with `Content-Range`; unsatisfiable ranges answer `416` with `Content-Range: bytes */{size}`; malformed, multi-range, non-`bytes`, or invalid (end-before-start) requests fall back to the full `200` response. Conditional `If-None-Match` requests matching the object `ETag` answer `304 Not Modified`. `If-Range` applies a range only when its strong entity-tag exactly matches the object `ETag`; otherwise the route returns the full `200` representation.
+    - Returns allowlisted `Content-Type`, `Content-Length`, `ETag` (when available), `Accept-Ranges: bytes`, and a safe `inline` `Content-Disposition` filename derived from the trusted content type.
+    - Uses `Cache-Control: private, no-store` and `X-Content-Type-Options: nosniff` at the user-facing boundary.
+    - `HEAD` is served by the framework from the `GET` handler with identical status and headers; no current client uses `HEAD`, and its implementation re-reads the R2 object body which is then discarded, so `HEAD` carries full `GET` storage cost. If `HEAD` becomes load-bearing (e.g. media player preflight), add a `headArtifact`-based short-circuit instead of relying on this behavior.
+    - Availability is resolved from durable state/tombstones: no artifact row and no recording job → `not_created`; unfinalized artifact, pending/processing finalization, or a finalized job whose artifact row is not yet visible → `processing`; expired (`expires_at`) or tombstoned (`deleted_at`) artifact → `expired`; failed finalization or missing object behind a live row → `failed`.
   - **Query Params**: None
 
 - **`GET /api/interviews/:id/artifacts/screenshots/:captureId`**
   - **Description**: Participant-authorized streaming of a specific whiteboard capture screenshot.
   - **Request Body**: None
-  - **Response Body**: Binary stream (PNG image) or JSON with artifact availability status.
+  - **Response Body**: Binary stream (PNG image) or `409 Conflict` JSON `{ "availability": "not_created | expired" }`.
   - **Behavior Rules**:
-    - Route is participant-only.
-    - Streams the object directly on success (no availability status field returned).
-    - Returns artifact availability status (`not_created`, `processing`, `expired`, `failed`) when the artifact cannot be streamed.
-    - Raw object keys and public URLs are never returned.
+    - Route is participant-only. Unauthenticated requests return `401`; authenticated non-participants receive the established `404` interview-not-found semantics.
+    - `captureId` must be a UUID; malformed capture IDs are rejected with `400` before any lookup (path/key injection prevention).
+    - Resolves the normalized `interview_artifacts` row server-side; raw object keys and public URLs are never returned.
+    - Streams the PNG body directly on success (`200`, ranges supported as for recordings) with the same allowlisted headers, `private, no-store` caching, and `nosniff` protections.
+    - Availability is resolved from durable state/tombstones: no matching screenshot row → `not_created`; expired or tombstoned artifact → `expired`.
   - **Query Params**: None
 
 ### Feedback Status

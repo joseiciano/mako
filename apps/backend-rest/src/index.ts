@@ -68,6 +68,9 @@ import {
   RecordingConsentService,
   ScreenshotRepository,
   ScreenshotService,
+  ArtifactReadRepository,
+  ArtifactReadService,
+  createInterviewArtifactUrlSource,
   createArtifactStorage,
   createR2BucketPort,
   type NotificationDispatchServiceLogger,
@@ -331,6 +334,12 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
           )
         : undefined
 
+      const artifactUrlSource = queryExecutor
+        ? createInterviewArtifactUrlSource(
+            new ArtifactReadRepository({ queryExecutor }),
+          )
+        : undefined
+
       return new InterviewService(
         repository,
         undefined,
@@ -345,6 +354,31 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
         timerOrchestration,
         new AiChatRepository(createWorkerAiChatResponder(context.bindings)),
         premiumCancellationService,
+        artifactUrlSource,
+      )
+    },
+    createArtifactReadService: function createArtifactReadService(context) {
+      if (!hasDatabaseAccess(context.bindings)) {
+        return undefined
+      }
+
+      const queryExecutor = createDatabaseQueryExecutor(context.bindings)
+      const recordingsBucket = context.bindings.RECORDINGS_BUCKET
+      const screenshotsBucket = context.bindings.SCREENSHOTS_BUCKET
+
+      if (!recordingsBucket || !screenshotsBucket) {
+        return undefined
+      }
+
+      const storagePort = createArtifactStorage(
+        createR2BucketPort(recordingsBucket),
+        createR2BucketPort(screenshotsBucket),
+      )
+
+      return new ArtifactReadService(
+        new ArtifactReadRepository({ queryExecutor }),
+        new InterviewRepository({ queryExecutor }),
+        storagePort,
       )
     },
     createConsentService: function createConsentService(context) {
