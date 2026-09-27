@@ -1,14 +1,14 @@
 ---
 goal: Deploy isolated staging and production stacks through Terraform and GitHub Actions
 date_created: 2026-09-09
-last_updated: 2026-09-21 (promotion enforcement dropped per operator decision)
-status: In Progress
+last_updated: 2026-09-27 (superseded by plans/wrangler-migration.md — Terraform pipeline removed)
+status: Superseded
 tags: [infrastructure, terraform, cloudflare, neon, github-actions, deployment]
 ---
 
 # Introduction
 
-![Status: In Progress](https://img.shields.io/badge/status-In%20Progress-yellow)
+![Status: Superseded](https://img.shields.io/badge/status-Superseded-lightgrey)
 
 This plan defines a clean rebuild into two independently deployable environments: `staging` and `production`. Each environment uses a separate Cloudflare account, a separate Neon project, a separate GitHub Environment, and an isolated R2 Terraform state backend.
 
