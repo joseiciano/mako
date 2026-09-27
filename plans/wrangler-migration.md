@@ -1,14 +1,14 @@
 ---
 goal: Migrate cfemail infrastructure from Terraform to wrangler + a one-time bootstrap script
 date_created: 2026-09-25
-last_updated: 2026-09-25
-status: 'Planned'
+last_updated: 2026-09-27
+status: 'In Progress'
 tags: ['infrastructure', 'migration', 'cloudflare', 'wrangler', 'ci-cd']
 ---
 
 # Introduction
 
-![Status: Planned](https://img.shields.io/badge/status-Planned-blue)
+![Status: In Progress](https://img.shields.io/badge/status-In%20Progress-yellow)
 
 Replace the Terraform stack in `infrastructure/` with the pattern proven in
 `~/Documents/workspace/classprints/assignment-reader`: every resource the
