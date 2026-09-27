@@ -366,12 +366,12 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
       const recordingsBucket = context.bindings.RECORDINGS_BUCKET
       const screenshotsBucket = context.bindings.SCREENSHOTS_BUCKET
 
-      if (!screenshotsBucket) {
+      if (!recordingsBucket || !screenshotsBucket) {
         return undefined
       }
 
       const storagePort = createArtifactStorage(
-        recordingsBucket ? createR2BucketPort(recordingsBucket) : null,
+        createR2BucketPort(recordingsBucket),
         createR2BucketPort(screenshotsBucket),
       )
 

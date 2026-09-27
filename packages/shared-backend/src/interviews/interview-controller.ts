@@ -423,6 +423,7 @@ export function registerInterviewController<Bindings extends ControllerBindings>
         await artifactReadService.streamRecording(session, parsedParams.id, {
           rangeHeader: c.req.header('range'),
           ifNoneMatch: c.req.header('if-none-match'),
+          ifRange: c.req.header('if-range'),
         }),
       )
     } catch (error) {
@@ -468,6 +469,7 @@ export function registerInterviewController<Bindings extends ControllerBindings>
         await artifactReadService.streamScreenshot(session, parsedParams.id, captureId, {
           rangeHeader: c.req.header('range'),
           ifNoneMatch: c.req.header('if-none-match'),
+          ifRange: c.req.header('if-range'),
         }),
       )
     } catch (error) {

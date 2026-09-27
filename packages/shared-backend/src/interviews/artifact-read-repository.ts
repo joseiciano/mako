@@ -7,7 +7,7 @@ export type ReadableArtifactRow = {
   id: string
   interview_id: string
   artifact_kind: 'playback_recording' | 'screenshot'
-  object_key: string
+  object_key: string | null
   content_metadata: Record<string, unknown> | null
   finalized_at: string | null
   expires_at: string | null
@@ -144,6 +144,7 @@ export class ArtifactReadRepository {
           SELECT id, finalization_status
           FROM interview_recordings
           WHERE interview_id = $1
+            AND recording_type = 'composite'
           ORDER BY created_at DESC
           LIMIT 1;
         `,

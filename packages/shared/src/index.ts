@@ -99,6 +99,7 @@ export type {
   AiChatRequest,
   AiChatResponse,
   ArtifactAvailability,
+  ArtifactAvailabilityResponse,
   ArtifactKind,
   BookingChannel,
   CancelInterviewParams,

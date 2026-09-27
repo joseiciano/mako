@@ -1,5 +1,8 @@
 import type { ArtifactAvailability } from '@mako/shared'
-import type { ArtifactStoragePort } from '../interview-assets'
+import {
+  DEFAULT_ARTIFACT_STORAGE_CONFIG,
+  type ArtifactStoragePort,
+} from '../interview-assets'
 import {
   parseRangeHeader,
   type ParsedRangeRequest,
@@ -15,6 +18,7 @@ import type { InterviewRepository } from './interview-repository'
 export type ArtifactStreamRequest = {
   rangeHeader?: string
   ifNoneMatch?: string
+  ifRange?: string
 }
 
 export type ArtifactStreamResult =
@@ -30,19 +34,42 @@ export type ArtifactStreamResult =
   | { outcome: 'not_modified'; etag: string | null }
   | { outcome: 'unavailable'; availability: ArtifactAvailability }
 
-const DEFAULT_CONTENT_TYPES: Record<string, string> = {
+type ReadableArtifactKind = ReadableArtifactRow['artifact_kind']
+
+const DEFAULT_CONTENT_TYPES: Record<ReadableArtifactKind, string> = {
   playback_recording: 'video/webm',
   screenshot: 'image/png',
 }
 
-function contentTypeFromMetadata(
+const ALLOWED_CONTENT_TYPES: Record<ReadableArtifactKind, readonly string[]> = {
+  playback_recording:
+    DEFAULT_ARTIFACT_STORAGE_CONFIG.allowedRecordingContentTypes,
+  screenshot: DEFAULT_ARTIFACT_STORAGE_CONFIG.allowedScreenshotContentTypes,
+}
+
+function contentTypeForArtifact(
+  artifactKind: ReadableArtifactKind,
   metadata: Record<string, unknown> | null,
-  fallback: string,
+  storedContentType: string | undefined,
 ): string {
-  const contentType = metadata?.contentType
-  return typeof contentType === 'string' && contentType !== ''
-    ? contentType
-    : fallback
+  const allowedContentTypes = ALLOWED_CONTENT_TYPES[artifactKind]
+  const metadataContentType = metadata?.contentType
+
+  if (
+    typeof metadataContentType === 'string' &&
+    allowedContentTypes.includes(metadataContentType)
+  ) {
+    return metadataContentType
+  }
+
+  if (
+    storedContentType !== undefined &&
+    allowedContentTypes.includes(storedContentType)
+  ) {
+    return storedContentType
+  }
+
+  return DEFAULT_CONTENT_TYPES[artifactKind]
 }
 
 function isExpired(artifact: { expires_at: string | null; deleted_at: string | null }, now: Date): boolean {
@@ -91,7 +118,13 @@ export class ArtifactReadService {
 
     const artifact = await this.artifactRepository.getRecordingArtifact(interviewId)
 
-    if (!artifact || artifact.object_key === null) {
+    if (artifact !== null && isExpired(artifact, this.now())) {
+      return { outcome: 'unavailable', availability: 'expired' }
+    }
+
+    const objectKey = artifact?.object_key ?? null
+
+    if (artifact === null || objectKey === null) {
       const finalization = await this.artifactRepository.getRecordingFinalizationStatus(
         interviewId,
       )
@@ -105,15 +138,11 @@ export class ArtifactReadService {
       return { outcome: 'unavailable', availability }
     }
 
-    if (isExpired(artifact, this.now())) {
-      return { outcome: 'unavailable', availability: 'expired' }
-    }
-
     if (artifact.finalized_at === null) {
       return { outcome: 'unavailable', availability: 'processing' }
     }
 
-    return this.streamArtifact(artifact, request, 'failed')
+    return this.streamArtifact(artifact, objectKey, request, 'failed')
   }
 
   async streamScreenshot(
@@ -139,33 +168,38 @@ export class ArtifactReadService {
       captureId,
     )
 
-    if (!artifact || artifact.object_key === null) {
-      return { outcome: 'unavailable', availability: 'not_created' }
-    }
-
-    if (isExpired(artifact, this.now())) {
+    if (artifact !== null && isExpired(artifact, this.now())) {
       return { outcome: 'unavailable', availability: 'expired' }
     }
 
-    return this.streamArtifact(artifact, request, 'not_created')
+    const objectKey = artifact?.object_key ?? null
+
+    if (artifact === null || objectKey === null) {
+      return { outcome: 'unavailable', availability: 'not_created' }
+    }
+
+    return this.streamArtifact(artifact, objectKey, request, 'not_created')
   }
 
   private async streamArtifact(
-    artifact: { object_key: string; artifact_kind: string; content_metadata: Record<string, unknown> | null },
+    artifact: {
+      artifact_kind: ReadableArtifactKind
+      content_metadata: Record<string, unknown> | null
+    },
+    objectKey: string,
     request: ArtifactStreamRequest,
     missingObjectAvailability: ArtifactAvailability,
   ): Promise<ArtifactStreamResult> {
-    const fallbackContentType =
-      DEFAULT_CONTENT_TYPES[artifact.artifact_kind] ?? 'application/octet-stream'
-    const head = await this.storagePort.headArtifact(artifact.object_key)
+    const head = await this.storagePort.headArtifact(objectKey)
 
     if (!head) {
       return { outcome: 'unavailable', availability: missingObjectAvailability }
     }
 
-    const contentType = contentTypeFromMetadata(
+    const contentType = contentTypeForArtifact(
+      artifact.artifact_kind,
       artifact.content_metadata,
-      head.contentType ?? fallbackContentType,
+      head.contentType,
     )
     const etag = head.etag ?? null
 
@@ -175,8 +209,12 @@ export class ArtifactReadService {
       }
     }
 
+    const rangeHeader =
+      request.ifRange === undefined || matchesIfRange(request.ifRange, etag)
+        ? request.rangeHeader
+        : undefined
     const parsedRange: ParsedRangeRequest = parseRangeHeader(
-      request.rangeHeader,
+      rangeHeader,
       head.size,
     )
 
@@ -184,14 +222,13 @@ export class ArtifactReadService {
       throw new ArtifactRangeNotSatisfiable(`bytes */${head.size}`)
     }
 
-
     const object = await this.storagePort.getObject(
-      artifact.object_key,
+      objectKey,
       parsedRange.outcome === 'range' ? parsedRange.range : undefined,
     )
 
     if (!object) {
-      return { outcome: 'unavailable', availability: 'not_created' }
+      return { outcome: 'unavailable', availability: missingObjectAvailability }
     }
 
     // R2 reports the total object size on ranged reads; the streamed body
@@ -249,6 +286,19 @@ function matchesEtag(ifNoneMatch: string, etag: string): boolean {
     })
 }
 
+function matchesIfRange(ifRange: string, etag: string | null): boolean {
+  if (etag === null) {
+    return false
+  }
+
+  const candidate = ifRange.trim()
+  return isStrongEtag(candidate) && isStrongEtag(etag) && candidate === etag
+}
+
+function isStrongEtag(value: string): boolean {
+  return value.startsWith('"') && value.endsWith('"') && !value.startsWith('W/')
+}
+
 export type InterviewArtifactUrlSource = (
   interviewId: string,
 ) => Promise<{ recording_url: string | null; screenshot_urls: string[] }>
@@ -279,7 +329,13 @@ export function createInterviewArtifactUrlSource(
 
     const current = now()
     const isLiveRow = function isLiveRow(row: ReadableArtifactRow): boolean {
-      return row.deleted_at === null && !isExpired(row, current)
+      return (
+        row.object_key !== null &&
+        row.deleted_at === null &&
+        !isExpired(row, current) &&
+        (row.artifact_kind !== 'playback_recording' ||
+          row.finalized_at !== null)
+      )
     }
 
     return {
