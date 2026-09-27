@@ -26,20 +26,20 @@ const cases: ParseCase[] = [
     expected: { outcome: 'full' },
   },
   {
-    name: 'zero-size object returns full',
+    name: 'zero-size object with a valid range is unsatisfiable',
     header: 'bytes=0-9',
     size: 0,
-    expected: { outcome: 'full' },
+    expected: { outcome: 'unsatisfiable' },
   },
   {
-    name: 'negative-size object returns full',
+    name: 'negative-size object with a valid range is unsatisfiable',
     header: 'bytes=0-9',
     size: -1,
-    expected: { outcome: 'full' },
+    expected: { outcome: 'unsatisfiable' },
   },
   {
-    name: 'missing unit returns full',
-    header: '0-9',
+    name: 'internal whitespace in range specifier returns full',
+    header: 'bytes=0 - 9',
     size: 100,
     expected: { outcome: 'full' },
   },
@@ -92,6 +92,60 @@ const cases: ParseCase[] = [
     expected: { outcome: 'full' },
   },
 
+  // Malformed, non-`bytes`, and multi-range specifiers on an empty object
+  // still degrade to a full response instead of reporting unsatisfiable.
+  {
+    name: 'non-numeric start and end on zero-size object returns full',
+    header: 'bytes=abc-def',
+    size: 0,
+    expected: { outcome: 'full' },
+  },
+  {
+    name: 'specifier without dash on zero-size object returns full',
+    header: 'bytes=abc',
+    size: 0,
+    expected: { outcome: 'full' },
+  },
+  {
+    name: 'unit other than bytes on zero-size object returns full',
+    header: 'chunks=0-9',
+    size: 0,
+    expected: { outcome: 'full' },
+  },
+  {
+    name: 'multi-range on zero-size object returns full',
+    header: 'bytes=0-9,10-19',
+    size: 0,
+    expected: { outcome: 'full' },
+  },
+  {
+    name: 'empty specifier on zero-size object returns full',
+    header: 'bytes=',
+    size: 0,
+    expected: { outcome: 'full' },
+  },
+  {
+    name: 'suffix with non-digit length on zero-size object returns full',
+    header: 'bytes=-abc',
+    size: 0,
+    expected: { outcome: 'full' },
+  },
+  {
+    name: 'empty-end prefix range on zero-size object is unsatisfiable',
+    header: 'bytes=0-',
+    size: 0,
+    expected: { outcome: 'unsatisfiable' },
+  },
+
+  // End-before-start invalidates the whole header before the empty-object
+  // short-circuit, so even a zero-size object degrades to full (RFC 9110 §14.2).
+  {
+    name: 'end before start on zero-size object returns full',
+    header: 'bytes=5-3',
+    size: 0,
+    expected: { outcome: 'full' },
+  },
+
   // Prefix ranges.
   {
     name: 'simple prefix range is preserved',
@@ -134,6 +188,30 @@ const cases: ParseCase[] = [
     header: 'bytes=0-99999999999999999999',
     size: 100,
     expected: { outcome: 'range', range: { offset: 0, length: 100 } },
+  },
+  {
+    name: 'end before start is invalid and degrades to full',
+    header: 'bytes=50-10',
+    size: 100,
+    expected: { outcome: 'full' },
+  },
+  {
+    name: 'end immediately before start is invalid and degrades to full',
+    header: 'bytes=50-49',
+    size: 100,
+    expected: { outcome: 'full' },
+  },
+  {
+    name: 'end before start beyond MAX_SAFE_INTEGER is invalid and degrades to full',
+    header: 'bytes=9007199254740993-9007199254740992',
+    size: 100,
+    expected: { outcome: 'full' },
+  },
+  {
+    name: 'equal start and end beyond MAX_SAFE_INTEGER is a valid one-byte range',
+    header: 'bytes=9007199254740992-9007199254740992',
+    size: 100,
+    expected: { outcome: 'unsatisfiable' },
   },
 
   // Unsatisfiable ranges.
