@@ -1030,6 +1030,47 @@ describe('GET /api/interviews/:id/artifacts/screenshots/:captureId', function sc
     expect(response.headers.get('etag')).toBe('"shot-etag-1"')
     expect(await response.text()).toBe(SCREENSHOT_BYTES)
   })
+  it('falls back to the screenshot media type when metadata and R2 report text/html', async function run() {
+    const app = createArtifactApp({
+      session,
+      handlers: Object.assign(recordingHandlers(), {
+        'id = $2': rows(
+          createScreenshotRow({ content_metadata: { contentType: 'text/html' } }),
+        ),
+      }),
+      storage: createStorageFake({
+        expectedKey: screenshotObjectKey,
+        head: {
+          size: SCREENSHOT_BYTES.length,
+          contentType: 'text/html',
+          etag: '"shot-etag-unsafe"',
+        },
+        objectBytes: toBytes(SCREENSHOT_BYTES),
+      }),
+    })
+
+    const response = await getScreenshot(app)
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('image/png')
+    expect(await response.text()).toBe(SCREENSHOT_BYTES)
+  })
+
+  it('streams an unfinalized screenshot as 200 while recordings are withheld', async function run() {
+    const app = createArtifactApp({
+      session,
+      handlers: Object.assign(recordingHandlers(), {
+        'id = $2': rows(createScreenshotRow({ finalized_at: null })),
+      }),
+      storage: liveScreenshotStorage(),
+    })
+
+    const response = await getScreenshot(app)
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('image/png')
+    expect(await response.text()).toBe(SCREENSHOT_BYTES)
+  })
 
   it('returns 400 for a non-uuid capture id', async function run() {
     const app = createArtifactApp({
