@@ -36,21 +36,7 @@ Thumbs.db
 .env.*.local
 .env.staging
 .env.production
-*/http-client.env.json
 
-# Terraform
-**/.terraform/
-**/terraform.tfvars
-*.tfstate
-*.tfstate.*
-*.tfplan
-crash.log
-override.tf
-override.tf.json
-*_override.tf
-*_override.tf.json
-infrastructure/backend-r2.hcl
-infrastructure/backend.ci.hcl
-
+# Local-only artifacts
 prompts/*
 code_reviews/

@@ -113,6 +113,10 @@ Pre-deploy synchronization is part of the bootstrap contract, not a post-deploy 
 
 The application pipeline is not independently ordered by an operator: `.github/workflows/deploy.yml` establishes the job ordering. The operator controls only the false-to-true environment-variable promotion after Deployment A evidence passes. Rollback changes `AUTH_EMAIL_VERIFICATION_ENFORCED` back to `false` and redeploys both backend and frontend behavior together while leaving proven Email Service infrastructure in place.
 
+### Terraform Retirement
+
+The Terraform stack was removed from the repository; `scripts/bootstrap.sh` plus committed Wrangler configs own provisioning and deployment. Frozen-state recovery: the last Terraform state snapshots live in each account's `mako-terraform-state` R2 bucket (object key `mako/terraform.tfstate`). Staging's `TF_STATE_R2_*` GitHub secrets are removed; production's remain until after its cutover and a two-week soak period, after which the buckets and the bucket-scoped R2 tokens are deleted manually (TASK-026).
+
 ### Troubleshooting
 
 - **Missing configuration**: confirm the value exists in the selected GitHub Environment, including required `NEON_API_KEY`, `HYPERDRIVE_ID`, `VITE_AUTH_BASE_URL`, and all three non-secret variables.
