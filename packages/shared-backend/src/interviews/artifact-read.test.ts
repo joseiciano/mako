@@ -727,6 +727,132 @@ describe('recording availability states', function recordingAvailabilitySuite() 
   }
 })
 
+describe('recording finalization status selects the composite job', function finalizationJobSuite() {
+  type FinalizationJobSeed = {
+    id: string
+    recording_type: 'composite' | 'participant_track'
+    finalization_status: string
+    created_at: string
+  }
+
+  const compositeJobId = '77777777-7777-4777-8777-777777777777'
+  const participantTrackJobId = '88888888-8888-4888-8888-888888888888'
+
+  // SQL fragment assertions follow the repository-test convention (see
+  // credit-repository.test.ts and interviewer-application-repository.test.ts):
+  // capture the emitted query and pin the ordering, limiting, and scoping the
+  // "newest composite job" contract depends on, because the row-source mock
+  // cannot exercise Postgres ordering itself.
+  it('orders the composite job query newest-first and limits to one row', async function run() {
+    let capturedQuery: SqlQuery | null = null
+    const repository = new ArtifactReadRepository({
+      query: async function query<Row>(sqlQuery: SqlQuery) {
+        capturedQuery = sqlQuery
+        return { rows: [] as Row[], rowCount: 0 }
+      },
+    } as never)
+
+    await repository.getRecordingFinalizationStatus(interviewId)
+
+    expect(capturedQuery).not.toBeNull()
+    expect(capturedQuery!.text).toContain("recording_type = 'composite'")
+    expect(capturedQuery!.text).toContain('ORDER BY created_at DESC')
+    expect(capturedQuery!.text).toContain('LIMIT 1')
+  })
+
+
+  // Emulates the database for the interview_recordings finalization query:
+  // rows are stored newest-first per ORDER BY created_at DESC, and a query
+  // restricted to the composite recording type only ever returns those rows.
+  function finalizationJobHandler(jobs: FinalizationJobSeed[]): ExecutorHandler {
+    return function handleFinalizationQuery(query: SqlQuery) {
+      const eligible = query.text.includes('recording_type')
+        ? jobs.filter((job) => job.recording_type === 'composite')
+        : jobs
+
+      return {
+        rows: eligible.map((job) => ({
+          id: job.id,
+          finalization_status: job.finalization_status,
+        })),
+        rowCount: eligible.length,
+      }
+    }
+  }
+  it('returns the first row the executor yields for the composite job query', async function run() {
+    const repository = new ArtifactReadRepository({
+      query: async function query<Row>() {
+        // Executor result order is the database's responsibility (see the
+        // ORDER BY fragment assertion above); this only pins rows[0] selection.
+        return {
+          rows: [
+            { id: participantTrackJobId, finalization_status: 'failed' },
+            { id: compositeJobId, finalization_status: 'pending' },
+          ] as Row[],
+          rowCount: 2,
+        }
+      },
+    } as never)
+
+    await expect(repository.getRecordingFinalizationStatus(interviewId)).resolves.toEqual({
+      id: participantTrackJobId,
+      finalization_status: 'failed',
+    })
+  })
+
+  function createRepository(jobs: FinalizationJobSeed[]): ArtifactReadRepository {
+    return new ArtifactReadRepository(
+      createMockQueryExecutor({
+        interview_recordings: finalizationJobHandler(jobs),
+      }) as never,
+    )
+  }
+
+  it('returns the composite job when a newer participant_track job exists', async function run() {
+    const repository = createRepository([
+      {
+        id: participantTrackJobId,
+        recording_type: 'participant_track',
+        finalization_status: 'failed',
+        created_at: '2026-03-01T00:00:00.000Z',
+      },
+      {
+        id: compositeJobId,
+        recording_type: 'composite',
+        finalization_status: 'pending',
+        created_at: '2026-02-01T00:00:00.000Z',
+      },
+    ])
+
+    await expect(repository.getRecordingFinalizationStatus(interviewId)).resolves.toEqual({
+      id: compositeJobId,
+      finalization_status: 'pending',
+    })
+  })
+
+  it('selects the composite job from newest-first seeded rows when several composite rows exist', async function run() {
+    const repository = createRepository([
+      {
+        id: participantTrackJobId,
+        recording_type: 'composite',
+        finalization_status: 'failed',
+        created_at: '2026-03-01T00:00:00.000Z',
+      },
+      {
+        id: compositeJobId,
+        recording_type: 'composite',
+        finalization_status: 'pending',
+        created_at: '2026-02-01T00:00:00.000Z',
+      },
+    ])
+
+    await expect(repository.getRecordingFinalizationStatus(interviewId)).resolves.toEqual({
+      id: participantTrackJobId,
+      finalization_status: 'failed',
+    })
+  })
+})
+
 describe('recording conditional requests', function conditionalRequestSuite() {
   const handlers = Object.assign(recordingHandlers(), {
     playback_recording: rows(createRecordingRow()),
