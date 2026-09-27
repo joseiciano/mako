@@ -68,8 +68,8 @@ Application and runtime values:
 | `BETTER_AUTH_TRUSTED_ORIGINS` | Comma-separated origins accepted by Better Auth |
 | `VITE_AUTH_BASE_URL` | Required backend origin baked into the frontend build; it must identify the selected environment's backend |
 | `CLOUDFLARE_REALTIMEKIT_APP_ID` | RealtimeKit application belonging to the selected Cloudflare account |
-| `STRIPE_SECRET_KEY` | Environment-specific Stripe secret key |
-| `STRIPE_WEBHOOK_SECRET` | Signing secret for the environment's backend webhook endpoint |
+| `STRIPE_SECRET_KEY` | Environment-specific Stripe secret key; optional in staging until payment testing, required in production |
+| `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret; optional in staging until webhook testing, required in production |
 | `VITE_STRIPE_PUBLISHABLE_KEY` | Stripe publishable key baked into the frontend build |
 
 `CLOUDFLARE_API_TOKEN` is the only CI Cloudflare token name. Do not create separate bootstrap and Wrangler deployment token aliases. `CLOUDFLARE_RUNTIME_API_TOKEN` remains separate because it is application runtime authority, not CI deployment authority.
