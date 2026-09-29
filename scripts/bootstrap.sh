@@ -175,14 +175,14 @@ echo
 
 # ---------------------------------------------------------------------------
 # Hyperdrive: mako-$ENVIRONMENT-hyperdrive wired to the Neon origin.
-# Detection-first: an existing config is skipped without needing
-# DATABASE_URL; it is only required when creating (classprints pattern).
-# The direct Neon host is used (same URI as DATABASE_URL) so the migrated
-# Hyperdrive keeps the origin Terraform configured; Hyperdrive itself pools
-# connections. Flags mirror Terraform: caching max-age 60, swr 15, limit 20.
+# Detection-first: DATABASE_URL is required only when creating the config.
+# Existing configs are converged below because this shared binding serves
+# auth, sessions, permissions, billing, and read-after-write application flows
+# that cannot tolerate stale SELECT results. Hyperdrive still provides
+# connection pooling with query caching disabled; the origin limit remains 20.
 # ---------------------------------------------------------------------------
 if wrangler hyperdrive list 2>/dev/null | grep -q "\b$HYPERDRIVE_NAME\b"; then
-  echo "hyperdrive  : $HYPERDRIVE_NAME (exists, skipped)"
+  echo "hyperdrive  : $HYPERDRIVE_NAME (exists)"
   HYPERDRIVE_ID="$(wrangler hyperdrive list 2>/dev/null | grep -B0 -A0 "$HYPERDRIVE_NAME" | sed -n 's/.*\([0-9a-f]\{32\}\).*/\1/p' | head -n 1 || true)"
   if [ -z "$HYPERDRIVE_ID" ]; then
     HYPERDRIVE_ID="$(wrangler hyperdrive list 2>/dev/null \
@@ -192,7 +192,7 @@ else
   : "${DATABASE_URL:?DATABASE_URL must be set to create the $HYPERDRIVE_NAME config}"
   CREATE_OUTPUT="$(wrangler hyperdrive create "$HYPERDRIVE_NAME" \
     --connection-string "$DATABASE_URL" \
-    --max-age 60 --swr 15 --origin-connection-limit 20 2>&1 || true)"
+    --caching-disabled --origin-connection-limit 20 2>&1 || true)"
   HYPERDRIVE_ID="$(printf '%s' "$CREATE_OUTPUT" | sed -n 's/.*config: \([0-9a-f]*\).*/\1/p' | head -n 1)"
   if [ -z "$HYPERDRIVE_ID" ]; then
     echo "hyperdrive  : CREATE FAILED — check DATABASE_URL" >&2
@@ -201,6 +201,19 @@ else
   fi
   echo "hyperdrive  : $HYPERDRIVE_NAME (created, id $HYPERDRIVE_ID)"
 fi
+
+if [ -z "${HYPERDRIVE_ID:-}" ]; then
+  echo "hyperdrive  : unable to resolve config ID for $HYPERDRIVE_NAME" >&2
+  exit 1
+fi
+
+if ! UPDATE_OUTPUT="$(wrangler hyperdrive update "$HYPERDRIVE_ID" \
+  --caching-disabled --origin-connection-limit 20 2>&1)"; then
+  echo "hyperdrive  : UPDATE FAILED — could not enforce cache-disabled reads" >&2
+  printf '%s\n' "$UPDATE_OUTPUT" >&2
+  exit 1
+fi
+echo "hyperdrive  : query caching disabled (origin connection limit 20)"
 echo
 
 # ---------------------------------------------------------------------------
