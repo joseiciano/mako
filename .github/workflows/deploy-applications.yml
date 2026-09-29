@@ -1,32 +1,30 @@
 name: Deploy Applications
 
 on:
-  push:
-    branches:
-      - main
-    paths:
-      - apps/**
-      - packages/**
-      - package.json
-      - pnpm-lock.yaml
-      - .github/workflows/deploy-applications.yml
-  workflow_dispatch:
+  workflow_call:
+    inputs:
+      environment:
+        description: GitHub Environment to deploy applications to
+        required: true
+        type: string
 
 jobs:
-  migrate-production-db:
-    name: Migrate production database
+  migrate-db:
+    name: Migrate ${{ inputs.environment }} database
     runs-on: ubuntu-latest
-    environment: production
+    environment: ${{ inputs.environment }}
     permissions:
       contents: read
 
     concurrency:
-      group: migrate-production-db-production
+      group: migrate-db-${{ inputs.environment }}
       cancel-in-progress: false
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -40,10 +38,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Validate DATABASE_URL secret
+      - name: Validate deployment environment and DATABASE_URL secret
         env:
+          DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: |
+          [[ "$DEPLOYMENT_ENVIRONMENT" == "staging" || "$DEPLOYMENT_ENVIRONMENT" == "production" ]] || (echo "Invalid environment: $DEPLOYMENT_ENVIRONMENT" && exit 1)
           test -n "$DATABASE_URL" || (echo "Missing DATABASE_URL" && exit 1)
 
       - name: Run database migrations
@@ -51,103 +51,23 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: pnpm db:migrate
 
-  deploy-backend-rest:
-    name: Deploy backend-rest worker
-    needs:
-      - migrate-production-db
-      - deploy-notification-orchestrator
-    runs-on: ubuntu-latest
-    environment: production
-    permissions:
-      contents: read
-
-    concurrency:
-      group: deploy-backend-rest-production
-      cancel-in-progress: false
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Validate required deployment secrets
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          HYPERDRIVE_ID: ${{ secrets.HYPERDRIVE_ID }}
-          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
-          BETTER_AUTH_URL: ${{ secrets.BETTER_AUTH_URL }}
-          BETTER_AUTH_TRUSTED_ORIGINS: ${{ secrets.BETTER_AUTH_TRUSTED_ORIGINS }}
-          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
-        run: |
-          test -n "$CLOUDFLARE_API_TOKEN" || (echo "Missing CLOUDFLARE_API_TOKEN" && exit 1)
-          test -n "$CLOUDFLARE_ACCOUNT_ID" || (echo "Missing CLOUDFLARE_ACCOUNT_ID" && exit 1)
-          test -n "$HYPERDRIVE_ID" || (echo "Missing HYPERDRIVE_ID" && exit 1)
-          test -n "$BETTER_AUTH_SECRET" || (echo "Missing BETTER_AUTH_SECRET" && exit 1)
-          test -n "$BETTER_AUTH_URL" || (echo "Missing BETTER_AUTH_URL" && exit 1)
-          test -n "$BETTER_AUTH_TRUSTED_ORIGINS" || (echo "Missing BETTER_AUTH_TRUSTED_ORIGINS" && exit 1)
-          test -n "$STRIPE_SECRET_KEY" || (echo "Missing STRIPE_SECRET_KEY" && exit 1)
-
-      - name: Inject Hyperdrive binding ID into Wrangler config
-        working-directory: apps/backend-rest
-        env:
-          HYPERDRIVE_ID: ${{ secrets.HYPERDRIVE_ID }}
-        run: |
-          node -e "const fs=require('node:fs'); const filePath='wrangler.jsonc'; const placeholder='__HYPERDRIVE_ID__'; const hyperdriveId=process.env.HYPERDRIVE_ID; if (!hyperdriveId) throw new Error('Missing HYPERDRIVE_ID'); const current=fs.readFileSync(filePath, 'utf8'); if (!current.includes(placeholder)) throw new Error('Hyperdrive placeholder not found in wrangler.jsonc'); fs.writeFileSync(filePath, current.replaceAll(placeholder, hyperdriveId));"
-
-      - name: Deploy backend-rest via Wrangler
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          packageManager: pnpm
-          workingDirectory: apps/backend-rest
-          command: deploy --config wrangler.jsonc --keep-vars
-          # --keep-vars retains Terraform-provisioned vars (e.g. AI_GATEWAY_BASE_URL) that are not declared in wrangler.jsonc.
-          # Runtime Cloudflare token is used by backend-rest for RealtimeKit calls; keep scope limited to required RealtimeKit/meeting operations.
-          secrets: |
-            BETTER_AUTH_SECRET
-            BETTER_AUTH_URL
-            BETTER_AUTH_TRUSTED_ORIGINS
-            CLOUDFLARE_ACCOUNT_ID
-            CLOUDFLARE_API_TOKEN
-            CLOUDFLARE_REALTIMEKIT_APP_ID
-            STRIPE_SECRET_KEY
-        env:
-          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
-          BETTER_AUTH_URL: ${{ secrets.BETTER_AUTH_URL }}
-          BETTER_AUTH_TRUSTED_ORIGINS: ${{ secrets.BETTER_AUTH_TRUSTED_ORIGINS }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_REALTIMEKIT_APP_ID: ${{ secrets.CLOUDFLARE_REALTIMEKIT_APP_ID }}
-          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
-
   deploy-notification-orchestrator:
-    name: Deploy notification-orchestrator worker
-    needs: migrate-production-db
+    name: Deploy notification-orchestrator worker (${{ inputs.environment }})
+    needs: migrate-db
     runs-on: ubuntu-latest
-    environment: production
+    environment: ${{ inputs.environment }}
     permissions:
       contents: read
 
     concurrency:
-      group: deploy-notification-orchestrator-production
+      group: deploy-notification-orchestrator-${{ inputs.environment }}
       cancel-in-progress: false
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -163,15 +83,20 @@ jobs:
 
       - name: Validate required deployment secrets
         env:
+          DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_RUNTIME_API_TOKEN: ${{ secrets.CLOUDFLARE_RUNTIME_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           CLOUDFLARE_REALTIMEKIT_APP_ID: ${{ secrets.CLOUDFLARE_REALTIMEKIT_APP_ID }}
           HYPERDRIVE_ID: ${{ secrets.HYPERDRIVE_ID }}
         run: |
           test -n "$CLOUDFLARE_API_TOKEN" || (echo "Missing CLOUDFLARE_API_TOKEN" && exit 1)
+          test -n "$CLOUDFLARE_RUNTIME_API_TOKEN" || (echo "Missing CLOUDFLARE_RUNTIME_API_TOKEN" && exit 1)
           test -n "$CLOUDFLARE_ACCOUNT_ID" || (echo "Missing CLOUDFLARE_ACCOUNT_ID" && exit 1)
-          test -n "$CLOUDFLARE_REALTIMEKIT_APP_ID" || (echo "Missing CLOUDFLARE_REALTIMEKIT_APP_ID" && exit 1)
           test -n "$HYPERDRIVE_ID" || (echo "Missing HYPERDRIVE_ID" && exit 1)
+          if [[ "$DEPLOYMENT_ENVIRONMENT" == "production" ]]; then
+            test -n "$CLOUDFLARE_REALTIMEKIT_APP_ID" || (echo "Missing CLOUDFLARE_REALTIMEKIT_APP_ID" && exit 1)
+          fi
 
       - name: Inject Hyperdrive binding ID into notification-orchestrator Wrangler config
         working-directory: apps/notification-orchestrator
@@ -179,6 +104,24 @@ jobs:
           HYPERDRIVE_ID: ${{ secrets.HYPERDRIVE_ID }}
         run: |
           node -e "const fs=require('node:fs'); const filePath='wrangler.jsonc'; const placeholder='__HYPERDRIVE_ID__'; const hyperdriveId=process.env.HYPERDRIVE_ID; if (!hyperdriveId) throw new Error('Missing HYPERDRIVE_ID'); const current=fs.readFileSync(filePath, 'utf8'); if (!current.includes(placeholder)) throw new Error('Hyperdrive placeholder not found in wrangler.jsonc'); fs.writeFileSync(filePath, current.replaceAll(placeholder, hyperdriveId));"
+
+      - name: Sync notification-orchestrator runtime secrets before deploy
+        working-directory: apps/notification-orchestrator
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_RUNTIME_API_TOKEN: ${{ secrets.CLOUDFLARE_RUNTIME_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_REALTIMEKIT_APP_ID: ${{ secrets.CLOUDFLARE_REALTIMEKIT_APP_ID }}
+        run: |
+          # The Worker binding remains CLOUDFLARE_API_TOKEN, but its value is
+          # the dedicated runtime token rather than the CI deployment token.
+          printf '%s' "$CLOUDFLARE_RUNTIME_API_TOKEN" | pnpm exec wrangler secret put CLOUDFLARE_API_TOKEN --config wrangler.jsonc
+          printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | pnpm exec wrangler secret put CLOUDFLARE_ACCOUNT_ID --config wrangler.jsonc
+          if [[ -n "$CLOUDFLARE_REALTIMEKIT_APP_ID" ]]; then
+            printf '%s' "$CLOUDFLARE_REALTIMEKIT_APP_ID" | pnpm exec wrangler secret put CLOUDFLARE_REALTIMEKIT_APP_ID --config wrangler.jsonc
+          else
+            echo "CLOUDFLARE_REALTIMEKIT_APP_ID not set; skipping RealtimeKit secret upload."
+          fi
 
       - name: Deploy notification-orchestrator via Wrangler
         uses: cloudflare/wrangler-action@v3
@@ -188,28 +131,213 @@ jobs:
           packageManager: pnpm
           workingDirectory: apps/notification-orchestrator
           command: deploy --config wrangler.jsonc
-          secrets: |
-            CLOUDFLARE_ACCOUNT_ID
-            CLOUDFLARE_API_TOKEN
-            CLOUDFLARE_REALTIMEKIT_APP_ID
-        env:
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_REALTIMEKIT_APP_ID: ${{ secrets.CLOUDFLARE_REALTIMEKIT_APP_ID }}
-  deploy-frontend:
-    name: Deploy frontend worker
+
+  deploy-backend-rest:
+    name: Deploy backend-rest worker (${{ inputs.environment }})
+    needs:
+      - migrate-db
+      - deploy-notification-orchestrator
+    if: always() && needs.migrate-db.result == 'success' && needs.deploy-notification-orchestrator.result == 'success'
     runs-on: ubuntu-latest
-    environment: production
+    environment: ${{ inputs.environment }}
     permissions:
       contents: read
 
     concurrency:
-      group: deploy-frontend-production
+      group: deploy-backend-rest-${{ inputs.environment }}
       cancel-in-progress: false
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate required deployment secrets and variables
+        env:
+          DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_RUNTIME_API_TOKEN: ${{ secrets.CLOUDFLARE_RUNTIME_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          HYPERDRIVE_ID: ${{ secrets.HYPERDRIVE_ID }}
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          BETTER_AUTH_URL: ${{ secrets.BETTER_AUTH_URL }}
+          BETTER_AUTH_TRUSTED_ORIGINS: ${{ secrets.BETTER_AUTH_TRUSTED_ORIGINS }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+          AUTH_EMAIL_VERIFICATION_ENFORCED: ${{ vars.AUTH_EMAIL_VERIFICATION_ENFORCED }}
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN" || (echo "Missing CLOUDFLARE_API_TOKEN" && exit 1)
+          test -n "$CLOUDFLARE_RUNTIME_API_TOKEN" || (echo "Missing CLOUDFLARE_RUNTIME_API_TOKEN" && exit 1)
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || (echo "Missing CLOUDFLARE_ACCOUNT_ID" && exit 1)
+          test -n "$HYPERDRIVE_ID" || (echo "Missing HYPERDRIVE_ID" && exit 1)
+          test -n "$BETTER_AUTH_SECRET" || (echo "Missing BETTER_AUTH_SECRET" && exit 1)
+          test -n "$BETTER_AUTH_URL" || (echo "Missing BETTER_AUTH_URL" && exit 1)
+          test -n "$BETTER_AUTH_TRUSTED_ORIGINS" || (echo "Missing BETTER_AUTH_TRUSTED_ORIGINS" && exit 1)
+          if [[ "$DEPLOYMENT_ENVIRONMENT" == "production" ]]; then
+            test -n "$STRIPE_SECRET_KEY" || (echo "Missing STRIPE_SECRET_KEY" && exit 1)
+            test -n "$STRIPE_WEBHOOK_SECRET" || (echo "Missing STRIPE_WEBHOOK_SECRET" && exit 1)
+          else
+            echo "Stripe secrets are optional in staging; payment routes remain disabled when absent."
+          fi
+          case "$AUTH_EMAIL_VERIFICATION_ENFORCED" in
+            true|false) ;;
+            *) echo "AUTH_EMAIL_VERIFICATION_ENFORCED must be exactly true or false" >&2; exit 1 ;;
+          esac
+
+      - name: Run backend cf-typegen and typecheck against committed Wrangler config
+        working-directory: apps/backend-rest
+        run: |
+          pnpm run cf-typegen
+          pnpm run typecheck
+
+      - name: Render backend Wrangler configuration
+        working-directory: apps/backend-rest
+        env:
+          HYPERDRIVE_ID: ${{ secrets.HYPERDRIVE_ID }}
+          EMAIL_SENDING_DOMAIN: ${{ vars.EMAIL_SENDING_DOMAIN }}
+          AUTH_EMAIL_VERIFICATION_ENFORCED: ${{ vars.AUTH_EMAIL_VERIFICATION_ENFORCED }}
+        run: |
+          node -e "
+            const fs = require('node:fs');
+            const filePath = 'wrangler.jsonc';
+            const hyperdriveId = process.env.HYPERDRIVE_ID;
+            if (!hyperdriveId) {
+              throw new Error('Missing HYPERDRIVE_ID');
+            }
+            const domain = (process.env.EMAIL_SENDING_DOMAIN || '').trim();
+            if (!domain) {
+              throw new Error('Missing EMAIL_SENDING_DOMAIN environment variable');
+            }
+            const enforcement = process.env.AUTH_EMAIL_VERIFICATION_ENFORCED;
+            if (enforcement !== 'true' && enforcement !== 'false') {
+              throw new Error('AUTH_EMAIL_VERIFICATION_ENFORCED must be exactly true or false');
+            }
+            const sender = 'noreply@' + domain;
+            const senderPlaceholder = 'noreply@example.invalid';
+            const hyperdrivePlaceholder = '__HYPERDRIVE_ID__';
+            const varsAnchor = '    \"AUTH_EMAIL_FROM\": \"noreply@example.invalid\",';
+            const current = fs.readFileSync(filePath, 'utf8');
+            if (!current.includes(hyperdrivePlaceholder)) {
+              throw new Error('Hyperdrive placeholder not found in wrangler.jsonc');
+            }
+            const senderPlaceholderCount = current.split(senderPlaceholder).length - 1;
+            if (senderPlaceholderCount !== 2) {
+              throw new Error('Expected exactly 2 ' + senderPlaceholder + ' occurrences in wrangler.jsonc, found ' + senderPlaceholderCount);
+            }
+            const varsAnchorCount = current.split(varsAnchor).length - 1;
+            if (varsAnchorCount !== 1) {
+              throw new Error('Expected exactly one AUTH_EMAIL_FROM vars anchor in wrangler.jsonc, found ' + varsAnchorCount);
+            }
+            const enforcementPattern = /(\"AUTH_EMAIL_VERIFICATION_ENFORCED\"\\s*:\\s*)\"false\"/g;
+            const committedMatches = [...current.matchAll(enforcementPattern)];
+            let rendered;
+            if (committedMatches.length === 1) {
+              // Committed string \"false\" present: revalue it in place.
+              rendered = current.replace(enforcementPattern, (_, prefix) => prefix + JSON.stringify(enforcement));
+            } else if (committedMatches.length === 0 && !current.includes('\"AUTH_EMAIL_VERIFICATION_ENFORCED\"')) {
+              // Key not committed yet: inject a string value at the vars anchor.
+              const enforcementLine = '    \"AUTH_EMAIL_VERIFICATION_ENFORCED\": ' + JSON.stringify(enforcement) + ',';
+              rendered = current.replace(varsAnchor, varsAnchor + '\n' + enforcementLine);
+            } else {
+              throw new Error('Expected exactly one committed AUTH_EMAIL_VERIFICATION_ENFORCED value of \"false\" or no enforcement key at all');
+            }
+            rendered = rendered
+              .replaceAll(hyperdrivePlaceholder, hyperdriveId)
+              .replaceAll(senderPlaceholder, sender);
+            const renderedSenderCount = rendered.split(sender).length - 1;
+            if (renderedSenderCount !== 2) {
+              throw new Error('Expected exactly 2 rendered ' + sender + ' occurrences, found ' + renderedSenderCount);
+            }
+            if (rendered.includes(senderPlaceholder) || rendered.includes(hyperdrivePlaceholder)) {
+              throw new Error('Placeholder still present in rendered wrangler.jsonc');
+            }
+            fs.writeFileSync(filePath, rendered);
+          "
+
+      - name: Sync backend-rest runtime secrets before deploy
+        working-directory: apps/backend-rest
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_RUNTIME_API_TOKEN: ${{ secrets.CLOUDFLARE_RUNTIME_API_TOKEN }}
+          BETTER_AUTH_SECRET: ${{ secrets.BETTER_AUTH_SECRET }}
+          BETTER_AUTH_URL: ${{ secrets.BETTER_AUTH_URL }}
+          BETTER_AUTH_TRUSTED_ORIGINS: ${{ secrets.BETTER_AUTH_TRUSTED_ORIGINS }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          CLOUDFLARE_REALTIMEKIT_APP_ID: ${{ secrets.CLOUDFLARE_REALTIMEKIT_APP_ID }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
+        run: |
+          # The Worker binding remains CLOUDFLARE_API_TOKEN, but its value is
+          # the dedicated runtime token rather than the CI deployment token.
+          printf '%s' "$CLOUDFLARE_RUNTIME_API_TOKEN" | pnpm exec wrangler secret put CLOUDFLARE_API_TOKEN --config wrangler.jsonc
+          printf '%s' "$BETTER_AUTH_SECRET" | pnpm exec wrangler secret put BETTER_AUTH_SECRET --config wrangler.jsonc
+          printf '%s' "$BETTER_AUTH_URL" | pnpm exec wrangler secret put BETTER_AUTH_URL --config wrangler.jsonc
+          printf '%s' "$BETTER_AUTH_TRUSTED_ORIGINS" | pnpm exec wrangler secret put BETTER_AUTH_TRUSTED_ORIGINS --config wrangler.jsonc
+          printf '%s' "$CLOUDFLARE_ACCOUNT_ID" | pnpm exec wrangler secret put CLOUDFLARE_ACCOUNT_ID --config wrangler.jsonc
+          if [[ -n "$CLOUDFLARE_REALTIMEKIT_APP_ID" ]]; then
+            printf '%s' "$CLOUDFLARE_REALTIMEKIT_APP_ID" | pnpm exec wrangler secret put CLOUDFLARE_REALTIMEKIT_APP_ID --config wrangler.jsonc
+          else
+            echo "CLOUDFLARE_REALTIMEKIT_APP_ID not set; skipping RealtimeKit secret upload."
+          fi
+          if [[ -n "$STRIPE_SECRET_KEY" ]]; then
+            printf '%s' "$STRIPE_SECRET_KEY" | pnpm exec wrangler secret put STRIPE_SECRET_KEY --config wrangler.jsonc
+          else
+            echo "STRIPE_SECRET_KEY not set; Stripe payment routes remain disabled."
+          fi
+          if [[ -n "$STRIPE_WEBHOOK_SECRET" ]]; then
+            printf '%s' "$STRIPE_WEBHOOK_SECRET" | pnpm exec wrangler secret put STRIPE_WEBHOOK_SECRET --config wrangler.jsonc
+          else
+            echo "STRIPE_WEBHOOK_SECRET not set; Stripe webhook processing remains disabled."
+          fi
+
+      - name: Deploy backend-rest via Wrangler
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          packageManager: pnpm
+          workingDirectory: apps/backend-rest
+          command: deploy --config wrangler.jsonc
+
+      - name: Reassert backend query-string redaction
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          # Wrangler 4.73.0 cannot express redact_query_string in wrangler.jsonc,
+          # so a deploy may reset the Worker-level setting; PATCH and verify it.
+          ./scripts/ensure-redact-query-string.sh
+
+  deploy-greedy-matcher:
+    name: Deploy greedy-matcher worker (${{ inputs.environment }})
+    needs: migrate-db
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+
+    concurrency:
+      group: deploy-greedy-matcher-${{ inputs.environment }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -227,17 +355,82 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          HYPERDRIVE_ID: ${{ secrets.HYPERDRIVE_ID }}
+        run: |
+          test -n "$CLOUDFLARE_API_TOKEN" || (echo "Missing CLOUDFLARE_API_TOKEN" && exit 1)
+          test -n "$CLOUDFLARE_ACCOUNT_ID" || (echo "Missing CLOUDFLARE_ACCOUNT_ID" && exit 1)
+          test -n "$HYPERDRIVE_ID" || (echo "Missing HYPERDRIVE_ID" && exit 1)
+
+      - name: Inject Hyperdrive binding ID into greedy-matcher Wrangler config
+        working-directory: apps/greedy-matcher
+        env:
+          HYPERDRIVE_ID: ${{ secrets.HYPERDRIVE_ID }}
+        run: |
+          node -e "const fs=require('node:fs'); const filePath='wrangler.jsonc'; const placeholder='__HYPERDRIVE_ID__'; const hyperdriveId=process.env.HYPERDRIVE_ID; if (!hyperdriveId) throw new Error('Missing HYPERDRIVE_ID'); const current=fs.readFileSync(filePath, 'utf8'); if (!current.includes(placeholder)) throw new Error('Hyperdrive placeholder not found in wrangler.jsonc'); fs.writeFileSync(filePath, current.replaceAll(placeholder, hyperdriveId));"
+
+      - name: Deploy greedy-matcher via Wrangler
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          packageManager: pnpm
+          workingDirectory: apps/greedy-matcher
+          command: deploy --config wrangler.jsonc
+
+  deploy-frontend:
+    name: Deploy frontend worker (${{ inputs.environment }})
+    needs:
+      - deploy-backend-rest
+      - deploy-notification-orchestrator
+    if: always() && needs.deploy-backend-rest.result == 'success' && needs.deploy-notification-orchestrator.result == 'success'
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    permissions:
+      contents: read
+
+    concurrency:
+      group: deploy-frontend-${{ inputs.environment }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate required deployment secrets
+        env:
+          DEPLOYMENT_ENVIRONMENT: ${{ inputs.environment }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           VITE_AUTH_BASE_URL: ${{ secrets.VITE_AUTH_BASE_URL }}
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.VITE_STRIPE_PUBLISHABLE_KEY }}
         run: |
           test -n "$CLOUDFLARE_API_TOKEN" || (echo "Missing CLOUDFLARE_API_TOKEN" && exit 1)
           test -n "$CLOUDFLARE_ACCOUNT_ID" || (echo "Missing CLOUDFLARE_ACCOUNT_ID" && exit 1)
           test -n "$VITE_AUTH_BASE_URL" || (echo "Missing VITE_AUTH_BASE_URL" && exit 1)
-          test -n "$VITE_STRIPE_PUBLISHABLE_KEY" || (echo "Missing VITE_STRIPE_PUBLISHABLE_KEY" && exit 1)
+          if [[ "$DEPLOYMENT_ENVIRONMENT" == "production" ]]; then
+            test -n "$VITE_STRIPE_PUBLISHABLE_KEY" || (echo "Missing VITE_STRIPE_PUBLISHABLE_KEY" && exit 1)
+          fi
 
       - name: Build frontend application
         working-directory: apps/frontend
         env:
+          # TanStack Start/Vite build exhausts the default 2 GiB Node heap on
+          # standard runners; widen it explicitly for both environments.
+          NODE_OPTIONS: --max-old-space-size=6144
           VITE_AUTH_BASE_URL: ${{ secrets.VITE_AUTH_BASE_URL }}
           VITE_STRIPE_PUBLISHABLE_KEY: ${{ secrets.VITE_STRIPE_PUBLISHABLE_KEY }}
         run: pnpm run build

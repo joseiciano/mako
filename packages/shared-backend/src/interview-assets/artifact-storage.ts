@@ -142,20 +142,64 @@ export function createArtifactStorage(
       if (RECORDING_KEY_PATTERN.test(key)) {
         const bucket = getRecordingsBucket(recordingsBucket)
         const result = await bucket.head(key)
-        return result ? { size: result.size, contentType: result.contentType } : null
+        return result ? { size: result.size, contentType: result.contentType, etag: result.etag } : null
       }
 
       if (SCREENSHOT_KEY_PATTERN.test(key)) {
         const result = await screenshotsBucket.head(key)
-        return result ? { size: result.size, contentType: result.contentType } : null
+        return result ? { size: result.size, contentType: result.contentType, etag: result.etag } : null
       }
 
       throw new ArtifactValidationError(
         'Cannot head artifact with unrecognized key prefix',
       )
     },
+
+    async getObject(key, range) {
+      if (RECORDING_KEY_PATTERN.test(key)) {
+        const bucket = getRecordingsBucket(recordingsBucket)
+        const result = range
+          ? await bucket.get(key, { range })
+          : await bucket.get(key)
+
+        if (!result) {
+          return null
+        }
+
+        return {
+          body: result.body,
+          metadata: result.metadata,
+          size: result.size,
+          etag: result.etag,
+          contentType: result.contentType,
+        }
+      }
+
+      if (SCREENSHOT_KEY_PATTERN.test(key)) {
+        const result = range
+          ? await screenshotsBucket.get(key, { range })
+          : await screenshotsBucket.get(key)
+
+        if (!result) {
+          return null
+        }
+
+        return {
+          body: result.body,
+          metadata: result.metadata,
+          size: result.size,
+          etag: result.etag,
+          contentType: result.contentType,
+        }
+      }
+
+      throw new ArtifactValidationError(
+        'Cannot get artifact with unrecognized key prefix',
+      )
+    },
   }
 }
+
 
 function getRecordingsBucket(
   recordingsBucket: R2BucketPort | null,
@@ -188,12 +232,15 @@ export function createR2BucketPort(bucket: R2Bucket): R2BucketPort {
       return {
         size: object.size,
         contentType: object.httpMetadata?.contentType ?? 'application/octet-stream',
+        etag: object.httpEtag,
         metadata: object.customMetadata ?? {},
       }
     },
 
-    async get(key) {
-      const object = await bucket.get(key)
+    async get(key, options) {
+      const object = options?.range
+        ? await bucket.get(key, { range: options.range })
+        : await bucket.get(key)
 
       if (!object) {
         return null
@@ -202,6 +249,9 @@ export function createR2BucketPort(bucket: R2Bucket): R2BucketPort {
       return {
         body: object.body as unknown as ReadableStream,
         metadata: object.customMetadata ?? {},
+        size: object.size,
+        etag: object.httpEtag,
+        contentType: object.httpMetadata?.contentType,
       }
     },
 

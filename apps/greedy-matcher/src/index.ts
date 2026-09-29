@@ -10,7 +10,7 @@
  * never by sending unrelated cron-tick payloads into the notification queue.
  */
 export default {
-  async scheduled(controller: { scheduledTime: number | Date }, env: Record<string, unknown>) {
+  async scheduled(controller: ScheduledController) {
     console.log("greedy-matcher.cron.tick", {
       timestamp: new Date().toISOString(),
       scheduled_time: controller.scheduledTime,

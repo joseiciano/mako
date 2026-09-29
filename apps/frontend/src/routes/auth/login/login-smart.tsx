@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { useState, type FormEvent } from 'react'
 import {
+  AuthFlowError,
   getAuthErrorMessage,
   handleAuthSuccess,
   throwIfAuthResultHasError,
@@ -9,9 +10,15 @@ import {
 import { authClient } from '#/lib/auth-client'
 import {
   LoginDumb,
+  type LoginLinkError,
   type LoginFormErrors,
   type LoginFormValues,
 } from './login-dumb'
+
+export type LoginSearch = {
+  verified?: boolean
+  error?: LoginLinkError
+}
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
@@ -34,8 +41,7 @@ export function validateLoginForm(values: LoginFormValues): LoginFormErrors {
 export function hasLoginErrors(errors: LoginFormErrors): boolean {
   return typeof errors.email === 'string' || typeof errors.password === 'string'
 }
-
-export function LoginSmart() {
+export function LoginSmart({ search = {} }: { search?: LoginSearch }) {
   const navigate = useNavigate()
   const queryClient = useQueryClient()
 
@@ -45,10 +51,15 @@ export function LoginSmart() {
   })
   const [errors, setErrors] = useState<LoginFormErrors>({})
   const [formError, setFormError] = useState<string | null>(null)
+  const [unverifiedGuidance, setUnverifiedGuidance] = useState(false)
 
   const signInMutation = useMutation({
     mutationFn: async function signInWithEmail(input: LoginFormValues) {
-      const result = await authClient.signIn.email(input)
+      const result = await authClient.signIn.email({
+        ...input,
+        callbackURL: new URL('/login?verified=true', window.location.origin)
+          .toString(),
+      })
       throwIfAuthResultHasError(result)
 
       return result
@@ -59,6 +70,15 @@ export function LoginSmart() {
       })
     },
     onError: function onSignInError(error: unknown) {
+      if (
+        error instanceof AuthFlowError &&
+        error.code === 'EMAIL_NOT_VERIFIED'
+      ) {
+        setFormError(null)
+        setUnverifiedGuidance(true)
+        return
+      }
+
       setFormError(getAuthErrorMessage(error))
     },
   })
@@ -82,6 +102,7 @@ export function LoginSmart() {
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setFormError(null)
+    setUnverifiedGuidance(false)
 
     const validationErrors = validateLoginForm(values)
     if (hasLoginErrors(validationErrors)) {
@@ -98,6 +119,8 @@ export function LoginSmart() {
       values={values}
       errors={errors}
       formError={formError}
+      search={search}
+      unverifiedGuidance={unverifiedGuidance}
       isSubmitting={signInMutation.isPending}
       onValueChange={handleValueChange}
       onSubmit={handleSubmit}

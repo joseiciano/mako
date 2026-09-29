@@ -44,18 +44,21 @@ describe('story 1.1 matcher scope and dependency lock', function () {
   })
 
   it('keeps greedy matcher runtime dependencies locked to cron and queue hand-off', function () {
-    const terraformMain = readRepositoryFile('infrastructure', 'main.tf')
-    const greedyMatcherWorker = readRepositoryFile('infrastructure', 'workers', 'greedy-matcher.js')
+    const matcherWrangler = readRepositoryFile('apps', 'greedy-matcher', 'wrangler.jsonc')
+    const matcherSource = readRepositoryFile('apps', 'greedy-matcher', 'src', 'index.ts')
+    const orchestratorWrangler = readRepositoryFile('apps', 'notification-orchestrator', 'wrangler.jsonc')
 
-    expect(terraformMain).toContain('resource "cloudflare_workers_cron_trigger" "greedy_matcher"')
-    expect(terraformMain).toContain('script_name = cloudflare_workers_script.greedy_matcher.script_name')
-    expect(terraformMain).toContain('resource "cloudflare_queue" "notification_orchestration"')
-    expect(terraformMain).toContain('resource "cloudflare_queue_consumer" "notification_orchestrator"')
-    expect(terraformMain).toContain('queue_name = cloudflare_queue.notification_orchestration.queue_name')
+    // Terraform ownership was removed by the wrangler migration
+    // (plans/wrangler-migration.md): the cron schedule and queue names are
+    // pinned in committed wrangler configs, and the bootstrap provisions the
+    // queues with the same stable names.
+    expect(matcherWrangler).toContain('mako-greedy-matcher')
+    expect(matcherWrangler).toContain('*/10 * * * *')
+    expect(orchestratorWrangler).toContain('"queue": "notification-orchestration"')
 
-    expect(greedyMatcherWorker).toContain('async scheduled')
-    expect(greedyMatcherWorker).toContain('MUST NOT send any messages to the notification')
-    expect(greedyMatcherWorker).not.toContain('env.NOTIFICATION_QUEUE.send(payload)')
-    expect(greedyMatcherWorker).not.toMatch(/realtime|excalidraw|\/api\/interviews\/:id\/provision/i)
+    expect(matcherSource).toContain('async scheduled')
+    expect(matcherSource).toContain('MUST NOT send any messages to the notification')
+    expect(matcherSource).not.toContain('env.NOTIFICATION_QUEUE.send(payload)')
+    expect(matcherSource).not.toMatch(/realtime|excalidraw|\/api\/interviews\/:id\/provision/i)
   })
 })

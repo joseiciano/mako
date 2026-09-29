@@ -1,9 +1,8 @@
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import { useNavigate } from '@tanstack/react-router'
 import { useState, type FormEvent } from 'react'
 import {
   getAuthErrorMessage,
-  handleAuthSuccess,
   throwIfAuthResultHasError,
 } from '#/routes/auth/shared/auth-flow'
 import { authClient } from '#/lib/auth-client'
@@ -45,7 +44,6 @@ export function hasSignupErrors(errors: SignupFormErrors): boolean {
 
 export function SignupSmart() {
   const navigate = useNavigate()
-  const queryClient = useQueryClient()
 
   const [values, setValues] = useState<SignupFormValues>({
     name: '',
@@ -57,15 +55,17 @@ export function SignupSmart() {
 
   const signupMutation = useMutation({
     mutationFn: async function signUpWithEmail(input: SignupFormValues) {
-      const result = await authClient.signUp.email(input)
+      const result = await authClient.signUp.email({
+        ...input,
+        callbackURL: new URL('/login?verified=true', window.location.origin)
+          .toString(),
+      })
       throwIfAuthResultHasError(result)
 
       return result
     },
     onSuccess: async function onSignupSuccess() {
-      await handleAuthSuccess(queryClient, function navigateToDashboard(path) {
-        return navigate({ to: path })
-      })
+      await navigate({ to: '/verify-email' })
     },
     onError: function onSignupError(error: unknown) {
       setFormError(getAuthErrorMessage(error))

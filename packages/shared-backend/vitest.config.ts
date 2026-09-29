@@ -7,6 +7,7 @@ export default mergeConfig(
     test: {
       name: '@mako/shared-backend',
       include: ['src/**/*.test.ts'],
+      exclude: ['**/*.integration.test.ts'],
     },
   }),
 )

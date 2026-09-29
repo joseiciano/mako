@@ -2,6 +2,7 @@ import {
   aiChatParamsSchema,
   aiChatRequestSchema,
   aiChatResponseSchema,
+  artifactAvailabilityResponseSchema,
   cancelInterviewParamsSchema,
   cancelInterviewResponseSchema,
   createInterviewRequestSchema,
@@ -23,6 +24,11 @@ import { z } from 'zod'
 import type { Context, Hono } from 'hono'
 import { AiChatUnavailableError } from './ai-chat-repository'
 import { AiChatProviderError } from './ai-gateway-responder'
+import {
+  ArtifactReadService,
+  ArtifactRangeNotSatisfiable,
+  type ArtifactStreamResult,
+} from './artifact-read-service'
 import {
   ArtifactValidationError,
   DEFAULT_ARTIFACT_STORAGE_CONFIG,
@@ -46,6 +52,9 @@ export type InterviewControllerOptions<Bindings extends ControllerBindings> = {
   createScreenshotService?: (
     context: { bindings: Bindings },
   ) => ScreenshotService | undefined
+  createArtifactReadService?: (
+    context: { bindings: Bindings },
+  ) => ArtifactReadService | undefined
   createConsentService?: (
     context: { bindings: Bindings },
   ) => RecordingConsentService | undefined
@@ -388,6 +397,85 @@ export function registerInterviewController<Bindings extends ControllerBindings>
       return toErrorResponse(c, error)
     }
   })
+  app.get('/api/interviews/:id/artifacts/recording', async function getRecordingHandler(c) {
+    const session = await options.resolveSession(c)
+
+    if (session === null) {
+      return c.json(
+        { error: 'You must be authenticated to access this resource.' },
+        401,
+      )
+    }
+
+    const artifactReadService = options.createArtifactReadService?.({ bindings: c.env })
+
+    if (!artifactReadService) {
+      return c.json({ error: 'Artifact reads are not configured.' }, 503)
+    }
+
+    try {
+      const parsedParams = interviewIdParamsSchema.parse({
+        id: c.req.param('id'),
+      })
+
+      return toArtifactResponse(
+        c,
+        await artifactReadService.streamRecording(session, parsedParams.id, {
+          rangeHeader: c.req.header('range'),
+          ifNoneMatch: c.req.header('if-none-match'),
+          ifRange: c.req.header('if-range'),
+        }),
+      )
+    } catch (error) {
+      return toArtifactErrorResponse(c, error)
+    }
+  })
+
+  app.get('/api/interviews/:id/artifacts/screenshots/:captureId', async function getScreenshotHandler(c) {
+    const session = await options.resolveSession(c)
+
+    if (session === null) {
+      return c.json(
+        { error: 'You must be authenticated to access this resource.' },
+        401,
+      )
+    }
+
+    const artifactReadService = options.createArtifactReadService?.({ bindings: c.env })
+
+    if (!artifactReadService) {
+      return c.json({ error: 'Artifact reads are not configured.' }, 503)
+    }
+
+    let parsedParams: { id: string }
+    try {
+      parsedParams = interviewIdParamsSchema.parse({
+        id: c.req.param('id'),
+      })
+    } catch (error) {
+      return toErrorResponse(c, error)
+    }
+
+    let captureId: string
+    try {
+      captureId = z.string().uuid().parse(c.req.param('captureId'))
+    } catch (error) {
+      return toErrorResponse(c, error)
+    }
+
+    try {
+      return toArtifactResponse(
+        c,
+        await artifactReadService.streamScreenshot(session, parsedParams.id, captureId, {
+          rangeHeader: c.req.header('range'),
+          ifNoneMatch: c.req.header('if-none-match'),
+          ifRange: c.req.header('if-range'),
+        }),
+      )
+    } catch (error) {
+      return toArtifactErrorResponse(c, error)
+    }
+  })
 }
 
 async function readRequestBody(context: Context): Promise<unknown | null> {
@@ -434,6 +522,72 @@ function toErrorResponse(context: Context, error: unknown) {
   }
 
   return context.json({ error: 'Unexpected interview error.' }, 500)
+}
+
+const ARTIFACT_FILE_EXTENSIONS: Record<string, string> = {
+  'audio/webm': 'webm',
+  'video/webm': 'webm',
+  'audio/ogg': 'ogg',
+  'video/mp4': 'mp4',
+  'audio/mp4': 'm4a',
+  'audio/m4a': 'm4a',
+  'image/png': 'png',
+}
+
+function artifactFilename(contentType: string): string {
+  const extension = ARTIFACT_FILE_EXTENSIONS[contentType] ?? 'bin'
+  return `artifact.${extension}`
+}
+
+function toArtifactResponse(
+  context: Context,
+  result: ArtifactStreamResult,
+) {
+  if (result.outcome === 'unavailable') {
+    return context.json(
+      artifactAvailabilityResponseSchema.parse({ availability: result.availability }),
+      409,
+    )
+  }
+
+  if (result.outcome === 'not_modified') {
+    return new Response(null, {
+      status: 304,
+      headers: result.etag === null ? undefined : { etag: result.etag },
+    })
+  }
+
+  const headers = new Headers()
+  headers.set('content-type', result.contentType)
+  headers.set('content-length', String(result.contentLength))
+  headers.set('accept-ranges', 'bytes')
+  headers.set('cache-control', 'private, no-store')
+  headers.set('x-content-type-options', 'nosniff')
+  headers.set(
+    'content-disposition',
+    `inline; filename="${artifactFilename(result.contentType)}"`,
+  )
+
+  if (result.etag !== null) {
+    headers.set('etag', result.etag)
+  }
+
+  if (result.contentRange !== null) {
+    headers.set('content-range', result.contentRange)
+  }
+
+  return new Response(result.body, { status: result.status, headers })
+}
+
+function toArtifactErrorResponse(context: Context, error: unknown) {
+  if (error instanceof ArtifactRangeNotSatisfiable) {
+    return new Response(null, {
+      status: 416,
+      headers: { 'content-range': error.contentRange },
+    })
+  }
+
+  return toErrorResponse(context, error)
 }
 
 function isZodError(error: unknown): error is { issues: unknown[] } {

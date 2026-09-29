@@ -6,6 +6,7 @@ import { accountQueryKey } from '#/hooks/use-account'
 import {
   AUTHENTICATED_REDIRECT_PATH,
   LOGGED_OUT_REDIRECT_PATH,
+  AuthFlowError,
   getAuthErrorMessage,
   handleAuthSuccess,
   handleSignOutSuccess,
@@ -72,6 +73,46 @@ describe('auth flow helpers', function () {
   it('normalizes unknown auth errors into a safe message', function () {
     expect(getAuthErrorMessage(new Error('Nope'))).toBe('Nope')
     expect(getAuthErrorMessage({})).toBe(
+      'Something went wrong. Please try again.',
+    )
+  })
+})
+
+describe('structured auth flow errors', function () {
+  it('carries Better Auth code, status, and safe message for structured errors', function () {
+    let thrown: unknown
+
+    try {
+      throwIfAuthResultHasError({
+        error: {
+          code: 'EMAIL_NOT_VERIFIED',
+          message: 'User email is not verified',
+          status: 403,
+        },
+      })
+    } catch (error) {
+      thrown = error
+    }
+
+    expect(thrown).toBeInstanceOf(AuthFlowError)
+    const authError = thrown as AuthFlowError
+    expect(authError.code).toBe('EMAIL_NOT_VERIFIED')
+    expect(authError.status).toBe(403)
+    expect(getAuthErrorMessage(thrown)).toBe('User email is not verified')
+  })
+
+  it('keeps malformed errors on the generic safe fallback without code or status', function () {
+    let thrown: unknown
+
+    try {
+      throwIfAuthResultHasError({ error: { message: '' } })
+    } catch (error) {
+      thrown = error
+    }
+
+    expect((thrown as AuthFlowError).code).toBeUndefined()
+    expect((thrown as AuthFlowError).status).toBeUndefined()
+    expect(getAuthErrorMessage(thrown)).toBe(
       'Something went wrong. Please try again.',
     )
   })

@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 5: Post-Interview Feedback & AI Analysis
 **Description**: Stream private recordings and whiteboard captures through participant-authorized application routes.
-**Status**: Todo
+**Status**: Completed
 **Prerequisites**:
 - `docs/system/system-design/api-routes.md`
 - `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-9-interview-details-route-get-api-interviews-id.md`

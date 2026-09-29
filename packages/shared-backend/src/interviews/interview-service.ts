@@ -18,6 +18,7 @@ import {
   type StartInterviewParams,
 } from '@mako/shared'
 import { buildInterviewAliases } from '../interview'
+import type { InterviewArtifactUrlSource } from './artifact-read-service'
 import { AiChatRepository, AiChatUnavailableError } from './ai-chat-repository'
 import { AiChatProviderError } from './ai-gateway-responder'
 import { InterviewRepository } from './interview-repository'
@@ -86,6 +87,7 @@ export class InterviewService {
     private readonly timerOrchestration?: TimerOrchestrationPort,
     private readonly aiChatRepository?: AiChatRepository,
     private readonly premiumCancellationService?: PremiumCancellationService,
+    private readonly artifactUrlSource?: InterviewArtifactUrlSource,
   ) {}
 
   async createInterview(
@@ -175,7 +177,24 @@ export class InterviewService {
       )
     }
 
-    return toInterviewDetailResponse(interview)
+    const detailResponse = toInterviewDetailResponse(interview)
+
+    if (!this.artifactUrlSource) {
+      return detailResponse
+    }
+
+    const artifactUrls = await this.artifactUrlSource(interview.id)
+
+    return {
+      interview: {
+        ...detailResponse.interview,
+        recording_url: artifactUrls.recording_url,
+        screenshot_urls:
+          artifactUrls.screenshot_urls.length > 0
+            ? artifactUrls.screenshot_urls
+            : null,
+      },
+    }
   }
 
   async provisionInterview(

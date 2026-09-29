@@ -1,0 +1,65 @@
+name: Deploy
+
+on:
+  push:
+    branches:
+      - main
+      - staging
+    paths:
+      - apps/**
+      - packages/**
+      - package.json
+      - pnpm-lock.yaml
+      - .github/workflows/deploy.yml
+      - .github/workflows/deploy-applications.yml
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to deploy
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  resolve-environment:
+    name: Resolve deployment environment
+    runs-on: ubuntu-latest
+    outputs:
+      environment: ${{ steps.resolve.outputs.environment }}
+    steps:
+      - name: Resolve branch and validate dispatch
+        id: resolve
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GIT_REF: ${{ github.ref }}
+          REQUESTED_ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          case "$GIT_REF" in
+            refs/heads/staging) branch_environment=staging ;;
+            refs/heads/main) branch_environment=production ;;
+            *)
+              echo "Deployments must run from the staging or main branch; got $GIT_REF" >&2
+              exit 1
+              ;;
+          esac
+
+          if [[ "$EVENT_NAME" == "workflow_dispatch" && "$REQUESTED_ENVIRONMENT" != "$branch_environment" ]]; then
+            echo "Manual deployment mismatch: $GIT_REF deploys to $branch_environment, not $REQUESTED_ENVIRONMENT" >&2
+            exit 1
+          fi
+
+          echo "environment=$branch_environment" >> "$GITHUB_OUTPUT"
+
+  applications:
+    name: Deploy applications
+    needs: resolve-environment
+    uses: ./.github/workflows/deploy-applications.yml
+    with:
+      environment: ${{ needs.resolve-environment.outputs.environment }}
+    secrets: inherit

@@ -864,7 +864,6 @@ describe('InterviewRepository', function interviewRepositorySuite() {
         expect(listQuery!.text).not.toContain(column)
       }
     })
-
     it('listParticipantInterviews applies status filter and uses deterministic ordering', async function run() {
       const mockQueryExecutor = createMockQueryExecutor({
         'FROM interviews': () => ({
@@ -889,8 +888,11 @@ describe('InterviewRepository', function interviewRepositorySuite() {
       )
       expect(listQuery).toBeDefined()
       expect(listQuery!.text).toContain('AND status =')
-      expect(listQuery!.text).toContain('ORDER BY scheduled_at ASC, id ASC')
+      expect(listQuery!.text).toContain(
+        'ORDER BY participant_interviews.scheduled_at ASC, participant_interviews.id ASC',
+      )
     })
+
 
     it('listParticipantInterviews scopes to participant via scheduler_id or interviewer_id', async function run() {
       const mockQueryExecutor = createMockQueryExecutor({

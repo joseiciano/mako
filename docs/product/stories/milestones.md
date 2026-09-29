@@ -6,9 +6,9 @@ This document outlines the high-level milestones for the Mako platform, breaking
 **Objective**: Establish the core infrastructure, database schema, and user identity management.
 
 - **Infrastructure 1.1: Monorepo & App Scaffolding**: Initialize the monorepo structure, scaffold Hono/TanStack apps and shared packages.
-- **Infrastructure 1.2: Cloud Infrastructure (IaC)**: Provision Cloudflare (R2, Hyperdrive) and Neon Postgres via Terraform.
+- **Infrastructure 1.2: Cloud Infrastructure (IaC)**: Provision Cloudflare (R2, Hyperdrive) and Neon Postgres via the bootstrap runbook (`scripts/bootstrap.sh`).
 - **Infrastructure 1.3: Database Migration System**: Implement lightweight SQL migration tool and initial foundation schemas.
-- **Infrastructure 1.4: CI/CD & Secrets Management**: Automate quality gates and deployments via GitHub Actions and Terraform.
+- **Infrastructure 1.4: CI/CD & Secrets Management**: Automate quality gates and deployments via GitHub Actions and Wrangler.
 - **Infrastructure 1.5: Developer Experience (DX)**: Configure local emulation (Wrangler) and root-level dev scripts.
 - **Infrastructure 1.6: Local Testing Environment**: Standardize local test tooling, isolated test configuration, and developer test workflows.
 - **User Authentication**: Implement Better Auth for sign-up, sign-in, and session management.

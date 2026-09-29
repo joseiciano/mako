@@ -11,15 +11,31 @@ export type LoginFormErrors = {
   password?: string
 }
 
+export type LoginLinkError = 'TOKEN_EXPIRED' | 'INVALID_TOKEN'
+
+const LOGIN_BANNER_COPY: Record<LoginLinkError, string> = {
+  TOKEN_EXPIRED:
+    'This verification link has expired. Sign in with the correct password to request a fresh link.',
+  INVALID_TOKEN:
+    'This verification link is invalid. Sign in with the correct password to request a fresh link.',
+}
+
+const VERIFIED_BANNER_COPY =
+  'Your email has been verified. Sign in to continue.'
+
+const UNVERIFIED_GUIDANCE_COPY =
+  'We sent a fresh verification link. Check your email; delivery may take a few minutes.'
+
 type LoginDumbProps = {
   values: LoginFormValues
   errors: LoginFormErrors
   formError: string | null
+  search?: { verified?: boolean; error?: LoginLinkError }
+  unverifiedGuidance?: boolean
   isSubmitting: boolean
   onValueChange: (field: keyof LoginFormValues, value: string) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
 }
-
 export function LoginDumb(props: LoginDumbProps) {
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-md items-center px-6 py-16">
@@ -66,6 +82,33 @@ export function LoginDumb(props: LoginDumbProps) {
               <p className="text-sm text-rose-300">{props.errors.password}</p>
             ) : null}
           </label>
+
+          {props.search?.error ? (
+            <p
+              role="alert"
+              className="rounded-lg border border-amber-800 bg-amber-950/40 px-3 py-2 text-sm text-amber-200"
+            >
+              {LOGIN_BANNER_COPY[props.search.error]}
+            </p>
+          ) : null}
+
+          {props.search?.error || props.unverifiedGuidance ? null : props.search?.verified ? (
+            <p
+              role="status"
+              className="rounded-lg border border-emerald-800 bg-emerald-950/40 px-3 py-2 text-sm text-emerald-200"
+            >
+              {VERIFIED_BANNER_COPY}
+            </p>
+          ) : null}
+
+          {props.search?.error ? null : props.unverifiedGuidance ? (
+            <p
+              role="alert"
+              className="rounded-lg border border-sky-800 bg-sky-950/40 px-3 py-2 text-sm text-sky-200"
+            >
+              {UNVERIFIED_GUIDANCE_COPY}
+            </p>
+          ) : null}
 
           {props.formError ? (
             <p className="rounded-lg border border-rose-900 bg-rose-950/40 px-3 py-2 text-sm text-rose-300">

@@ -46,8 +46,28 @@
     }
   ],
   "vars": {
-    "REALTIMEKIT_WEBHOOK_PUBLIC_KEY_URL": "https://api.realtime.cloudflare.com/.well-known/webhooks.json"
+    "AUTH_EMAIL_FROM": "noreply@example.invalid",
+    "REALTIMEKIT_WEBHOOK_PUBLIC_KEY_URL": "https://api.realtime.cloudflare.com/.well-known/webhooks.json",
+    "AUTH_EMAIL_VERIFICATION_ENFORCED": "false"
   },
+  "secrets": {
+    "required": [
+      "BETTER_AUTH_SECRET",
+      "BETTER_AUTH_TRUSTED_ORIGINS",
+      "BETTER_AUTH_URL",
+      "CLOUDFLARE_ACCOUNT_ID",
+      "CLOUDFLARE_API_TOKEN",
+      "CLOUDFLARE_REALTIMEKIT_APP_ID"
+    ]
+  },
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "allowed_sender_addresses": ["noreply@example.invalid"]
+    }
+  ],
+  // Query-string redaction is not supported in wrangler.jsonc at 4.73.0;
+  // CI reasserts it after every deploy via scripts/ensure-redact-query-string.sh.
   "observability": {
     "enabled": true,
     "logs": {
