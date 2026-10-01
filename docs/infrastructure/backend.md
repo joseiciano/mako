@@ -196,10 +196,11 @@ Enforces the MVP 30-day raw media retention policy and removes private artifacts
 
 ### Workers AI Transcription
 
-Workers AI is used for participant-attributed audio transcription. The transcription binding is configured on the backend worker.
+Workers AI is used for participant-attributed audio transcription. The `AI` binding and credentials are configured on the notification-orchestrator worker, where `InterviewFeedbackWorkflow` runs (`apps/notification-orchestrator/wrangler.jsonc`).
 
 | Variable | Description |
 |---|---|
+| `AI` | Workers AI binding (`"ai": { "binding": "AI" }` in `wrangler.jsonc`). Wrapped by `createWorkersAiTranscriptionAdapter`. |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID for Workers AI. |
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API token with Workers AI permissions. |
 
@@ -211,11 +212,11 @@ Workers AI is used for participant-attributed audio transcription. The transcrip
 
 ### AI Gateway Feedback Analysis
 
-The AI Gateway is used for feedback analysis (separate from AI chat). The analysis request sends aggregated context (transcript, screenshots, metadata) to a high-reasoning LLM via the AI Gateway.
+The AI Gateway is used for feedback analysis (separate from AI chat). The analysis request sends aggregated context (transcript, screenshots, metadata) to a high-reasoning LLM via the AI Gateway. Configured on the notification-orchestrator worker (same process as the Workers AI transcription binding above).
 
 | Variable | Description |
 |---|---|
-| `AI_GATEWAY_BASE_URL` | AI Gateway base URL for feedback analysis. Same binding as AI chat. |
+| `AI_GATEWAY_BASE_URL` | AI Gateway base URL for feedback analysis, parsed the same way as the Story 4.3 AI chat responder (`extractAiGatewayId`). Unlike AI chat, the feedback analysis adapter has no direct-call fallback: a missing/invalid gateway ID makes every analysis attempt fail (surfacing as `feedback_error_code = 'analysis_failed'` after the bounded retry budget). Not yet committed to `wrangler.jsonc` in any environment, consistent with the AI chat gateway's "optional, not yet adopted" state documented above. |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID. |
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API token. |
 
@@ -227,7 +228,28 @@ The AI Gateway is used for feedback analysis (separate from AI chat). The analys
 - `feedback-analysis-repository.ts` persists the complete validated report and transitions `processing -> ready` in one conditional update fenced by the active `feedback_attempt_id`; a stale attempt or an already-`ready` report is a safe no-op, so automatic retries never overwrite an existing report.
 - Provider/model identifiers remain server configuration. They are not client-selectable API fields.
 - Model name, raw provider response, token usage, system prompt, and provider error text are not persisted in the client feedback object.
-- This module is not yet wired into `InterviewFeedbackWorkflow`; orchestration, bounded per-step retries, and telemetry are added in Story 5.18.
+- Orchestration, bounded per-step retries, telemetry, and operational replay live in `InterviewFeedbackWorkflow` (Story 5.18; see below).
+
+### Feedback Workflow Reliability, Observability, and Replay (Story 5.18)
+
+`InterviewFeedbackWorkflow` (`apps/notification-orchestrator/src/workflows/feedback-workflow.ts`) orchestrates eligibility, claim, artifact readiness, transcription, analysis, and persistence as one Cloudflare Workflow instance per attempt. Every `step.do` call is configured with a bounded `WorkflowStepConfig` (`retries.limit` + `delay` + `backoff`, plus a per-attempt `timeout`); the per-step budgets are intentionally different (a ~3.3 minute bounded wait for recording/audio finalization, a shorter best-effort wait for optional screenshots, longer timeouts around the transcription/analysis provider calls, short timeouts around plain Postgres reads/writes).
+
+**Retryable vs. non-retryable**:
+- Transient conditions (assets not finalized yet, a provider call that should be retried) throw a plain `Error` inside a step so the step's own `retries` config governs the backoff; once that budget is exhausted, the last thrown error is treated as the step's terminal outcome.
+- Deterministic, waiting-will-never-help conditions (no `interview_recordings` row at all, a permanent participant-track format/mapping failure, a schema-invalid analysis response that keeps failing, another attempt already owning the interview) throw `NonRetryableError` from `cloudflare:workflows` so the engine does not waste the retry budget on a condition that cannot change.
+- `interview_recordings` finalization failures are further classified (`classifyRecordingJobs` in `packages/shared-backend/src/interview-feedback/feedback-artifact-readiness.ts`): a terminal `mapping_error`/`validation_error` is a permanent format/mapping problem (`feedback_unavailable_reason = 'unsupported_format'`); a terminal `provider_error`/`storage_error`/`database_error`/missing code is an infrastructure problem that does not improve by waiting (`feedback_error_code = 'assets_not_ready'` without exhausting the full wait budget).
+
+**Terminal, attempt-fenced writes** (`FeedbackWorkflowRepository`, same package): every terminal transition (`processing -> failed`, `processing -> not_started`) is one conditional `UPDATE ... WHERE feedback_status = 'processing' AND feedback_attempt_id = $attemptId`, so a stale or already-replaced attempt's write is a safe no-op. `not_started` clears every processing/prompt field per `interviews_feedback_not_started_check`; `failed` deliberately keeps `feedback_attempt_id` and the processing timestamps so a later operator replay can still read the prior attempt for its audit row.
+
+**Structured telemetry** (`logFeedbackWorkflowEvent` in `feedback-workflow-events.ts`): emits one line per lifecycle event (`received`, `claimed`, `waiting_for_assets`, `transcribed`, `analysis_started`, `ready`, `retrying`, `failed`, `unavailable`) with only an explicit allowlist of safe fields — interview/workflow-instance IDs, prompt/schema version, step name, attempt number, duration, safe error/unavailable code, and aggregate transcript-length/truncation and screenshot-count/byte metrics. There is no free-form message field, so transcript text, feedback prose, candidate aliases, object keys, signed URLs, and provider credentials/payloads can never be routed into a log line through this function.
+
+**Stale-processing recovery** (automatic; `feedback-stale-processing-sweep.ts`, run from the existing `*/5 * * * *` notification-orchestrator scheduled trigger): fences and recovers a `processing` interview whose `feedback_processing_heartbeat_at` is older than 20 minutes (comfortably above every bounded per-step wait above) — a crashed or evicted Workflow instance that stopped heartbeating. One atomic statement resets the row to `pending` and clears `feedback_attempt_id` (so any write the crashed attempt still makes lands as a no-op), then one new, uniquely suffixed workflow instance (`feedback-v1-{interviewId}-recovered-{timestamp}`) is started per recovered interview. This is fully automatic infrastructure self-healing and is distinct from the operator-only replay procedure below.
+
+**Operational replay (operator-only; MVP has no participant-facing regenerate endpoint or UI control)**: `FeedbackReplayService`/`FeedbackReplayRepository` (`packages/shared-backend/src/interview-feedback/`) implement the business rules an operator runbook follows to recover a genuinely `failed` interview:
+1. Inspect the interview's current `feedback_status`, `feedback_error_code`, and (if needed) the safe counters/timestamps already in Postgres; confirm artifact state out-of-band if the error code suggests a data problem rather than a transient provider outage.
+2. Run `FeedbackReplayService.replay({ interviewId, operatorIdentity, reason, targetSchemaVersion })` against production Postgres. It refuses to replay anything that is not currently `failed` (including an already-`ready` interview — the MVP schema only defines `schema_version: 1`, so there is no newer version to replay into yet; `targetSchemaVersion` is still recorded on the audit row so a future migration that introduces `schema_version: 2` can extend this guard without changing call sites) and is a safe no-op if the row was concurrently reset by another replay.
+3. A successful call resets the interview to `pending` (clearing every processing/error/prompt field) and inserts one durable `feedback_replay_audit` row (operator identity, prior attempt ID, prior error code, target schema version, reason, timestamp) — see `docs/system/system-design/db-schemas.md`.
+4. The call returns a uniquely suffixed workflow instance ID (`feedback-v1-{interviewId}-replay-{timestamp}`, distinct from both the original deterministic trigger ID and any stale-recovery ID). The operator starts that instance against the `FEEDBACK_WORKFLOW` binding (e.g. `wrangler workflows instances create feedback-workflow <instanceId> --params '{"interview_id":"...","schema_version":1}'`), which claims the now-`pending` row and produces exactly one new report.
 
 ### Auth Email Verification Retention and Monitoring
 
