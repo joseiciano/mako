@@ -1,4 +1,4 @@
-import { createSqlQuery, type SqlQueryExecutor } from '../index'
+import { createSqlQuery, rollbackTransactionSafely, type SqlQueryExecutor } from '../index'
 
 export type FeedbackReplayStateRow = {
   feedback_status: string
@@ -44,57 +44,77 @@ export class FeedbackReplayRepository {
   }
 
   /**
-   * Resets a terminally `failed` interview back to `pending`, clearing every
-   * processing/error/prompt field so the row satisfies
+   * Resets a terminally `failed` interview back to `pending` and writes the
+   * mandatory `feedback_replay_audit` row in a single database transaction,
+   * clearing every processing/error/prompt field so the row satisfies
    * `interviews_feedback_pending_check` and the next claim starts a genuinely
-   * fresh attempt. A safe no-op (`false`) when the row is no longer `failed`
-   * (e.g. a concurrent replay already reset it).
+   * fresh attempt. Both writes commit or roll back together, so a failure
+   * between them (e.g. a dropped connection) never leaves a replayed
+   * interview without its required audit record.
+   *
+   * Returns `false` (and never writes the audit row) when the row is no
+   * longer `failed` (e.g. a concurrent replay already reset it).
    */
-  async resetFailedToPending(interviewId: string): Promise<boolean> {
-    const result = await this.queryExecutor.query<{ id: string }>(
-      createSqlQuery(
-        `
-          UPDATE interviews
-          SET feedback_status = 'pending',
-              feedback_error_code = NULL,
-              feedback_unavailable_reason = NULL,
-              feedback_attempt_id = NULL,
-              feedback_processing_started_at = NULL,
-              feedback_processing_heartbeat_at = NULL,
-              feedback_prompt_version = NULL,
-              updated_at = NOW()
-          WHERE id = $1
-            AND feedback_status = 'failed'
-          RETURNING id;
-        `,
-        [interviewId],
-      ),
-    )
+  async resetFailedToPendingWithAudit(input: InsertReplayAuditInput): Promise<boolean> {
+    await this.queryExecutor.query(createSqlQuery('BEGIN;'))
 
-    return (result.rowCount ?? result.rows.length) > 0
-  }
+    try {
+      const resetResult = await this.queryExecutor.query<{ id: string }>(
+        createSqlQuery(
+          `
+            UPDATE interviews
+            SET feedback_status = 'pending',
+                feedback_error_code = NULL,
+                feedback_unavailable_reason = NULL,
+                feedback_attempt_id = NULL,
+                feedback_processing_started_at = NULL,
+                feedback_processing_heartbeat_at = NULL,
+                feedback_prompt_version = NULL,
+                updated_at = NOW()
+            WHERE id = $1
+              AND feedback_status = 'failed'
+            RETURNING id;
+          `,
+          [input.interviewId],
+        ),
+      )
 
-  async insertReplayAudit(input: InsertReplayAuditInput): Promise<void> {
-    await this.queryExecutor.query(
-      createSqlQuery(
-        `
-          INSERT INTO feedback_replay_audit (
-            id, interview_id, prior_attempt_id, prior_error_code,
-            target_schema_version, operator_identity, reason, created_at
-          )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
-        `,
-        [
-          input.id,
-          input.interviewId,
-          input.priorAttemptId,
-          input.priorErrorCode,
-          input.targetSchemaVersion,
-          input.operatorIdentity,
-          input.reason,
-          input.createdAt,
-        ],
-      ),
-    )
+      const reset = (resetResult.rowCount ?? resetResult.rows.length) > 0
+
+      if (!reset) {
+        // Lost the race: another replay (or an unrelated transition) already
+        // moved this row out of `failed`. Nothing to audit.
+        await this.queryExecutor.query(createSqlQuery('ROLLBACK;'))
+        return false
+      }
+
+      await this.queryExecutor.query(
+        createSqlQuery(
+          `
+            INSERT INTO feedback_replay_audit (
+              id, interview_id, prior_attempt_id, prior_error_code,
+              target_schema_version, operator_identity, reason, created_at
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8);
+          `,
+          [
+            input.id,
+            input.interviewId,
+            input.priorAttemptId,
+            input.priorErrorCode,
+            input.targetSchemaVersion,
+            input.operatorIdentity,
+            input.reason,
+            input.createdAt,
+          ],
+        ),
+      )
+
+      await this.queryExecutor.query(createSqlQuery('COMMIT;'))
+      return true
+    } catch (error) {
+      await rollbackTransactionSafely(this.queryExecutor)
+      throw error
+    }
   }
 }

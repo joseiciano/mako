@@ -51,59 +51,47 @@ describe('FeedbackReplayRepository', function suite() {
     })
   })
 
-  describe('resetFailedToPending', function () {
-    it('returns true and clears processing/error/prompt fields', async function run() {
+  describe('resetFailedToPendingWithAudit', function () {
+    const auditInput = {
+      id: 'audit-1',
+      interviewId,
+      priorAttemptId: 'attempt-1',
+      priorErrorCode: 'analysis_failed',
+      targetSchemaVersion: 1,
+      operatorIdentity: 'ops@example.com',
+      reason: 'provider outage resolved',
+      createdAt: '2026-09-01T00:00:00.000Z',
+    }
+
+    it('resets the interview and inserts the audit row in a single transaction', async function run() {
       const mockQueryExecutor = createMockQueryExecutor({
+        'BEGIN': () => ({ rows: [] }),
         'UPDATE interviews': () => ({ rows: [{ id: interviewId }], rowCount: 1 }),
+        'INSERT INTO feedback_replay_audit': () => ({ rows: [], rowCount: 1 }),
+        'COMMIT': () => ({ rows: [] }),
       })
 
       const repository = new FeedbackReplayRepository(mockQueryExecutor)
-      const result = await repository.resetFailedToPending(interviewId)
+      const result = await repository.resetFailedToPendingWithAudit(auditInput)
 
       expect(result).toBe(true)
-      const query = mockQueryExecutor.queries[0]!
-      expect(query.text).toContain("feedback_status = 'failed'")
-      expect(query.text).toContain("SET feedback_status = 'pending'")
-      expect(query.text).toContain('feedback_attempt_id = NULL')
-      expect(query.text).toContain('feedback_processing_started_at = NULL')
-      expect(query.text).toContain('feedback_processing_heartbeat_at = NULL')
-      expect(query.text).toContain('feedback_prompt_version = NULL')
-      expect(query.values).toEqual([interviewId])
-    })
 
-    it('is a safe no-op when the row is no longer failed', async function run() {
-      const mockQueryExecutor = createMockQueryExecutor({
-        'UPDATE interviews': () => ({ rows: [], rowCount: 0 }),
-      })
+      const queryTexts = mockQueryExecutor.queries.map((query) => query.text)
+      expect(queryTexts[0]).toContain('BEGIN')
+      expect(queryTexts[1]).toContain("SET feedback_status = 'pending'")
+      expect(queryTexts[1]).toContain("feedback_status = 'failed'")
+      expect(queryTexts[2]).toContain('INSERT INTO feedback_replay_audit')
+      expect(queryTexts[3]).toContain('COMMIT')
 
-      const repository = new FeedbackReplayRepository(mockQueryExecutor)
-      const result = await repository.resetFailedToPending(interviewId)
+      const updateQuery = mockQueryExecutor.queries[1]!
+      expect(updateQuery.text).toContain('feedback_attempt_id = NULL')
+      expect(updateQuery.text).toContain('feedback_processing_started_at = NULL')
+      expect(updateQuery.text).toContain('feedback_processing_heartbeat_at = NULL')
+      expect(updateQuery.text).toContain('feedback_prompt_version = NULL')
+      expect(updateQuery.values).toEqual([interviewId])
 
-      expect(result).toBe(false)
-    })
-  })
-
-  describe('insertReplayAudit', function () {
-    it('inserts a durable audit row with the operator, prior attempt, and reason', async function run() {
-      const mockQueryExecutor = createMockQueryExecutor({
-        'INSERT INTO feedback_replay_audit': () => ({ rows: [], rowCount: 1 }),
-      })
-
-      const repository = new FeedbackReplayRepository(mockQueryExecutor)
-      await repository.insertReplayAudit({
-        id: 'audit-1',
-        interviewId,
-        priorAttemptId: 'attempt-1',
-        priorErrorCode: 'analysis_failed',
-        targetSchemaVersion: 1,
-        operatorIdentity: 'ops@example.com',
-        reason: 'provider outage resolved',
-        createdAt: '2026-09-01T00:00:00.000Z',
-      })
-
-      const query = mockQueryExecutor.queries[0]!
-      expect(query.text).toContain('INSERT INTO feedback_replay_audit')
-      expect(query.values).toEqual([
+      const insertQuery = mockQueryExecutor.queries[2]!
+      expect(insertQuery.values).toEqual([
         'audit-1',
         interviewId,
         'attempt-1',
@@ -113,6 +101,48 @@ describe('FeedbackReplayRepository', function suite() {
         'provider outage resolved',
         '2026-09-01T00:00:00.000Z',
       ])
+    })
+
+    it('rolls back and returns false without writing an audit row when the interview is no longer failed', async function run() {
+      const mockQueryExecutor = createMockQueryExecutor({
+        'BEGIN': () => ({ rows: [] }),
+        'UPDATE interviews': () => ({ rows: [], rowCount: 0 }),
+        'ROLLBACK': () => ({ rows: [] }),
+      })
+
+      const repository = new FeedbackReplayRepository(mockQueryExecutor)
+      const result = await repository.resetFailedToPendingWithAudit(auditInput)
+
+      expect(result).toBe(false)
+
+      const queryTexts = mockQueryExecutor.queries.map((query) => query.text)
+      expect(queryTexts).toEqual(
+        expect.arrayContaining([expect.stringContaining('ROLLBACK')]),
+      )
+      expect(queryTexts.some((text) => text.includes('INSERT INTO feedback_replay_audit'))).toBe(
+        false,
+      )
+    })
+
+    it('rolls back and rethrows when the audit insert fails', async function run() {
+      const mockQueryExecutor = createMockQueryExecutor({
+        'BEGIN': () => ({ rows: [] }),
+        'UPDATE interviews': () => ({ rows: [{ id: interviewId }], rowCount: 1 }),
+        'INSERT INTO feedback_replay_audit': () => {
+          throw new Error('connection reset')
+        },
+        'ROLLBACK': () => ({ rows: [] }),
+      })
+
+      const repository = new FeedbackReplayRepository(mockQueryExecutor)
+
+      await expect(repository.resetFailedToPendingWithAudit(auditInput)).rejects.toThrow(
+        'connection reset',
+      )
+
+      const queryTexts = mockQueryExecutor.queries.map((query) => query.text)
+      expect(queryTexts.some((text) => text.includes('ROLLBACK'))).toBe(true)
+      expect(queryTexts.some((text) => text.includes('COMMIT'))).toBe(false)
     })
   })
 })

@@ -17,9 +17,11 @@ export type FeedbackReplayInput = {
 /**
  * Orchestrates Story 5.18's operator-only replay procedure: verifies the
  * interview is genuinely `failed` (never a participant-facing regenerate
- * path), resets it to `pending` with a fresh attempt, writes a durable
- * `feedback_replay_audit` row, and returns a uniquely suffixed workflow
- * instance ID for the operator to start via the documented runbook.
+ * path), then atomically resets it to `pending` with a fresh attempt and
+ * writes the durable `feedback_replay_audit` row in one transaction (so a
+ * DB failure between the two writes can never lose the audit record), and
+ * returns a uniquely suffixed workflow instance ID for the operator to
+ * start via the documented runbook.
  *
  * Replay of an already-`ready` interview is always rejected today. The MVP
  * feedback schema only defines `schema_version: 1`; `targetSchemaVersion` is
@@ -49,18 +51,13 @@ export class FeedbackReplayService {
       return { outcome: 'not_failed' }
     }
 
-    const reset = await this.repository.resetFailedToPending(input.interviewId)
-
-    if (!reset) {
-      // Lost the race: another replay (or an unrelated transition) already
-      // moved this row out of `failed` between the read above and the write.
-      return { outcome: 'not_failed' }
-    }
-
     const auditId = this.generateId()
     const createdAt = this.now().toISOString()
 
-    await this.repository.insertReplayAudit({
+    // Resets `failed` -> `pending` and writes the mandatory audit row in a
+    // single transaction, so a DB failure between them never loses the
+    // audit record this story requires for every replay.
+    const reset = await this.repository.resetFailedToPendingWithAudit({
       id: auditId,
       interviewId: input.interviewId,
       priorAttemptId: state.feedback_attempt_id,
@@ -70,6 +67,12 @@ export class FeedbackReplayService {
       reason: input.reason,
       createdAt,
     })
+
+    if (!reset) {
+      // Lost the race: another replay (or an unrelated transition) already
+      // moved this row out of `failed` between the read above and the write.
+      return { outcome: 'not_failed' }
+    }
 
     return {
       outcome: 'replayed',

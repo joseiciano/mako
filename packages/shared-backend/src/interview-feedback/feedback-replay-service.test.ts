@@ -7,8 +7,7 @@ const interviewId = '33333333-3333-4333-8333-333333333333'
 function createRepository(overrides: Partial<FeedbackReplayRepository> = {}): FeedbackReplayRepository {
   return {
     getReplayState: vi.fn(),
-    resetFailedToPending: vi.fn(),
-    insertReplayAudit: vi.fn(),
+    resetFailedToPendingWithAudit: vi.fn(),
     ...overrides,
   } as unknown as FeedbackReplayRepository
 }
@@ -48,8 +47,7 @@ describe('FeedbackReplayService', function suite() {
     })
 
     expect(result).toEqual({ outcome: 'already_ready' })
-    expect(repository.resetFailedToPending).not.toHaveBeenCalled()
-    expect(repository.insertReplayAudit).not.toHaveBeenCalled()
+    expect(repository.resetFailedToPendingWithAudit).not.toHaveBeenCalled()
   })
 
   it('refuses to replay an interview that is not failed (e.g. still processing)', async function run() {
@@ -70,7 +68,7 @@ describe('FeedbackReplayService', function suite() {
     })
 
     expect(result).toEqual({ outcome: 'not_failed' })
-    expect(repository.resetFailedToPending).not.toHaveBeenCalled()
+    expect(repository.resetFailedToPendingWithAudit).not.toHaveBeenCalled()
   })
 
   it('resets a failed interview, writes the audit row, and returns a uniquely suffixed instance id', async function run() {
@@ -80,8 +78,7 @@ describe('FeedbackReplayService', function suite() {
         feedback_attempt_id: 'attempt-1',
         feedback_error_code: 'analysis_failed',
       }),
-      resetFailedToPending: vi.fn().mockResolvedValue(true),
-      insertReplayAudit: vi.fn().mockResolvedValue(undefined),
+      resetFailedToPendingWithAudit: vi.fn().mockResolvedValue(true),
     })
     const service = new FeedbackReplayService(repository, () => FIXED_NOW, () => 'audit-1')
 
@@ -97,8 +94,7 @@ describe('FeedbackReplayService', function suite() {
       auditId: 'audit-1',
       newWorkflowInstanceId: `feedback-v1-${interviewId}-replay-${FIXED_NOW.getTime()}`,
     })
-    expect(repository.resetFailedToPending).toHaveBeenCalledWith(interviewId)
-    expect(repository.insertReplayAudit).toHaveBeenCalledWith({
+    expect(repository.resetFailedToPendingWithAudit).toHaveBeenCalledWith({
       id: 'audit-1',
       interviewId,
       priorAttemptId: 'attempt-1',
@@ -117,7 +113,7 @@ describe('FeedbackReplayService', function suite() {
         feedback_attempt_id: 'attempt-1',
         feedback_error_code: 'transcription_failed',
       }),
-      resetFailedToPending: vi.fn().mockResolvedValue(false),
+      resetFailedToPendingWithAudit: vi.fn().mockResolvedValue(false),
     })
     const service = new FeedbackReplayService(repository, () => FIXED_NOW, () => 'audit-1')
 
@@ -129,6 +125,5 @@ describe('FeedbackReplayService', function suite() {
     })
 
     expect(result).toEqual({ outcome: 'not_failed' })
-    expect(repository.insertReplayAudit).not.toHaveBeenCalled()
   })
 })
