@@ -14,6 +14,12 @@ vi.mock('#/hooks/use-interviews', function () {
   }
 })
 
+vi.mock('#/hooks/use-upload-whiteboard-screenshot', function () {
+  return {
+    useUploadWhiteboardScreenshot: vi.fn(),
+  }
+})
+
 vi.mock('@tanstack/react-router', function () {
   return {
     useNavigate: vi.fn(),
@@ -33,6 +39,7 @@ vi.mock('#/components/interviews/whiteboard', function () {
         </section>
       )
     }),
+    captureWhiteboardPng: vi.fn(),
   }
 })
 
@@ -67,8 +74,9 @@ import {
   useEndInterview,
   useAIChat,
 } from '#/hooks/use-interviews'
+import { useUploadWhiteboardScreenshot } from '#/hooks/use-upload-whiteboard-screenshot'
 import { useNavigate } from '@tanstack/react-router'
-import { WhiteboardSmart } from '#/components/interviews/whiteboard'
+import { WhiteboardSmart, captureWhiteboardPng } from '#/components/interviews/whiteboard'
 import { MediaSmart } from '#/components/interviews/media'
 
 function mockUseInterviewDetail(
@@ -205,6 +213,30 @@ function mockUseEndInterview(
   } as unknown as ReturnType<typeof useEndInterview>
 }
 
+function mockUseUploadWhiteboardScreenshot(
+  overrides: Partial<ReturnType<typeof useUploadWhiteboardScreenshot>>,
+): ReturnType<typeof useUploadWhiteboardScreenshot> {
+  return {
+    context: undefined,
+    data: undefined,
+    error: null,
+    failureCount: 0,
+    failureReason: null,
+    isError: false,
+    isIdle: true,
+    isPaused: false,
+    isPending: false,
+    isSuccess: false,
+    mutate: vi.fn(),
+    mutateAsync: vi.fn().mockResolvedValue({ capture_id: 'capture-1' }),
+    reset: vi.fn(),
+    status: 'idle',
+    submittedAt: 0,
+    variables: undefined,
+    ...overrides,
+  } as unknown as ReturnType<typeof useUploadWhiteboardScreenshot>
+}
+
 beforeEach(function () {
   vi.clearAllMocks()
   vi.mocked(useNavigate).mockReturnValue(mockNavigate)
@@ -224,6 +256,14 @@ beforeEach(function () {
     mutate: mockAiChatMutate,
     isPending: false,
   }))
+  vi.mocked(useUploadWhiteboardScreenshot).mockReturnValue(
+    mockUseUploadWhiteboardScreenshot({ isPending: false }),
+  )
+  // Default: no whiteboard scene registered for the handle, matching an
+  // interview that has not actually connected Excalidraw in these tests.
+  vi.mocked(captureWhiteboardPng).mockRejectedValue(
+    new Error('Whiteboard scene is not available for capture.'),
+  )
 })
 
 describe('SessionSmart', function () {
@@ -883,17 +923,19 @@ describe('SessionSmart', function () {
 
       await user.click(screen.getByRole('button', { name: /end session/i }))
 
-      expect(mockEndMutate).toHaveBeenCalledWith(
-        { id: 'int-1' },
-        expect.objectContaining({
-          onSuccess: expect.any(Function),
-          onError: expect.any(Function),
-          onSettled: expect.any(Function),
-        }),
-      )
+      await waitFor(function () {
+        expect(mockEndMutate).toHaveBeenCalledWith(
+          { id: 'int-1' },
+          expect.objectContaining({
+            onSuccess: expect.any(Function),
+            onError: expect.any(Function),
+            onSettled: expect.any(Function),
+          }),
+        )
+      })
     })
 
-    it('ignores duplicate end clicks while mutation is in flight', function () {
+    it('ignores duplicate end clicks while the capture/upload step is in flight', async function () {
       const { provisionSuccessCallback } = renderAndProvision(
         makeInterview({
           status: 'ongoing',
@@ -917,7 +959,9 @@ describe('SessionSmart', function () {
         endButton.click()
       })
 
-      expect(mockEndMutate).toHaveBeenCalledTimes(1)
+      await waitFor(function () {
+        expect(mockEndMutate).toHaveBeenCalledTimes(1)
+      })
     })
 
     it('shows safe lifecycle error when end mutation fails', async function () {
@@ -950,12 +994,211 @@ describe('SessionSmart', function () {
 
       await user.click(screen.getByRole('button', { name: /end session/i }))
 
+      await waitFor(function () {
+        expect(endErrorCallback).toBeDefined()
+      })
       endErrorCallback?.(new Error('postgres://secret@internal-db.local could not end'))
 
       await waitFor(function () {
         expect(screen.getByText('Unable to end session. Please try again.')).toBeInTheDocument()
       })
       expect(screen.queryByText(/postgres:\/\/secret/)).not.toBeInTheDocument()
+    })
+
+    it('uploads a non-empty whiteboard capture before ending the session', async function () {
+      const user = userEvent.setup()
+      const mutateAsync = vi.fn().mockResolvedValue({ capture_id: 'capture-1' })
+      vi.mocked(useUploadWhiteboardScreenshot).mockReturnValue(
+        mockUseUploadWhiteboardScreenshot({ mutateAsync, isPending: false }),
+      )
+      vi.mocked(captureWhiteboardPng).mockResolvedValue({
+        kind: 'captured',
+        blob: new Blob(['png-bytes'], { type: 'image/png' }),
+      })
+
+      const { provisionSuccessCallback } = renderAndProvision(
+        makeInterview({
+          status: 'ongoing',
+          started_at: '2026-06-20T09:00:00Z',
+          expires_at: '2026-06-20T10:00:00Z',
+          warning_at: '2026-06-20T09:45:00Z',
+        }),
+      )
+
+      act(function triggerSuccess() {
+        provisionSuccessCallback({
+          mode: 'ai_led',
+          realtime: { realtime_session_id: 'rt-1', token: 'token-1' },
+          excalidraw: { excalidraw_room_id: 'room-1', excalidraw_key: 'key-1' },
+        })
+      })
+
+      await user.click(screen.getByRole('button', { name: /end session/i }))
+
+      await waitFor(function () {
+        expect(mutateAsync).toHaveBeenCalledTimes(1)
+      })
+      const uploadCallOrder = mutateAsync.mock.invocationCallOrder[0]
+      expect(mutateAsync).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: 'int-1',
+          idempotencyKey: expect.any(String),
+          captureTimestamp: expect.any(String),
+          blob: expect.any(Blob),
+        }),
+      )
+
+      await waitFor(function () {
+        expect(mockEndMutate).toHaveBeenCalledTimes(1)
+      })
+      const endCallOrder = mockEndMutate.mock.invocationCallOrder[0]
+      expect(uploadCallOrder).toBeLessThan(endCallOrder)
+      expect(
+        screen.queryByText(/whiteboard feedback for this session may be incomplete/i),
+      ).not.toBeInTheDocument()
+    })
+
+    it('skips the upload for an empty whiteboard scene but still ends the session', async function () {
+      const user = userEvent.setup()
+      const mutateAsync = vi.fn().mockResolvedValue({ capture_id: 'capture-1' })
+      vi.mocked(useUploadWhiteboardScreenshot).mockReturnValue(
+        mockUseUploadWhiteboardScreenshot({ mutateAsync, isPending: false }),
+      )
+      vi.mocked(captureWhiteboardPng).mockResolvedValue({ kind: 'empty' })
+
+      const { provisionSuccessCallback } = renderAndProvision(
+        makeInterview({
+          status: 'ongoing',
+          started_at: '2026-06-20T09:00:00Z',
+          expires_at: '2026-06-20T10:00:00Z',
+          warning_at: '2026-06-20T09:45:00Z',
+        }),
+      )
+
+      act(function triggerSuccess() {
+        provisionSuccessCallback({
+          mode: 'ai_led',
+          realtime: { realtime_session_id: 'rt-1', token: 'token-1' },
+          excalidraw: { excalidraw_room_id: 'room-1', excalidraw_key: 'key-1' },
+        })
+      })
+
+      await user.click(screen.getByRole('button', { name: /end session/i }))
+
+      await waitFor(function () {
+        expect(mockEndMutate).toHaveBeenCalledTimes(1)
+      })
+      expect(mutateAsync).not.toHaveBeenCalled()
+      expect(
+        screen.queryByText(/whiteboard feedback for this session may be incomplete/i),
+      ).not.toBeInTheDocument()
+    })
+
+    it('shows a degraded-feedback warning and still ends the session when capture/upload fails', async function () {
+      const user = userEvent.setup()
+      vi.mocked(captureWhiteboardPng).mockRejectedValue(
+        new Error('Whiteboard scene is not available for capture.'),
+      )
+
+      const { provisionSuccessCallback } = renderAndProvision(
+        makeInterview({
+          status: 'ongoing',
+          started_at: '2026-06-20T09:00:00Z',
+          expires_at: '2026-06-20T10:00:00Z',
+          warning_at: '2026-06-20T09:45:00Z',
+        }),
+      )
+
+      act(function triggerSuccess() {
+        provisionSuccessCallback({
+          mode: 'ai_led',
+          realtime: { realtime_session_id: 'rt-1', token: 'token-1' },
+          excalidraw: { excalidraw_room_id: 'room-1', excalidraw_key: 'key-1' },
+        })
+      })
+
+      await user.click(screen.getByRole('button', { name: /end session/i }))
+
+      await waitFor(function () {
+        expect(screen.getByText(/whiteboard feedback for this session may be incomplete/i)).toBeInTheDocument()
+      })
+      expect(mockEndMutate).toHaveBeenCalledTimes(1)
+      expect(screen.getByRole('button', { name: /end session/i })).toBeInTheDocument()
+    })
+
+    it('reuses the same idempotency key when a retried end-session attempt re-uploads', async function () {
+      const user = userEvent.setup()
+      const mutateAsync = vi.fn()
+        .mockRejectedValueOnce(new Error('network blip'))
+        .mockResolvedValueOnce({ capture_id: 'capture-1' })
+      vi.mocked(useUploadWhiteboardScreenshot).mockReturnValue(
+        mockUseUploadWhiteboardScreenshot({ mutateAsync, isPending: false }),
+      )
+      vi.mocked(captureWhiteboardPng).mockResolvedValue({
+        kind: 'captured',
+        blob: new Blob(['png-bytes'], { type: 'image/png' }),
+      })
+
+      let endErrorCallback: ((error: Error) => void) | undefined
+      let endOptions: any
+      const localEndMutate = vi.fn(function mockEndMutateImpl(_params: any, options: any) {
+        endOptions = options
+        endErrorCallback = options.onError
+      })
+      vi.mocked(useEndInterview).mockReturnValue(mockUseEndInterview({
+        mutate: localEndMutate,
+        isPending: false,
+      }))
+
+      const { provisionSuccessCallback } = renderAndProvision(
+        makeInterview({
+          status: 'ongoing',
+          started_at: '2026-06-20T09:00:00Z',
+          expires_at: '2026-06-20T10:00:00Z',
+          warning_at: '2026-06-20T09:45:00Z',
+        }),
+      )
+
+      act(function triggerSuccess() {
+        provisionSuccessCallback({
+          mode: 'ai_led',
+          realtime: { realtime_session_id: 'rt-1', token: 'token-1' },
+          excalidraw: { excalidraw_room_id: 'room-1', excalidraw_key: 'key-1' },
+        })
+      })
+
+      // First attempt: capture/upload fails, warning shown, end still called,
+      // and the end call itself fails too (simulating a transient outage).
+      await user.click(screen.getByRole('button', { name: /end session/i }))
+
+      await waitFor(function () {
+        expect(mutateAsync).toHaveBeenCalledTimes(1)
+      })
+      await waitFor(function () {
+        expect(screen.getByText(/whiteboard feedback for this session may be incomplete/i)).toBeInTheDocument()
+      })
+      await waitFor(function () {
+        expect(endOptions).toBeDefined()
+      })
+      act(function failEndCall() {
+        endOptions.onSettled()
+        endErrorCallback?.(new Error('end failed'))
+      })
+
+      const firstIdempotencyKey = mutateAsync.mock.calls[0][0].idempotencyKey
+
+      // Retry: the capture/upload step is attempted again (it failed last
+      // time) and must reuse the same idempotency key.
+      await user.click(screen.getByRole('button', { name: /end session/i }))
+
+      await waitFor(function () {
+        expect(mutateAsync).toHaveBeenCalledTimes(2)
+      })
+      expect(mutateAsync.mock.calls[1][0].idempotencyKey).toBe(firstIdempotencyKey)
+
+      await waitFor(function () {
+        expect(localEndMutate).toHaveBeenCalledTimes(2)
+      })
     })
   })
 })
