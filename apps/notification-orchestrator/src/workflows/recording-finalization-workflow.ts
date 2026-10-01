@@ -1,7 +1,13 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers'
 import { z } from 'zod'
 import type { R2Bucket } from '@cloudflare/workers-types'
-import { buildRecordingKey, createArtifactStorage, createPostgresConnectionPool, createR2BucketPort } from '@mako/shared-backend'
+import {
+  buildRecordingKey,
+  createArtifactStorage,
+  createPostgresConnectionPool,
+  createR2BucketPort,
+  resolveRetentionDays,
+} from '@mako/shared-backend'
 import type { R2BucketPort } from '@mako/shared-backend'
 import type { WorkerBindings } from '../index'
 
@@ -23,7 +29,6 @@ export const STEP_FINALIZE = 'recording-finalize'
 export const STEP_MARK_FAILED = 'recording-mark-failed'
 
 const ALLOWED_RECORDING_CONTENT_TYPES: readonly string[] = ['audio/webm', 'video/webm', 'audio/ogg', 'video/mp4']
-const RECORDING_FINALIZATION_LIMIT_DAYS = 30
 
 type LoadResult = {
   found: boolean
@@ -415,7 +420,8 @@ export class RecordingFinalizationWorkflow extends WorkflowEntrypoint<WorkerBind
         const client = await pool.connect()
         try {
           const now = new Date()
-          const expiresAt = new Date(now.getTime() + RECORDING_FINALIZATION_LIMIT_DAYS * 24 * 60 * 60 * 1000)
+          const retentionDays = resolveRetentionDays(env.ARTIFACT_RETENTION_DAYS)
+          const expiresAt = new Date(now.getTime() + retentionDays * 24 * 60 * 60 * 1000)
           const nowIso = now.toISOString()
           const expIso = expiresAt.toISOString()
           for (const art of artifacts) {

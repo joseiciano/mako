@@ -4,6 +4,10 @@
   "main": "src/index.ts",
   "compatibility_date": "2026-03-15",
   "compatibility_flags": ["nodejs_compat"],
+  "vars": {
+    "ARTIFACT_RETENTION_DAYS": "30",
+    "ARTIFACT_CLEANUP_BATCH_LIMIT": "100"
+  },
   "hyperdrive": [
     {
       "binding": "HYPERDRIVE",

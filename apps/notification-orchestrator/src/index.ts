@@ -12,7 +12,14 @@ import {
   interviewMatchCreatedEventSchema,
   interviewCompletedEventSchema,
   interviewPremiumBookedEventSchema,
+  accountPrivacyCleanupRequestedEventSchema,
   reminderDueTransportMessageSchema,
+  ArtifactRetentionRepository,
+  ArtifactRetentionService,
+  type ArtifactRetentionServiceLogger,
+  resolveBatchLimit,
+  createArtifactStorage,
+  createR2BucketPort,
 } from '@mako/shared-backend'
 import { createPostgresConnectionPool, createSqlQuery, type SqlQueryExecutor } from '@mako/shared-backend'
 import {
@@ -42,6 +49,10 @@ export type WorkerBindings = {
   CLOUDFLARE_ACCOUNT_ID?: string
   CLOUDFLARE_API_TOKEN?: string
   CLOUDFLARE_REALTIMEKIT_APP_ID?: string
+  /** Raw media retention window in days (Story 5.15); production default is 30. */
+  ARTIFACT_RETENTION_DAYS?: string
+  /** Deterministic per-run batch limit for the scheduled retention sweep. */
+  ARTIFACT_CLEANUP_BATCH_LIMIT?: string
 }
 export type NotificationWorkerDependencies = {
   createPool: (connectionString: string) => {
@@ -163,6 +174,20 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
             } else if (normalizedBody.event_type === 'interview.premium_booked') {
               const event = interviewPremiumBookedEventSchema.parse(normalizedBody)
               await consumerService.processInterviewPremiumBooked(event)
+            } else if (normalizedBody.event_type === 'account.privacy_cleanup_requested') {
+              const event = accountPrivacyCleanupRequestedEventSchema.parse(normalizedBody)
+              const artifactRetentionService = createArtifactRetentionService(
+                env,
+                queryExecutor as SqlQueryExecutor,
+                consoleLike,
+              )
+
+              if (!artifactRetentionService) {
+                consoleLike.error('artifact_retention.privacy_cleanup_not_configured')
+              } else {
+                const counters = await artifactRetentionService.runPrivacyCleanupForUser(event.user_id)
+                consoleLike.log('[artifact-retention] privacy_cleanup_completed', counters)
+              }
             } else if (normalizedBody.message_type === 'reminder.due') {
               const reminderMessage = reminderDueTransportMessageSchema.parse(normalizedBody)
               await consumerService.processReminderDue(reminderMessage)
@@ -247,6 +272,24 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
           })
         }
 
+        try {
+          const artifactRetentionService = createArtifactRetentionService(
+            env,
+            queryExecutor as SqlQueryExecutor,
+            consoleLike,
+          )
+
+          if (artifactRetentionService) {
+            const batchLimit = resolveBatchLimit(env.ARTIFACT_CLEANUP_BATCH_LIMIT)
+            const counters = await artifactRetentionService.runScheduledRetentionSweep(batchLimit)
+            consoleLike.log('[artifact-retention] scheduled_sweep_completed', counters)
+          }
+        } catch (err) {
+          consoleLike.error('artifact_retention_sweep_failed', {
+            error_message: err instanceof Error ? err.message : String(err),
+          })
+        }
+
         await dispatchService.dispatchPendingOutboxEvents(transport, 50)
         await dispatchService.enqueueDueReminders(transport)
       } finally {
@@ -275,6 +318,59 @@ const worker = createNotificationWorker({
 })
 
 export default worker
+
+// Story 5.15: isolated raw-artifact retention/cleanup service built on the
+// existing scheduled notification-orchestrator boundary rather than
+// unbounded R2 listing in request handlers. Returns null when neither bucket
+// binding is configured so callers can skip the sweep gracefully.
+function createArtifactRetentionService(
+  env: WorkerBindings,
+  queryExecutor: SqlQueryExecutor,
+  consoleLike: Pick<Console, 'error' | 'log'>,
+): ArtifactRetentionService | null {
+  const recordingsBucket = env.RECORDINGS_BUCKET
+  const screenshotsBucket = env.SCREENSHOTS_BUCKET
+
+  if (!recordingsBucket && !screenshotsBucket) {
+    return null
+  }
+
+  const storagePort = createArtifactStorage(
+    recordingsBucket ? createR2BucketPort(recordingsBucket) : null,
+    screenshotsBucket
+      ? createR2BucketPort(screenshotsBucket)
+      : noOpScreenshotBucketPort(),
+  )
+
+  const retentionLogger: ArtifactRetentionServiceLogger = {
+    error(event, context) {
+      consoleLike.error(`[artifact-retention] ${event}`, context)
+    },
+  }
+
+  return new ArtifactRetentionService(
+    new ArtifactRetentionRepository(queryExecutor),
+    storagePort,
+    undefined,
+    retentionLogger,
+  )
+}
+
+// Satisfies the screenshots bucket port contract when only the recordings
+// bucket is configured; no screenshot artifact can exist without a real
+// screenshots bucket, so this path is unreachable in practice.
+function noOpScreenshotBucketPort(): Parameters<typeof createArtifactStorage>[1] {
+  return {
+    async put() {},
+    async head() {
+      return null
+    },
+    async get() {
+      return null
+    },
+    async delete() {},
+  }
+}
 
 function isSchemaValidationError(error: unknown): boolean {
   if (

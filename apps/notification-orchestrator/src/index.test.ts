@@ -637,6 +637,133 @@ describe('notification-orchestrator scheduled handler', function scheduledHandle
 
 })
 
+describe('Story 5.15 raw artifact retention and privacy cleanup', function artifactRetentionSuite() {
+  const interviewId = '22222222-2222-4222-8222-222222222222'
+  const userId = '44444444-4444-4444-8444-444444444444'
+  const recordingArtifactId = '55555555-5555-4555-8555-555555555555'
+  const recordingKey = `interviews/${interviewId}/recording/${recordingArtifactId}`
+
+  it('scheduled handler clears expired artifacts and deletes their R2 objects', async function run() {
+    const bucket = createMockR2Bucket([recordingKey])
+    const { worker, logs } = createTestWorker({
+      queryRowsBySqlIncludes: {
+        'from interview_artifacts': [
+          {
+            id: recordingArtifactId,
+            interview_id: interviewId,
+            artifact_kind: 'playback_recording',
+            object_key: recordingKey,
+          },
+        ],
+        'update interview_artifacts': [{ id: recordingArtifactId }],
+      },
+    })
+
+    const env = { ...createMockEnv(), RECORDINGS_BUCKET: bucket.bucket }
+
+    await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *', noRetry() {} }, env)
+
+    expect(bucket.delete).toHaveBeenCalledWith(recordingKey)
+    const sweepLog = logs.logs.find(
+      (call): call is unknown[] =>
+        Array.isArray(call) && call[0] === '[artifact-retention] scheduled_sweep_completed',
+    )
+    expect(sweepLog).toBeDefined()
+    expect(sweepLog![1]).toMatchObject({
+      scannedArtifacts: 1,
+      recordingDeletions: 1,
+      clearedRows: 1,
+      failures: 0,
+    })
+  })
+
+  it('scheduled handler skips the sweep gracefully when no artifact bucket is configured', async function run() {
+    const { worker, logs } = createTestWorker()
+    const env = createMockEnv()
+
+    await worker.scheduled({ scheduledTime: Date.now(), cron: '*/5 * * * *', noRetry() {} }, env)
+
+    expect(logs.errors.find((entry) => entry.event === 'artifact_retention_sweep_failed')).toBeUndefined()
+  })
+
+  it('queue handler processes account.privacy_cleanup_requested and clears participant artifacts', async function run() {
+    const bucket = createMockR2Bucket([recordingKey])
+    const { worker, logs } = createTestWorker({
+      queryRowsBySqlIncludes: {
+        'from interviews': [{ id: interviewId }],
+        'from interview_artifacts': [
+          {
+            id: recordingArtifactId,
+            interview_id: interviewId,
+            artifact_kind: 'playback_recording',
+            object_key: recordingKey,
+          },
+        ],
+        'update interview_artifacts': [{ id: recordingArtifactId }],
+      },
+    })
+
+    const env = { ...createMockEnv(), RECORDINGS_BUCKET: bucket.bucket }
+
+    const batch = createMockBatch([
+      createMockMessage('msg-1', {
+        event_type: 'account.privacy_cleanup_requested',
+        event_id: '11111111-1111-4111-8111-111111111111',
+        idempotency_key: `account.privacy_cleanup_requested:${userId}`,
+        occurred_at: '2026-06-01T00:00:00.000Z',
+        user_id: userId,
+      }),
+    ])
+
+    await worker.queue(batch, env)
+
+    expect(batch.acked).toContain('msg-1')
+    expect(batch.retried).toHaveLength(0)
+    expect(bucket.delete).toHaveBeenCalledWith(recordingKey)
+
+    const cleanupLog = logs.logs.find(
+      (call): call is unknown[] =>
+        Array.isArray(call) && call[0] === '[artifact-retention] privacy_cleanup_completed',
+    )
+    expect(cleanupLog).toBeDefined()
+    expect(cleanupLog![1]).toMatchObject({
+      scannedInterviews: 1,
+      scannedArtifacts: 1,
+      recordingDeletions: 1,
+      clearedRows: 1,
+      failures: 0,
+    })
+  })
+
+  it('queue handler logs and acks when no artifact bucket is configured for privacy cleanup', async function run() {
+    const { worker, logs } = createTestWorker({
+      queryRowsBySqlIncludes: {
+        'from interviews': [{ id: interviewId }],
+      },
+    })
+
+    const env = createMockEnv()
+
+    const batch = createMockBatch([
+      createMockMessage('msg-1', {
+        event_type: 'account.privacy_cleanup_requested',
+        event_id: '11111111-1111-4111-8111-111111111111',
+        idempotency_key: `account.privacy_cleanup_requested:${userId}`,
+        occurred_at: '2026-06-01T00:00:00.000Z',
+        user_id: userId,
+      }),
+    ])
+
+    await worker.queue(batch, env)
+
+    expect(batch.acked).toContain('msg-1')
+    expect(logs.errors).toHaveLength(1)
+    expect(logs.errors[0]).toMatchObject({
+      event: 'artifact_retention.privacy_cleanup_not_configured',
+    })
+  })
+})
+
 describe('createNotificationWorker factory', function factorySuite() {
   it('can be created with injected dependencies', function run() {
     const deps: NotificationWorkerDependencies = {
@@ -1207,6 +1334,24 @@ function createMockEnv(queue: Queue<NotificationTransportMessage> = createMockQu
       connectionString: 'postgresql://localhost:5432/test',
     },
     NOTIFICATION_QUEUE: queue,
+  }
+}
+
+function createMockR2Bucket(existingKeys: readonly string[] = []) {
+  const objects = new Set(existingKeys)
+  const head = vi.fn(async (key: string) =>
+    objects.has(key) ? { size: 10, httpEtag: '"etag"', httpMetadata: {}, customMetadata: {} } : null,
+  )
+  const deleteFn = vi.fn(async (key: string) => {
+    objects.delete(key)
+  })
+  const put = vi.fn(async () => {})
+  const get = vi.fn(async () => null)
+
+  return {
+    bucket: { head, delete: deleteFn, put, get } as unknown as R2Bucket,
+    head,
+    delete: deleteFn,
   }
 }
 

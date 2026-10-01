@@ -48,7 +48,8 @@
   "vars": {
     "AUTH_EMAIL_FROM": "noreply@example.invalid",
     "REALTIMEKIT_WEBHOOK_PUBLIC_KEY_URL": "https://api.realtime.cloudflare.com/.well-known/webhooks.json",
-    "AUTH_EMAIL_VERIFICATION_ENFORCED": "false"
+    "AUTH_EMAIL_VERIFICATION_ENFORCED": "false",
+    "ARTIFACT_RETENTION_DAYS": "30"
   },
   "secrets": {
     "required": [

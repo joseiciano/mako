@@ -73,6 +73,8 @@ import {
   createInterviewArtifactUrlSource,
   createArtifactStorage,
   createR2BucketPort,
+  resolveRetentionDays,
+  DEFAULT_ARTIFACT_STORAGE_CONFIG,
   type NotificationDispatchServiceLogger,
   type AccountProfileRecord,
   type AccountRepositoryDataSource,
@@ -119,6 +121,8 @@ export type WorkerBindings = Partial<
   AI_GATEWAY_BASE_URL?: string
   STRIPE_SECRET_KEY?: string
   STRIPE_WEBHOOK_SECRET?: string
+  // Raw media retention window in days (Story 5.15); production default is 30.
+  ARTIFACT_RETENTION_DAYS?: string
 }
 
 
@@ -418,6 +422,10 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
         screenshotRepository,
         interviewRepository,
         storagePort,
+        {
+          ...DEFAULT_ARTIFACT_STORAGE_CONFIG,
+          retentionDays: resolveRetentionDays(context.bindings.ARTIFACT_RETENTION_DAYS),
+        },
       )
     },
     resolveSession: function resolveSession(context) {
