@@ -7,9 +7,15 @@ export type WhiteboardSceneSnapshot = AiChatRequest['canvas_snapshot']
  * Minimal structural contract for the Excalidraw imperative API surface we
  * consume. We intentionally avoid importing `ExcalidrawImperativeAPI` from
  * `@excalidraw/excalidraw` because it is not re-exported from the package root.
+ *
+ * `getAppState`/`getFiles` are optional because only the final-capture export
+ * path (see `whiteboard-capture.ts`) needs them; the AI chat snapshot path
+ * only ever calls `getSceneElements`.
  */
 export type WhiteboardSceneApi = {
   getSceneElements: () => readonly unknown[]
+  getAppState?: () => Record<string, unknown>
+  getFiles?: () => Record<string, unknown>
 }
 
 const excalidrawApiStore = new Map<WhiteboardProvisionHandle, WhiteboardSceneApi>()
@@ -31,6 +37,13 @@ export function unregisterWhiteboardSceneApi(
 
 export function clearAllWhiteboardSceneApis(): void {
   excalidrawApiStore.clear()
+}
+
+export function getWhiteboardSceneApi(
+  handle: WhiteboardProvisionHandle | null | undefined,
+): WhiteboardSceneApi | null {
+  if (!handle) return null
+  return excalidrawApiStore.get(handle) ?? null
 }
 
 export function getWhiteboardSceneSnapshot(

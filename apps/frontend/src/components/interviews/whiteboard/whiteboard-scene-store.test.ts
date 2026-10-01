@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   clearAllWhiteboardSceneApis,
+  getWhiteboardSceneApi,
   getWhiteboardSceneSnapshot,
   registerWhiteboardSceneApi,
   unregisterWhiteboardSceneApi,
@@ -67,5 +68,18 @@ describe('whiteboard-scene-store', function () {
 
     expect((getWhiteboardSceneSnapshot('h1') as any)?.scene.elements[0].id).toBe('one')
     expect((getWhiteboardSceneSnapshot('h2') as any)?.scene.elements[0].id).toBe('two')
+  })
+
+  describe('getWhiteboardSceneApi', function () {
+    it('returns null for a null/unknown handle', function () {
+      expect(getWhiteboardSceneApi(null)).toBeNull()
+      expect(getWhiteboardSceneApi('missing')).toBeNull()
+    })
+
+    it('returns the registered api for a known handle', function () {
+      const api = { getSceneElements: function () { return [] } }
+      registerWhiteboardSceneApi('handle-1', api)
+      expect(getWhiteboardSceneApi('handle-1')).toBe(api)
+    })
   })
 })
