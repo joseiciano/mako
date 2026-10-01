@@ -1,15 +1,30 @@
 import { createSqlQuery, type SqlQueryExecutor } from '@mako/shared-backend'
 import type { WorkerBindings } from '../index'
+import { TRANSCRIPTION_STEP_MAX_DURATION_MINUTES } from './feedback-workflow'
+
+/**
+ * Safety margin, in minutes, added on top of the longest-running step's
+ * worst-case budget (currently `STEP_TRANSCRIPTION`) before a heartbeat is
+ * considered stale. Covers runtime scheduling jitter and the other, smaller
+ * per-step wait/retry budgets (artifact/screenshot readiness, analysis)
+ * that can still be outstanding around it.
+ */
+const STALE_HEARTBEAT_SAFETY_MARGIN_MINUTES = 15
 
 /**
  * A `processing` feedback row whose heartbeat is older than this is treated
  * as a zombie attempt: the Workflow instance that owns it crashed, was
  * evicted, or otherwise stopped heartbeating without ever reaching a
- * terminal status. Comfortably above the sum of this workflow's own bounded
- * per-step wait/retry budgets so an attempt that is still legitimately
- * working is never fenced out from under itself.
+ * terminal status. Derived from (and kept comfortably above)
+ * `TRANSCRIPTION_STEP_MAX_DURATION_MINUTES` -- the worst-case retry/timeout
+ * budget of the longest-running step this workflow runs between heartbeat
+ * refreshes -- plus `STALE_HEARTBEAT_SAFETY_MARGIN_MINUTES`, so an attempt
+ * that is still legitimately running its transcription step is never
+ * fenced out from under itself.
  */
-const STALE_HEARTBEAT_THRESHOLD_MINUTES = 20
+const STALE_HEARTBEAT_THRESHOLD_MINUTES = Math.ceil(
+  TRANSCRIPTION_STEP_MAX_DURATION_MINUTES + STALE_HEARTBEAT_SAFETY_MARGIN_MINUTES,
+)
 const SWEEP_LIMIT = 20
 
 type RecoveredRow = {

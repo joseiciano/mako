@@ -88,6 +88,24 @@ const TRANSCRIPTION_STEP_CONFIG: WorkflowStepConfig = {
   timeout: '10 minutes',
 }
 
+/**
+ * Worst-case wall-clock budget, in minutes, for `STEP_TRANSCRIPTION` to
+ * either succeed or exhaust its retries: 3 attempts (1 initial + the 2
+ * configured retries) each allowed to run up to the step's 10-minute
+ * timeout, plus the exponential backoff delays between attempts (10s, then
+ * 20s, per `TRANSCRIPTION_STEP_CONFIG`) -> 3 * 10 + (10 + 20) / 60 = 30.5.
+ *
+ * This is the binding constraint on the stale-processing sweep's heartbeat
+ * threshold (`feedback-stale-processing-sweep.ts`): the heartbeat is
+ * refreshed once, immediately before this step starts
+ * (`STEP_HEARTBEAT_PRE_TRANSCRIPTION`), and is not touched again until the
+ * step resolves, so the sweep must never fence an attempt that is still
+ * legitimately inside this window. Exported so the sweep's threshold is
+ * derived from (and stays in sync with) this step's actual retry/timeout
+ * budget instead of a hand-maintained number that can silently drift.
+ */
+export const TRANSCRIPTION_STEP_MAX_DURATION_MINUTES = 3 * 10 + (10 + 20) / 60
+
 const ANALYSIS_STEP_CONFIG: WorkflowStepConfig = {
   retries: { limit: 2, delay: '10 seconds', backoff: 'exponential' },
   timeout: '5 minutes',
