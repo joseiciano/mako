@@ -212,6 +212,18 @@ export type InterviewPremiumBookedEvent = z.infer<
   typeof interviewPremiumBookedEventSchema
 >
 
+export const accountPrivacyCleanupRequestedEventSchema = z.object({
+  event_type: z.literal('account.privacy_cleanup_requested'),
+  event_id: z.string().uuid(),
+  idempotency_key: z.string().min(1),
+  occurred_at: eventTimestampSchema,
+  user_id: z.string().uuid(),
+})
+
+export type AccountPrivacyCleanupRequestedEvent = z.infer<
+  typeof accountPrivacyCleanupRequestedEventSchema
+>
+
 export type NotificationQueueEvent =
   | InterviewCreatedEvent
   | InterviewCancelledEvent
@@ -406,6 +418,35 @@ export function buildInterviewPremiumBookedIdempotencyKey(
   interviewId: string,
 ): string {
   return `premium-booking:${interviewId}`
+}
+
+/**
+ * Durable outbox event emitted from the `DELETE /api/account` soft-delete
+ * transaction (Story 5.15). Dispatched to the notification-orchestrator
+ * queue, which runs the asynchronous raw-artifact/transcript/feedback
+ * privacy cleanup for every interview where the deleted user is a recorded
+ * participant.
+ */
+export function buildAccountPrivacyCleanupRequestedEvent(
+  input: { userId: string },
+  dependencies: BuildEventDependencies = {},
+): AccountPrivacyCleanupRequestedEvent {
+  const createEventId = dependencies.createEventId ?? createDefaultEventId
+  const now = dependencies.now ?? createDefaultNow
+
+  return accountPrivacyCleanupRequestedEventSchema.parse({
+    event_type: 'account.privacy_cleanup_requested',
+    event_id: createEventId(),
+    idempotency_key: buildAccountPrivacyCleanupRequestedIdempotencyKey(input.userId),
+    occurred_at: now(),
+    user_id: input.userId,
+  })
+}
+
+export function buildAccountPrivacyCleanupRequestedIdempotencyKey(
+  userId: string,
+): string {
+  return `account.privacy_cleanup_requested:${userId}`
 }
 
 export function createNotificationQueueEventPublisher(

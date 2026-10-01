@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import type {
+  AccountPrivacyCleanupRequestedEvent,
   InterviewCancelledEvent,
   InterviewCreatedEvent,
   InterviewMatchCreatedEvent,
@@ -21,6 +22,7 @@ export type NotificationTransportMessage =
   | InterviewCancelledEvent
   | InterviewMatchCreatedEvent
   | InterviewPremiumBookedEvent
+  | AccountPrivacyCleanupRequestedEvent
   | ReminderDueTransportMessage
 
 export type NotificationTransport = {

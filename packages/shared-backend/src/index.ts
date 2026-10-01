@@ -52,19 +52,24 @@ export * from './tier-policy'
 export * from './payment'
 export * from './interview-assets'
 export * from './premium'
+export * from './artifact-retention'
 export {
   interviewCreatedEventSchema,
   interviewCancelledEventSchema,
   interviewCompletedEventSchema,
   interviewMatchCreatedEventSchema,
   interviewPremiumBookedEventSchema,
+  accountPrivacyCleanupRequestedEventSchema,
   buildInterviewPremiumBookedEvent,
   buildInterviewPremiumBookedIdempotencyKey,
+  buildAccountPrivacyCleanupRequestedEvent,
+  buildAccountPrivacyCleanupRequestedIdempotencyKey,
   type InterviewCreatedEvent,
   type InterviewCancelledEvent,
   type InterviewCompletedEvent,
   type InterviewMatchCreatedEvent,
   type InterviewPremiumBookedEvent,
+  type AccountPrivacyCleanupRequestedEvent,
   type NotificationQueueEvent,
   type NotificationQueueEventPublisher,
   type NotificationQueueTransport,

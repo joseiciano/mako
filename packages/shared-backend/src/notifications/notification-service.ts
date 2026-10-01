@@ -1,4 +1,5 @@
 import type {
+  AccountPrivacyCleanupRequestedEvent,
   InterviewCancelledEvent,
   InterviewCompletedEvent,
   InterviewCreatedEvent,
@@ -33,7 +34,8 @@ export class NotificationService {
       | InterviewCancelledEvent
       | InterviewCompletedEvent
       | InterviewMatchCreatedEvent
-      | InterviewPremiumBookedEvent,
+      | InterviewPremiumBookedEvent
+      | AccountPrivacyCleanupRequestedEvent,
   ): Promise<void> {
     const row: NotificationOutboxEventRow = {
       idempotency_key: event.idempotency_key,
