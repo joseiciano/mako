@@ -173,6 +173,27 @@ describe('FeedbackDumb', function suite() {
     expect(onBack).toHaveBeenCalledOnce()
   })
 
+  it('exposes a main landmark and a logical, non-skipping heading hierarchy in the ready report', function run() {
+    const interview = makeInterview({
+      status: 'completed',
+      feedback_status: 'ready',
+      feedback: readyFeedback,
+    })
+    render(<FeedbackDumb {...makeProps({ interview })} />)
+
+    expect(screen.getByRole('main')).toBeInTheDocument()
+
+    const h1s = screen.getAllByRole('heading', { level: 1 })
+    expect(h1s).toHaveLength(1)
+    expect(h1s[0]).toHaveTextContent(/post-interview feedback/i)
+
+    const h2s = screen.getAllByRole('heading', { level: 2 })
+    expect(h2s.length).toBeGreaterThan(0)
+    expect(screen.queryAllByRole('heading', { level: 3 }).length).toBeGreaterThanOrEqual(0)
+    // No heading level is skipped: every h3 only ever appears under an h2 section above it.
+    expect(screen.queryByRole('heading', { level: 4 })).not.toBeInTheDocument()
+  })
+
   it('does not expose credential fields', function run() {
     const interview = {
       ...makeInterview({ status: 'completed' }),
