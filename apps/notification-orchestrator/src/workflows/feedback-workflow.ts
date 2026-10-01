@@ -51,7 +51,8 @@ export const STEP_ELIGIBILITY_LOAD = 'feedback-eligibility-load'
 export const STEP_PROCESSING_CLAIM = 'feedback-processing-claim'
 export const STEP_ARTIFACT_READINESS = 'feedback-artifact-readiness'
 export const STEP_SCREENSHOT_READINESS = 'feedback-screenshot-readiness'
-export const STEP_HEARTBEAT = 'feedback-heartbeat'
+export const STEP_HEARTBEAT_PRE_TRANSCRIPTION = 'feedback-heartbeat-pre-transcription'
+export const STEP_HEARTBEAT_PRE_ANALYSIS = 'feedback-heartbeat-pre-analysis'
 export const STEP_TRANSCRIPTION = 'feedback-transcription'
 export const STEP_ANALYSIS = 'feedback-analysis'
 export const STEP_TERMINAL_FAILURE = 'feedback-terminal-failure'
@@ -373,7 +374,13 @@ export class InterviewFeedbackWorkflow extends WorkflowEntrypoint<
           // interview simply having none) never fails the pipeline.
           await waitForScreenshotFinalization(step, workflowRepository, payload.interview_id)
 
-          await refreshHeartbeatOrStale(step, workflowRepository, payload.interview_id, attemptId)
+          await refreshHeartbeatOrStale(
+            step,
+            STEP_HEARTBEAT_PRE_TRANSCRIPTION,
+            workflowRepository,
+            payload.interview_id,
+            attemptId,
+          )
 
           const transcriptionStartedAt = Date.now()
           const transcriptionOutcome = await step.do(
@@ -417,7 +424,13 @@ export class InterviewFeedbackWorkflow extends WorkflowEntrypoint<
           })
         }
 
-        await refreshHeartbeatOrStale(step, workflowRepository, payload.interview_id, attemptId)
+        await refreshHeartbeatOrStale(
+          step,
+          STEP_HEARTBEAT_PRE_ANALYSIS,
+          workflowRepository,
+          payload.interview_id,
+          attemptId,
+        )
 
         const analysisRepository = new FeedbackAnalysisRepository(queryExecutor)
         const screenshotMetrics = await readScreenshotMetricsForTelemetry(
@@ -589,11 +602,12 @@ async function waitForScreenshotFinalization(
  */
 async function refreshHeartbeatOrStale(
   step: WorkflowStep,
+  stepName: string,
   workflowRepository: FeedbackWorkflowRepository,
   interviewId: string,
   attemptId: string,
 ): Promise<void> {
-  await step.do(STEP_HEARTBEAT, DB_STEP_CONFIG, async function refreshHeartbeat() {
+  await step.do(stepName, DB_STEP_CONFIG, async function refreshHeartbeat() {
     const refreshed = await workflowRepository.refreshHeartbeat(interviewId, attemptId)
 
     if (!refreshed) {

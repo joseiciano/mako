@@ -464,9 +464,9 @@ describe('InterviewFeedbackWorkflow', function () {
         STEP_PROCESSING_CLAIM,
         STEP_ARTIFACT_READINESS,
         STEP_SCREENSHOT_READINESS,
-        'feedback-heartbeat',
+        'feedback-heartbeat-pre-transcription',
         STEP_TRANSCRIPTION,
-        'feedback-heartbeat',
+        'feedback-heartbeat-pre-analysis',
         STEP_ANALYSIS,
       ])
       expect(transcriptionService.transcribeAndPersist).toHaveBeenCalledWith({
