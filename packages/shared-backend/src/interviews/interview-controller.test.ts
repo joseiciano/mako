@@ -390,6 +390,139 @@ describe('InterviewController', function interviewControllerSuite() {
     })
   })
 
+  it('returns narrow feedback status without transcript, feedback, or artifact fields', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          status: 'completed',
+          transcript: 'a very long transcript that should never be exposed here',
+          recording_url: 'https://r2.example.com/recording.mp4',
+          feedback_status: 'processing',
+          updated_at: '2026-04-13T11:00:00.000Z',
+        }),
+      ],
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/feedback-status',
+      { method: 'GET' },
+    )
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body).toEqual({
+      feedback_status: 'processing',
+      feedback_unavailable_reason: null,
+      feedback_error_code: null,
+      schema_version: null,
+      prompt_version: null,
+      updated_at: '2026-04-13T11:00:00.000Z',
+    })
+    expect(body).not.toHaveProperty('transcript')
+    expect(body).not.toHaveProperty('feedback')
+    expect(body).not.toHaveProperty('recording_url')
+    expect(body).not.toHaveProperty('screenshot_urls')
+  })
+
+  it('returns a failed feedback status with a safe error code', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          status: 'completed',
+          feedback_status: 'failed',
+          feedback_error_code: 'analysis_failed',
+        }),
+      ],
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/feedback-status',
+      { method: 'GET' },
+    )
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toMatchObject({
+      feedback_status: 'failed',
+      feedback_error_code: 'analysis_failed',
+      schema_version: null,
+    })
+  })
+
+  it('returns 404 when non-participant requests feedback status', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: '99999999-9999-4999-8999-999999999999',
+        }),
+      ],
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/feedback-status',
+      { method: 'GET' },
+    )
+
+    expect(response.status).toBe(404)
+    await expect(response.json()).resolves.toEqual({
+      error: 'Interview was not found for the active participant.',
+    })
+  })
+
+  it('returns 401 when requesting feedback status without authentication', async function run() {
+    const app = createInterviewApp({
+      session: null,
+      freeAiInterviews: 0,
+      credits: 0,
+      seedInterviews: [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+    })
+
+    const response = await app.request(
+      '/api/interviews/33333333-3333-4333-8333-333333333333/feedback-status',
+      { method: 'GET' },
+    )
+
+    expect(response.status).toBe(401)
+    await expect(response.json()).resolves.toEqual({
+      error: 'You must be authenticated to access this resource.',
+    })
+  })
+
+  it('returns 400 for invalid feedback-status route params', async function run() {
+    const app = createInterviewApp({
+      session: activeSession,
+      freeAiInterviews: 0,
+      credits: 0,
+    })
+
+    const response = await app.request('/api/interviews/not-a-uuid/feedback-status', {
+      method: 'GET',
+    })
+
+    expect(response.status).toBe(400)
+    await expect(response.json()).resolves.toMatchObject({
+      error: 'Invalid request payload',
+    })
+  })
+
   it('returns 400 for invalid interview list query params', async function run() {
     const app = createInterviewApp({
       session: activeSession,
