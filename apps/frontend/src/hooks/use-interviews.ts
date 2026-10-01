@@ -8,6 +8,7 @@ import type {
   CreateInterviewResponse,
   EndInterviewParams,
   InterviewDetail,
+  InterviewFeedbackStatusResponse,
   InterviewLifecycleResponse,
   InterviewListItem,
   InterviewListQuery,
@@ -25,6 +26,8 @@ import {
   createInterviewResponseSchema,
   endInterviewParamsSchema,
   interviewDetailResponseSchema,
+  interviewFeedbackStatusResponseSchema,
+  interviewIdParamsSchema,
   interviewLifecycleResponseSchema,
   interviewListResponseSchema,
   provisionInterviewParamsSchema,
@@ -96,6 +99,10 @@ export function useInterviewDetail(
   id: string,
 ): UseQueryResult<InterviewDetail, Error> {
   return useQuery(interviewDetailQueryOptions(id))
+}
+
+export function feedbackStatusQueryKey(id: string): readonly unknown[] {
+  return [...interviewsQueryRootKey, 'feedback-status', id]
 }
 
 export function useProvisionInterview(): UseMutationResult<
@@ -325,10 +332,41 @@ export async function fetchInterviewDetail(
   const payload = await parseResponse(response)
 
   if (!response.ok) {
-    throw new Error(readErrorMessage(payload, 'Unable to fetch interview details.'))
+    throw new ApiError(
+      readErrorMessage(payload, 'Unable to fetch interview details.'),
+      response.status,
+    )
   }
 
   return interviewDetailResponseSchema.parse(payload).interview
+}
+
+export async function fetchFeedbackStatus(
+  fetchImpl: typeof fetch = fetch,
+  id: string,
+  signal?: AbortSignal,
+): Promise<InterviewFeedbackStatusResponse> {
+  const parsedId = interviewIdParamsSchema.parse({ id }).id
+
+  const response = await fetchImpl(
+    createApiUrl(`/api/interviews/${parsedId}/feedback-status`),
+    createApiRequestInit({
+      method: 'GET',
+      headers: demoSessionHeaders,
+      signal,
+    }),
+  )
+
+  const payload = await parseResponse(response)
+
+  if (!response.ok) {
+    throw new ApiError(
+      readErrorMessage(payload, 'Unable to fetch feedback status.'),
+      response.status,
+    )
+  }
+
+  return interviewFeedbackStatusResponseSchema.parse(payload)
 }
 
 export async function provisionInterview(
