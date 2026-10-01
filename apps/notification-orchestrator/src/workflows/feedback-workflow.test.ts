@@ -786,6 +786,32 @@ describe('InterviewFeedbackWorkflow', function () {
   })
 
   describe('analysis outcomes', function () {
+    it('recovers and succeeds when a transient failure precedes a later successful attempt', async function () {
+      mockInterviewState(buildInterviewState({ feedback_status: 'pending' }))
+      mockWorkflowRepository()
+      mockTranscriptionService()
+      let calls = 0
+      const analysisService = mockAnalysisService({
+        run: vi.fn().mockImplementation(async () => {
+          calls += 1
+          return calls < 2
+            ? { outcome: 'failed', error_code: 'analysis_failed' }
+            : { outcome: 'persisted', feedback: VALID_FEEDBACK }
+        }),
+      })
+      const workflow = createWorkflow()
+      const { step } = createTrackingStep()
+
+      const result = await workflow.run(createMockEvent(VALID_PAYLOAD), step)
+
+      expect(result).toEqual({
+        status: 'ready',
+        interview_id: MOCKED_INTERVIEW_ID,
+        attempt_id: expect.any(String),
+      })
+      expect(analysisService.run).toHaveBeenCalledTimes(2)
+    })
+
     it('marks failed/analysis_failed once the bounded analysis retry budget is exhausted', async function () {
       mockInterviewState(buildInterviewState({ feedback_status: 'pending' }))
       const workflowRepository = mockWorkflowRepository()
