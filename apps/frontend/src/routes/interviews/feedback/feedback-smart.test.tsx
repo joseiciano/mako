@@ -4,9 +4,9 @@ import userEvent from '@testing-library/user-event'
 import { FeedbackSmart } from './feedback-smart'
 import { makeInterview } from '../session/test-helpers'
 
-vi.mock('#/hooks/use-interviews', function () {
+vi.mock('#/hooks/use-feedback-report', function () {
   return {
-    useInterviewDetail: vi.fn(),
+    useFeedbackReport: vi.fn(),
   }
 })
 
@@ -16,39 +16,19 @@ vi.mock('@tanstack/react-router', function () {
   }
 })
 
-import { useInterviewDetail } from '#/hooks/use-interviews'
+import { useFeedbackReport } from '#/hooks/use-feedback-report'
 import { useNavigate } from '@tanstack/react-router'
 
-function mockUseInterviewDetail(
-  overrides: Partial<ReturnType<typeof useInterviewDetail>>,
-): ReturnType<typeof useInterviewDetail> {
+function mockReport(overrides?: Partial<ReturnType<typeof useFeedbackReport>>): ReturnType<typeof useFeedbackReport> {
   return {
-    data: undefined,
-    dataUpdatedAt: 0,
-    error: null,
-    errorUpdatedAt: 0,
-    failureCount: 0,
-    failureReason: null,
-    errorUpdateCount: 0,
-    fetchStatus: 'idle',
-    isError: false,
-    isFetched: true,
-    isFetchedAfterMount: true,
-    isFetching: false,
-    isInitialLoading: false,
+    interview: null,
     isLoading: false,
-    isLoadingError: false,
-    isPaused: false,
-    isPending: false,
-    isPlaceholderData: false,
-    isRefetchError: false,
-    isRefetching: false,
-    isStale: false,
-    isSuccess: false,
-    refetch: vi.fn(),
-    status: 'pending',
+    errorKind: null,
+    isPolling: false,
+    hasReachedPollingDeadline: false,
+    refresh: vi.fn(),
     ...overrides,
-  } as unknown as ReturnType<typeof useInterviewDetail>
+  }
 }
 
 const mockNavigate = vi.fn()
@@ -58,34 +38,22 @@ beforeEach(function () {
   vi.mocked(useNavigate).mockReturnValue(mockNavigate)
 })
 
-describe('FeedbackSmart', function () {
-  it('shows loading when interview query is pending', function () {
-    vi.mocked(useInterviewDetail).mockReturnValue(
-      mockUseInterviewDetail({ data: undefined, isPending: true }),
-    )
+describe('FeedbackSmart', function suite() {
+  it('shows loading when the report is loading', function run() {
+    vi.mocked(useFeedbackReport).mockReturnValue(mockReport({ isLoading: true }))
     render(<FeedbackSmart interviewId="int-1" />)
     expect(screen.getByRole('status')).toHaveTextContent(/loading/i)
   })
 
-  it('shows safe error when interview query fails', function () {
-    vi.mocked(useInterviewDetail).mockReturnValue(
-      mockUseInterviewDetail({
-        data: undefined,
-        isPending: false,
-        isError: true,
-        error: new Error('postgres://secret@internal-db.local failed'),
-      }),
-    )
-    render(<FeedbackSmart interviewId="int-1" />)
-    expect(screen.getByRole('alert')).toHaveTextContent(/unable to load feedback/i)
-    expect(screen.getByRole('alert')).not.toHaveTextContent('postgres://secret')
-  })
-
-  it('renders completed feedback', function () {
-    vi.mocked(useInterviewDetail).mockReturnValue(
-      mockUseInterviewDetail({
-        data: makeInterview({
+  it('resolves recording and screenshot URLs to absolute, authorized API URLs', function run() {
+    vi.mocked(useFeedbackReport).mockReturnValue(
+      mockReport({
+        interview: makeInterview({
           status: 'completed',
+          feedback_status: 'ready',
+          recording_status: 'ready',
+          recording_url: '/api/interviews/int-1/artifacts/recording',
+          screenshot_urls: ['/api/interviews/int-1/artifacts/screenshots/a'],
           feedback: {
             schema_version: 1,
             overall_score: 91,
@@ -99,17 +67,17 @@ describe('FeedbackSmart', function () {
             improvements: [],
           },
         }),
-        isPending: false,
       }),
     )
     render(<FeedbackSmart interviewId="int-1" />)
-    expect(screen.getByText('91')).toBeInTheDocument()
+    const video = screen.getByLabelText(/interview session recording/i)
+    expect(video.getAttribute('src')).toContain('/api/interviews/int-1/artifacts/recording')
   })
 
-  it('navigates back to details', async function () {
+  it('navigates back to details', async function run() {
     const user = userEvent.setup()
-    vi.mocked(useInterviewDetail).mockReturnValue(
-      mockUseInterviewDetail({ data: makeInterview({ status: 'completed' }) }),
+    vi.mocked(useFeedbackReport).mockReturnValue(
+      mockReport({ interview: makeInterview({ status: 'completed' }) }),
     )
     render(<FeedbackSmart interviewId="int-1" />)
     await user.click(screen.getByRole('button', { name: /back/i }))
@@ -117,5 +85,22 @@ describe('FeedbackSmart', function () {
       to: '/interviews/$id',
       params: { id: 'int-1' },
     })
+  })
+
+  it('navigates to login when unauthenticated', async function run() {
+    const user = userEvent.setup()
+    vi.mocked(useFeedbackReport).mockReturnValue(mockReport({ errorKind: 'unauthenticated' }))
+    render(<FeedbackSmart interviewId="int-1" />)
+    await user.click(screen.getByRole('button', { name: /sign in/i }))
+    expect(mockNavigate).toHaveBeenCalledWith({ to: '/login' })
+  })
+
+  it('invokes refresh on manual retry', async function run() {
+    const user = userEvent.setup()
+    const refresh = vi.fn()
+    vi.mocked(useFeedbackReport).mockReturnValue(mockReport({ errorKind: 'network', refresh }))
+    render(<FeedbackSmart interviewId="int-1" />)
+    await user.click(screen.getByRole('button', { name: /try again/i }))
+    expect(refresh).toHaveBeenCalledOnce()
   })
 })
