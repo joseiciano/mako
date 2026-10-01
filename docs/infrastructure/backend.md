@@ -165,6 +165,35 @@ R2 stores recordings, transcription audio, and whiteboard screenshots as private
 **Account deletion**:
 - `DELETE /api/account` (soft-delete) removes the shared interview's raw artifacts, transcript, and feedback for all participants when any recorded participant exercises deletion. No copy is retained under the counterpart's access.
 
+### Raw Artifact Retention and Deletion (Story 5.15)
+
+Enforces the MVP 30-day raw media retention policy and removes private artifacts when an account is deleted. Postgres `interview_artifacts` rows (not R2 bucket listings) are the cleanup source of truth: nothing lists either bucket to infer ownership.
+
+| Variable | Description | Default |
+|---|---|---|
+| `ARTIFACT_RETENTION_DAYS` | Raw recording/screenshot retention window in days, set on both `backend-rest` (screenshot capture) and `notification-orchestrator` (recording finalization, scheduled sweep). | `30` |
+| `ARTIFACT_CLEANUP_BATCH_LIMIT` | Deterministic per-run cap on the number of artifact rows the scheduled sweep processes, set on `notification-orchestrator`. | `100` |
+
+**Scheduled retention sweep**:
+- `expires_at` is stamped on every artifact row at write time: screenshot capture and recording finalization both set it to `ARTIFACT_RETENTION_DAYS` days from capture/finalization.
+- The existing notification-orchestrator scheduled trigger (`*/5 * * * *`) runs `ArtifactRetentionService.runScheduledRetentionSweep`, which selects up to `ARTIFACT_CLEANUP_BATCH_LIMIT` rows where `expires_at` has passed and `deleted_at IS NULL` (the `idx_interview_artifacts_expiry` partial index), ordered oldest-first.
+- For each row: the R2 object is deleted directly (recordings/screenshots bucket resolved from the object key prefix; never a bucket listing), then the row's `object_key` is cleared and `deleted_at` is set in one retry-safe update. An object already removed by the mandatory Story 5.6 R2 lifecycle rule is treated as idempotent success — the database tombstone is still written so the participant artifact API reports `expired` instead of silently looking missing.
+- Per-row isolation: a single failed object (R2 unavailable, unexpected error) is counted and logged without aborting the run or clearing that row, so the next scheduled run retries it. There is no separate checkpoint table — a row's `deleted_at IS NULL` state is the retry checkpoint.
+- Transcript and feedback are never touched by the scheduled sweep; only raw media is governed by the retention window.
+
+**Account-deletion privacy cleanup**:
+- The `DELETE /api/account` soft-delete transaction persists a durable `account.privacy_cleanup_requested` outbox event (keyed by user id) atomically with the soft delete, rather than exposing a separate interview-delete endpoint or a later permanent-purge step.
+- The notification-orchestrator queue consumer processes the event by running `ArtifactRetentionService.runPrivacyCleanupForUser`: every interview where the deleted user is scheduler or interviewer has its raw artifacts removed (regardless of expiry) and its `transcript`/`feedback` columns cleared. Because the interview row and its artifacts are shared rather than duplicated per participant, this also removes the counterpart's access in one pass, per the Story 5.2 deletion contract.
+- Idempotent and safe to retry: artifact rows already cleared (`deleted_at IS NOT NULL`) are excluded from the next pass, and clearing transcript/feedback to `NULL`/`not_started` twice is a no-op.
+
+**Observability**:
+- Both cleanup paths log only structured counters: `scannedInterviews`, `scannedArtifacts`, `recordingDeletions`, `screenshotDeletions`, `alreadyMissingObjects`, `failures`, `clearedRows`.
+- Object keys, recording/transcript content, participant identifiers, and provider URLs are never logged by either cleanup path.
+
+**Operational notes**:
+- To change the retention window or batch size, update `ARTIFACT_RETENTION_DAYS` / `ARTIFACT_CLEANUP_BATCH_LIMIT` in `apps/notification-orchestrator/wrangler.jsonc` (and `apps/backend-rest/wrangler.jsonc` for `ARTIFACT_RETENTION_DAYS`) and redeploy; both workers fall back to the defaults above if unset or invalid.
+- If the sweep falls behind (large backlog, repeated failures), it is safe to let it run across multiple scheduled invocations: `ARTIFACT_CLEANUP_BATCH_LIMIT` bounds each run and already-cleared rows are skipped automatically.
+
 ### Workers AI Transcription
 
 Workers AI is used for participant-attributed audio transcription. The transcription binding is configured on the backend worker.

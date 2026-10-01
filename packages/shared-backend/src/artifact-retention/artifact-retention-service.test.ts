@@ -82,6 +82,10 @@ describe('ArtifactRetentionService', function suite() {
         failures: 0,
         clearedRows: 2,
       })
+
+      // Transcript/feedback are durable report content governed by
+      // interview/account deletion, not the raw-media retention window.
+      expect(repository.clearInterviewPrivacyFields).not.toHaveBeenCalled()
     })
 
     it('only selects rows whose expiry has passed (repository enforces the cutoff)', async function run() {
