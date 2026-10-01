@@ -9,6 +9,7 @@ import {
   createInterviewResponseSchema,
   endInterviewParamsSchema,
   interviewDetailResponseSchema,
+  interviewFeedbackStatusResponseSchema,
   interviewLifecycleResponseSchema,
   interviewListQuerySchema,
   interviewListResponseSchema,
@@ -116,6 +117,24 @@ export function registerInterviewController<Bindings extends ControllerBindings>
       })
 
       return c.json(interviewDetailResponseSchema.parse(interview), 200)
+    } catch (error) {
+      return toErrorResponse(c, error)
+    }
+  })
+
+  app.get('/api/interviews/:id/feedback-status', async function getInterviewFeedbackStatusHandler(c) {
+    const interviewService = options.createService({ bindings: c.env })
+    const session = await options.resolveSession(c)
+
+    try {
+      const parsedParams = interviewIdParamsSchema.parse({
+        id: c.req.param('id'),
+      })
+      const feedbackStatus = await interviewService.getFeedbackStatus(session, {
+        id: parsedParams.id,
+      })
+
+      return c.json(interviewFeedbackStatusResponseSchema.parse(feedbackStatus), 200)
     } catch (error) {
       return toErrorResponse(c, error)
     }
