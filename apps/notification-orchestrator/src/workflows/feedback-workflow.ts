@@ -290,6 +290,7 @@ export class InterviewFeedbackWorkflow extends WorkflowEntrypoint<
       }
 
       const attemptId = claim.attempt_id as string
+      const claimedAt = Date.now()
       logFeedbackWorkflowEvent('claimed', {
         interviewId: payload.interview_id,
         workflowInstanceId,
@@ -374,6 +375,7 @@ export class InterviewFeedbackWorkflow extends WorkflowEntrypoint<
 
           await refreshHeartbeatOrStale(step, workflowRepository, payload.interview_id, attemptId)
 
+          const transcriptionStartedAt = Date.now()
           const transcriptionOutcome = await step.do(
             STEP_TRANSCRIPTION,
             TRANSCRIPTION_STEP_CONFIG,
@@ -409,6 +411,7 @@ export class InterviewFeedbackWorkflow extends WorkflowEntrypoint<
             interviewId: payload.interview_id,
             workflowInstanceId,
             step: STEP_TRANSCRIPTION,
+            durationMs: Date.now() - transcriptionStartedAt,
             transcriptChars: transcript.length,
             transcriptTruncated: transcript.length >= DEFAULT_TRANSCRIPTION_CONFIG.maxTranscriptChars,
           })
@@ -416,14 +419,23 @@ export class InterviewFeedbackWorkflow extends WorkflowEntrypoint<
 
         await refreshHeartbeatOrStale(step, workflowRepository, payload.interview_id, attemptId)
 
+        const analysisRepository = new FeedbackAnalysisRepository(queryExecutor)
+        const screenshotMetrics = await readScreenshotMetricsForTelemetry(
+          analysisRepository,
+          payload.interview_id,
+        )
+
         logFeedbackWorkflowEvent('analysis_started', {
           interviewId: payload.interview_id,
           workflowInstanceId,
           step: STEP_ANALYSIS,
           promptVersion: FEEDBACK_PROMPT_VERSION,
           transcriptChars: transcript.length,
+          screenshotCount: screenshotMetrics?.count,
+          screenshotBytes: screenshotMetrics?.bytes,
         })
 
+        const analysisStartedAt = Date.now()
         const analysisOutcome = await step.do(
           STEP_ANALYSIS,
           ANALYSIS_STEP_CONFIG,
@@ -437,7 +449,6 @@ export class InterviewFeedbackWorkflow extends WorkflowEntrypoint<
               })
             }
 
-            const analysisRepository = new FeedbackAnalysisRepository(queryExecutor)
             const analysisAdapter = createAiGatewayFeedbackAnalysisAdapter(DEFAULT_FEEDBACK_ANALYSIS_CONFIG, {
               accountId: env.CLOUDFLARE_ACCOUNT_ID,
               apiToken: env.CLOUDFLARE_API_TOKEN,
@@ -473,6 +484,7 @@ export class InterviewFeedbackWorkflow extends WorkflowEntrypoint<
           interviewId: payload.interview_id,
           workflowInstanceId,
           step: STEP_ANALYSIS,
+          durationMs: Date.now() - analysisStartedAt,
           promptVersion: FEEDBACK_PROMPT_VERSION,
           schemaVersion: analysisOutcome.feedback.schema_version,
         })
@@ -493,6 +505,7 @@ export class InterviewFeedbackWorkflow extends WorkflowEntrypoint<
             interviewId: payload.interview_id,
             workflowInstanceId,
             step: STEP_TERMINAL_UNAVAILABLE,
+            durationMs: Date.now() - claimedAt,
             unavailableReason: resolved.reason,
           })
 
@@ -510,6 +523,7 @@ export class InterviewFeedbackWorkflow extends WorkflowEntrypoint<
           interviewId: payload.interview_id,
           workflowInstanceId,
           step: STEP_TERMINAL_FAILURE,
+          durationMs: Date.now() - claimedAt,
           errorCode: resolved.errorCode,
         })
 
@@ -518,6 +532,28 @@ export class InterviewFeedbackWorkflow extends WorkflowEntrypoint<
     } finally {
       await cleanup()
     }
+  }
+}
+
+/**
+ * Best-effort aggregate screenshot count/byte telemetry for the
+ * `analysis_started` event (Story 5.18: "aggregate transcript/image size
+ * ... without content"). Never object keys or image bytes themselves, and
+ * never allowed to fail the pipeline — a read error here just omits the
+ * metrics from that one log line.
+ */
+async function readScreenshotMetricsForTelemetry(
+  analysisRepository: FeedbackAnalysisRepository,
+  interviewId: string,
+): Promise<{ count: number; bytes: number } | undefined> {
+  try {
+    const screenshots = await analysisRepository.listFinalizedScreenshots(interviewId)
+    return {
+      count: screenshots.length,
+      bytes: screenshots.reduce((sum, screenshot) => sum + (screenshot.content_size_bytes ?? 0), 0),
+    }
+  } catch {
+    return undefined
   }
 }
 

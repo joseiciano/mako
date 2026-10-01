@@ -13,6 +13,7 @@ import {
 } from './feedback-workflow'
 import type { WorkerBindings } from '../index'
 import {
+  FeedbackAnalysisRepository,
   FeedbackAnalysisService,
   FeedbackWorkflowRepository,
   InterviewRepository,
@@ -315,6 +316,17 @@ function mockAnalysisService(overrides: MockAnalysisServiceOverrides = {}) {
   return mockService
 }
 
+function mockAnalysisRepositoryScreenshots(
+  rows: Array<{ content_size_bytes: number | null }>,
+) {
+  vi.mocked(FeedbackAnalysisRepository).mockImplementation(
+    () =>
+      ({
+        listFinalizedScreenshots: vi.fn().mockResolvedValue(rows),
+      }) as unknown as InstanceType<typeof FeedbackAnalysisRepository>,
+  )
+}
+
 /** Wires up a fully "happy path" set of mocks; individual tests override pieces. */
 function mockHappyPath() {
   mockInterviewState(buildInterviewState({ feedback_status: 'pending' }))
@@ -513,6 +525,31 @@ describe('InterviewFeedbackWorkflow', function () {
       const result = await workflow.run(createMockEvent(VALID_PAYLOAD), step)
 
       expect(result.status).toBe('ready')
+    })
+
+    it('emits duration and aggregate screenshot count/byte telemetry without content', async function () {
+      mockInterviewState(buildInterviewState({ feedback_status: 'pending' }))
+      mockWorkflowRepository()
+      mockTranscriptionService()
+      mockAnalysisService()
+      mockAnalysisRepositoryScreenshots([{ content_size_bytes: 1000 }, { content_size_bytes: 2000 }])
+      const workflow = createWorkflow()
+      const { step } = createTrackingStep()
+
+      await workflow.run(createMockEvent(VALID_PAYLOAD), step)
+
+      expect(logFeedbackWorkflowEvent).toHaveBeenCalledWith(
+        'analysis_started',
+        expect.objectContaining({ screenshotCount: 2, screenshotBytes: 3000 }),
+      )
+      expect(logFeedbackWorkflowEvent).toHaveBeenCalledWith(
+        'transcribed',
+        expect.objectContaining({ durationMs: expect.any(Number) }),
+      )
+      expect(logFeedbackWorkflowEvent).toHaveBeenCalledWith(
+        'ready',
+        expect.objectContaining({ durationMs: expect.any(Number) }),
+      )
     })
   })
 
@@ -725,6 +762,10 @@ describe('InterviewFeedbackWorkflow', function () {
         'transcription_failed',
       )
       expect(analysisService.run).not.toHaveBeenCalled()
+      expect(logFeedbackWorkflowEvent).toHaveBeenCalledWith(
+        'failed',
+        expect.objectContaining({ errorCode: 'transcription_failed', durationMs: expect.any(Number) }),
+      )
     })
 
     it('stops (skipped/stale) when transcription persistence detects a replaced attempt', async function () {
