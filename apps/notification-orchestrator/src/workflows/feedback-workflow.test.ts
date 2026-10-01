@@ -739,10 +739,10 @@ describe('InterviewFeedbackWorkflow', function () {
   })
 
   describe('transcription outcomes', function () {
-    it('marks failed/transcription_failed when transcription cannot produce usable output', async function () {
+    it('marks failed/transcription_failed once the bounded transcription retry budget is exhausted', async function () {
       mockInterviewState(buildInterviewState({ feedback_status: 'pending' }))
       const workflowRepository = mockWorkflowRepository()
-      mockTranscriptionService({
+      const transcriptionService = mockTranscriptionService({
         transcribeAndPersist: vi.fn().mockResolvedValue({ outcome: 'failed', error_code: 'transcription_failed' }),
       })
       const analysisService = mockAnalysisService()
@@ -766,6 +766,40 @@ describe('InterviewFeedbackWorkflow', function () {
         'failed',
         expect.objectContaining({ errorCode: 'transcription_failed', durationMs: expect.any(Number) }),
       )
+      // TRANSCRIPTION_STEP_CONFIG configures a retry limit of 2, so the
+      // provider/infrastructure failure should actually be retried (3 total
+      // attempts) rather than failing immediately on the first one.
+      expect(transcriptionService.transcribeAndPersist.mock.calls.length).toBeGreaterThan(1)
+      const retryingCalls = vi
+        .mocked(logFeedbackWorkflowEvent)
+        .mock.calls.filter(([event]) => event === 'retrying')
+      expect(retryingCalls.length).toBeGreaterThan(0)
+    })
+
+    it('recovers and succeeds when a transient transcription failure precedes a later successful attempt', async function () {
+      mockInterviewState(buildInterviewState({ feedback_status: 'pending' }))
+      mockWorkflowRepository()
+      let calls = 0
+      const transcriptionService = mockTranscriptionService({
+        transcribeAndPersist: vi.fn().mockImplementation(async () => {
+          calls += 1
+          return calls < 2
+            ? { outcome: 'failed', error_code: 'transcription_failed' }
+            : { outcome: 'persisted', transcript: '[Candidate]\nHello world.' }
+        }),
+      })
+      mockAnalysisService()
+      const workflow = createWorkflow()
+      const { step } = createTrackingStep()
+
+      const result = await workflow.run(createMockEvent(VALID_PAYLOAD), step)
+
+      expect(result).toEqual({
+        status: 'ready',
+        interview_id: MOCKED_INTERVIEW_ID,
+        attempt_id: expect.any(String),
+      })
+      expect(transcriptionService.transcribeAndPersist).toHaveBeenCalledTimes(2)
     })
 
     it('stops (skipped/stale) when transcription persistence detects a replaced attempt', async function () {

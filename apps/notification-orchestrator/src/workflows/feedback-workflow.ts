@@ -152,6 +152,7 @@ type TerminalOutcome =
   | { kind: 'failed'; errorCode: FeedbackErrorCode }
 
 const ASSETS_NOT_READY_RETRY_MESSAGE = 'assets_not_ready_retry'
+const TRANSCRIPTION_FAILED_RETRY_MESSAGE = 'transcription_failed_retry'
 const ANALYSIS_RETRY_MESSAGE = 'analysis_retry'
 const INVALID_FEEDBACK_RETRY_MESSAGE = 'invalid_feedback_retry'
 
@@ -182,6 +183,10 @@ function resolveTerminalOutcome(error: unknown): TerminalOutcome {
 
   if (message === ASSETS_NOT_READY_RETRY_MESSAGE) {
     return { kind: 'failed', errorCode: 'assets_not_ready' }
+  }
+
+  if (message === TRANSCRIPTION_FAILED_RETRY_MESSAGE) {
+    return { kind: 'failed', errorCode: 'transcription_failed' }
   }
 
   if (message === ANALYSIS_RETRY_MESSAGE) {
@@ -421,7 +426,11 @@ export class InterviewFeedbackWorkflow extends WorkflowEntrypoint<
               })
 
               if (result.outcome === 'failed') {
-                throwFailureSignal('transcription_failed')
+                // Plain (retryable) error: provider/infrastructure
+                // transcription failures should exhaust
+                // `TRANSCRIPTION_STEP_CONFIG`'s configured retries before
+                // this step gives up, mirroring `STEP_ANALYSIS` below.
+                throw new Error(TRANSCRIPTION_FAILED_RETRY_MESSAGE)
               }
               if (result.outcome === 'stale') {
                 throwStaleSignal()
