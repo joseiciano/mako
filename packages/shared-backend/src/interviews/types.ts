@@ -4,6 +4,7 @@ import {
   defaultInterviewListLimit,
   interviewDetailResponseSchema,
   interviewDetailSchema,
+  interviewFeedbackStatusResponseSchema,
   interviewLifecycleResponseSchema,
   interviewListItemSchema,
   interviewListResponseSchema,
@@ -21,6 +22,7 @@ import {
   type Interview,
   type InterviewDetail,
   type InterviewDetailResponse,
+  type InterviewFeedbackStatusResponse,
   type InterviewLifecycleResponse,
   type InterviewListItem,
   type InterviewListResponse,
@@ -304,6 +306,28 @@ export function toInterviewDetailResponse(
 ): InterviewDetailResponse {
   return interviewDetailResponseSchema.parse({
     interview: parseInterviewDetail(interviewInput),
+  })
+}
+
+/**
+ * Narrow, participant-safe projection of the interview detail used by the
+ * lightweight polling route. Never includes transcript, feedback prose,
+ * artifact URLs, or private keys. `schema_version` reflects whether the
+ * persisted `feedback` object actually parsed as a strict v1 payload (see
+ * `interviewDetailSchema`'s `.catch(null)` compatibility handling), so
+ * legacy/invalid rows safely report `null` instead of crashing or lying
+ * about readiness.
+ */
+export function toInterviewFeedbackStatusResponse(
+  interview: InterviewDetail,
+): InterviewFeedbackStatusResponse {
+  return interviewFeedbackStatusResponseSchema.parse({
+    feedback_status: interview.feedback_status,
+    feedback_unavailable_reason: interview.feedback_unavailable_reason,
+    feedback_error_code: interview.feedback_error_code,
+    schema_version: interview.feedback !== null ? 1 : null,
+    prompt_version: interview.feedback_prompt_version,
+    updated_at: interview.updated_at,
   })
 }
 

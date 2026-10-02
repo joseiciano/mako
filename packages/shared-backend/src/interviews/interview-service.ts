@@ -10,6 +10,7 @@ import {
   type EndInterviewParams,
   type Interview,
   type InterviewDetailResponse,
+  type InterviewFeedbackStatusResponse,
   type InterviewLifecycleResponse,
   type InterviewListQuery,
   type InterviewListResponse,
@@ -61,6 +62,7 @@ import {
   toCancelInterviewResponse,
   toCreateInterviewResponse,
   toInterviewDetailResponse,
+  toInterviewFeedbackStatusResponse,
   toInterviewLifecycleActionResponse,
   toInterviewListResponse,
   toProvisionInterviewResponse,
@@ -195,6 +197,36 @@ export class InterviewService {
             : null,
       },
     }
+  }
+
+  /**
+   * Lightweight, participant-only feedback processing status for polling.
+   * Shares the same authorization and non-participant 404 semantics as
+   * `getInterview`, but the response omits transcript, feedback prose,
+   * artifact URLs, and private keys so polling clients never repeatedly
+   * transfer the full report while processing is in progress.
+   */
+  async getFeedbackStatus(
+    session: InterviewSession | null,
+    input: { id: string },
+  ): Promise<InterviewFeedbackStatusResponse> {
+    const userSession = this.requireSession(session)
+    const participantUserId = authenticatedInterviewUserIdSchema.parse(
+      userSession.userId,
+    )
+
+    const interview = await this.interviewRepository.getParticipantInterviewById({
+      interview_id: input.id,
+      participant_user_id: participantUserId,
+    })
+
+    if (!interview) {
+      throw new InterviewNotFoundError(
+        'Interview was not found for the active participant.',
+      )
+    }
+
+    return toInterviewFeedbackStatusResponse(interview)
   }
 
   async provisionInterview(

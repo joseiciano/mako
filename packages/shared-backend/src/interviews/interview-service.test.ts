@@ -258,6 +258,213 @@ describe('InterviewService', function interviewServiceSuite() {
     ).rejects.toBeInstanceOf(InterviewUnauthorizedError)
   })
 
+  it('returns narrow feedback status for a not-started report with no consent', async function run() {
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          status: 'completed',
+          feedback_status: 'not_started',
+          feedback_unavailable_reason: 'no_consent',
+          updated_at: '2026-04-13T11:00:00.000Z',
+        }),
+      ],
+    )
+
+    const response = await service.getFeedbackStatus(activeSession, {
+      id: '33333333-3333-4333-8333-333333333333',
+    })
+
+    expect(response).toEqual({
+      feedback_status: 'not_started',
+      feedback_unavailable_reason: 'no_consent',
+      feedback_error_code: null,
+      schema_version: null,
+      prompt_version: null,
+      updated_at: '2026-04-13T11:00:00.000Z',
+    })
+  })
+
+  it('returns narrow feedback status while processing, without transcript or feedback fields', async function run() {
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          status: 'completed',
+          transcript: 'a very long transcript that should never be exposed here',
+          feedback_status: 'processing',
+        }),
+      ],
+    )
+
+    const response = await service.getFeedbackStatus(activeSession, {
+      id: '33333333-3333-4333-8333-333333333333',
+    })
+
+    expect(response).toEqual({
+      feedback_status: 'processing',
+      feedback_unavailable_reason: null,
+      feedback_error_code: null,
+      schema_version: null,
+      prompt_version: null,
+      updated_at: expect.any(String),
+    })
+    expect(response).not.toHaveProperty('transcript')
+    expect(response).not.toHaveProperty('feedback')
+  })
+
+  it('returns a safe error code for a failed feedback report', async function run() {
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          status: 'completed',
+          feedback_status: 'failed',
+          feedback_error_code: 'transcription_failed',
+        }),
+      ],
+    )
+
+    const response = await service.getFeedbackStatus(activeSession, {
+      id: '33333333-3333-4333-8333-333333333333',
+    })
+
+    expect(response).toEqual({
+      feedback_status: 'failed',
+      feedback_unavailable_reason: null,
+      feedback_error_code: 'transcription_failed',
+      schema_version: null,
+      prompt_version: null,
+      updated_at: expect.any(String),
+    })
+  })
+
+  it('reports schema_version 1 and prompt_version once feedback is ready', async function run() {
+    const readyFeedback = {
+      schema_version: 1 as const,
+      overall_score: 82,
+      summary: 'Solid system design walkthrough with clear tradeoffs.',
+      dimensions: {
+        communication: { score: 80, summary: 'Explained reasoning clearly.' },
+        problem_solving: { score: 85, summary: 'Identified bottlenecks quickly.' },
+        technical_depth: { score: 81, summary: 'Covered storage and caching tradeoffs.' },
+      },
+      strengths: [
+        { title: 'Clear communication', evidence: 'Narrated each design decision.' },
+      ],
+      improvements: [
+        {
+          title: 'Scaling edge cases',
+          evidence: 'Did not address hot-partition handling.',
+          action: 'Discuss partitioning strategy under skew.',
+        },
+      ],
+    }
+
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          status: 'completed',
+          feedback_status: 'ready',
+          feedback: readyFeedback,
+          feedback_prompt_version: 'feedback-v1-2026-04-01',
+          feedback_generated_at: '2026-04-13T11:05:00.000Z',
+          updated_at: '2026-04-13T11:05:00.000Z',
+        }),
+      ],
+    )
+
+    const response = await service.getFeedbackStatus(activeSession, {
+      id: '33333333-3333-4333-8333-333333333333',
+    })
+
+    expect(response).toEqual({
+      feedback_status: 'ready',
+      feedback_unavailable_reason: null,
+      feedback_error_code: null,
+      schema_version: 1,
+      prompt_version: 'feedback-v1-2026-04-01',
+      updated_at: '2026-04-13T11:05:00.000Z',
+    })
+  })
+
+  it('reports schema_version null for a legacy/freeform ready row instead of crashing', async function run() {
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+          status: 'completed',
+          feedback_status: 'ready',
+          // Legacy freeform shape predating the strict v1 schema.
+          feedback: { legacy_notes: 'great candidate' } as unknown as InterviewDetail['feedback'],
+          feedback_prompt_version: 'legacy-v0',
+          feedback_generated_at: '2026-04-13T11:05:00.000Z',
+        }),
+      ],
+    )
+
+    const response = await service.getFeedbackStatus(activeSession, {
+      id: '33333333-3333-4333-8333-333333333333',
+    })
+
+    expect(response.schema_version).toBeNull()
+    expect(response.feedback_status).toBe('ready')
+  })
+
+  it('rejects feedback status requests for non-participants', async function run() {
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: '99999999-9999-4999-8999-999999999999',
+        }),
+      ],
+    )
+
+    await expect(
+      service.getFeedbackStatus(activeSession, {
+        id: '33333333-3333-4333-8333-333333333333',
+      }),
+    ).rejects.toBeInstanceOf(InterviewNotFoundError)
+  })
+
+  it('rejects feedback status requests without authentication', async function run() {
+    const { service } = createInterviewService(
+      { freeAiInterviews: 0, credits: 0 },
+      undefined,
+      [
+        createInterviewRecord({
+          id: '33333333-3333-4333-8333-333333333333',
+          scheduler_id: activeSession.userId,
+        }),
+      ],
+    )
+
+    await expect(
+      service.getFeedbackStatus(null, {
+        id: '33333333-3333-4333-8333-333333333333',
+      }),
+    ).rejects.toBeInstanceOf(InterviewUnauthorizedError)
+  })
+
   it('cancels scheduled interviews and treats repeated cancellation as idempotent success without emitting a second event', async function run() {
     const interviewId = '33333333-3333-4333-8333-333333333333'
     const publishedEvents: InterviewPostCommitEvent[] = []

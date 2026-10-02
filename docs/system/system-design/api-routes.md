@@ -448,6 +448,12 @@
     }
     ```
   - **Participant Scope**: Only the interview scheduler or interviewer can access this route. Non-participants receive a 404.
+  - **Report State Contract**: `feedback` is `null` until `feedback_status` is `ready` **and** the persisted feedback parses as the strict `interviewFeedbackV1Schema` (legacy/freeform JSON or any row that otherwise fails validation safely parses to `null` instead of crashing the endpoint — see `interviewDetailSchema`'s feedback `.catch(null)`). `transcript` is returned only to participants and only once persisted; while pending, processing, or unavailable it is `null`. Pending/failed/unavailable states are represented by `recording_status`, `feedback_status`, `feedback_unavailable_reason`, and `feedback_error_code` rather than by inferring meaning from `null` or placeholder prose. `feedback_error_code` is populated only when `feedback_status = 'failed'` and never carries provider error text or workflow/attempt identifiers.
+  - **Example States** (only the state-relevant fields are shown; all other fields keep their usual shape):
+    - `processing`: `{ "recording_status": "ready", "transcript": null, "feedback_status": "processing", "feedback_unavailable_reason": null, "feedback_error_code": null, "feedback_prompt_version": null, "feedback_generated_at": null, "feedback": null }`
+    - `failed`: `{ "feedback_status": "failed", "feedback_unavailable_reason": null, "feedback_error_code": "analysis_failed", "feedback": null }`
+    - `ready`: `{ "feedback_status": "ready", "feedback_unavailable_reason": null, "feedback_error_code": null, "feedback_prompt_version": "feedback-v1-2026-04-01", "feedback_generated_at": "2026-04-13T11:05:00.000Z", "feedback": { "schema_version": 1, "overall_score": 82, "summary": "...", "dimensions": { "...": "..." }, "strengths": [], "improvements": [] } }`
+    - `unavailable` (no consent): `{ "feedback_status": "not_started", "feedback_unavailable_reason": "no_consent", "feedback_error_code": null, "feedback": null }`
   - **Query Params**: None
 
 ### Premium Scheduling (Milestone 7)
@@ -653,7 +659,53 @@ Company route behavior:
     }
     ```
   - **Behavior Rules**:
-    - Route is participant-only.
-    - Returns only status fields; does not include transcript or feedback prose.
+    - Route is participant-only; unauthenticated requests receive `401`, non-participants receive the established `404` interview-not-found semantics (same scoping as `GET /api/interviews/:id`).
+    - Returns only status fields; does not include transcript, feedback prose, artifact URLs, or private storage keys.
+    - `schema_version` reflects whether the persisted `feedback` object actually parses as the strict v1 schema (`1` once a ready report validates, otherwise `null`), so legacy/freeform rows safely report `null` instead of crashing or claiming readiness.
     - Designed for polling so active processing does not repeatedly transfer the full transcript/detail payload.
+  - **Example Responses by State**:
+    ```json
+    // not_started (no recording consent)
+    {
+      "feedback_status": "not_started",
+      "feedback_unavailable_reason": "no_consent",
+      "feedback_error_code": null,
+      "schema_version": null,
+      "prompt_version": null,
+      "updated_at": "2026-04-13T11:00:00.000Z"
+    }
+    ```
+    ```json
+    // processing
+    {
+      "feedback_status": "processing",
+      "feedback_unavailable_reason": null,
+      "feedback_error_code": null,
+      "schema_version": null,
+      "prompt_version": null,
+      "updated_at": "2026-04-13T11:05:00.000Z"
+    }
+    ```
+    ```json
+    // failed
+    {
+      "feedback_status": "failed",
+      "feedback_unavailable_reason": null,
+      "feedback_error_code": "analysis_failed",
+      "schema_version": null,
+      "prompt_version": null,
+      "updated_at": "2026-04-13T11:10:00.000Z"
+    }
+    ```
+    ```json
+    // ready
+    {
+      "feedback_status": "ready",
+      "feedback_unavailable_reason": null,
+      "feedback_error_code": null,
+      "schema_version": 1,
+      "prompt_version": "feedback-v1-2026-04-01",
+      "updated_at": "2026-04-13T11:15:00.000Z"
+    }
+    ```
   - **Query Params**: None
