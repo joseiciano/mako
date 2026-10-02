@@ -599,13 +599,15 @@ Company route behavior:
 ### Artifacts
 - **`POST /api/interviews/:id/artifacts/screenshots`**
   - **Description**: Uploads a whiteboard capture screenshot artifact.
-  - **Request Body**: Multipart form data with PNG image.
-  - **Response Body**: `{ artifact_id: string }`
+  - **Request Body**: Raw `image/png` bytes (`Content-Type: image/png`), with required `X-Idempotency-Key` (UUID) and `X-Capture-Timestamp` (ISO-8601) headers. Not multipart form data.
+  - **Response Body**: `{ capture_id: string }`
   - **Behavior Rules**:
     - Route is participant-only.
-    - Upload remains open while the interview is ongoing.
+    - Upload remains open while the interview is ongoing; rejected once `screenshots_finalized_at` is set.
+    - Validates PNG signature, content type, non-empty body, and configured max bytes/count per interview before writing.
+    - Retried uploads are deduplicated by `X-Idempotency-Key` and resolve to the original stored `capture_id` rather than creating a duplicate artifact.
     - The first successful lifecycle completion transaction finalizes the screenshot set for both manual-end and timeout paths.
-    - Whiteboard captures are bounded PNG artifacts generated from the canonical Excalidraw scene at explicit milestones/finalization, not per-stroke uploads.
+    - Whiteboard captures are bounded PNG artifacts generated from the canonical Excalidraw scene at explicit milestones/finalization (one final capture per client on `End Session`, see Story 5.13), not per-stroke uploads.
   - **Query Params**: None
 
 - **`GET /api/interviews/:id/artifacts/recording`**

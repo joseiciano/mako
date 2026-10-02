@@ -7,7 +7,11 @@ import {
   useStartInterview,
   useEndInterview,
 } from '#/hooks/use-interviews'
-import type { WhiteboardProvisionHandle } from '#/components/interviews/whiteboard'
+import { useUploadWhiteboardScreenshot } from '#/hooks/use-upload-whiteboard-screenshot'
+import {
+  captureWhiteboardPng,
+  type WhiteboardProvisionHandle,
+} from '#/components/interviews/whiteboard'
 import type { ProvisionInterviewResponse } from '@mako/shared'
 import type { MediaConnectionConfig, MediaPermissionError } from '#/components/interviews/media'
 import {
@@ -33,13 +37,17 @@ const LOAD_INTERVIEW_ERROR_MESSAGE = 'Unable to load interview details. Please t
 const JOIN_SESSION_ERROR_MESSAGE = 'Failed to join session. Please try again.'
 const START_SESSION_ERROR_MESSAGE = 'Unable to start session. Please try again.'
 const END_SESSION_ERROR_MESSAGE = 'Unable to end session. Please try again.'
+const WHITEBOARD_CAPTURE_WARNING_MESSAGE =
+  'The final whiteboard image could not be saved. Whiteboard feedback for this session may be incomplete.'
 
 type SessionLifecycleUiState = {
   lifecycleErrorsByInterviewId: Record<string, string | undefined>
+  whiteboardCaptureWarningsByInterviewId: Record<string, string | undefined>
 }
 
 const sessionLifecycleUiStore = new Store<SessionLifecycleUiState>({
   lifecycleErrorsByInterviewId: {},
+  whiteboardCaptureWarningsByInterviewId: {},
 })
 
 function setSessionLifecycleError(interviewId: string, message: string | null) {
@@ -58,6 +66,24 @@ function setSessionLifecycleError(interviewId: string, message: string | null) {
   })
 }
 
+function setWhiteboardCaptureWarning(interviewId: string, message: string | null) {
+  sessionLifecycleUiStore.setState(function updateCaptureWarning(state) {
+    const whiteboardCaptureWarningsByInterviewId = {
+      ...state.whiteboardCaptureWarningsByInterviewId,
+    }
+    if (message === null) {
+      delete whiteboardCaptureWarningsByInterviewId[interviewId]
+    } else {
+      whiteboardCaptureWarningsByInterviewId[interviewId] = message
+    }
+
+    return {
+      ...state,
+      whiteboardCaptureWarningsByInterviewId,
+    }
+  })
+}
+
 export function SessionSmart({ interviewId }: SessionSmartProps) {
   const navigate = useNavigate()
   const [state, dispatch] = useReducer(sessionReducer, initialSessionState)
@@ -67,17 +93,26 @@ export function SessionSmart({ interviewId }: SessionSmartProps) {
   const isMountedRef = useRef(true)
   const isStartingRef = useRef(false)
   const isEndingRef = useRef(false)
+  const whiteboardCaptureIdempotencyKeyRef = useRef<string | null>(null)
+  const whiteboardCaptureOutcomeRef = useRef<'pending' | 'empty' | 'uploaded'>('pending')
 
   const interviewQuery = useInterviewDetail(interviewId)
   const provisionMutation = useProvisionInterview()
   const startMutation = useStartInterview()
   const endMutation = useEndInterview()
+  const uploadWhiteboardScreenshotMutation = useUploadWhiteboardScreenshot()
 
   const [nowMs, setNowMs] = useState(Date.now())
   const lifecycleErrorMessage = useStore(
     sessionLifecycleUiStore,
     function selectLifecycleError(uiState) {
       return uiState.lifecycleErrorsByInterviewId[interviewId] ?? null
+    },
+  )
+  const whiteboardCaptureWarningMessage = useStore(
+    sessionLifecycleUiStore,
+    function selectCaptureWarning(uiState) {
+      return uiState.whiteboardCaptureWarningsByInterviewId[interviewId] ?? null
     },
   )
 
@@ -125,12 +160,16 @@ export function SessionSmart({ interviewId }: SessionSmartProps) {
       isMountedRef.current = false
       clearWhiteboardProvisionHandle(whiteboardProvisionHandleRef.current)
       setSessionLifecycleError(interviewId, null)
+      setWhiteboardCaptureWarning(interviewId, null)
     }
   }, [interviewId])
 
   function handleJoin() {
     if (isDispatchingRef.current || !canJoin(state, interviewQuery.data ?? null)) return
 
+    whiteboardCaptureIdempotencyKeyRef.current = null
+    whiteboardCaptureOutcomeRef.current = 'pending'
+    setWhiteboardCaptureWarning(interviewId, null)
     requestProvision()
   }
 
@@ -250,11 +289,17 @@ export function SessionSmart({ interviewId }: SessionSmartProps) {
     )
   }
 
-  function handleEndSession() {
+  async function handleEndSession() {
     if (!lifecycleControls.canEnd || isEndingRef.current || endMutation.isPending) return
 
+    // Set synchronously (before any `await`) so a second click arriving
+    // while the capture/upload step below is in flight is a no-op.
     isEndingRef.current = true
     setSessionLifecycleError(interviewId, null)
+
+    await attemptFinalWhiteboardCapture()
+
+    if (!isMountedRef.current) return
 
     endMutation.mutate(
       { id: interviewId },
@@ -276,6 +321,49 @@ export function SessionSmart({ interviewId }: SessionSmartProps) {
         },
       },
     )
+  }
+
+  /**
+   * Attempts one final whiteboard capture/upload before the end-session call.
+   * Never throws: a capture or upload failure surfaces a warning but must
+   * never strand the interview in `ongoing`, so ending always proceeds.
+   *
+   * Reuses a single idempotency key across retried end-session attempts
+   * (e.g. the end call itself failing and the user clicking End Session
+   * again) so a retried upload resolves to the original stored capture
+   * instead of creating a duplicate artifact. Once a capture attempt has
+   * resolved (uploaded or confirmed empty), it is not repeated.
+   */
+  async function attemptFinalWhiteboardCapture(): Promise<void> {
+    if (whiteboardCaptureOutcomeRef.current !== 'pending') return
+
+    try {
+      const captureResult = await captureWhiteboardPng(whiteboardProvisionHandleRef.current)
+
+      if (captureResult.kind === 'empty') {
+        whiteboardCaptureOutcomeRef.current = 'empty'
+        if (isMountedRef.current) setWhiteboardCaptureWarning(interviewId, null)
+        return
+      }
+
+      if (!whiteboardCaptureIdempotencyKeyRef.current) {
+        whiteboardCaptureIdempotencyKeyRef.current = crypto.randomUUID()
+      }
+
+      await uploadWhiteboardScreenshotMutation.mutateAsync({
+        id: interviewId,
+        idempotencyKey: whiteboardCaptureIdempotencyKeyRef.current,
+        captureTimestamp: new Date().toISOString(),
+        blob: captureResult.blob,
+      })
+
+      whiteboardCaptureOutcomeRef.current = 'uploaded'
+      if (isMountedRef.current) setWhiteboardCaptureWarning(interviewId, null)
+    } catch {
+      if (isMountedRef.current) {
+        setWhiteboardCaptureWarning(interviewId, WHITEBOARD_CAPTURE_WARNING_MESSAGE)
+      }
+    }
   }
 
   function handleBackToInterviews() {
@@ -308,8 +396,9 @@ export function SessionSmart({ interviewId }: SessionSmartProps) {
       lifecycleControls={lifecycleControls}
       timer={timer}
       lifecycleErrorMessage={lifecycleErrorMessage}
+      whiteboardCaptureWarningMessage={whiteboardCaptureWarningMessage}
       isStartingSession={startMutation.isPending}
-      isEndingSession={endMutation.isPending}
+      isEndingSession={endMutation.isPending || uploadWhiteboardScreenshotMutation.isPending}
       onJoin={handleJoin}
       onRetryWhiteboard={handleWhiteboardRetry}
       onWhiteboardConnecting={handleWhiteboardConnecting}
