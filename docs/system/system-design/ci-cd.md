@@ -26,7 +26,7 @@ GitHub Actions provides the quality gate and one ordered deployment path for bot
 | Concern | Owner |
 |---|---|
 | Neon project, role (`mako_app`), and database | `scripts/bootstrap.sh` (one-time, per environment, idempotent) |
-| Hyperdrive config (direct Neon origin, caching max-age 60 / swr 15, connection limit 20) | `scripts/bootstrap.sh` |
+| Hyperdrive config (direct Neon origin, query caching disabled, connection limit 20) | `scripts/bootstrap.sh` (creates the config and converges the cache policy on every run) |
 | Queues `notification-orchestration` / `-dlq` | `scripts/bootstrap.sh` (queues exist before the first orchestrator deploy) |
 | R2 buckets `mako-recordings` / `mako-screenshots` (enam) + 30-day lifecycle rules | `scripts/bootstrap.sh` |
 | Email Sending subdomain with `preview_enabled=false`, `drop_suppressed_recipients=false`, and readiness poll | `scripts/bootstrap.sh` |
@@ -34,7 +34,7 @@ GitHub Actions provides the quality gate and one ordered deployment path for bot
 | Backend Worker-level `redact_query_string` | `scripts/ensure-redact-query-string.sh` post-deploy step (Wrangler config limitation) |
 | Worker runtime secrets | Wrangler synchronization before deployment |
 
-`scripts/bootstrap.sh` is idempotent: run it against an already-provisioned environment and every existing resource is detected and skipped (exit 0). It never handles secret values; it prints resource IDs (Hyperdrive ID) and, for a newly created Neon role only, the `DATABASE_URL` to paste into GitHub secrets. Resetting an existing role's password would invalidate the live `DATABASE_URL`, so the bootstrap skips the password path on already-provisioned environments.
+`scripts/bootstrap.sh` is idempotent: run it against an already-provisioned environment and existing resources are detected while mutable policies (including cache-disabled Hyperdrive reads) are converged without creating duplicates. It never handles secret values; it prints resource IDs (Hyperdrive ID) and, for a newly created Neon role only, the `DATABASE_URL` to paste into GitHub secrets. Resetting an existing role's password would invalidate the live `DATABASE_URL`, so the bootstrap skips the password path on already-provisioned environments.
 
 ### GitHub Environment Configuration
 
