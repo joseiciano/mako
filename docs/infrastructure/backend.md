@@ -219,10 +219,15 @@ The AI Gateway is used for feedback analysis (separate from AI chat). The analys
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID. |
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API token. |
 
-**Analysis behavior**:
+**Analysis behavior** (Story 5.17; module in `packages/shared-backend/src/interview-feedback/`):
+- `feedback-context.ts` builds a bounded, deterministic evidence context: canonical interview metadata, the persisted transcript (truncated deterministically, preserving both beginning and end), and a capture-ordered, count/byte-bounded set of finalized whiteboard screenshots. An empty finalized screenshot set is valid.
+- `feedback-prompt.ts` builds the versioned (`FEEDBACK_PROMPT_VERSION`) system-design coaching prompt and multimodal chat messages; the transcript and screenshots are always framed as untrusted evidence that cannot override the system instructions or required response schema.
+- `feedback-analysis-adapter.ts` sends the request through Cloudflare AI Gateway (same `cf-aig-gateway-id` REST pattern as the Story 4.3 AI chat responder) to one pinned, server-selected, vision-capable model, with a bounded timeout/retry policy that only retries transport/5xx/429 failures.
+- `feedback-analysis-service.ts` parses and strictly validates the response against `interviewFeedbackV1Schema` regardless of provider guarantees, rejecting malformed/partial/unsupported-version/out-of-range/unknown-key output without ever writing `interviews.feedback`.
+- `feedback-analysis-repository.ts` persists the complete validated report and transitions `processing -> ready` in one conditional update fenced by the active `feedback_attempt_id`; a stale attempt or an already-`ready` report is a safe no-op, so automatic retries never overwrite an existing report.
 - Provider/model identifiers remain server configuration. They are not client-selectable API fields.
-- The response is validated against the strict feedback v1 schema before persistence.
 - Model name, raw provider response, token usage, system prompt, and provider error text are not persisted in the client feedback object.
+- This module is not yet wired into `InterviewFeedbackWorkflow`; orchestration, bounded per-step retries, and telemetry are added in Story 5.18.
 
 ### Auth Email Verification Retention and Monitoring
 
