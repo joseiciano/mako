@@ -113,9 +113,19 @@ Feedback processing is triggered by the first successful `ongoing -> completed` 
 - Timer failures (workflow timeout, timer orchestration errors) are retried by `InterviewLifecycleWorkflow`.
 - AI-analysis failures (transcription, analysis, persistence) are retried by `InterviewFeedbackWorkflow`.
 - The two retry domains are independent: a timer failure does not block feedback processing and vice versa.
+- Within `InterviewFeedbackWorkflow`, every step is bounded (`retries.limit` + backoff + timeout); retryable infrastructure/provider conditions retry per that budget, while deterministic non-retryable conditions (no recording, a permanent format/mapping failure, a stale/replaced attempt) fail the step immediately instead of spending the retry budget. See `docs/infrastructure/backend.md` ("Feedback Workflow Reliability, Observability, and Replay") for the full per-step configuration and the `feedback_error_code`/`feedback_unavailable_reason` classification rules.
+
+### Stale-Processing Recovery
+
+- A `processing` interview whose `feedback_processing_heartbeat_at` has not advanced in 46 minutes (derived from the transcription step's worst-case budget plus a safety margin; see `docs/infrastructure/backend.md`) is treated as a crashed/evicted Workflow instance, not a genuine failure.
+- An automatic scheduled sweep (notification-orchestrator, `*/5 * * * *`) fences the prior attempt (clears `feedback_attempt_id` so any write it still makes is a safe no-op), resets the row to `pending`, and starts one new, uniquely suffixed workflow instance.
+- This is fully automatic infrastructure self-healing, distinct from operator-triggered replay below, and never reclassifies the row as `failed`.
 
 ### Operational Replay
 
 - Operational replay is the only MVP regeneration path for failed feedback.
 - Replay is triggered by an operator (not by user action) and creates a new `feedback_attempt_id`.
 - Historical interviews are not automatically processed.
+- Replay is refused for anything that is not currently `failed`, including an already-`ready` interview (the MVP schema only defines `schema_version: 1`; a future schema version bump could extend this guard).
+- A successful replay resets `failed -> pending` and inserts one durable `feedback_replay_audit` row (operator identity, prior attempt ID, prior error code, target schema version, reason, timestamp).
+- There is no participant-facing regenerate endpoint or UI control for this path.

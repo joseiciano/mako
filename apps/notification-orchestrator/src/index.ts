@@ -33,6 +33,7 @@ import {
 } from './workflows/recording-finalization-workflow'
 import type { RecordingFinalizationPayload } from './workflows/recording-finalization-workflow'
 import { sweepRecordingFinalizations } from './workflows/recording-finalization-sweep'
+import { sweepStaleFeedbackProcessing } from './workflows/feedback-stale-processing-sweep'
 
 export { InterviewFeedbackWorkflow, feedbackWorkflowPayloadSchema }
 export { RecordingFinalizationWorkflow, recordingFinalizationPayloadSchema }
@@ -49,6 +50,16 @@ export type WorkerBindings = {
   CLOUDFLARE_ACCOUNT_ID?: string
   CLOUDFLARE_API_TOKEN?: string
   CLOUDFLARE_REALTIMEKIT_APP_ID?: string
+  /** Workers AI binding used by Story 5.16 transcription and Story 5.17 analysis. */
+  AI?: Ai
+  /**
+   * Optional AI Gateway base URL for Story 5.17 feedback analysis (same
+   * binding/derivation as the Story 4.3 AI chat responder in backend-rest;
+   * see `docs/infrastructure/backend.md`). Unlike AI chat, the feedback
+   * analysis adapter requires a configured gateway and has no direct-call
+   * fallback.
+   */
+  AI_GATEWAY_BASE_URL?: string
   /** Raw media retention window in days (Story 5.15); production default is 30. */
   ARTIFACT_RETENTION_DAYS?: string
   /** Deterministic per-run batch limit for the scheduled retention sweep. */
@@ -268,6 +279,14 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
           await sweepRecordingFinalizations(env, queryExecutor as SqlQueryExecutor, consoleLike)
         } catch (err) {
           consoleLike.error('recording_finalization_sweep_failed', {
+            error_message: err instanceof Error ? err.message : String(err),
+          })
+        }
+
+        try {
+          await sweepStaleFeedbackProcessing(env, queryExecutor as SqlQueryExecutor, consoleLike)
+        } catch (err) {
+          consoleLike.error('feedback_stale_processing_sweep_failed', {
             error_message: err instanceof Error ? err.message : String(err),
           })
         }

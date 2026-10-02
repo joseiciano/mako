@@ -82,3 +82,27 @@ export {
   FeedbackAnalysisService,
   type FeedbackAnalysisOutcome,
 } from './feedback-analysis-service'
+export {
+  classifyRecordingJobs,
+  type RecordingJobRow,
+  type RecordingJobsClassification,
+} from './feedback-artifact-readiness'
+export {
+  FeedbackWorkflowRepository,
+  type ScreenshotFinalizationState,
+} from './feedback-workflow-repository'
+export {
+  logFeedbackWorkflowEvent,
+  type FeedbackWorkflowEventName,
+  type FeedbackWorkflowLogContext,
+} from './feedback-workflow-events'
+export {
+  FeedbackReplayRepository,
+  type FeedbackReplayStateRow,
+  type InsertReplayAuditInput,
+} from './feedback-replay-repository'
+export {
+  FeedbackReplayService,
+  type FeedbackReplayInput,
+  type FeedbackReplayOutcome,
+} from './feedback-replay-service'
