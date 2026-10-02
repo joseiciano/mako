@@ -74,6 +74,7 @@ function makeProps(overrides?: Partial<SessionDumbProps>): SessionDumbProps {
       isWarning: false,
     },
     lifecycleErrorMessage: null,
+    whiteboardCaptureWarningMessage: null,
     isStartingSession: false,
     isEndingSession: false,
     onJoin: vi.fn(),
@@ -492,6 +493,28 @@ describe('SessionDumb', function () {
       />,
     )
     expect(screen.getByRole('alert')).toHaveTextContent(/unable to start interview session/i)
+  })
+
+  it('renders whiteboard capture warning without hiding end session controls', function () {
+    render(
+      <SessionDumb
+        {...makeProps({
+          interview: makeInterview({ status: 'ongoing' }),
+          status: 'provisioned',
+          lifecycleControls: {
+            canStart: false,
+            canEnd: true,
+            isTerminal: false,
+            terminalMessage: null,
+            helperMessage: null,
+          },
+          whiteboardCaptureWarningMessage:
+            'The final whiteboard image could not be saved. Whiteboard feedback for this session may be incomplete.',
+        })}
+      />,
+    )
+    expect(screen.getByRole('alert')).toHaveTextContent(/whiteboard feedback for this session may be incomplete/i)
+    expect(screen.getByRole('button', { name: /end session/i })).toBeEnabled()
   })
 
   it('disables start button and shows pending text while starting', function () {

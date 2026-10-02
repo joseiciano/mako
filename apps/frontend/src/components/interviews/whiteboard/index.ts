@@ -8,10 +8,12 @@ export {
 } from './whiteboard-provision-store'
 export {
   clearAllWhiteboardSceneApis,
+  getWhiteboardSceneApi,
   getWhiteboardSceneSnapshot,
   registerWhiteboardSceneApi,
   unregisterWhiteboardSceneApi,
 } from './whiteboard-scene-store'
+export { captureWhiteboardPng } from './whiteboard-capture'
 export type {
   ProvisionedWhiteboardConfig,
   WhiteboardCollaborationConfig,
@@ -22,3 +24,4 @@ export type {
   WhiteboardSmartProps,
 } from './whiteboard-types'
 export type { WhiteboardSceneSnapshot } from './whiteboard-scene-store'
+export type { WhiteboardCaptureOutcome } from './whiteboard-capture'
