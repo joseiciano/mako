@@ -1,10 +1,22 @@
 import type { InterviewDetail } from '@mako/shared'
+import type { FeedbackReportErrorKind } from '#/hooks/use-feedback-report'
+import {
+  describeFeedbackErrorCode,
+  describeFeedbackUnavailableReason,
+} from './feedback-report-helpers'
+import { FeedbackScoreReport } from './feedback-score-report'
 
 export type FeedbackDumbProps = {
   interview: InterviewDetail | null
   isLoading: boolean
-  errorMessage: string | null
+  errorKind: FeedbackReportErrorKind | null
+  recordingUrl: string | null
+  screenshotUrls: string[]
+  isPolling: boolean
+  hasReachedPollingDeadline: boolean
   onBack: () => void
+  onRefresh: () => void
+  onSignIn: () => void
 }
 
 export function FeedbackDumb(props: FeedbackDumbProps) {
@@ -17,7 +29,7 @@ export function FeedbackDumb(props: FeedbackDumbProps) {
           </p>
           <h1 className="text-2xl font-semibold text-white">Post-Interview Feedback</h1>
           <p className="mt-2 text-sm text-slate-300">
-            Review read-only feedback, recording, and whiteboard captures.
+            Review your coaching report, transcript, recording, and whiteboard captures.
           </p>
         </div>
         <button
@@ -45,13 +57,49 @@ function renderContent(props: FeedbackDumbProps) {
     )
   }
 
-  if (props.errorMessage) {
+  if (props.errorKind === 'not-found') {
+    return (
+      <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-6" role="alert">
+        <h2 className="text-lg font-semibold text-white">Report not found</h2>
+        <p className="mt-2 text-sm text-slate-300">
+          This interview report isn&apos;t available, or you don&apos;t have access to it.
+        </p>
+      </section>
+    )
+  }
+
+  if (props.errorKind === 'unauthenticated') {
+    return (
+      <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-6" role="alert">
+        <h2 className="text-lg font-semibold text-white">Sign in required</h2>
+        <p className="mt-2 text-sm text-slate-300">
+          Your session has expired. Sign in again to view this report.
+        </p>
+        <button
+          className="mt-4 inline-flex rounded-lg bg-emerald-500 px-4 py-2 text-sm font-semibold text-slate-950 transition hover:bg-emerald-400"
+          onClick={props.onSignIn}
+          type="button"
+        >
+          Sign in
+        </button>
+      </section>
+    )
+  }
+
+  if (props.errorKind === 'network') {
     return (
       <section
         className="rounded-xl border border-red-900 bg-red-950/40 p-4 text-red-200"
         role="alert"
       >
-        {sanitizeMessage(props.errorMessage)}
+        <p>Unable to load this report. Please check your connection and try again.</p>
+        <button
+          className="mt-3 inline-flex rounded-md border border-red-700 px-3 py-1.5 text-sm font-medium text-red-100 transition hover:bg-red-900/50"
+          onClick={props.onRefresh}
+          type="button"
+        >
+          Try again
+        </button>
       </section>
     )
   }
@@ -61,132 +109,83 @@ function renderContent(props: FeedbackDumbProps) {
   if (props.interview.status !== 'completed') {
     return (
       <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
-        <h2 className="text-lg font-semibold text-white">Feedback not available</h2>
+        <h2 className="text-lg font-semibold text-white">Feedback not available yet</h2>
         <p className="mt-2 text-sm text-slate-300">
-          Feedback is available after the interview is completed.
+          Feedback is available after this interview is completed.
         </p>
       </section>
     )
   }
 
-  return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_0.8fr]">
-      <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
-        <h2 className="text-lg font-semibold text-white">Feedback</h2>
-        {props.interview.feedback ? (
-          <FeedbackPayload feedback={props.interview.feedback} />
-        ) : (
-          <p className="mt-3 text-sm text-slate-400">No feedback available.</p>
-        )}
-      </section>
-      <AssetsPanel interview={props.interview} />
-    </div>
-  )
-}
+  const interview = props.interview
 
-function FeedbackPayload(props: { feedback: unknown }) {
-  if (!isRecord(props.feedback)) {
-    return <pre className="mt-3 whitespace-pre-wrap text-sm text-slate-300">{String(props.feedback)}</pre>
+  if (interview.feedback_status === 'pending' || interview.feedback_status === 'processing') {
+    return (
+      <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
+        <h2 className="text-lg font-semibold text-white">Generating your feedback report</h2>
+        <p aria-live="polite" className="mt-2 text-sm text-slate-300" role="status">
+          {interview.feedback_status === 'pending'
+            ? 'Your session is queued for analysis.'
+            : "We're transcribing and analyzing your session. This can take a few minutes."}
+        </p>
+        {props.isPolling ? (
+          <p className="mt-2 text-xs text-slate-500">Automatically checking for updates…</p>
+        ) : null}
+        {props.hasReachedPollingDeadline ? (
+          <div className="mt-4">
+            <p className="text-sm text-amber-200">This is taking longer than expected.</p>
+            <button
+              className="mt-2 inline-flex rounded-md border border-slate-700 px-3 py-1.5 text-sm font-medium text-slate-200 transition hover:bg-slate-800"
+              onClick={props.onRefresh}
+              type="button"
+            >
+              Check again
+            </button>
+          </div>
+        ) : null}
+      </section>
+    )
   }
 
-  const knownKeys = new Set(['overall_score', 'strengths', 'improvements'])
-  const fallbackEntries = Object.entries(props.feedback).filter(
-    ([key]) => !knownKeys.has(key),
-  )
+  if (interview.feedback_status === 'failed') {
+    return (
+      <section className="rounded-xl border border-amber-900 bg-amber-950/30 p-6" role="alert">
+        <h2 className="text-lg font-semibold text-white">We couldn&apos;t generate your report</h2>
+        <p className="mt-2 text-sm text-amber-100">
+          {describeFeedbackErrorCode(interview.feedback_error_code)} This sometimes resolves
+          automatically — check back later, or contact support if it persists.
+        </p>
+        <button
+          className="mt-4 inline-flex rounded-md border border-amber-700 px-3 py-1.5 text-sm font-medium text-amber-100 transition hover:bg-amber-900/40"
+          onClick={props.onRefresh}
+          type="button"
+        >
+          Check again
+        </button>
+      </section>
+    )
+  }
 
-  return (
-    <div className="mt-4 flex flex-col gap-5">
-      {props.feedback.overall_score !== undefined ? (
-        <div>
-          <p className="text-xs uppercase tracking-wide text-slate-400">Overall score</p>
-          <p className="mt-1 text-3xl font-semibold text-emerald-300">
-            {String(props.feedback.overall_score)}
-          </p>
-        </div>
-      ) : null}
-      <FeedbackList title="Strengths" value={props.feedback.strengths} />
-      <FeedbackList title="Improvements" value={props.feedback.improvements} />
-      {fallbackEntries.length > 0 ? (
-        <dl className="grid gap-3">
-          {fallbackEntries.map(function mapEntry([key, value]) {
-            return (
-              <div className="rounded-lg border border-slate-800 bg-slate-950/70 p-3" key={key}>
-                <dt className="text-xs uppercase tracking-wide text-slate-400">{key}</dt>
-                <dd className="mt-1 whitespace-pre-wrap text-sm text-slate-200">
-                  {formatFeedbackValue(value)}
-                </dd>
-              </div>
-            )
-          })}
-        </dl>
-      ) : null}
-    </div>
-  )
-}
-
-function FeedbackList(props: { title: string; value: unknown }) {
-  if (!Array.isArray(props.value) || props.value.length === 0) return null
-
-  return (
-    <div>
-      <h3 className="text-sm font-semibold text-white">{props.title}</h3>
-      <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-slate-300">
-        {props.value.map(function mapItem(item, index) {
-          return <li key={`${props.title}-${index}`}>{String(item)}</li>
-        })}
-      </ul>
-    </div>
-  )
-}
-
-function AssetsPanel(props: { interview: InterviewDetail }) {
-  const screenshots = props.interview.screenshot_urls ?? []
+  if (interview.feedback_status === 'ready' && interview.feedback) {
+    return (
+      <FeedbackScoreReport
+        feedback={interview.feedback}
+        generatedAt={interview.feedback_generated_at}
+        promptVersion={interview.feedback_prompt_version}
+        recordingStatus={interview.recording_status}
+        recordingUrl={props.recordingUrl}
+        screenshotUrls={props.screenshotUrls}
+        transcript={interview.transcript}
+      />
+    )
+  }
 
   return (
     <section className="rounded-xl border border-slate-800 bg-slate-900/50 p-6">
-      <h2 className="text-lg font-semibold text-white">Session assets</h2>
-      {props.interview.recording_url ? (
-        <a
-          className="mt-3 inline-flex text-sm font-medium text-emerald-200 underline-offset-4 hover:underline"
-          href={props.interview.recording_url}
-          rel="noreferrer"
-          target="_blank"
-        >
-          Open recording
-        </a>
-      ) : null}
-      {screenshots.length > 0 ? (
-        <ul className="mt-4 flex flex-col gap-2">
-          {screenshots.map(function mapScreenshot(url, index) {
-            return (
-              <li key={url}>
-                <a
-                  className="text-sm font-medium text-emerald-200 underline-offset-4 hover:underline"
-                  href={url}
-                  rel="noreferrer"
-                  target="_blank"
-                >
-                  Screenshot {index + 1}
-                </a>
-              </li>
-            )
-          })}
-        </ul>
-      ) : null}
+      <h2 className="text-lg font-semibold text-white">Feedback not available</h2>
+      <p className="mt-2 text-sm text-slate-300">
+        {describeFeedbackUnavailableReason(interview.feedback_unavailable_reason)}
+      </p>
     </section>
   )
-}
-
-function sanitizeMessage(message: string): string {
-  if (message.includes('://')) return 'Unable to load feedback. Please try again.'
-  return message
-}
-
-function formatFeedbackValue(value: unknown): string {
-  if (typeof value === 'string') return value
-  return JSON.stringify(value, null, 2)
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value)
 }

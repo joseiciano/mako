@@ -5,6 +5,7 @@ import {
   cancelInterview,
   createInterview,
   endInterview,
+  fetchFeedbackStatus,
   fetchInterviews,
   invalidateInterviewSurfaces,
   interviewsQueryRootKey,
@@ -644,6 +645,64 @@ describe('use-interviews data layer', function useInterviewsSuite() {
 
     await expect(fetchInterviewDetail(fetchSpy, 'not-a-uuid')).rejects.toThrow()
     expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it('carries the HTTP status on a failed detail fetch for participant-safe handling', async function run() {
+    await expect(
+      fetchInterviewDetail(
+        async function mockFetch() {
+          return new Response(JSON.stringify({ error: 'Interview not found' }), {
+            status: 404,
+            headers: { 'content-type': 'application/json' },
+          })
+        },
+        '11111111-1111-4111-8111-111111111111',
+      ),
+    ).rejects.toMatchObject({ status: 404 })
+  })
+
+  describe('fetchFeedbackStatus', function feedbackStatusSuite() {
+    it('fetches the narrow feedback-status payload', async function run() {
+      vi.stubEnv('VITE_AUTH_BASE_URL', 'https://api.test.local/api/auth')
+
+      const result = await fetchFeedbackStatus(
+        async function mockFetch(input, init) {
+          expect(input).toBe(
+            'https://api.test.local/api/interviews/11111111-1111-4111-8111-111111111111/feedback-status',
+          )
+          expect(init?.method).toBe('GET')
+          expect(init?.credentials).toBe('include')
+          return new Response(
+            JSON.stringify({
+              feedback_status: 'processing',
+              feedback_unavailable_reason: null,
+              feedback_error_code: null,
+              schema_version: null,
+              prompt_version: null,
+              updated_at: '2026-04-13T11:00:00.000Z',
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } },
+          )
+        },
+        '11111111-1111-4111-8111-111111111111',
+      )
+
+      expect(result.feedback_status).toBe('processing')
+    })
+
+    it('throws an ApiError carrying the HTTP status on failure', async function run() {
+      await expect(
+        fetchFeedbackStatus(
+          async function mockFetch() {
+            return new Response(JSON.stringify({ error: 'Interview not found' }), {
+              status: 404,
+              headers: { 'content-type': 'application/json' },
+            })
+          },
+          '11111111-1111-4111-8111-111111111111',
+        ),
+      ).rejects.toMatchObject({ status: 404, message: 'Interview not found' })
+    })
   })
 
   it('provisions an interview via POST', async function run() {
