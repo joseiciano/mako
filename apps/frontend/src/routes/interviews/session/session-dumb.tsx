@@ -39,6 +39,7 @@ export type SessionDumbProps = {
   lifecycleControls: LifecycleControls
   timer: SessionTimerState
   lifecycleErrorMessage: string | null
+  whiteboardCaptureWarningMessage: string | null
   isStartingSession: boolean
   isEndingSession: boolean
   onJoin: () => void
@@ -239,6 +240,7 @@ function LifecyclePanel(props: SessionDumbProps) {
     lifecycleControls,
     timer,
     lifecycleErrorMessage,
+    whiteboardCaptureWarningMessage,
     isStartingSession,
     isEndingSession,
     onStartSession,
@@ -309,6 +311,15 @@ function LifecyclePanel(props: SessionDumbProps) {
           role="alert"
         >
           <p>{lifecycleErrorMessage}</p>
+        </div>
+      )}
+
+      {whiteboardCaptureWarningMessage && (
+        <div
+          className="mt-3 rounded-lg border border-amber-900 bg-amber-950/40 p-3 text-sm text-amber-200"
+          role="alert"
+        >
+          <p>{whiteboardCaptureWarningMessage}</p>
         </div>
       )}
     </div>
