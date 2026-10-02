@@ -205,16 +205,24 @@ describe('AccountService', function suite() {
     await service.deleteAccount(activeSession)
 
     expect(capturedPersistOutboxEvent).toBeDefined()
+    // softDeleteAccount (invoked by the mock cancel() above) already persisted
+    // the Story 5.15 privacy-cleanup outbox event once.
+    expect(persistOutboxEvent).toHaveBeenCalledTimes(1)
+    expect((persistOutboxEvent.mock.calls as unknown[][])[0]![0]).toMatchObject({
+      event_type: 'account.privacy_cleanup_requested',
+      user_id: activeSession.userId,
+    })
+
     const txExecutor = createDeleteQueryExecutor({ didDelete: true })
     await capturedPersistOutboxEvent!(
       { event_type: 'interview.cancelled' },
       txExecutor,
     )
-    expect(persistOutboxEvent).toHaveBeenCalledTimes(1)
-    expect((persistOutboxEvent.mock.calls as unknown[][])[0]![0]).toMatchObject({
+    expect(persistOutboxEvent).toHaveBeenCalledTimes(2)
+    expect((persistOutboxEvent.mock.calls as unknown[][])[1]![0]).toMatchObject({
       event_type: 'interview.cancelled',
     })
-    expect((persistOutboxEvent.mock.calls as unknown[][])[0]![1]).toBe(txExecutor)
+    expect((persistOutboxEvent.mock.calls as unknown[][])[1]![1]).toBe(txExecutor)
   })
 
   it('deleteAccount does not soft delete the account when premium cancellation fails', async function run() {
@@ -323,6 +331,50 @@ describe('AccountService', function suite() {
     )
   })
 
+  it('deleteAccount persists a privacy-cleanup outbox event atomically with the soft delete', async function run() {
+    const cancelUpcomingInterviewsForUser = vi.fn(async function cancel(input: {
+      userId: string
+      persistOutboxEvent: (event: unknown, queryExecutor: SqlQueryExecutor) => Promise<void>
+      softDeleteAccount?: (queryExecutor: SqlQueryExecutor) => Promise<void>
+    }) {
+      const mockExecutor = createDeleteQueryExecutor({ didDelete: true })
+      if (input.softDeleteAccount) {
+        await input.softDeleteAccount(mockExecutor)
+      }
+      return { outcome: 'cancelled', count: 0 }
+    })
+    const premiumCancellationService = {
+      cancelUpcomingInterviewsForUser,
+    } as unknown as PremiumCancellationService
+
+    const accountRepository = new AccountRepository({
+      dataSource: createInMemoryAccountDataSource([]),
+      queryExecutor: createDeleteQueryExecutor({ didDelete: true }),
+    })
+
+    const persistOutboxEvent = vi.fn(async function persist() {})
+
+    const service = new AccountService(
+      accountRepository,
+      async function noopCleanupWorkflow() {},
+      undefined,
+      premiumCancellationService,
+      persistOutboxEvent,
+    )
+
+    const result = await service.deleteAccount(activeSession)
+
+    expect(result).toEqual({ success: true })
+    expect(persistOutboxEvent).toHaveBeenCalledTimes(1)
+    const [event, queryExecutor] = (persistOutboxEvent.mock.calls as unknown[][])[0]!
+    expect(event).toMatchObject({
+      event_type: 'account.privacy_cleanup_requested',
+      user_id: activeSession.userId,
+      idempotency_key: `account.privacy_cleanup_requested:${activeSession.userId}`,
+    })
+    expect(queryExecutor).toBeDefined()
+  })
+
   it('deleteAccount passes persistOutboxEvent that receives the transaction queryExecutor', async function run() {
     const receivedArgs: { event: unknown; queryExecutor: unknown }[] = []
     const cancelUpcomingInterviewsForUser = vi.fn(async function cancel(input: {
@@ -361,10 +413,18 @@ describe('AccountService', function suite() {
     const result = await service.deleteAccount(activeSession)
 
     expect(result).toEqual({ success: true })
-    expect(persistOutboxEvent).toHaveBeenCalledTimes(1)
-    expect(receivedArgs).toHaveLength(1)
+    // One call from the mock cancel() simulating an interview.cancelled
+    // outbox event, and one from softDeleteAccount persisting the Story
+    // 5.15 privacy-cleanup outbox event.
+    expect(persistOutboxEvent).toHaveBeenCalledTimes(2)
+    expect(receivedArgs).toHaveLength(2)
     expect(receivedArgs[0]!.event).toEqual({ event_type: 'interview.cancelled' })
     expect(receivedArgs[0]!.queryExecutor).toBeDefined()
+    expect(receivedArgs[1]!.event).toMatchObject({
+      event_type: 'account.privacy_cleanup_requested',
+      user_id: activeSession.userId,
+    })
+    expect(receivedArgs[1]!.queryExecutor).toBeDefined()
   })
 })
 

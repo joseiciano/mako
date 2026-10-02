@@ -2,6 +2,7 @@ import type { AccountProfile, UpdateAccountProfileInput } from '@mako/shared'
 import { employmentRecordInputSchema } from '@mako/shared'
 import type { PremiumCancellationService } from '../premium'
 import type { SqlQueryExecutor } from '../index'
+import { buildAccountPrivacyCleanupRequestedEvent } from '../notification-queue-event-contract'
 import type { DeleteAccountResponse } from './types'
 import { AccountRepository } from './account-repository'
 import {
@@ -76,17 +77,20 @@ export class AccountService {
     // The account stays active if any affected interview cannot be cleanly
     // cancelled or refunded.
     if (this.premiumCancellationService) {
-      const persistOutboxEvent = this.persistOutboxEvent
+      const persistOutboxEvent: (
+        event: unknown,
+        queryExecutor: SqlQueryExecutor,
+      ) => Promise<void> =
+        this.persistOutboxEvent ??
+        async function noOutboxEventPersistence(): Promise<never> {
+          throw new Error(
+            'Outbox event persistence is not configured for account cancellation.',
+          )
+        }
 
       await this.premiumCancellationService.cancelUpcomingInterviewsForUser({
         userId: userSession.userId,
-        persistOutboxEvent: persistOutboxEvent
-          ? persistOutboxEvent
-          : async function noOutboxEventPersistence(): Promise<never> {
-              throw new Error(
-                'Outbox event persistence is not configured for account cancellation.',
-              )
-            },
+        persistOutboxEvent,
         softDeleteAccount: async (queryExecutor) => {
           const didDeleteAccount = await this.accountRepository.deleteAccount(
             userSession.userId,
@@ -98,6 +102,15 @@ export class AccountService {
               'Unable to delete account because it does not exist or is already deleted.',
             )
           }
+
+          // Durable privacy-cleanup outbox event (Story 5.15), persisted
+          // atomically with the soft-delete so the asynchronous raw
+          // artifact/transcript/feedback cleanup always has a durable
+          // record to process, even if this request fails after this point.
+          await persistOutboxEvent(
+            buildAccountPrivacyCleanupRequestedEvent({ userId: userSession.userId }),
+            queryExecutor,
+          )
         },
       })
 

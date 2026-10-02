@@ -90,6 +90,7 @@ export class ScreenshotService {
 
     const now = this.now()
     const captureId = this.createId()
+    const expiresAt = addRetentionDays(now, this.config.retentionDays)
 
     const stored = await this.storagePort.storeScreenshot({
       interviewId: input.interview_id,
@@ -111,6 +112,7 @@ export class ScreenshotService {
         created_at: now,
         updated_at: now,
         max_screenshots: this.config.maxScreenshotsPerInterview,
+        expires_at: expiresAt,
       })
 
       if (insertResult.outcome === 'duplicate') {
@@ -161,4 +163,15 @@ export class ScreenshotService {
       })
     }
   }
+}
+
+/**
+ * Computes the raw-media retention expiry tombstone (Story 5.15) from a
+ * capture timestamp. The scheduled artifact-retention sweep clears the
+ * object once `expires_at` has passed.
+ */
+function addRetentionDays(fromIso: string, retentionDays: number): string {
+  const fromMillis = new Date(fromIso).getTime()
+  const retentionMillis = retentionDays * 24 * 60 * 60 * 1000
+  return new Date(fromMillis + retentionMillis).toISOString()
 }

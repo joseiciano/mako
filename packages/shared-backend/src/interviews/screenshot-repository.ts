@@ -31,6 +31,8 @@ export type InsertScreenshotInput = {
   created_at: string
   updated_at: string
   max_screenshots: number
+  /** Retention expiry tombstone (Story 5.15); 30 days from capture by default. */
+  expires_at: string
 }
 
 export type ScreenshotRepositoryDependencies = {
@@ -65,13 +67,13 @@ export class ScreenshotRepository {
             artifact_kind,
             object_key,
             idempotency_key,
-            content_type,
-            content_size_bytes,
-            capture_timestamp,
+            content_metadata,
+            captured_at,
+            expires_at,
             created_at,
             updated_at
           )
-          SELECT $1, $2, 'screenshot', $3, $4, $5, $6, $7, $8, $8
+          SELECT $1, $2, 'screenshot', $3, $4, $5::jsonb, $6, $7, $8, $8
           WHERE EXISTS (
             SELECT 1 FROM interviews
             WHERE id = $2
@@ -90,9 +92,9 @@ export class ScreenshotRepository {
             artifact_kind,
             object_key,
             idempotency_key,
-            content_type,
-            content_size_bytes,
-            capture_timestamp,
+            content_metadata->>'contentType' AS content_type,
+            COALESCE((content_metadata->>'contentSizeBytes')::bigint, 0)::int AS content_size_bytes,
+            captured_at AS capture_timestamp,
             finalized_at,
             expires_at,
             deleted_at,
@@ -104,9 +106,12 @@ export class ScreenshotRepository {
           input.interview_id,
           input.object_key,
           input.idempotency_key,
-          input.content_type,
-          input.content_size_bytes,
+          JSON.stringify({
+            contentType: input.content_type,
+            contentSizeBytes: input.content_size_bytes,
+          }),
           input.capture_timestamp,
+          input.expires_at,
           input.created_at,
           input.max_screenshots,
         ],
@@ -131,9 +136,9 @@ export class ScreenshotRepository {
             artifact_kind,
             object_key,
             idempotency_key,
-            content_type,
-            content_size_bytes,
-            capture_timestamp,
+            content_metadata->>'contentType' AS content_type,
+            COALESCE((content_metadata->>'contentSizeBytes')::bigint, 0)::int AS content_size_bytes,
+            captured_at AS capture_timestamp,
             finalized_at,
             expires_at,
             deleted_at,

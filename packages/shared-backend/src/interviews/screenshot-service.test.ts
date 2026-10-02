@@ -66,6 +66,7 @@ describe('ScreenshotService', function screenshotServiceSuite() {
       created_at: '2026-04-13T10:00:00.000Z',
       updated_at: '2026-04-13T10:00:00.000Z',
       max_screenshots: 10,
+      expires_at: '2026-05-13T10:00:00.000Z',
     })
     expect(storagePort.storeScreenshot).toHaveBeenCalledTimes(1)
   })
@@ -333,6 +334,7 @@ type MockInsertScreenshot = (
     created_at: string
     updated_at: string
     max_screenshots: number
+    expires_at: string
   },
 ) => Promise<{ outcome: 'inserted' | 'duplicate'; row?: unknown }>
 

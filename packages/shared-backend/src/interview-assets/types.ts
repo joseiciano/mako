@@ -5,6 +5,8 @@ export type ArtifactStorageConfig = {
   maxScreenshotsPerInterview: number
   allowedRecordingContentTypes: readonly string[]
   allowedScreenshotContentTypes: readonly string[]
+  /** MVP raw media retention window in days (Story 5.2); production default is 30. */
+  retentionDays: number
 }
 
 export type ArtifactMetadata = {
@@ -103,6 +105,7 @@ export const DEFAULT_ARTIFACT_STORAGE_CONFIG: ArtifactStorageConfig = {
     'audio/m4a',
   ],
   allowedScreenshotContentTypes: ['image/png'],
+  retentionDays: 30,
 }
 
 export function buildRecordingKey(interviewId: string, recordingId: string): string {

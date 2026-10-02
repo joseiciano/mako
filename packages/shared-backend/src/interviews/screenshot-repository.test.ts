@@ -47,7 +47,7 @@ function createScreenshotRow(
     content_size_bytes: 1024,
     capture_timestamp: '2026-04-13T10:00:00.000Z',
     finalized_at: null,
-    expires_at: null,
+    expires_at: '2026-05-13T10:00:00.000Z',
     deleted_at: null,
     created_at: '2026-04-13T10:00:00.000Z',
     updated_at: '2026-04-13T10:00:00.000Z',
@@ -77,6 +77,7 @@ describe('ScreenshotRepository', function screenshotRepositorySuite() {
       created_at: '2026-04-13T10:00:00.000Z',
       updated_at: '2026-04-13T10:00:00.000Z',
       max_screenshots: 10,
+      expires_at: '2026-05-13T10:00:00.000Z',
     })
 
     expect(result.outcome).toBe('inserted')
@@ -109,6 +110,7 @@ describe('ScreenshotRepository', function screenshotRepositorySuite() {
       created_at: '2026-04-13T10:00:00.000Z',
       updated_at: '2026-04-13T10:00:00.000Z',
       max_screenshots: 10,
+      expires_at: '2026-05-13T10:00:00.000Z',
     })
 
     expect(result.outcome).toBe('duplicate')
