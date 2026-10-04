@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 7: Interviewer Verification & Premium Matching
 **Description**: Build the admin review page at `/admin/reviews` as a master-detail view with status filtering, offset pagination, guarded decisions, and conditional admin navigation derived from the canonical session's `isAdmin`.
-**Status**: Todo
+**Status**: Completed
 
 ## What Needs to Be Done
 
