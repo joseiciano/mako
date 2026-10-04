@@ -22,6 +22,15 @@ export default function SettingsPage() {
           Profile
         </Link>
 
+        {accountQuery.isSuccess && !isVerifiedInterviewer && (
+          <Link
+            to="/settings/interviewer-application"
+            className="text-sm text-blue-400 hover:text-blue-300 hover:underline"
+          >
+            Become a verified interviewer
+          </Link>
+        )}
+
         {isVerifiedInterviewer && (
           <Link
             to="/settings/interviewer-availability"

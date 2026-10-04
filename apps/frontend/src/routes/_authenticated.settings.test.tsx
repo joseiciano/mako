@@ -65,6 +65,33 @@ describe('SettingsPage', function suite() {
     expect(screen.queryByText('Interviewer Availability')).toBeNull()
   })
 
+  it('links non-verified users to the interviewer application page', function run() {
+    useAccountMock.mockReturnValue({
+      data: { isVerifiedInterviewer: false },
+      isSuccess: true,
+      isLoading: false,
+      isError: false,
+      error: null,
+    })
+
+    renderWithQueryClient(<SettingsPage />)
+    const link = screen.getByText('Become a verified interviewer').closest('a')
+    expect(link?.getAttribute('href')).toBe('/settings/interviewer-application')
+  })
+
+  it('hides the application link for verified interviewers', function run() {
+    useAccountMock.mockReturnValue({
+      data: { isVerifiedInterviewer: true },
+      isSuccess: true,
+      isLoading: false,
+      isError: false,
+      error: null,
+    })
+
+    renderWithQueryClient(<SettingsPage />)
+    expect(screen.queryByText('Become a verified interviewer')).toBeNull()
+  })
+
   it('hides interviewer availability link while account is loading', function run() {
     useAccountMock.mockReturnValue({
       data: undefined,
