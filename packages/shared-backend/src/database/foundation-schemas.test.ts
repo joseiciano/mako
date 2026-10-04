@@ -162,6 +162,42 @@ describe('interviewerApplicationRowSchema', function interviewerApplicationRowSc
     ).toBe(true)
   })
 
+  it('parses null reviewed_at for pending rows and defaults a missing column to null', function parsesNullReviewedAt() {
+    expect(
+      interviewerApplicationRowSchema.parse({ ...baseRow, reviewed_at: null }).reviewed_at,
+    ).toBeNull()
+    expect(interviewerApplicationRowSchema.parse(baseRow).reviewed_at).toBeNull()
+  })
+
+  it.each(['approved', 'rejected'])(
+    'parses populated reviewed_at for %s rows (string and Date)',
+    function parsesPopulatedReviewedAt(status) {
+      const reviewedRow = {
+        ...baseRow,
+        status,
+        reviewed_by: 'a1b2c3d4-e5f6-4a7b-8c9d-0e1f2a3b4c5d',
+      }
+      expect(
+        interviewerApplicationRowSchema.parse({
+          ...reviewedRow,
+          reviewed_at: '2026-08-08T10:00:00.000Z',
+        }).reviewed_at,
+      ).toBe('2026-08-08T10:00:00.000Z')
+      expect(
+        interviewerApplicationRowSchema.parse({
+          ...reviewedRow,
+          reviewed_at: new Date('2026-08-08T10:00:00.000Z'),
+        }).reviewed_at,
+      ).toBe('2026-08-08T10:00:00.000Z')
+    },
+  )
+
+  it('rejects an invalid reviewed_at', function rejectsInvalidReviewedAt() {
+    expect(
+      interviewerApplicationRowSchema.safeParse({ ...baseRow, reviewed_at: 'yesterday' }).success,
+    ).toBe(false)
+  })
+
   it('rejects a non-array employment_history', function rejectsNonArrayEmploymentHistory() {
     expect(
       interviewerApplicationRowSchema.safeParse({

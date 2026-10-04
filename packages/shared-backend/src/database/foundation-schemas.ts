@@ -190,6 +190,9 @@ export const interviewerApplicationRowSchema = z.object({
   employment_history: z.array(persistedEmploymentSnapshotEntrySchema),
   status: interviewerApplicationStatusSchema,
   reviewed_by: z.string().uuid().nullable(),
+  // Decision timestamp (Story 7.8): null while pending. Defaults to null so
+  // rows selected without the column still parse.
+  reviewed_at: nullableTimestampSchema.default(null),
   created_at: timestampSchema,
   updated_at: timestampSchema,
 })
