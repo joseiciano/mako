@@ -46,7 +46,7 @@ describe('getAuthState', function () {
       user: { id: 'user-1', email: 'user@example.com' },
     }
 
-    expect(getAuthState(payload)).toEqual({
+    expect(getAuthState(payload as unknown as Parameters<typeof getAuthState>[0])).toEqual({
       isAuthenticated: true,
       session: payload.session,
       user: payload.user,

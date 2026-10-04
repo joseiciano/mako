@@ -19,6 +19,7 @@ describe('auth client', function () {
       fetchOptions: {
         credentials: 'include',
       },
+      plugins: expect.any(Array),
     })
   })
 
@@ -35,6 +36,7 @@ describe('auth client', function () {
       fetchOptions: {
         credentials: 'include',
       },
+      plugins: expect.any(Array),
     })
   })
 })

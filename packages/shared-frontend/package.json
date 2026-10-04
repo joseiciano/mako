@@ -16,7 +16,7 @@
   },
   "dependencies": {
     "@mako/shared": "workspace:*",
-    "better-auth": "latest"
+    "better-auth": "1.5.6"
   },
   "devDependencies": {
     "typescript": "^5.8.2"
