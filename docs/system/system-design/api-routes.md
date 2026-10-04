@@ -95,6 +95,40 @@
 
 `InterviewerApplication` is exactly `{ applicationId: UUID, email: string, employmentHistory: { sourceCompanyId: UUID | null, company: string, role: string, start: YYYY-MM-DD, end: YYYY-MM-DD | null }[], status: 'pending' | 'approved' | 'rejected', createdAt: ISO-8601, updatedAt: ISO-8601 }`. Applicant routes do not expose reviewer identity. New submissions always populate a non-null `sourceCompanyId`; null remains read-compatible only for controlled pre-contract data. Both routes set `Cache-Control: private, no-store`.
 
+### Admin Review
+All admin routes are protected by `requireAdmin` (`packages/shared-backend/src/auth/require-admin.ts`): `401` unauthenticated, `403` non-admin. There is no demo/header authorization fallback. Every response from these routes, including `401`/`403`/`4xx`/`5xx`, sets `Cache-Control: private, no-store`. Request/response shapes are the shared Zod schemas in `packages/shared/src/admin-review.ts`.
+
+Failures are classified fail-closed: an unreachable session store or Better Auth session provider, or database unavailability (not configured, connection refused/timeout/terminated, SQLSTATE class `08`, `57P01`-`57P03`, `53300`, `53400`) returns `503 { error: 'Service unavailable' }`; programming or query errors on valid data remain `500`; unauthenticated requests against a healthy runtime remain `401`.
+
+- **`GET /api/admin/applications`**
+  - **Description**: Lists interviewer applications for review.
+  - **Query Params**: `status` = `pending | approved | rejected` (default `pending`); `limit` integer `1..100` (default `25`); `offset` non-negative integer (default `0`).
+  - **Response Body**: `{ applications: AdminApplicationSummary[], pagination: { limit: number, offset: number, hasMore: boolean } }`
+  - **Status Codes**: `200`; `400` invalid query (`limit` outside `1..100`, negative/non-integer/non-numeric `offset` or `limit`, malformed `status`); `401`; `403`; `503`.
+  - **Behavior Rules**: Offset pagination (not cursor). Ordering is stable oldest-first `created_at ASC, id ASC`. `hasMore` is computed by fetching `limit + 1` rows. Summaries never include `employmentHistory` or `reviewedBy`.
+
+- **`GET /api/admin/applications/:id`**
+  - **Description**: Returns one application with its employment snapshot and reviewer.
+  - **Response Body**: `{ application: AdminApplicationDetail }`
+  - **Status Codes**: `200`; `400` malformed id; `401`; `403`; `404` unknown id; `503`.
+
+- **`PATCH /api/admin/applications/:id`**
+  - **Description**: Atomically approves or rejects a pending application.
+  - **Request Body**: `{ decision: 'approved' | 'rejected' }` (strict; no reason/note field in MVP).
+  - **Response Body**: `{ application: AdminApplicationDetail }`
+  - **Status Codes**: `200`; `400` invalid JSON/body/id; `401`; `403` non-admin or self-review (`applicant.userId` equals the acting admin); `404` unknown application; `409` non-pending, concurrent loser, approval of a deleted applicant, or exhausted transaction retries; `503`.
+  - **Behavior Rules**:
+    - One transaction: guarded `UPDATE ... WHERE status = 'pending'` sets `status`, `reviewed_by` (always the acting admin), `reviewed_at`, and `updated_at` together. First concurrent decision wins; the other receives `409`.
+    - `approved` also sets `"user".companies = true` in the same transaction (idempotent when already `true`). If the applicant account is inactive/deleted the whole transaction rolls back and returns `409`.
+    - `rejected` never mutates the applicant `"user"` row and is allowed for deleted applicants.
+    - Retryable conflicts (`40001`, `40P01`) are retried with three total attempts.
+    - No applicant notification is sent in this story.
+
+Shapes:
+- `AdminApplicationSummary` = `{ applicationId: UUID, applicant: { userId: UUID, name: string, email: string, isAccountDeleted: boolean }, status, createdAt: ISO-8601, reviewedAt: ISO-8601 | null }`.
+- `AdminApplicationDetail` = summary fields plus `employmentHistory: { sourceCompanyId: UUID | null, company: string, role: string, start: YYYY-MM-DD, end: YYYY-MM-DD | null }[]` (immutable submission snapshot; `sourceCompanyId` null only for legacy applications) and `reviewedBy: { userId: UUID, name: string, email: string } | null`.
+- `applicant.name` is the current account name, `applicant.email` is the email stored on the application, and `reviewedBy` is the reviewer's current account identity.
+
 ### Payments & Credits
 - **`GET /api/payments/packages`**
   - **Description**: Returns the list of available credit packages (server-side source of truth for price-to-credit mapping). Authenticated route.
