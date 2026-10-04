@@ -63,7 +63,7 @@ This document outlines the high-level milestones for the Mako platform, breaking
 **Objective**: Enable the "Premium" tier with verified professional interviewers.
 
 - **Interviewer Application**: Build the onboarding flow for users to apply as verified interviewers; delivered first, before admin review.
-- **Admin Review**: Internal status management for approving/rejecting applications, via a single server-owned admin boolean; delivered after the interviewer application flow.
+- **Admin Review**: Internal status management for approving/rejecting applications, via a single server-owned admin boolean; delivered after the interviewer application flow. The admin review API (list, detail, and atomic approve/reject that sets `"user".companies = true`, with offset pagination and fail-closed `503` semantics) is delivered in Story 7.8.
 - **Employment Verification**: Use canonical profile employment records to create immutable application snapshots; manual application review remains the account-level verification decision, with no per-company or external verification flow in the MVP.
 - **Premium Scheduling**: Match schedulers with verified premium interviewers through a first-to-claim marketplace of exact 60-minute slots, delivered in ordered phases from availability publishing through discovery/claim to the scheduler booking UI. The marketplace is a first-to-claim model: verified interviewers publish exact 60-minute slots as inventory, and schedulers browse the public marketplace and claim one slot, paying exactly one credit (no free-Standard quota fallback).
 - **Booking Channel**: Introduce `booking_channel = 'verified_interviewer'` safely via additive expansion and later contraction, leaving existing channels unchanged.
