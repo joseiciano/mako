@@ -100,7 +100,7 @@ describe.skipIf(!isSafeTestDatabase)('admin application review (real Postgres)',
 
   beforeAll(async function applyMigration() {
     const sql = await readFile(
-      new URL('../../migrations/20260902120000_add_application_reviewed_at.sql', import.meta.url),
+      new URL('../../migrations/20261115020000_add_application_reviewed_at.sql', import.meta.url),
       'utf8',
     )
     await pool.query(sql)
