@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 7: Interviewer Verification & Premium Matching
 **Description**: Add the `interviews.booking_channel` channel discriminator as a **backward-compatible, first-deployment expansion** that adds a **nullable** column plus CHECK constraint, backfills every existing row, and updates every AI/matcher writer plus every read/parser/mapper with a transitional fallback so older and newer Workers coexist. The column is intentionally **not** set `NOT NULL` in this ticket; the contraction to `NOT NULL` is owned by Story 7.11 after the old Workers are deployed and drained.
-**Status**: Todo
+**Status**: Completed
 
 ## What Needs to Be Done
 
