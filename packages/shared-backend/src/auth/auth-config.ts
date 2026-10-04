@@ -4,6 +4,7 @@ import { createPostgresConnectionPool } from '../database/postgres-connection-po
 export type BetterAuthSessionUser = {
   id: string
   email: string
+  isAdmin: boolean
 } & Record<string, unknown>
 
 export type BetterAuthSessionState = Record<string, unknown>
@@ -52,6 +53,17 @@ export function createBetterAuth(options: CreateBetterAuthOptions): BetterAuthLi
       : undefined,
     emailAndPassword: {
       enabled: true,
+    },
+    user: {
+      additionalFields: {
+        isAdmin: {
+          type: 'boolean',
+          required: true,
+          defaultValue: false,
+          input: false,
+          returned: true,
+        },
+      },
     },
     advanced: {
       database: {

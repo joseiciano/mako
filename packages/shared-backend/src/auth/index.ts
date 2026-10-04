@@ -19,3 +19,4 @@ export {
   isAuthConfigured,
   type AuthSessionMiddlewareOptions,
 } from './auth-middleware'
+export { requireAdmin } from './require-admin'

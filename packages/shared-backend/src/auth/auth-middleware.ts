@@ -61,7 +61,8 @@ export function getAuthUserFromContext(
     return null
   }
 
-  return user
+  // Fail closed: a missing or non-boolean flag is never trusted as admin.
+  return { ...user, isAdmin: user.isAdmin === true }
 }
 
 export function getAuthSessionFromContext(

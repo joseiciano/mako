@@ -17,6 +17,7 @@ describe('createAuthSessionMiddleware', function () {
           id: '11111111-1111-4111-8111-111111111111',
           email: 'candidate@mako.dev',
           name: 'Candidate',
+          isAdmin: false,
         },
         session: {
           id: 'session-1',
@@ -58,6 +59,7 @@ describe('createAuthSessionMiddleware', function () {
         id: '11111111-1111-4111-8111-111111111111',
         email: 'candidate@mako.dev',
         name: 'Candidate',
+        isAdmin: false,
       },
       session: {
         id: 'session-1',
