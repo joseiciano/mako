@@ -12,7 +12,6 @@ function HomePage() {
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col justify-center gap-6 px-6 py-16">
-      <p className="text-sm uppercase tracking-widest text-emerald-300">Story 3.3 layout integration</p>
       <h1 className="text-4xl font-semibold text-white">Mako Interview Practice</h1>
       <p className="text-slate-300">
         Public pages stay shell-free, while authenticated routes are now mounted in

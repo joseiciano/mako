@@ -9,7 +9,12 @@ export const Route = createFileRoute('/_authenticated')({
       return
     }
 
-    const session = await context.queryClient.fetchQuery(authSessionQueryOptions())
+    let session
+    try {
+      session = await context.queryClient.fetchQuery(authSessionQueryOptions())
+    } catch {
+      return
+    }
 
     if (!getAuthState(session).isAuthenticated) {
       throw redirect({

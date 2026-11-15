@@ -87,4 +87,23 @@ describe('AuthGuardSmart', function () {
     })
     expect(screen.queryByText('Private Content')).not.toBeInTheDocument()
   })
+
+  it('shows the error state and skips the redirect when the session check failed', function () {
+    useAuthMock.mockReturnValue({
+      isPending: false,
+      isAuthenticated: false,
+      session: null,
+      user: null,
+      error: new Error('boom'),
+    })
+
+    render(
+      <AuthGuardSmart>
+        <section>Private Content</section>
+      </AuthGuardSmart>,
+    )
+
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+    expect(navigateMock).not.toHaveBeenCalled()
+  })
 })

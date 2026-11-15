@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 1: Foundation & Authentication
 **Description**: Integrate the App Shell (with canonical desktop sidebar + mobile drawer navigation) into the main routing system and enforce authentication guards.
-**Status**: In-Review
+**Status**: Completed
 **Prerequisite**: [Story 3.2: Mobile Responsive Navigation](./3-2-mobile-nav.md)
 **Last reconciled**: 2026-03-30 (Documentation Drift Resolution Plan)
 
