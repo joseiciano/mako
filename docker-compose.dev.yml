@@ -1,3 +1,5 @@
+name: mako-dev
+
 services:
   postgres-dev:
     image: postgres:16-alpine
