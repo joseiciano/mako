@@ -21,6 +21,32 @@ import {
   readErrorMessage,
 } from '../lib/http-transport'
 
+const UNEXPECTED_RESPONSE_MESSAGE = 'Received an unexpected response from the server.'
+const GENERIC_ERROR_MESSAGE = 'Something went wrong.'
+
+export function getAdminErrorStatus(error: unknown): number | undefined {
+  return error instanceof ApiError ? error.status : undefined
+}
+
+// Only ApiError messages are written for display; anything else gets a fixed message.
+export function getAdminErrorMessage(error: unknown): string | null {
+  if (error == null) {
+    return null
+  }
+
+  return error instanceof ApiError ? error.message : GENERIC_ERROR_MESSAGE
+}
+
+function parseAdminResponse<T>(schema: { safeParse: (value: unknown) => { success: true; data: T } | { success: false } }, payload: unknown): T {
+  const result = schema.safeParse(payload)
+
+  if (!result.success) {
+    throw new ApiError(UNEXPECTED_RESPONSE_MESSAGE)
+  }
+
+  return result.data
+}
+
 export const adminApplicationsQueryRootKey = ['admin', 'applications'] as const
 
 // Prefix shared by every list variant so one invalidation covers all of them.
@@ -43,7 +69,9 @@ export function adminApplicationDetailQueryKey(applicationId: string) {
 // Authorization failures (401/403) and conflicts are never retried: they will
 // not resolve by themselves and must surface immediately.
 function shouldRetryAdminRequest(failureCount: number, error: Error): boolean {
-  if (error instanceof ApiError && error.status !== undefined && error.status < 500) {
+  const status = getAdminErrorStatus(error)
+
+  if (status !== undefined && status < 500) {
     return false
   }
 
@@ -123,7 +151,7 @@ export async function fetchAdminApplications(
 
   const payload = await readAdminPayload(response, 'Unable to load applications.')
 
-  return adminListResponseSchema.parse(payload)
+  return parseAdminResponse(adminListResponseSchema, payload)
 }
 
 export async function fetchAdminApplication(
@@ -138,7 +166,7 @@ export async function fetchAdminApplication(
 
   const payload = await readAdminPayload(response, 'Unable to load the application.')
 
-  return adminDetailResponseSchema.parse(payload).application
+  return parseAdminResponse(adminDetailResponseSchema, payload).application
 }
 
 export async function decideAdminApplication(
@@ -160,5 +188,5 @@ export async function decideAdminApplication(
 
   const payload = await readAdminPayload(response, 'Unable to submit the decision.')
 
-  return adminDetailResponseSchema.parse(payload).application
+  return parseAdminResponse(adminDetailResponseSchema, payload).application
 }
