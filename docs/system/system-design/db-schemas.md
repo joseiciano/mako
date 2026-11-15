@@ -465,7 +465,7 @@ Indexes:
 
 ### Interview_Recording_Stop_Handoffs
 
-Durable stop/reconciliation handoff written inside the interview completion transaction (migration `20260921120000`).
+Durable stop/reconciliation handoff written inside the interview completion transaction (migration `20261115030000`).
 
 - **`interview_id`**: `uuid` (Primary Key, Foreign Key -> `interviews.id`, On Delete Cascade) - One handoff per interview; inserted with `ON CONFLICT DO NOTHING`.
 - **`created_at`**: `timestamptz`
