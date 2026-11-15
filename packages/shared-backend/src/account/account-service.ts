@@ -88,31 +88,40 @@ export class AccountService {
           )
         }
 
-      await this.premiumCancellationService.cancelUpcomingInterviewsForUser({
-        userId: userSession.userId,
-        persistOutboxEvent,
-        softDeleteAccount: async (queryExecutor) => {
-          const didDeleteAccount = await this.accountRepository.deleteAccount(
-            userSession.userId,
-            queryExecutor,
-          )
-
-          if (!didDeleteAccount) {
-            throw new AccountNotFoundError(
-              'Unable to delete account because it does not exist or is already deleted.',
+      try {
+        await this.premiumCancellationService.cancelUpcomingInterviewsForUser({
+          userId: userSession.userId,
+          persistOutboxEvent,
+          softDeleteAccount: async (queryExecutor) => {
+            const didDeleteAccount = await this.accountRepository.deleteAccount(
+              userSession.userId,
+              queryExecutor,
             )
-          }
 
-          // Durable privacy-cleanup outbox event (Story 5.15), persisted
-          // atomically with the soft-delete so the asynchronous raw
-          // artifact/transcript/feedback cleanup always has a durable
-          // record to process, even if this request fails after this point.
-          await persistOutboxEvent(
-            buildAccountPrivacyCleanupRequestedEvent({ userId: userSession.userId }),
-            queryExecutor,
-          )
-        },
-      })
+            if (!didDeleteAccount) {
+              throw new AccountNotFoundError(
+                'Unable to delete account because it does not exist or is already deleted.',
+              )
+            }
+
+            // Durable privacy-cleanup outbox event (Story 5.15), persisted
+            // atomically with the soft-delete so the asynchronous raw
+            // artifact/transcript/feedback cleanup always has a durable
+            // record to process, even if this request fails after this point.
+            await persistOutboxEvent(
+              buildAccountPrivacyCleanupRequestedEvent({ userId: userSession.userId }),
+              queryExecutor,
+            )
+          },
+        })
+      } catch (error) {
+        // A retry after a partial failure finds the account already deleted;
+        // still revoke sessions so a deleted account cannot keep a live session.
+        if (error instanceof AccountNotFoundError) {
+          await this.accountRepository.invalidateSessions(userSession.userId)
+        }
+        throw error
+      }
 
       // The premium cancellation transaction already handled every upcoming
       // interview and the soft-delete, so the repository's direct bulk update
