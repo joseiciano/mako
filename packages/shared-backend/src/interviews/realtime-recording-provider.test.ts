@@ -57,8 +57,8 @@ describe('RealtimeKit recording provider', function suite() {
     expect(url.endsWith('/recordings/track')).toBe(true)
     expect(JSON.parse(init.body as string)).toMatchObject({
       user_ids: ['user-1', 'user-2'],
-      max_seconds: 3600,
     })
+    expect(JSON.parse(init.body as string)).not.toHaveProperty('max_seconds')
   })
 
   it('stops a recording with a PUT stop action', async function run() {

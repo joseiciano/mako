@@ -135,7 +135,6 @@ export function createRealtimeKitRecordingProvider(
         {
           meeting_id: input.meetingId,
           user_ids: input.participantUserIds,
-          max_seconds: RECORDING_MAX_SECONDS,
           layers: { default: { media_kind: 'audio' } },
         },
         'participant_track',
