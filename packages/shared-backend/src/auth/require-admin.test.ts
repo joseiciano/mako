@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { describe, expect, it } from 'vitest'
+import { handleUnexpectedError } from '../http'
 import { createAuthSessionMiddleware } from './auth-middleware'
 import { requireAdmin } from './require-admin'
 
@@ -64,9 +65,10 @@ describe('requireAdmin', function () {
     await expect(response.json()).resolves.toEqual({ ok: true })
   })
 
-  it('returns 401 when no auth middleware ran', async function () {
+  it('returns 503 when no usable auth runtime is configured', async function () {
     const app = new Hono()
+    app.onError(handleUnexpectedError)
     app.get('/x', requireAdmin, (c) => c.text('ok'))
-    expect((await app.request('/x')).status).toBe(401)
+    expect((await app.request('/x')).status).toBe(503)
   })
 })

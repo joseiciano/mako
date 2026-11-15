@@ -1,5 +1,6 @@
 import { Hono } from 'hono'
 import { describe, expect, it, vi } from 'vitest'
+import { AuthUnavailableError } from '../http/failure-classification'
 import {
   createAuthSessionMiddleware,
   getAccountSessionFromAuthContext,
@@ -98,5 +99,53 @@ describe('createAuthSessionMiddleware', function () {
       configured: false,
       accountSession: null,
     })
+  })
+
+  function createFailingApp(error: unknown) {
+    const app = new Hono()
+    app.use(
+      '/api/*',
+      createAuthSessionMiddleware({
+        getAuth: function getAuth() {
+          return {
+            handler: vi.fn(),
+            api: {
+              getSession: vi.fn(async function getSession() {
+                throw error
+              }),
+            },
+          } as unknown as BetterAuthLike
+        },
+      }),
+    )
+    app.get('/api/x', (c) => c.text('ok'))
+    return app
+  }
+
+  it('wraps connectivity failures from getSession in AuthUnavailableError', async function () {
+    const cause = Object.assign(new Error('connect failed'), { code: 'ECONNREFUSED' })
+    const app = createFailingApp(cause)
+    let thrown: unknown
+    app.onError(function capture(error) {
+      thrown = error
+      return new Response(null, { status: 503 })
+    })
+
+    expect((await app.request('/api/x')).status).toBe(503)
+    expect(thrown).toBeInstanceOf(AuthUnavailableError)
+    expect((thrown as AuthUnavailableError).cause).toBe(cause)
+  })
+
+  it('rethrows non-connectivity failures from getSession unchanged', async function () {
+    const bug = new TypeError('session bug')
+    const app = createFailingApp(bug)
+    let thrown: unknown
+    app.onError(function capture(error) {
+      thrown = error
+      return new Response(null, { status: 500 })
+    })
+
+    expect((await app.request('/api/x')).status).toBe(500)
+    expect(thrown).toBe(bug)
   })
 })

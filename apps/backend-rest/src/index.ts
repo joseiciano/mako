@@ -5,6 +5,13 @@ import {
 } from '@mako/shared'
 import {
   AccountRepository,
+  AdminApplicationReviewRepository,
+  AdminApplicationReviewService,
+  type AdminReviewLogger,
+  DatabaseUnavailableError,
+  handleUnexpectedError,
+  registerAdminApplicationReviewController,
+  requireAdmin,
   AccountService,
   AiChatRepository,
   AvailabilityRepository,
@@ -187,6 +194,15 @@ const consoleInterviewerApplicationServiceLogger: InterviewerApplicationServiceL
   },
   error(event, context) {
     console.error({ event, component: 'InterviewerApplicationService', ...context })
+  },
+}
+
+const consoleAdminReviewLogger: AdminReviewLogger = {
+  info(event, context) {
+    console.info({ event, component: 'AdminApplicationReview', ...context })
+  },
+  error(event, context) {
+    console.error({ event, component: 'AdminApplicationReview', ...context })
   },
 }
 
@@ -472,6 +488,21 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
     },
   })
 
+  registerAdminApplicationReviewController(app, {
+    guard: requireAdmin,
+    createService: function createService(context) {
+      // Admin review never falls back to demo data: no database means unavailable.
+      if (!hasDatabaseAccess(context.bindings)) {
+        throw new DatabaseUnavailableError()
+      }
+
+      return new AdminApplicationReviewService(
+        new AdminApplicationReviewRepository(createDatabaseQueryExecutor(context.bindings)),
+        consoleAdminReviewLogger,
+      )
+    },
+  })
+
   registerPaymentController(app, {
     createService: function createService(context) {
       const stripe = getStripeClient(context.bindings)
@@ -556,6 +587,9 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
       }
     },
   })
+
+  // Fail closed: auth/session and database unavailability are 503; other errors stay 500.
+  app.onError(handleUnexpectedError)
 
   app.get('/', function rootHandler(c) {
     return c.json({

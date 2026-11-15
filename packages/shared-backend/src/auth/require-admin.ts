@@ -1,10 +1,16 @@
 import type { MiddlewareHandler } from 'hono'
-import { getAuthUserFromContext } from './auth-middleware'
+import { AuthUnavailableError } from '../http/failure-classification'
+import { getAuthUserFromContext, isAuthConfigured } from './auth-middleware'
 
 export const requireAdmin: MiddlewareHandler = async function requireAdmin(
   c,
   next,
 ) {
+  // No usable auth runtime is unavailability (503), not an unauthenticated request (401).
+  if (!isAuthConfigured(c)) {
+    throw new AuthUnavailableError()
+  }
+
   const user = getAuthUserFromContext(c)
 
   if (!user) {
