@@ -1,6 +1,6 @@
 import type { Context, MiddlewareHandler } from 'hono'
 import type { AccountSession } from '../account/types'
-import { AuthUnavailableError } from '../http/failure-classification'
+import { AuthUnavailableError, classifyFailure } from '../http/failure-classification'
 import type {
   BetterAuthLike,
   BetterAuthSessionResult,
@@ -44,8 +44,12 @@ export function createAuthSessionMiddleware<Bindings extends MiddlewareBindings>
       })
     } catch (error) {
       // Fail closed: an unreachable session store/provider is 503, never an
-      // unauthenticated or demo fallback.
-      throw new AuthUnavailableError({ cause: error })
+      // unauthenticated or demo fallback. Other errors are bugs and stay 500.
+      if (classifyFailure(error) === 'unavailable') {
+        throw new AuthUnavailableError({ cause: error })
+      }
+
+      throw error
     }
 
     setAuthContext(c, {
