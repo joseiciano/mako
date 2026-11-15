@@ -1,5 +1,7 @@
 import {
   createRealtimeKitRecordingProvider,
+  RecordingControlRepository,
+  RecordingControlService,
   RecordingStopRepository,
   RecordingStopService,
   type SqlQueryExecutor,
@@ -13,20 +15,39 @@ type RecordingStopBindings = {
 
 export type RecordingStopHandoffProcessor = Pick<
   RecordingStopService,
-  'processStopHandoff' | 'sweepStopHandoffs'
+  'processStopHandoff' | 'sweepStopHandoffs' | 'sweepOverdueRecordings'
 >
+
+export type RecordingStartSweeper = Pick<RecordingControlService, 'sweepStalePendingClaims'>
+
+function hasRealtimeKitCredentials(env: RecordingStopBindings): boolean {
+  return Boolean(
+    env.CLOUDFLARE_ACCOUNT_ID && env.CLOUDFLARE_API_TOKEN && env.CLOUDFLARE_REALTIMEKIT_APP_ID,
+  )
+}
+
+export function createRecordingStartSweeper(
+  env: RecordingStopBindings,
+  queryExecutor: SqlQueryExecutor,
+): RecordingStartSweeper | undefined {
+  if (!hasRealtimeKitCredentials(env)) return undefined
+
+  return new RecordingControlService(
+    new RecordingControlRepository(queryExecutor),
+    createRealtimeKitRecordingProvider(env),
+    {
+      error(event, context) {
+        console.error({ event, component: 'RecordingControl', ...context })
+      },
+    },
+  )
+}
 
 export function createRecordingStopProcessor(
   env: RecordingStopBindings,
   queryExecutor: SqlQueryExecutor,
 ): RecordingStopHandoffProcessor | undefined {
-  if (
-    !env.CLOUDFLARE_ACCOUNT_ID ||
-    !env.CLOUDFLARE_API_TOKEN ||
-    !env.CLOUDFLARE_REALTIMEKIT_APP_ID
-  ) {
-    return undefined
-  }
+  if (!hasRealtimeKitCredentials(env)) return undefined
 
   return new RecordingStopService(
     new RecordingStopRepository(queryExecutor),

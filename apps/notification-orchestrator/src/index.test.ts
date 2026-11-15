@@ -507,7 +507,8 @@ describe('notification-orchestrator queue handler', function queueHandlerSuite()
           order.push('stop')
           return 'processed' as const
         }),
-        sweepStopHandoffs: vi.fn(async () => 0),
+        sweepStopHandoffs: vi.fn(async () => [] as string[]),
+        sweepOverdueRecordings: vi.fn(async () => 0),
       }
       const { worker } = createTestWorker({ recordingStop })
       const feedbackWorkflow = createMockFeedbackWorkflow()
@@ -527,7 +528,8 @@ describe('notification-orchestrator queue handler', function queueHandlerSuite()
     it('retries the message and skips feedback handoff while recording stop is pending', async function run() {
       const recordingStop = {
         processStopHandoff: vi.fn(async () => 'retry' as const),
-        sweepStopHandoffs: vi.fn(async () => 0),
+        sweepStopHandoffs: vi.fn(async () => [] as string[]),
+        sweepOverdueRecordings: vi.fn(async () => 0),
       }
       const { worker } = createTestWorker({ recordingStop })
       const feedbackWorkflow = createMockFeedbackWorkflow()
@@ -538,6 +540,40 @@ describe('notification-orchestrator queue handler', function queueHandlerSuite()
       expect(batch.retried).toContain('msg-1')
       expect(batch.acked).toHaveLength(0)
       expect(feedbackWorkflow.createBatch).not.toHaveBeenCalled()
+    })
+
+    it('triggers feedback after the queue retries are exhausted even if the provider stop still fails', async function run() {
+      const recordingStop = {
+        processStopHandoff: vi.fn(async () => 'retry' as const),
+        sweepStopHandoffs: vi.fn(async () => [] as string[]),
+        sweepOverdueRecordings: vi.fn(async () => 0),
+      }
+      const { worker } = createTestWorker({ recordingStop })
+      const feedbackWorkflow = createMockFeedbackWorkflow()
+      const batch = createMockBatch([createMockMessage('msg-1', completedEventBody, 3)])
+
+      await worker.queue(batch, createMockEnvWithFeedback(feedbackWorkflow))
+
+      expect(batch.acked).toContain('msg-1')
+      expect(feedbackWorkflow.createBatch).toHaveBeenCalledTimes(1)
+    })
+
+    it('triggers feedback even when the stop processor throws on the final attempt', async function run() {
+      const recordingStop = {
+        processStopHandoff: vi.fn(async () => {
+          throw new Error('db down')
+        }),
+        sweepStopHandoffs: vi.fn(async () => [] as string[]),
+        sweepOverdueRecordings: vi.fn(async () => 0),
+      }
+      const { worker } = createTestWorker({ recordingStop })
+      const feedbackWorkflow = createMockFeedbackWorkflow()
+      const batch = createMockBatch([createMockMessage('msg-1', completedEventBody, 3)])
+
+      await worker.queue(batch, createMockEnvWithFeedback(feedbackWorkflow))
+
+      expect(batch.acked).toContain('msg-1')
+      expect(feedbackWorkflow.createBatch).toHaveBeenCalledTimes(1)
     })
 
     it('interview.completed idempotency - duplicate events trigger same workflow instance', async function run() {
@@ -660,6 +696,28 @@ describe('notification-orchestrator scheduled handler', function scheduledHandle
       scheduled_at: '2026-05-22T14:00:00.000Z',
       reminder_due_at: '2026-05-22T10:00:00.000Z',
     })
+  })
+
+  it('sweep triggers feedback for handoffs it finishes, stops overdue recordings and retries stale pending starts', async function run() {
+    const recordingStop = {
+      processStopHandoff: vi.fn(async () => 'processed' as const),
+      sweepStopHandoffs: vi.fn(async () => ['int-swept']),
+      sweepOverdueRecordings: vi.fn(async () => 0),
+    }
+    const recordingStart = { sweepStalePendingClaims: vi.fn(async () => 0) }
+    const { worker } = createTestWorker({ recordingStop, recordingStart })
+    const feedbackWorkflow = createMockFeedbackWorkflow()
+
+    await worker.scheduled(
+      { scheduledTime: Date.now(), cron: '*/5 * * * *', noRetry() {} } as never,
+      createMockEnvWithFeedback(feedbackWorkflow),
+    )
+
+    expect(feedbackWorkflow.createBatch).toHaveBeenCalledWith([
+      { id: 'feedback-v1-int-swept', params: { interview_id: 'int-swept', schema_version: 1 } },
+    ])
+    expect(recordingStop.sweepOverdueRecordings).toHaveBeenCalledWith({ maxAgeSeconds: 3600, limit: 20 })
+    expect(recordingStart.sweepStalePendingClaims).toHaveBeenCalledWith({ limit: 20 })
   })
 
   it('handles missing hyperdrive gracefully', async function run() {
@@ -1108,7 +1166,11 @@ function createTestWorker(options?: {
   releaseRejectsWith?: Error
   recordingStop?: {
     processStopHandoff: (interviewId: string) => Promise<'processed' | 'no_handoff' | 'retry'>
-    sweepStopHandoffs: (input: { olderThan: string; limit: number }) => Promise<number>
+    sweepStopHandoffs: (input: { olderThan: string; limit: number }) => Promise<string[]>
+    sweepOverdueRecordings: (input: { maxAgeSeconds: number; limit: number }) => Promise<number>
+  }
+  recordingStart?: {
+    sweepStalePendingClaims: (input: { limit: number }) => Promise<number>
   }
 }) {
   const queueSentMessages: NotificationTransportMessage[] = []
@@ -1174,6 +1236,9 @@ function createTestWorker(options?: {
     console: mockConsole,
     createRecordingStopProcessor: options?.recordingStop
       ? () => options.recordingStop
+      : undefined,
+    createRecordingStartSweeper: options?.recordingStart
+      ? () => options.recordingStart
       : undefined,
   })
 
