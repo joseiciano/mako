@@ -1,7 +1,7 @@
 # Story 4.1: Better Auth Backend & Database Setup
 **Milestone**: Milestone 1: Foundation & Authentication
 **Description**: Initialize Better Auth on the backend with Postgres and configure the core authentication handler.
-**Status**: In-Review
+**Status**: Completed
 
 ## What Needs to Be Done
 
