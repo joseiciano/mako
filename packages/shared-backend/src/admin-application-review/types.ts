@@ -5,7 +5,12 @@ import type {
   AdminDecision,
 } from '@mako/shared'
 import { z } from 'zod'
-import { persistedEmploymentSnapshotEntrySchema } from '../database/foundation-schemas'
+import {
+  interviewerApplicationStatusSchema,
+  nullableTimestampSchema,
+  persistedEmploymentSnapshotEntrySchema,
+  timestampSchema,
+} from '../database/foundation-schemas'
 
 export type AdminActor = {
   userId: string
@@ -32,27 +37,30 @@ export class AdminReviewConflictError extends Error {
   }
 }
 
+/** Request input (id, body, query) failed validation. Only this maps to 400. */
+export class AdminReviewValidationError extends Error {
+  readonly issues: unknown[]
+
+  constructor(issues: unknown[]) {
+    super('Invalid request')
+    this.name = 'AdminReviewValidationError'
+    this.issues = issues
+  }
+}
+
 export type AdminReviewLogger = {
   info(event: string, context: Record<string, unknown>): void
   error(event: string, context: Record<string, unknown>): void
 }
-
-const timestampValueSchema = z
-  .union([z.string(), z.date()])
-  .transform(function toIso(value) {
-    return value instanceof Date ? value.toISOString() : new Date(value).toISOString()
-  })
-
-const applicationStatusSchema = z.enum(['pending', 'approved', 'rejected'])
 
 // Joined summary row for the review list.
 export const adminApplicationSummaryRowSchema = z.object({
   id: z.string().uuid(),
   user_id: z.string().uuid(),
   email: z.string(),
-  status: applicationStatusSchema,
-  created_at: timestampValueSchema,
-  reviewed_at: timestampValueSchema.nullable(),
+  status: interviewerApplicationStatusSchema,
+  created_at: timestampSchema,
+  reviewed_at: nullableTimestampSchema,
   applicant_name: z.string(),
   applicant_is_deleted: z.boolean(),
 })
@@ -124,15 +132,25 @@ export function toAdminApplicationDetail(rowInput: unknown): AdminApplicationDet
       }
     }),
     status: row.status,
-    reviewedBy:
-      row.reviewed_by === null
-        ? null
-        : {
-            userId: row.reviewed_by,
-            name: row.reviewer_name ?? '',
-            email: row.reviewer_email ?? '',
-          },
+    reviewedBy: toReviewer(row),
     createdAt: row.created_at,
     reviewedAt: row.reviewed_at,
+  }
+}
+
+// A set reviewed_by with no joined reviewer is corrupt data: surface it (500), never blank it.
+function toReviewer(row: AdminApplicationDetailRow): AdminApplicationDetail['reviewedBy'] {
+  if (row.reviewed_by === null) {
+    return null
+  }
+
+  if (row.reviewer_name === null || row.reviewer_email === null) {
+    throw new Error('Interviewer application has reviewed_by set but the reviewer is missing.')
+  }
+
+  return {
+    userId: row.reviewed_by,
+    name: row.reviewer_name,
+    email: row.reviewer_email,
   }
 }

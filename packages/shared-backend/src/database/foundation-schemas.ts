@@ -1,12 +1,12 @@
 import { z } from 'zod'
 
-const timestampSchema = z
+export const timestampSchema = z
   .union([z.string().datetime({ offset: true }), z.date()])
   .transform(function toIsoTimestamp(value) {
     return value instanceof Date ? value.toISOString() : value
   })
 
-const nullableTimestampSchema = timestampSchema.nullable()
+export const nullableTimestampSchema = timestampSchema.nullable()
 
 export const interviewTypeSchema = z.enum([
   'system_design',
@@ -190,9 +190,8 @@ export const interviewerApplicationRowSchema = z.object({
   employment_history: z.array(persistedEmploymentSnapshotEntrySchema),
   status: interviewerApplicationStatusSchema,
   reviewed_by: z.string().uuid().nullable(),
-  // Decision timestamp (Story 7.8): null while pending. Defaults to null so
-  // rows selected without the column still parse.
-  reviewed_at: nullableTimestampSchema.default(null),
+  // Decision timestamp (Story 7.8): null while pending. Every SELECT must include it.
+  reviewed_at: nullableTimestampSchema,
   created_at: timestampSchema,
   updated_at: timestampSchema,
 })

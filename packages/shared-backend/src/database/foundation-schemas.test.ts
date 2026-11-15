@@ -134,6 +134,7 @@ describe('interviewerApplicationRowSchema', function interviewerApplicationRowSc
     ],
     status: 'pending',
     reviewed_by: null,
+    reviewed_at: null,
     created_at: '2026-08-07T13:00:00.000Z',
     updated_at: '2026-08-07T13:00:00.000Z',
   }
@@ -149,6 +150,7 @@ describe('interviewerApplicationRowSchema', function interviewerApplicationRowSc
       interviewerApplicationRowSchema.safeParse({
         ...baseRow,
         reviewed_by: null,
+        reviewed_at: null,
       }).success,
     ).toBe(true)
   })
@@ -162,11 +164,12 @@ describe('interviewerApplicationRowSchema', function interviewerApplicationRowSc
     ).toBe(true)
   })
 
-  it('parses null reviewed_at for pending rows and defaults a missing column to null', function parsesNullReviewedAt() {
+  it('parses null reviewed_at for pending rows and rejects a missing column', function parsesNullReviewedAt() {
     expect(
       interviewerApplicationRowSchema.parse({ ...baseRow, reviewed_at: null }).reviewed_at,
     ).toBeNull()
-    expect(interviewerApplicationRowSchema.parse(baseRow).reviewed_at).toBeNull()
+    const { reviewed_at: _omitted, ...withoutReviewedAt } = { ...baseRow, reviewed_at: null }
+    expect(interviewerApplicationRowSchema.safeParse(withoutReviewedAt).success).toBe(false)
   })
 
   it.each(['approved', 'rejected'])(
