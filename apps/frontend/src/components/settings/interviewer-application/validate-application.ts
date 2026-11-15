@@ -1,21 +1,35 @@
-import type { ApplicationFormErrors } from './application-form-dumb'
+import { interviewerApplicationRequestSchema } from '@mako/shared'
 
-const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+export type ApplicationFormErrors = {
+  email?: string
+  selection?: string
+  submit?: string
+}
 
 export function validateApplication(
   email: string,
   employmentRecordIds: string[],
 ): ApplicationFormErrors {
   const errors: ApplicationFormErrors = {}
+  const result = interviewerApplicationRequestSchema.safeParse({
+    email: email.trim(),
+    employmentRecordIds,
+  })
 
-  if (employmentRecordIds.length < 1) {
-    errors.selection = 'Select at least one complete employment record.'
-  } else if (employmentRecordIds.length > 10) {
-    errors.selection = 'Select no more than 10 employment records.'
-  }
+  if (result.success) return errors
 
-  if (!emailPattern.test(email.trim())) {
-    errors.email = 'Enter a valid contact email.'
+  for (const issue of result.error.issues) {
+    const field = issue.path[0]
+    if (field === 'email') {
+      errors.email ??= 'Enter a valid contact email.'
+    } else if (field === 'employmentRecordIds' || field === undefined) {
+      errors.selection ??=
+        employmentRecordIds.length < 1
+          ? 'Select at least one complete employment record.'
+          : employmentRecordIds.length > 10
+            ? 'Select no more than 10 employment records.'
+            : 'Select each employment record only once.'
+    }
   }
 
   return errors
