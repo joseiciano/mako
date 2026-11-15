@@ -1,7 +1,7 @@
 # Story: Account Security & Deletion
 **Milestone**: Milestone 1: Foundation & Authentication
 **Description**: Develop the 'Danger Zone' featuring high-friction account deletion to ensure user privacy and security.
-**Status**: In-Review
+**Status**: Completed
 
 ## Implementation Plan
 
