@@ -273,6 +273,16 @@ describe('RecordingStopService.processStopHandoff', function stopSuite() {
     expect(t.stopped).toEqual(['prov-a', 'orphan'])
   })
 
+  it('stops active orphans of unknown kind as well', async function run() {
+    const t = createStopFixture([row('a')], {
+      async listActiveRecordings() {
+        return [{ id: 'mystery', kind: 'unknown', status: 'RECORDING', outputFileName: null }]
+      },
+    })
+    expect(await t.service.processStopHandoff(interviewId)).toBe('processed')
+    expect(t.stopped).toEqual(['prov-a', 'mystery'])
+  })
+
   it('processes a handoff with no recordings (declined consent) without calling stop', async function run() {
     const t = createStopFixture([])
     expect(await t.service.processStopHandoff(interviewId)).toBe('processed')

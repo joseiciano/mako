@@ -241,6 +241,22 @@ describe('RecordingControlService.ensureRecordingStarted', function suite() {
     expect(t.started).toEqual([`track:${scheduler}`])
   })
 
+  it('does not adopt an active provider recording of unknown kind during reconcile', async function run() {
+    const t = build(
+      {},
+      {
+        async startCompositeRecording() {
+          throw new RealtimeRecordingError('provider_unavailable', true, 'timeout')
+        },
+        async listActiveRecordings() {
+          return [{ id: 'rec-mystery', kind: 'unknown', status: 'RECORDING', outputFileName: null }]
+        },
+      },
+    )
+    await t.service.ensureRecordingStarted(interviewId)
+    expect(t.state.rows.map((r) => r.provider_recording_id)).not.toContain('rec-mystery')
+  })
+
   it('keeps the claim pending when ambiguity cannot be reconciled and retries only after the claim is stale', async function run() {
     let fail = true
     const t = build(

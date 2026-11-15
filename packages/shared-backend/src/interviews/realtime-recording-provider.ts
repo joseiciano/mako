@@ -27,7 +27,7 @@ export class RealtimeRecordingError extends Error {
   }
 }
 
-export type ProviderRecordingKind = 'composite' | 'participant_track'
+export type ProviderRecordingKind = 'composite' | 'participant_track' | 'unknown'
 
 export type ProviderRecording = {
   id: string
@@ -238,7 +238,6 @@ function parseRecordingItem(
   if (typeof record.id !== 'string' || record.id.length === 0) return null
 
   const kind = resolveKind(record.type, fallbackKind)
-  if (!kind) return null
 
   return {
     id: record.id,
@@ -252,9 +251,9 @@ function parseRecordingItem(
 function resolveKind(
   type: unknown,
   fallbackKind: ProviderRecordingKind | undefined,
-): ProviderRecordingKind | null {
-  if (typeof type !== 'string') return fallbackKind ?? null
+): ProviderRecordingKind {
+  if (typeof type !== 'string') return fallbackKind ?? 'unknown'
   if (type === 'TRACK') return 'participant_track'
   if (type === 'COMPOSITE') return 'composite'
-  return null
+  return 'unknown'
 }

@@ -263,7 +263,8 @@ function isSatisfied(spec: RecordingSpec, rows: RecordingRow[]): boolean {
 }
 
 function matchesProviderRecording(spec: RecordingSpec, recording: ProviderRecording): boolean {
-  return spec.type === recording.kind
+  // Unknown kinds are never matched to a spec; only the stop paths act on them.
+  return recording.kind !== 'unknown' && spec.type === recording.kind
 }
 
 function toRow(spec: RecordingSpec, recording: ProviderRecording): RecordingRow {

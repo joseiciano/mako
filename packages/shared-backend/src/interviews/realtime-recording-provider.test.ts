@@ -70,7 +70,7 @@ describe('RealtimeKit recording provider', function suite() {
     expect(JSON.parse(init.body as string)).toEqual({ action: 'stop' })
   })
 
-  it('lists only active recordings of known kinds for the meeting (unknown kinds are skipped, not defaulted to composite)', async function run() {
+  it('lists every active recording; missing or unrecognized types get kind unknown', async function run() {
     const fetchImpl = vi.fn(async () =>
       jsonResponse({
         data: [
@@ -88,6 +88,8 @@ describe('RealtimeKit recording provider', function suite() {
     expect(result.map((r) => [r.id, r.kind])).toEqual([
       ['a', 'participant_track'],
       ['c', 'composite'],
+      ['d', 'unknown'],
+      ['e', 'unknown'],
     ])
   })
 
