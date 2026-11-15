@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 3: The Interview Experience (P2P Core)
 **Description**: Add end-to-end confidence checks and operational visibility for collaborative whiteboard behavior.
-**Status**: In-Review
+**Status**: Completed
 **Prerequisites**:
 
 - `docs/product/stories/stories/milestone-3-the-interview-experience-p2p-core/3-2-whiteboard-provision-contract-and-backend-wiring.md`
