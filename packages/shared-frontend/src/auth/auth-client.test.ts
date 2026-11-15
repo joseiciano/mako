@@ -20,6 +20,7 @@ describe('auth client', function () {
         credentials: 'include',
       },
       disableDefaultFetchPlugins: true,
+      plugins: [expect.anything()],
     })
   })
 
@@ -33,6 +34,7 @@ describe('auth client', function () {
 
     expect(createAuthClientMock).toHaveBeenCalledWith({
       baseURL: 'http://localhost:8787',
+      plugins: [expect.anything()],
       fetchOptions: {
         credentials: 'include',
       },

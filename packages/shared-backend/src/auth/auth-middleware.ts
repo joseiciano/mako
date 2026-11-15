@@ -96,7 +96,12 @@ function setAuthContext(
   },
 ): void {
   context.set(authConfiguredContextKey, input.configured)
-  context.set(authUserContextKey, input.authSession?.user ?? null)
+  context.set(
+    authUserContextKey,
+    input.authSession
+      ? normalizeSessionUser(input.authSession.user)
+      : null,
+  )
   context.set(authSessionContextKey, input.authSession?.session ?? null)
   context.set(
     accountSessionContextKey,
@@ -107,6 +112,10 @@ function setAuthContext(
         }
       : null,
   )
+}
+
+function normalizeSessionUser(user: BetterAuthSessionUser): BetterAuthSessionUser {
+  return { ...user, isAdmin: user.isAdmin === true }
 }
 
 function isBetterAuthSessionUser(input: unknown): input is BetterAuthSessionUser {

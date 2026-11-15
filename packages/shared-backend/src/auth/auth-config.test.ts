@@ -47,6 +47,24 @@ describe('createBetterAuth', function () {
     }
   }
 
+  it('registers isAdmin as a server-owned, non-writable additional field', async function () {
+    const { createBetterAuth } = await import('./auth-config')
+
+    createBetterAuth(staticOptions())
+
+    expect(betterAuthMock.mock.calls[0][0].user).toEqual({
+      additionalFields: {
+        isAdmin: {
+          type: 'boolean',
+          required: true,
+          defaultValue: false,
+          input: false,
+          returned: true,
+        },
+      },
+    })
+  })
+
   it('configures credentials-friendly cookie attributes for cross-origin auth', async function () {
     const { createBetterAuth } = await import('./auth-config')
 

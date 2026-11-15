@@ -9,6 +9,7 @@ export default mergeConfig(
       include: [
         'src/auth/auth-config.integration.test.ts',
         'src/auth/rate-limit-schema-readiness.integration.test.ts',
+        'src/auth/require-admin.integration.test.ts',
       ],
     },
   }),

@@ -937,6 +937,7 @@ describe('backend-rest smoke tests', function () {
             user: {
               id: '11111111-1111-4111-8111-111111111111',
               email: 'db-candidate@mako.dev',
+              isAdmin: false,
             },
             session: {
               id: 'session-1',
@@ -1086,6 +1087,7 @@ describe('backend-rest smoke tests', function () {
             user: {
               id: '11111111-1111-4111-8111-111111111111',
               email: 'db-candidate@mako.dev',
+              isAdmin: false,
             },
             session: {
               id: 'session-1',
@@ -1156,6 +1158,7 @@ describe('backend-rest smoke tests', function () {
             user: {
               id: '11111111-1111-4111-8111-111111111111',
               email: 'db-candidate@mako.dev',
+              isAdmin: false,
             },
             session: {
               id: 'session-1',
