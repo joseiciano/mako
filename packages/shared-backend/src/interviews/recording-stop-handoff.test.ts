@@ -115,23 +115,42 @@ describe('completion transaction recording-stop handoff', function suite() {
 })
 
 type FakeStopState = {
-  handoff: { realtime_session_id: string | null; processed: boolean; failures: string[] } | null
+  handoff: {
+    realtime_session_id: string | null
+    processed: boolean
+    failures: string[]
+    recording_status: string
+    start_in_flight: boolean
+  } | null
   rows: StopRecordingRow[]
 }
 
 function createStopFixture(
   rows: StopRecordingRow[],
   provider: Partial<RealtimeRecordingProvider> = {},
+  handoff: { recording_status?: string; start_in_flight?: boolean } = {},
 ) {
   const state: FakeStopState = {
-    handoff: { realtime_session_id: 'meeting-1', processed: false, failures: [] },
+    handoff: {
+      realtime_session_id: 'meeting-1',
+      processed: false,
+      failures: [],
+      recording_status: 'recording',
+      start_in_flight: false,
+      ...handoff,
+    },
     rows,
   }
   const stopped: string[] = []
   const repository = {
     async getUnprocessedHandoff() {
       return state.handoff && !state.handoff.processed
-        ? { interview_id: interviewId, realtime_session_id: state.handoff.realtime_session_id }
+        ? {
+            interview_id: interviewId,
+            realtime_session_id: state.handoff.realtime_session_id,
+            recording_status: state.handoff.recording_status,
+            start_in_flight: state.handoff.start_in_flight,
+          }
         : null
     },
     async listRecordings() {
@@ -150,6 +169,11 @@ function createStopFixture(
     },
     async markHandoffProcessed() {
       state.handoff!.processed = true
+    },
+    async listOverdueRecordings() {
+      return state.rows
+        .filter((r) => !r.stop_confirmed_at)
+        .map((r) => ({ id: r.id, interview_id: interviewId, provider_recording_id: r.provider_recording_id }))
     },
     async listUnprocessedHandoffInterviewIds() {
       return state.handoff && !state.handoff.processed ? [interviewId] : []
@@ -232,7 +256,7 @@ describe('RecordingStopService.processStopHandoff', function stopSuite() {
     expect(t.state.rows[1]!.stop_confirmed_at).toBeNull()
 
     failing = false
-    expect(await t.service.sweepStopHandoffs({ olderThan: 'x', limit: 5 })).toBe(1)
+    expect(await t.service.sweepStopHandoffs({ olderThan: 'x', limit: 5 })).toEqual([interviewId])
     expect(t.state.handoff?.processed).toBe(true)
   })
 
@@ -253,5 +277,58 @@ describe('RecordingStopService.processStopHandoff', function stopSuite() {
     const t = createStopFixture([])
     expect(await t.service.processStopHandoff(interviewId)).toBe('processed')
     expect(t.stopped).toEqual([])
+  })
+
+  it('processes a handoff without calling the provider when nothing was ever started', async function run() {
+    const t = createStopFixture(
+      [],
+      {
+        async stopRecording() {
+          throw new Error('must not be called')
+        },
+        async listActiveRecordings() {
+          throw new RealtimeRecordingError('provider_unavailable', true, 'down')
+        },
+      },
+      { recording_status: 'not_started' },
+    )
+    expect(await t.service.processStopHandoff(interviewId)).toBe('processed')
+    expect(t.state.handoff?.processed).toBe(true)
+  })
+
+  it('returns retry without marking processed while a start is mid-flight', async function run() {
+    const t = createStopFixture([], {}, { recording_status: 'pending', start_in_flight: true })
+    expect(await t.service.processStopHandoff(interviewId)).toBe('retry')
+    expect(t.state.handoff?.processed).toBe(false)
+    expect(t.state.handoff?.failures).toEqual(['start_in_progress'])
+  })
+
+  it('still reaches the provider for a stale pending claim that never finished', async function run() {
+    const t = createStopFixture([], {
+      async listActiveRecordings() {
+        return [{ id: 'orphan', kind: 'composite', status: 'RECORDING', outputFileName: null }]
+      },
+    }, { recording_status: 'pending', start_in_flight: false })
+    expect(await t.service.processStopHandoff(interviewId)).toBe('processed')
+    expect(t.stopped).toEqual(['orphan'])
+  })
+})
+
+describe('RecordingStopService.sweepOverdueRecordings', function overdueSuite() {
+  it('stops and confirms recordings older than the maximum duration', async function run() {
+    const t = createStopFixture([row('a'), row('b', { stop_confirmed_at: 'x' })])
+    expect(await t.service.sweepOverdueRecordings({ maxAgeSeconds: 3600, limit: 10 })).toBe(1)
+    expect(t.stopped).toEqual(['prov-a'])
+    expect(t.state.rows[0]!.stop_confirmed_at).not.toBeNull()
+  })
+
+  it('leaves a recording unconfirmed when the provider stop fails', async function run() {
+    const t = createStopFixture([row('a')], {
+      async stopRecording() {
+        throw new RealtimeRecordingError('provider_unavailable', true, 'down')
+      },
+    })
+    expect(await t.service.sweepOverdueRecordings({ maxAgeSeconds: 3600, limit: 10 })).toBe(0)
+    expect(t.state.rows[0]!.stop_confirmed_at).toBeNull()
   })
 })

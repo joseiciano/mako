@@ -3,6 +3,15 @@ import { createSqlQuery, type SqlQueryExecutor } from '../index'
 export type StopHandoff = {
   interview_id: string
   realtime_session_id: string | null
+  recording_status: string
+  /** True while a recording start holds a fresh pending claim. */
+  start_in_flight: boolean
+}
+
+export type OverdueRecordingRow = {
+  id: string
+  interview_id: string
+  provider_recording_id: string
 }
 
 export type StopRecordingRow = {
@@ -15,17 +24,22 @@ export type StopRecordingRow = {
 export class RecordingStopRepository {
   constructor(private readonly queryExecutor: SqlQueryExecutor) {}
 
-  async getUnprocessedHandoff(interviewId: string): Promise<StopHandoff | null> {
+  async getUnprocessedHandoff(
+    interviewId: string,
+    freshClaimAfter: string,
+  ): Promise<StopHandoff | null> {
     const result = await this.queryExecutor.query<StopHandoff>(
       createSqlQuery(
         `
-          SELECT h.interview_id, i.realtime_session_id
+          SELECT h.interview_id, i.realtime_session_id, i.recording_status,
+                 (i.recording_status = 'pending' AND i.recording_start_claimed_at > $2)
+                   AS start_in_flight
           FROM interview_recording_stop_handoffs h
           JOIN interviews i ON i.id = h.interview_id
           WHERE h.interview_id = $1 AND h.processed_at IS NULL
           LIMIT 1;
         `,
-        [interviewId],
+        [interviewId, freshClaimAfter],
       ),
     )
     return result.rows[0] ?? null
@@ -48,6 +62,25 @@ export class RecordingStopRepository {
       ),
     )
     return result.rows.map((row) => row.interview_id)
+  }
+
+  async listOverdueRecordings(input: {
+    created_before: string
+    limit: number
+  }): Promise<OverdueRecordingRow[]> {
+    const result = await this.queryExecutor.query<OverdueRecordingRow>(
+      createSqlQuery(
+        `
+          SELECT id, interview_id, provider_recording_id
+          FROM interview_recordings
+          WHERE stop_confirmed_at IS NULL AND created_at < $1
+          ORDER BY created_at
+          LIMIT $2;
+        `,
+        [input.created_before, input.limit],
+      ),
+    )
+    return result.rows
   }
 
   async listRecordings(interviewId: string): Promise<StopRecordingRow[]> {
