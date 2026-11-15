@@ -3,6 +3,7 @@ import type { AdminApplicationDetail, AdminDecision } from '@mako/shared'
 export type AdminReviewDetailDumbProps = {
   hasSelection: boolean
   application: AdminApplicationDetail | null
+  currentUserId: string | null
   isLoading: boolean
   errorMessage: string | null
   onRetry: () => void
@@ -57,6 +58,8 @@ export function AdminReviewDetailDumb(props: AdminReviewDetailDumbProps) {
   const application = props.application
   const isPending = application.status === 'pending'
   const isDeleted = application.applicant.isAccountDeleted
+  const isOwnApplication =
+    props.currentUserId !== null && application.applicant.userId === props.currentUserId
 
   return (
     <section aria-label="Application detail" className="space-y-4">
@@ -67,6 +70,11 @@ export function AdminReviewDetailDumb(props: AdminReviewDetailDumbProps) {
         {isDeleted ? (
           <p className="text-sm text-amber-300">
             This applicant deleted their account and cannot be approved.
+          </p>
+        ) : null}
+        {isOwnApplication ? (
+          <p className="text-sm text-amber-300">
+            This is your own application. Another admin must review it.
           </p>
         ) : null}
         {application.reviewedBy ? (
@@ -101,7 +109,7 @@ export function AdminReviewDetailDumb(props: AdminReviewDetailDumbProps) {
         <div className="flex gap-2">
           <button
             type="button"
-            disabled={isDeleted}
+            disabled={isDeleted || isOwnApplication}
             onClick={function handleApprove() {
               props.onRequestDecision('approved')
             }}
@@ -111,10 +119,11 @@ export function AdminReviewDetailDumb(props: AdminReviewDetailDumbProps) {
           </button>
           <button
             type="button"
+            disabled={isOwnApplication}
             onClick={function handleReject() {
               props.onRequestDecision('rejected')
             }}
-            className="rounded-md bg-rose-700 px-3 py-1.5 text-sm text-white"
+            className="rounded-md bg-rose-700 px-3 py-1.5 text-sm text-white disabled:opacity-40"
           >
             Reject
           </button>

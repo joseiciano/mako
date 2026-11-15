@@ -7,6 +7,7 @@ export const ADMIN_REVIEW_STATUS_OPTIONS: readonly AdminApplicationStatus[] = [
 ]
 
 export type AdminReviewListDumbProps = {
+  isDisabled: boolean
   status: AdminApplicationStatus
   onStatusChange: (status: AdminApplicationStatus) => void
   applications: readonly AdminApplicationSummary[]
@@ -36,6 +37,7 @@ export function AdminReviewListDumb(props: AdminReviewListDumbProps) {
         </label>
         <select
           id="admin-review-status"
+          disabled={props.isDisabled}
           value={props.status}
           onChange={function handleChange(event) {
             props.onStatusChange(event.target.value as AdminApplicationStatus)
@@ -79,6 +81,7 @@ export function AdminReviewListDumb(props: AdminReviewListDumbProps) {
                 <button
                   type="button"
                   aria-pressed={isSelected}
+                  disabled={props.isDisabled}
                   onClick={function handleSelect() {
                     props.onSelect(application.applicationId)
                   }}
@@ -108,7 +111,7 @@ export function AdminReviewListDumb(props: AdminReviewListDumbProps) {
         <button
           type="button"
           onClick={props.onPreviousPage}
-          disabled={!hasPreviousPage}
+          disabled={props.isDisabled || !hasPreviousPage}
           className="rounded-md border border-slate-700 px-3 py-1.5 text-sm text-white disabled:opacity-40"
         >
           Previous
@@ -116,7 +119,7 @@ export function AdminReviewListDumb(props: AdminReviewListDumbProps) {
         <button
           type="button"
           onClick={props.onNextPage}
-          disabled={!props.hasMore}
+          disabled={props.isDisabled || !props.hasMore}
           className="rounded-md border border-slate-700 px-3 py-1.5 text-sm text-white disabled:opacity-40"
         >
           Next

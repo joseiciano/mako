@@ -29,6 +29,7 @@ const application = {
 function listProps(overrides: Partial<AdminReviewListDumbProps> = {}): AdminReviewListDumbProps {
   return {
     status: 'pending',
+    isDisabled: false,
     onStatusChange: vi.fn(),
     applications: [],
     isLoading: false,
@@ -50,6 +51,7 @@ function detailProps(
   return {
     hasSelection: true,
     application,
+    currentUserId: null,
     isLoading: false,
     errorMessage: null,
     onRetry: vi.fn(),

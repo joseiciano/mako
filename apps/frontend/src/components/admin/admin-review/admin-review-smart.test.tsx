@@ -17,6 +17,20 @@ vi.mock('@tanstack/react-router', function mockRouter() {
   }
 })
 
+const getSessionMock = vi.hoisted(function createGetSessionMock() {
+  return vi.fn()
+})
+
+vi.mock('#/lib/auth-client', function mockAuthClient() {
+  return { authClient: { getSession: getSessionMock } }
+})
+
+const adminSelfId = '55555555-5555-4555-8555-555555555555'
+
+function adminSession(isAdmin = true) {
+  return { session: { id: 's' }, user: { id: adminSelfId, isAdmin } }
+}
+
 const idA = '11111111-1111-4111-8111-111111111111'
 const idB = '22222222-2222-4222-8222-222222222222'
 const userA = '33333333-3333-4333-8333-333333333333'
@@ -87,9 +101,12 @@ function renderPage() {
 
 beforeEach(function setup() {
   navigateMock.mockReset()
+  getSessionMock.mockReset()
+  getSessionMock.mockResolvedValue({ data: adminSession(), error: null })
   queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
+  queryClient.setQueryData(authSessionQueryKey, adminSession())
 })
 
 afterEach(function teardown() {
@@ -291,7 +308,8 @@ describe('AdminReview smart component', function suite() {
     expect(queryClient.getQueryData(authSessionQueryKey)).toBeNull()
   })
 
-  it('treats a 403 on a decision as revoked admin: dashboard redirect and no cache write', async function run() {
+  it('treats a 403 on a decision as revoked admin when the session is no longer admin', async function run() {
+    getSessionMock.mockResolvedValue({ data: adminSession(false), error: null })
     installFetch({
       list: () => listResponse([summary(idA, userA, 'Alice')]),
       detail: () => json({ application: detail(idA, userA, 'Alice') }),
@@ -308,5 +326,115 @@ describe('AdminReview smart component', function suite() {
     })
     expect(queryClient.getQueryData(adminApplicationDetailQueryKey(idA))).toBeUndefined()
     expect(screen.getByText('Select an application to review.')).toBeInTheDocument()
+  })
+
+  it('shows the self-review 403 inline and keeps the admin on the page', async function run() {
+    installFetch({
+      list: () => listResponse([summary(idA, userA, 'Alice')]),
+      detail: () => json({ application: detail(idA, userA, 'Alice') }),
+      decide: () => json({ error: 'Admins cannot review their own application.' }, 403),
+    })
+    renderPage()
+    fireEvent.click(await screen.findByText('Alice'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+
+    expect(await screen.findByText('Admins cannot review their own application.')).toBeInTheDocument()
+    await waitFor(function check() {
+      expect(getSessionMock).toHaveBeenCalled()
+    })
+    expect(navigateMock).not.toHaveBeenCalled()
+    expect(screen.queryByText(/Admin access was revoked/)).not.toBeInTheDocument()
+  })
+
+  it('disables approve and reject on the admin own application', async function run() {
+    installFetch({
+      list: () => listResponse([summary(idA, adminSelfId, 'Self')]),
+      detail: () => json({ application: detail(idA, adminSelfId, 'Self') }),
+    })
+    renderPage()
+    fireEvent.click(await screen.findByText('Self'))
+
+    expect(await screen.findByRole('button', { name: 'Approve' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Reject' })).toBeDisabled()
+    expect(screen.getByText(/your own application/)).toBeInTheDocument()
+  })
+
+  it('locks filter, pager and selection while a decision is in flight and still invalidates on success', async function run() {
+    let listCalls = 0
+    let releaseDecision: () => void = () => {}
+    installFetch({
+      list: () => {
+        listCalls += 1
+        return listCalls === 1 ? listResponse([summary(idA, userA, 'Alice')], true) : listResponse([])
+      },
+      detail: () => json({ application: detail(idA, userA, 'Alice') }),
+      decide: () =>
+        new Promise<Response>(function hold(resolve) {
+          releaseDecision = function release() {
+            resolve(json({ application: { ...detail(idA, userA, 'Alice'), status: 'approved' } }))
+          }
+        }),
+    })
+    renderPage()
+    fireEvent.click(await screen.findByText('Alice'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+    await screen.findByRole('button', { name: 'Submitting...' })
+
+    expect(screen.getByLabelText('Status')).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Next' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /Alice/ })).toBeDisabled()
+
+    releaseDecision()
+    expect(await screen.findByText('No pending applications.')).toBeInTheDocument()
+  })
+
+  it('treats a 404 on a decision like a conflict', async function run() {
+    installFetch({
+      list: () => listResponse([summary(idA, userA, 'Alice')]),
+      detail: () => json({ application: detail(idA, userA, 'Alice') }),
+      decide: () => json({ error: 'Not found' }, 404),
+    })
+    renderPage()
+    fireEvent.click(await screen.findByText('Alice'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve' }))
+    const callsBefore = fetchMock.mock.calls.length
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+
+    expect(await screen.findByText(/no longer exists/)).toBeInTheDocument()
+    await waitFor(function check() {
+      const gets = fetchMock.mock.calls.slice(callsBefore).filter(function isGet(call) {
+        return (call[1]?.method ?? 'GET') === 'GET'
+      })
+      expect(gets.length).toBeGreaterThanOrEqual(2)
+    })
+    expect(screen.queryByText(/Are you sure/)).not.toBeInTheDocument()
+  })
+
+  it('steps back one page when a decision empties the current page', async function run() {
+    installFetch({
+      list: (url) => {
+        if (url.includes('offset=25')) {
+          return decided ? listResponse([], false, 25) : listResponse([summary(idB, userB, 'Bob')], false, 25)
+        }
+        return listResponse([summary(idA, userA, 'Alice')], true, 0)
+      },
+      detail: () => json({ application: detail(idB, userB, 'Bob') }),
+      decide: () => {
+        decided = true
+        return json({ application: { ...detail(idB, userB, 'Bob'), status: 'approved' } })
+      },
+    })
+    let decided = false
+    renderPage()
+    await screen.findByText('Alice')
+    fireEvent.click(screen.getByRole('button', { name: 'Next' }))
+    fireEvent.click(await screen.findByText('Bob'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
+
+    expect(await screen.findByText('Alice')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Previous' })).toBeDisabled()
   })
 })
