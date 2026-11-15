@@ -70,12 +70,14 @@ export type NotificationWorkerDependencies = {
 // The queue allows 3 retries; after this many failed attempts the consumer
 // stops waiting on the provider and hands off to feedback anyway.
 const STOP_RETRY_ATTEMPTS_BEFORE_FEEDBACK = 3
-// The ticket bound is 3600 s of recording. The overdue sweep measures age from
-// the row's created_at (written after the provider start) and runs every 5
-// minutes, so a recording can outlive the threshold by up to ~300 s plus the
-// created_at lag. The threshold is therefore 3300 s: 3600 minus the 300 s cron
-// interval minus a 0-300 s margin for the lag, keeping the worst case near 3600 s.
-const RECORDING_MAX_AGE_SECONDS = 3300
+// Safety net only: the overdue sweep must never stop a live session. A session
+// lasts 60 minutes, so the threshold equals the 3,600 s ticket bound and is not
+// shortened. The sweep runs every 5 minutes, so a recording can overrun the
+// bound by up to one cron interval plus the created_at lag.
+const RECORDING_MAX_AGE_SECONDS = 3600
+// Unprocessed stop handoffs older than this still start feedback so feedback
+// does not depend on provider availability.
+const FEEDBACK_UNPROCESSED_AFTER_MS = 15 * 60_000
 
 export function createNotificationWorker(dependencies: NotificationWorkerDependencies) {
   const { createPool, console: consoleLike } = dependencies
@@ -319,13 +321,14 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
               olderThan: new Date(Date.now() - 2 * 60_000).toISOString(),
               limit: 20,
             })
-            // Feedback trigger is durable: handoffs the sweep just finished and
-            // processed handoffs whose feedback start never succeeded (for
-            // example createBatch failed after the handoff committed) both
-            // start feedback here. The instance id keeps it idempotent.
+            // Feedback trigger is durable: handoffs the sweep just finished,
+            // processed handoffs whose feedback start never succeeded, and
+            // handoffs the provider never let finish (older than 15 minutes)
+            // all start feedback here. The instance id keeps it idempotent.
             const awaitingFeedback = env.FEEDBACK_WORKFLOW
               ? await sweepStopProcessor.listHandoffsAwaitingFeedback({
                   processedBefore: new Date(Date.now() - 2 * 60_000).toISOString(),
+                  unprocessedBefore: new Date(Date.now() - FEEDBACK_UNPROCESSED_AFTER_MS).toISOString(),
                   limit: 20,
                 })
               : []

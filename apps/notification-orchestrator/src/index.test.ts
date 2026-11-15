@@ -716,7 +716,7 @@ describe('notification-orchestrator scheduled handler', function scheduledHandle
     expect(feedbackWorkflow.createBatch).toHaveBeenCalledWith([
       { id: 'feedback-v1-int-swept', params: { interview_id: 'int-swept', schema_version: 1 } },
     ])
-    expect(recordingStop.sweepOverdueRecordings).toHaveBeenCalledWith({ maxAgeSeconds: 3300, limit: 20 })
+    expect(recordingStop.sweepOverdueRecordings).toHaveBeenCalledWith({ maxAgeSeconds: 3600, limit: 20 })
     expect(recordingStart.sweepStalePendingClaims).toHaveBeenCalledWith({ limit: 20 })
   })
 
@@ -741,6 +741,38 @@ describe('notification-orchestrator scheduled handler', function scheduledHandle
       { id: 'feedback-v1-int-lost', params: { interview_id: 'int-lost', schema_version: 1 } },
     ])
     expect(markFeedbackTriggered).toHaveBeenCalledWith('int-lost')
+  })
+
+  it('sweep starts feedback for handoffs the provider never let finish, asking for ones older than 15 minutes', async function run() {
+    const now = Date.now()
+    const markFeedbackTriggered = vi.fn(async () => {})
+    const listHandoffsAwaitingFeedback = vi.fn(async () => ['int-provider-down'])
+    const recordingStop = {
+      processStopHandoff: vi.fn(async () => 'retry' as const),
+      sweepStopHandoffs: vi.fn(async () => [] as string[]),
+      sweepOverdueRecordings: vi.fn(async () => 0),
+      listHandoffsAwaitingFeedback,
+      markFeedbackTriggered,
+    }
+    const { worker } = createTestWorker({ recordingStop })
+    const feedbackWorkflow = createMockFeedbackWorkflow()
+
+    await worker.scheduled(
+      { scheduledTime: now, cron: '*/5 * * * *', noRetry() {} } as never,
+      createMockEnvWithFeedback(feedbackWorkflow),
+    )
+
+    const input = (listHandoffsAwaitingFeedback.mock.calls[0] as unknown as [{ unprocessedBefore: string }])[0]
+    const ageMs = Date.now() - new Date(input.unprocessedBefore).getTime()
+    expect(ageMs).toBeGreaterThanOrEqual(15 * 60_000)
+    expect(ageMs).toBeLessThan(15 * 60_000 + 60_000)
+    expect(feedbackWorkflow.createBatch).toHaveBeenCalledWith([
+      {
+        id: 'feedback-v1-int-provider-down',
+        params: { interview_id: 'int-provider-down', schema_version: 1 },
+      },
+    ])
+    expect(markFeedbackTriggered).toHaveBeenCalledWith('int-provider-down')
   })
 
   it('recovers when createBatch fails after the handoff was processed: queue leaves the marker unset, the sweep starts feedback', async function run() {
@@ -1288,7 +1320,11 @@ function createTestWorker(options?: {
     processStopHandoff: (interviewId: string) => Promise<'processed' | 'no_handoff' | 'retry'>
     sweepStopHandoffs: (input: { olderThan: string; limit: number }) => Promise<string[]>
     sweepOverdueRecordings: (input: { maxAgeSeconds: number; limit: number }) => Promise<number>
-    listHandoffsAwaitingFeedback?: (input: { processedBefore: string; limit: number }) => Promise<string[]>
+    listHandoffsAwaitingFeedback?: (input: {
+      processedBefore: string
+      unprocessedBefore: string
+      limit: number
+    }) => Promise<string[]>
     markFeedbackTriggered?: (interviewId: string) => Promise<void>
     recordFeedbackFailure?: (interviewId: string) => Promise<void>
   }
