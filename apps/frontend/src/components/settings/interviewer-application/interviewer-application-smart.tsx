@@ -2,14 +2,15 @@ import { useState } from 'react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useAccount, useCompanies } from '../../../hooks/use-account'
 import {
+  fetchInterviewerStatus,
   interviewerStatusQueryKey,
   useInterviewerStatus,
   useSubmitInterviewerApplication,
 } from '../../../hooks/use-interviewer-application'
 import { ApiError } from '../../../lib/http-transport'
-import { ApplicationFormDumb, type ApplicationFormErrors } from './application-form-dumb'
+import { ApplicationFormDumb } from './application-form-dumb'
 import { ApplicationStatusDumb } from './application-status-dumb'
-import { validateApplication } from './validate-application'
+import { validateApplication, type ApplicationFormErrors } from './validate-application'
 
 export function InterviewerApplicationSmart() {
   const queryClient = useQueryClient()
@@ -20,6 +21,7 @@ export function InterviewerApplicationSmart() {
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [emailOverride, setEmailOverride] = useState<string | null>(null)
   const [errors, setErrors] = useState<ApplicationFormErrors>({})
+  const [isResolvingConflict, setIsResolvingConflict] = useState(false)
   const [errorFocusKey, setErrorFocusKey] = useState(0)
 
   const email = emailOverride ?? accountQuery.data?.email ?? ''
@@ -59,13 +61,24 @@ export function InterviewerApplicationSmart() {
       await submitMutation.mutateAsync({ email: trimmedEmail, employmentRecordIds })
     } catch (error) {
       if (error instanceof ApiError && error.status === 409) {
-        await queryClient.invalidateQueries({ queryKey: interviewerStatusQueryKey })
-        const canonical = queryClient.getQueryData(interviewerStatusQueryKey)
-        if (canonical) return
+        setIsResolvingConflict(true)
+        try {
+          const refetched = await fetchInterviewerStatus()
+          queryClient.setQueryData(interviewerStatusQueryKey, refetched)
+          if (refetched && (refetched.status === 'pending' || refetched.status === 'approved')) {
+            return
+          }
+        } catch {
+          // fall through to the error message below
+        } finally {
+          setIsResolvingConflict(false)
+        }
+        showErrors({
+          submit: 'An application already exists, but its status could not be confirmed. Try again.',
+        })
+        return
       }
-      showErrors({
-        submit: error instanceof Error ? error.message : 'Unable to submit application.',
-      })
+      showErrors({ submit: readSubmitError(error) })
     }
   }
 
@@ -139,7 +152,7 @@ export function InterviewerApplicationSmart() {
         records={records}
         selectedIds={selectedIds}
         email={email}
-        isSubmitting={submitMutation.isPending}
+        isSubmitting={submitMutation.isPending || isResolvingConflict}
         errors={errors}
         errorFocusKey={errorFocusKey}
         onToggleRecord={handleToggleRecord}
@@ -148,4 +161,9 @@ export function InterviewerApplicationSmart() {
       />
     )
   }
+}
+
+function readSubmitError(error: unknown): string {
+  if (error instanceof Error && error.name !== 'ZodError') return error.message
+  return 'Unable to submit application.'
 }

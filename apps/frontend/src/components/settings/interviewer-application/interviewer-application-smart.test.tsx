@@ -345,4 +345,88 @@ describe('InterviewerApplicationSmart', function suite() {
     expect((await screen.findByRole('alert')).textContent).toContain('Companies down')
     expect(screen.getByRole('button', { name: 'Try again' })).toBeTruthy()
   })
+
+  async function submitFirstRecord() {
+    fireEvent.click(await screen.findByRole('checkbox', { name: /Acme/ }))
+    await waitFor(function ready() {
+      expect((screen.getByLabelText('Contact email') as HTMLInputElement).value).not.toBe('')
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Submit application' }))
+  }
+
+  it('shows an error on 409 when the refetched status is rejected', async function run() {
+    let applied = false
+    stubFetch({
+      status: function s() {
+        return json({ application: applied ? application('rejected') : null })
+      },
+      companies: records,
+      apply: function apply() {
+        applied = true
+        return json({ error: 'Application already exists' }, 409)
+      },
+    })
+    renderSmart()
+    await submitFirstRecord()
+    expect((await screen.findByRole('alert')).textContent).toContain('could not be confirmed')
+    expect(screen.getByRole('button', { name: 'Retry submission' })).toBeTruthy()
+  })
+
+  it('shows an error on 409 when the status refetch fails', async function run() {
+    let applied = false
+    stubFetch({
+      status: function s() {
+        return applied ? json({ error: 'down' }, 500) : json({ application: null })
+      },
+      companies: records,
+      apply: function apply() {
+        applied = true
+        return json({ error: 'Application already exists' }, 409)
+      },
+    })
+    renderSmart()
+    await submitFirstRecord()
+    expect((await screen.findByRole('alert')).textContent).toContain('could not be confirmed')
+  })
+
+  it('keeps submit disabled while the 409 refetch runs', async function run() {
+    let applied = false
+    let release: (value: Response) => void = function noop() {}
+    stubFetch({
+      status: function s() {
+        if (!applied) return json({ application: null })
+        return new Promise<Response>(function hold(resolve) {
+          release = resolve
+        })
+      },
+      companies: records,
+      apply: function apply() {
+        applied = true
+        return json({ error: 'Application already exists' }, 409)
+      },
+    })
+    renderSmart()
+    await submitFirstRecord()
+    await waitFor(function held() {
+      expect(applied).toBe(true)
+      const button = screen.getByRole('button', { name: 'Submitting...' }) as HTMLButtonElement
+      expect(button.disabled).toBe(true)
+    })
+    release(json({ application: application('pending', ['Canonical Co']) }))
+    expect(await screen.findByText('Canonical Co')).toBeTruthy()
+  })
+
+  it('never shows raw zod JSON when the mutation fails validation', async function run() {
+    stubFetch({
+      status: function s() { return json({ application: null }) },
+      companies: records,
+      apply: function apply() {
+        return json({ application: { bogus: true } }, 201)
+      },
+    })
+    renderSmart()
+    await submitFirstRecord()
+    const alert = await screen.findByRole('alert')
+    expect(alert.textContent).toBe('Unable to submit application.')
+  })
 })
