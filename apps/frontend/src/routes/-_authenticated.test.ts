@@ -34,4 +34,14 @@ describe('authenticated route guard', function () {
       beforeLoad?.({ context: { queryClient: { fetchQuery } } } as never),
     ).rejects.toBeDefined()
   })
+
+  it('does not throw when the session fetch fails so AuthGuard can show its error state', async function () {
+    const fetchQuery = vi.fn().mockRejectedValue(new Error('network'))
+
+    const beforeLoad = Route.options.beforeLoad
+
+    await expect(
+      beforeLoad?.({ context: { queryClient: { fetchQuery } } } as never),
+    ).resolves.toBeUndefined()
+  })
 })
