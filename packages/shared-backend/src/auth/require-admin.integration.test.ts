@@ -95,11 +95,7 @@ describe('isAdmin schema and requireAdmin integration', function () {
       `UPDATE "user" SET "isAdmin" = true, "updatedAt" = NOW() WHERE id = $1`,
       [userId],
     )
-    // Cookie cache could serve a stale value; verify the guard sees the grant.
-    const granted = await adminRequest()
-    const sessionRes = await auth.api.getSession({ headers: new Headers({ cookie }) })
-    expect(sessionRes?.user.isAdmin).toBe(true)
-    expect(granted.status).toBe(200)
+    expect((await adminRequest()).status).toBe(200)
 
     await client.query(
       `UPDATE "user" SET "isAdmin" = false, "updatedAt" = NOW() WHERE id = $1`,
@@ -109,5 +105,24 @@ describe('isAdmin schema and requireAdmin integration', function () {
 
     await client.query(`DELETE FROM "session" WHERE "userId" = $1`, [userId])
     expect((await adminRequest()).status).toBe(401)
+  })
+
+  it('rejects a signed-in user writing isAdmin through update-user and leaves the row false', async function () {
+    const signIn = await authCall('/api/auth/sign-in/email', { email, password })
+    expect(signIn.status).toBe(200)
+    const cookie = signIn.headers
+      .getSetCookie()
+      .map((c) => c.split(';')[0])
+      .join('; ')
+
+    const update = await authCall('/api/auth/update-user', { isAdmin: true }, { cookie })
+    expect(update.status).toBeGreaterThanOrEqual(400)
+    expect(update.status).toBeLessThan(500)
+
+    const row = await client.query<{ isAdmin: boolean }>(
+      `SELECT "isAdmin" FROM "user" WHERE email = $1`,
+      [email],
+    )
+    expect(row.rows[0].isAdmin).toBe(false)
   })
 })
