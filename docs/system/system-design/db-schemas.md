@@ -33,6 +33,7 @@ The `"user"` schema extends the default **Better Auth** requirements to include 
 - **`free_standard_interviews`**: `integer` (Default: 1) - Remaining free standard (random) peer interviews.
 - **`free_ai_interviews`**: `integer` (Default: 1) - Remaining free AI-led interviews.
 - **`companies`**: `boolean` (Default: false) - Flag indicating if the user is authorized to conduct interviews.
+- **`isAdmin`**: `boolean` (Not Null, Default: false) - Server-owned admin flag. Better Auth registers it with `input: false`; there is no client write path. Set only through the SQL runbook in `docs/operations/admin-access.md`.
 - **`createdAt`**: `timestamptz` - Account creation date.
 - **`updatedAt`**: `timestamptz` - Last profile update.
 - **`deleted_at`**: `timestamptz`

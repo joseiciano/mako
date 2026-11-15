@@ -37,6 +37,7 @@
   - **Description**: Validates the current session and returns the authenticated user's data.
   - **Request Body**: None
   - **Response Body**: `{ user: User, session: Session } | null`
+  - **Admin Flag**: The canonical session `user` carries the server-owned `isAdmin: boolean` field (default `false`, never client-writable through auth endpoints; also returned by `POST /api/auth/sign-in/email`). Admin-protected routes authorize exclusively from this session value through the `requireAdmin` middleware: `401` when unauthenticated, `403` when `isAdmin` is not `true` (a missing or non-boolean value counts as `false`). `GET /api/account` is not an authorization source for admin status.
 
 ### Account Management
 - **`GET /api/account`**
