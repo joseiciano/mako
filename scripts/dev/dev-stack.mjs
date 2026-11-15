@@ -31,6 +31,8 @@ const backendSecretNames = [
   'STRIPE_SECRET_KEY',
   'STRIPE_WEBHOOK_SECRET',
   'AUTH_EMAIL_VERIFICATION_ENFORCED',
+  'AI_GATEWAY_BASE_URL',
+  'REALTIMEKIT_WEBHOOK_PUBLIC_KEY',
 ]
 
 async function fileExists(filePath) {
@@ -197,7 +199,7 @@ function spawnLongRunning(name, command, args, directory, environment) {
   const childProcess = spawn(command, args, {
     cwd: directory,
     env: environment,
-    stdio: 'inherit',
+    stdio: ['ignore', 'inherit', 'inherit'],
     detached: true,
   })
 
@@ -214,7 +216,7 @@ function signalGroup(childProcess, signal) {
 
 function terminate(childProcess) {
   return new Promise(function waitForTermination(resolve) {
-    if (childProcess.exitCode !== null) {
+    if (childProcess.exitCode !== null || childProcess.signalCode !== null) {
       resolve()
       return
     }
@@ -249,8 +251,13 @@ async function up() {
   const environment = await loadEnvironment()
   const databaseUrl = requireLocalDatabaseUrl(environment)
 
+  const {
+    CLOUDFLARE_API_TOKEN: _apiToken,
+    CLOUDFLARE_ACCOUNT_ID: _accountId,
+    ...wranglerEnvironment
+  } = environment
   const workerEnvironment = {
-    ...environment,
+    ...wranglerEnvironment,
     CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE: databaseUrl,
   }
 
@@ -324,8 +331,9 @@ async function up() {
     )
   }
 
-  process.once('SIGINT', onSignal)
-  process.once('SIGTERM', onSignal)
+  process.on('SIGINT', onSignal)
+  process.on('SIGTERM', onSignal)
+  process.on('SIGHUP', onSignal)
 
   process.stdout.write(
     'Dev stack: frontend http://localhost:3000, backend http://localhost:8787. Ctrl+C stops everything.\n',
