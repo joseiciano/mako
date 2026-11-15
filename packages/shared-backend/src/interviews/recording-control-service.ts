@@ -100,6 +100,10 @@ export class RecordingControlService implements RecordingStarter {
           return 'pending_retry'
         }
 
+        // Never leave a half-started set running: stop what already started
+        // before marking failed, or keep the claim pending for a retry.
+        if (!(await this.stopRows(ctx.interview_id, existing))) return 'pending_retry'
+
         await this.repository.finishClaim({
           interview_id: ctx.interview_id,
           claim_id: ctx.claim_id,
@@ -110,6 +114,12 @@ export class RecordingControlService implements RecordingStarter {
       }
     }
 
+    // The interview may have completed while the start was in flight; the
+    // stop handoff cannot see recordings that were not persisted yet.
+    if (!(await this.repository.isInterviewOngoing(ctx.interview_id))) {
+      if (!(await this.stopRows(ctx.interview_id, existing))) return 'pending_retry'
+    }
+
     await this.repository.finishClaim({
       interview_id: ctx.interview_id,
       claim_id: ctx.claim_id,
@@ -117,6 +127,41 @@ export class RecordingControlService implements RecordingStarter {
       now: this.now(),
     })
     return 'started'
+  }
+
+  /** Stops provider recordings and checkpoints them. Returns false if any stop failed. */
+  private async stopRows(interviewId: string, rows: RecordingRow[]): Promise<boolean> {
+    let allStopped = true
+    for (const row of rows) {
+      try {
+        await this.provider.stopRecording({ recordingId: row.provider_recording_id })
+      } catch (error) {
+        const alreadyGone =
+          error instanceof RealtimeRecordingError &&
+          (error.code === 'invalid_meeting' || error.code === 'duplicate_active_recording')
+        if (!alreadyGone) {
+          allStopped = false
+          await this.logSafely('recording.provider_stop_failed', interviewId, error)
+          continue
+        }
+      }
+      await this.repository.markRecordingStopped(row.provider_recording_id, this.now())
+    }
+    return allStopped
+  }
+
+  /** Retries starts whose claim went stale (crash, or pending_retry with no further trigger). */
+  async sweepStalePendingClaims(input: { limit: number }): Promise<number> {
+    const now = this.now()
+    const ids = await this.repository.listStalePendingInterviewIds({
+      stale_before: new Date(new Date(now).getTime() - STALE_CLAIM_MS).toISOString(),
+      limit: input.limit,
+    })
+    let started = 0
+    for (const id of ids) {
+      if ((await this.ensureRecordingStarted(id)) === 'started') started += 1
+    }
+    return started
   }
 
   private startSpec(ctx: RecordingStartContext, spec: RecordingSpec): Promise<ProviderRecording> {

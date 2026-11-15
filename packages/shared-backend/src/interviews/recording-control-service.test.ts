@@ -22,6 +22,7 @@ type FakeState = {
   consents: string[]
   claimed_at: string | null
   rows: RecordingRow[]
+  stopped: string[]
 }
 
 function createFakeRepository(initial: Partial<FakeState> = {}) {
@@ -32,6 +33,7 @@ function createFakeRepository(initial: Partial<FakeState> = {}) {
     consents: [scheduler],
     claimed_at: null,
     rows: [],
+    stopped: [],
     ...initial,
   }
   const repository = {
@@ -85,6 +87,19 @@ function createFakeRepository(initial: Partial<FakeState> = {}) {
           participant_role: input.participant_role,
         })
       }
+    },
+    async isInterviewOngoing() {
+      return state.status === 'ongoing'
+    },
+    async markRecordingStopped(providerId: string) {
+      state.stopped.push(providerId)
+    },
+    async listStalePendingInterviewIds(input: { stale_before: string }) {
+      return state.status === 'ongoing' &&
+        state.recording_status === 'pending' &&
+        state.claimed_at! < input.stale_before
+        ? [interviewId]
+        : []
     },
     async finishClaim(input: { status: string }) {
       state.recording_status = input.status
@@ -270,5 +285,83 @@ describe('RecordingControlService.ensureRecordingStarted', function suite() {
     const spy = vi.spyOn(t.repository, 'claimStart').mockRejectedValue(new Error('db down'))
     expect(await t.service.ensureRecordingStarted(interviewId)).toBe('error')
     spy.mockRestore()
+  })
+
+  it('partial start: stops the already-started composite before marking failed', async function run() {
+    const stopCalls: string[] = []
+    const t = build(
+      {},
+      {
+        async startParticipantTrackRecording() {
+          throw new RealtimeRecordingError('recording_failed', false, 'nope')
+        },
+        async stopRecording(input) {
+          stopCalls.push(input.recordingId)
+        },
+      },
+    )
+    expect(await t.service.ensureRecordingStarted(interviewId)).toBe('failed')
+    expect(stopCalls).toEqual(['rec-c-1'])
+    expect(t.state.stopped).toEqual(['rec-c-1'])
+    expect(t.state.recording_status).toBe('failed')
+  })
+
+  it('partial start: keeps the claim pending when the cleanup stop fails', async function run() {
+    const t = build(
+      {},
+      {
+        async startParticipantTrackRecording() {
+          throw new RealtimeRecordingError('recording_failed', false, 'nope')
+        },
+        async stopRecording() {
+          throw new RealtimeRecordingError('provider_unavailable', true, 'down')
+        },
+      },
+    )
+    expect(await t.service.ensureRecordingStarted(interviewId)).toBe('pending_retry')
+    expect(t.state.recording_status).toBe('pending')
+  })
+
+  it('stops recordings that were started while the interview completed mid-start', async function run() {
+    const stopCalls: string[] = []
+    let state: FakeState | undefined
+    const t = build(
+      {},
+      {
+        async startParticipantTrackRecording() {
+          state!.status = 'completed'
+          return { id: 'rec-t-late', kind: 'participant_track', status: 'INVOKED', outputFileName: null }
+        },
+        async stopRecording(input) {
+          stopCalls.push(input.recordingId)
+        },
+      },
+    )
+    state = t.state
+    expect(await t.service.ensureRecordingStarted(interviewId)).toBe('started')
+    expect(stopCalls).toEqual(['rec-c-1', 'rec-t-late'])
+    expect(t.state.stopped).toEqual(['rec-c-1', 'rec-t-late'])
+  })
+})
+
+describe('RecordingControlService.sweepStalePendingClaims', function sweepSuite() {
+  it('retries a stale pending claim left behind by pending_retry', async function run() {
+    let fail = true
+    const t = build(
+      {},
+      {
+        async startCompositeRecording() {
+          if (fail) throw new RealtimeRecordingError('provider_unavailable', true, 'timeout')
+          return { id: 'rec-ok', kind: 'composite', status: 'INVOKED', outputFileName: null }
+        },
+      },
+    )
+    expect(await t.service.ensureRecordingStarted(interviewId)).toBe('pending_retry')
+    expect(await t.service.sweepStalePendingClaims({ limit: 10 })).toBe(0)
+
+    fail = false
+    t.advance(120)
+    expect(await t.service.sweepStalePendingClaims({ limit: 10 })).toBe(1)
+    expect(t.state.recording_status).toBe('recording')
   })
 })

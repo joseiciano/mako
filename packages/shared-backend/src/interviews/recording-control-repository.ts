@@ -200,6 +200,49 @@ export class RecordingControlRepository {
     )
   }
 
+  async isInterviewOngoing(interviewId: string): Promise<boolean> {
+    const result = await this.queryExecutor.query<{ status: string }>(
+      createSqlQuery(`SELECT status FROM interviews WHERE id = $1 LIMIT 1;`, [interviewId]),
+    )
+    return result.rows[0]?.status === 'ongoing'
+  }
+
+  async markRecordingStopped(providerRecordingId: string, now: string): Promise<void> {
+    await this.queryExecutor.query(
+      createSqlQuery(
+        `
+          UPDATE interview_recordings
+          SET stop_requested_at = COALESCE(stop_requested_at, $2),
+              stop_confirmed_at = COALESCE(stop_confirmed_at, $2),
+              updated_at = $2
+          WHERE provider_recording_id = $1;
+        `,
+        [providerRecordingId, now],
+      ),
+    )
+  }
+
+  async listStalePendingInterviewIds(input: {
+    stale_before: string
+    limit: number
+  }): Promise<string[]> {
+    const result = await this.queryExecutor.query<{ id: string }>(
+      createSqlQuery(
+        `
+          SELECT id
+          FROM interviews
+          WHERE status = 'ongoing'
+            AND recording_status = 'pending'
+            AND recording_start_claimed_at < $1
+          ORDER BY recording_start_claimed_at
+          LIMIT $2;
+        `,
+        [input.stale_before, input.limit],
+      ),
+    )
+    return result.rows.map((row) => row.id)
+  }
+
   async finishClaim(input: {
     interview_id: string
     claim_id: string
