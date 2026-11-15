@@ -1,4 +1,4 @@
-import { RecordingStopRepository } from './recording-stop-repository'
+import { RecordingStopRepository, type SweepRetryWindow } from './recording-stop-repository'
 import {
   RealtimeRecordingError,
   type RealtimeRecordingProvider,
@@ -6,8 +6,14 @@ import {
 
 const START_CLAIM_FRESH_MS = 60_000
 
-/** Sweeps stop retrying a row after this many failed attempts and log an error. */
-export const MAX_SWEEP_ATTEMPTS = 12
+/**
+ * After this many failed attempts a sweep row is retried only every
+ * SWEEP_SLOW_RETRY_MS and every failure logs an error as an alert signal.
+ */
+export const SWEEP_FAST_ATTEMPTS = 12
+export const SWEEP_SLOW_RETRY_MS = 30 * 60_000
+/** Rows older than this are abandoned by the sweeps. */
+export const SWEEP_GIVE_UP_MS = 24 * 60 * 60_000
 
 export type RecordingStopLogger = {
   error(event: string, context: Record<string, unknown>): void | Promise<void>
@@ -29,6 +35,15 @@ export class RecordingStopService {
     private readonly now: () => string = () => new Date().toISOString(),
     private readonly logger: RecordingStopLogger = { error() {} },
   ) {}
+
+  private retryWindow(now: string): SweepRetryWindow {
+    const time = new Date(now).getTime()
+    return {
+      fast_attempts: SWEEP_FAST_ATTEMPTS,
+      slow_retry_before: new Date(time - SWEEP_SLOW_RETRY_MS).toISOString(),
+      created_after: new Date(time - SWEEP_GIVE_UP_MS).toISOString(),
+    }
+  }
 
   async processStopHandoff(interviewId: string): Promise<StopHandoffOutcome> {
     const now = this.now()
@@ -104,7 +119,7 @@ export class RecordingStopService {
     const ids = await this.repository.listUnprocessedHandoffInterviewIds({
       older_than: input.olderThan,
       limit: input.limit,
-      max_attempts: MAX_SWEEP_ATTEMPTS,
+      retry: this.retryWindow(this.now()),
     })
     const processed: string[] = []
     for (const id of ids) {
@@ -116,13 +131,15 @@ export class RecordingStopService {
   /**
    * Safety net for the ticket's 3,600 s bound. The track recording API has no
    * max duration field, so any recording still unconfirmed after the bound is
-   * stopped here regardless of the interview state.
+   * stopped here regardless of the interview state. Callers must not pass a
+   * bound below the session length or live sessions are cut off; the sweep
+   * cadence adds an overrun of up to one cron interval.
    */
   async sweepOverdueRecordings(input: { maxAgeSeconds: number; limit: number }): Promise<number> {
     const rows = await this.repository.listOverdueRecordings({
       created_before: new Date(new Date(this.now()).getTime() - input.maxAgeSeconds * 1000).toISOString(),
       limit: input.limit,
-      max_attempts: MAX_SWEEP_ATTEMPTS,
+      retry: this.retryWindow(this.now()),
     })
     let stopped = 0
     for (const row of rows) {
@@ -130,7 +147,7 @@ export class RecordingStopService {
       const code = await this.stopProviderRecording(row.provider_recording_id)
       if (code) {
         const attempts = await this.repository.recordStopFailure(row.id, code, this.now())
-        if (attempts >= MAX_SWEEP_ATTEMPTS) {
+        if (attempts >= SWEEP_FAST_ATTEMPTS) {
           await this.logSafely('recording_overdue_stop_attempts_exhausted', {
             interview_id: row.interview_id,
             recording_id: row.id,
@@ -146,15 +163,21 @@ export class RecordingStopService {
     return stopped
   }
 
-  /** Processed handoffs still missing a feedback workflow start (oldest-attempted first). */
+  /**
+   * Handoffs still missing a feedback workflow start (oldest-attempted first):
+   * processed ones, plus unprocessed ones older than unprocessedBefore so a
+   * provider outage cannot block feedback. Starting feedback is idempotent.
+   */
   async listHandoffsAwaitingFeedback(input: {
     processedBefore: string
+    unprocessedBefore: string
     limit: number
   }): Promise<string[]> {
     return this.repository.listHandoffsAwaitingFeedback({
       processed_before: input.processedBefore,
+      unprocessed_before: input.unprocessedBefore,
       limit: input.limit,
-      max_attempts: MAX_SWEEP_ATTEMPTS,
+      retry: this.retryWindow(this.now()),
     })
   }
 
@@ -163,10 +186,10 @@ export class RecordingStopService {
     await this.repository.markFeedbackTriggered(interviewId, this.now())
   }
 
-  /** Call when a sweep feedback start failed; logs once retries are exhausted. */
+  /** Call when a sweep feedback start failed; logs every failure past the fast attempts. */
   async recordFeedbackFailure(interviewId: string): Promise<void> {
     const attempts = await this.repository.recordFeedbackFailure(interviewId, this.now())
-    if (attempts >= MAX_SWEEP_ATTEMPTS) {
+    if (attempts >= SWEEP_FAST_ATTEMPTS) {
       await this.logSafely('feedback_trigger_attempts_exhausted', {
         interview_id: interviewId,
         attempts,
@@ -180,7 +203,7 @@ export class RecordingStopService {
     now: string,
   ): Promise<void> {
     const attempts = await this.repository.recordHandoffFailure(interviewId, code, now)
-    if (attempts >= MAX_SWEEP_ATTEMPTS) {
+    if (attempts >= SWEEP_FAST_ATTEMPTS) {
       await this.logSafely('recording_stop_handoff_attempts_exhausted', {
         interview_id: interviewId,
         error_code: code,

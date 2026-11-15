@@ -21,6 +21,17 @@ export type StopRecordingRow = {
   stop_confirmed_at: string | null
 }
 
+/**
+ * Bounds how long a sweep keeps retrying a row: rows created before
+ * created_after are abandoned, and rows with fast_attempts or more failed
+ * attempts are retried only when last_attempted_at is before slow_retry_before.
+ */
+export type SweepRetryWindow = {
+  fast_attempts: number
+  slow_retry_before: string
+  created_after: string
+}
+
 export class RecordingStopRepository {
   constructor(private readonly queryExecutor: SqlQueryExecutor) {}
 
@@ -48,18 +59,27 @@ export class RecordingStopRepository {
   async listUnprocessedHandoffInterviewIds(input: {
     older_than: string
     limit: number
-    max_attempts: number
+    retry: SweepRetryWindow
   }): Promise<string[]> {
     const result = await this.queryExecutor.query<{ interview_id: string }>(
       createSqlQuery(
         `
           SELECT interview_id
           FROM interview_recording_stop_handoffs
-          WHERE processed_at IS NULL AND created_at < $1 AND attempt_count < $3
+          WHERE processed_at IS NULL
+            AND created_at < $1
+            AND created_at > $4
+            AND (attempt_count < $3 OR last_attempted_at < $5)
           ORDER BY last_attempted_at ASC NULLS FIRST, created_at
           LIMIT $2;
         `,
-        [input.older_than, input.limit, input.max_attempts],
+        [
+          input.older_than,
+          input.limit,
+          input.retry.fast_attempts,
+          input.retry.created_after,
+          input.retry.slow_retry_before,
+        ],
       ),
     )
     return result.rows.map((row) => row.interview_id)
@@ -68,18 +88,27 @@ export class RecordingStopRepository {
   async listOverdueRecordings(input: {
     created_before: string
     limit: number
-    max_attempts: number
+    retry: SweepRetryWindow
   }): Promise<OverdueRecordingRow[]> {
     const result = await this.queryExecutor.query<OverdueRecordingRow>(
       createSqlQuery(
         `
           SELECT id, interview_id, provider_recording_id
           FROM interview_recordings
-          WHERE stop_confirmed_at IS NULL AND created_at < $1 AND stop_attempt_count < $3
+          WHERE stop_confirmed_at IS NULL
+            AND created_at < $1
+            AND created_at > $4
+            AND (stop_attempt_count < $3 OR stop_last_attempted_at < $5)
           ORDER BY stop_last_attempted_at ASC NULLS FIRST, created_at
           LIMIT $2;
         `,
-        [input.created_before, input.limit, input.max_attempts],
+        [
+          input.created_before,
+          input.limit,
+          input.retry.fast_attempts,
+          input.retry.created_after,
+          input.retry.slow_retry_before,
+        ],
       ),
     )
     return result.rows
@@ -164,25 +193,40 @@ export class RecordingStopRepository {
     return result.rows[0]?.stop_attempt_count ?? 0
   }
 
-  /** Processed handoffs whose feedback workflow has not been started yet. */
+  /**
+   * Handoffs whose feedback workflow has not been started yet: processed ones
+   * (processed_before) and ones the provider never let finish
+   * (unprocessed_before), so feedback does not depend on provider availability.
+   */
   async listHandoffsAwaitingFeedback(input: {
     processed_before: string
+    unprocessed_before: string
     limit: number
-    max_attempts: number
+    retry: SweepRetryWindow
   }): Promise<string[]> {
     const result = await this.queryExecutor.query<{ interview_id: string }>(
       createSqlQuery(
         `
           SELECT interview_id
           FROM interview_recording_stop_handoffs
-          WHERE processed_at IS NOT NULL
-            AND feedback_triggered_at IS NULL
-            AND processed_at < $1
-            AND feedback_attempt_count < $3
-          ORDER BY feedback_last_attempted_at ASC NULLS FIRST, processed_at
-          LIMIT $2;
+          WHERE feedback_triggered_at IS NULL
+            AND created_at > $5
+            AND (feedback_attempt_count < $4 OR feedback_last_attempted_at < $6)
+            AND (
+              (processed_at IS NOT NULL AND processed_at < $1)
+              OR (processed_at IS NULL AND created_at < $2)
+            )
+          ORDER BY feedback_last_attempted_at ASC NULLS FIRST, created_at
+          LIMIT $3;
         `,
-        [input.processed_before, input.limit, input.max_attempts],
+        [
+          input.processed_before,
+          input.unprocessed_before,
+          input.limit,
+          input.retry.fast_attempts,
+          input.retry.created_after,
+          input.retry.slow_retry_before,
+        ],
       ),
     )
     return result.rows.map((row) => row.interview_id)

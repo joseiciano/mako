@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest'
 import type { Interview, InterviewDetail } from '@mako/shared'
 import type { SqlQuery } from '../index'
 import { createInMemoryInterviewDataSource, InterviewRepository } from './interview-repository'
-import { MAX_SWEEP_ATTEMPTS, RecordingStopService } from './recording-stop-service'
+import {
+  RecordingStopService,
+  SWEEP_FAST_ATTEMPTS,
+  SWEEP_GIVE_UP_MS,
+  SWEEP_SLOW_RETRY_MS,
+} from './recording-stop-service'
 import type { RecordingStopRepository, StopRecordingRow } from './recording-stop-repository'
 import {
   RealtimeRecordingError,
@@ -338,7 +343,7 @@ describe('RecordingStopService failure tracking', function trackingSuite() {
     const repository = {
       ...(t.repository as object),
       async recordHandoffFailure() {
-        return MAX_SWEEP_ATTEMPTS
+        return SWEEP_FAST_ATTEMPTS
       },
     } as unknown as RecordingStopRepository
     const service = new RecordingStopService(
@@ -362,7 +367,7 @@ describe('RecordingStopService failure tracking', function trackingSuite() {
       async markStopConfirmed() {},
       async recordStopFailure(_id: string, code: string) {
         failures.push(code)
-        return MAX_SWEEP_ATTEMPTS
+        return SWEEP_FAST_ATTEMPTS
       },
     } as unknown as RecordingStopRepository
     const provider = {
@@ -373,32 +378,53 @@ describe('RecordingStopService failure tracking', function trackingSuite() {
     const service = new RecordingStopService(repository, provider, undefined, {
       error: (event) => void logged.push(event),
     })
-    expect(await service.sweepOverdueRecordings({ maxAgeSeconds: 3300, limit: 5 })).toBe(0)
+    expect(await service.sweepOverdueRecordings({ maxAgeSeconds: 3600, limit: 5 })).toBe(0)
     expect(failures).toEqual(['provider_unavailable'])
     expect(logged).toEqual(['recording_overdue_stop_attempts_exhausted'])
   })
 
-  it('passes the attempt cap to the repository queries', async function run() {
-    const seen: number[] = []
+  it('passes the fast attempt count, slow retry cutoff and give-up cutoff to every sweep query', async function run() {
+    const now = '2026-05-22T10:46:00.000Z'
+    const seen: unknown[] = []
     const repository = {
-      async listUnprocessedHandoffInterviewIds(input: { max_attempts: number }) {
-        seen.push(input.max_attempts)
+      async listUnprocessedHandoffInterviewIds(input: { retry: unknown }) {
+        seen.push(input.retry)
         return []
       },
-      async listOverdueRecordings(input: { max_attempts: number }) {
-        seen.push(input.max_attempts)
+      async listOverdueRecordings(input: { retry: unknown }) {
+        seen.push(input.retry)
         return []
       },
-      async listHandoffsAwaitingFeedback(input: { max_attempts: number }) {
-        seen.push(input.max_attempts)
+      async listHandoffsAwaitingFeedback(input: { retry: unknown }) {
+        seen.push(input.retry)
         return []
       },
     } as unknown as RecordingStopRepository
-    const service = new RecordingStopService(repository, {} as RealtimeRecordingProvider)
+    const service = new RecordingStopService(repository, {} as RealtimeRecordingProvider, () => now)
     await service.sweepStopHandoffs({ olderThan: 'x', limit: 1 })
     await service.sweepOverdueRecordings({ maxAgeSeconds: 1, limit: 1 })
-    await service.listHandoffsAwaitingFeedback({ processedBefore: 'x', limit: 1 })
-    expect(seen).toEqual([MAX_SWEEP_ATTEMPTS, MAX_SWEEP_ATTEMPTS, MAX_SWEEP_ATTEMPTS])
+    await service.listHandoffsAwaitingFeedback({ processedBefore: 'x', unprocessedBefore: 'y', limit: 1 })
+    const expected = {
+      fast_attempts: SWEEP_FAST_ATTEMPTS,
+      slow_retry_before: new Date(new Date(now).getTime() - SWEEP_SLOW_RETRY_MS).toISOString(),
+      created_after: new Date(new Date(now).getTime() - SWEEP_GIVE_UP_MS).toISOString(),
+    }
+    expect(seen).toEqual([expected, expected, expected])
+  })
+
+  it('forwards the unprocessed-handoff feedback cutoff to the repository', async function run() {
+    let input: unknown
+    const repository = {
+      async listHandoffsAwaitingFeedback(value: unknown) {
+        input = value
+        return ['int-1']
+      },
+    } as unknown as RecordingStopRepository
+    const service = new RecordingStopService(repository, {} as RealtimeRecordingProvider)
+    expect(
+      await service.listHandoffsAwaitingFeedback({ processedBefore: 'p', unprocessedBefore: 'u', limit: 3 }),
+    ).toEqual(['int-1'])
+    expect(input).toMatchObject({ processed_before: 'p', unprocessed_before: 'u', limit: 3 })
   })
 })
 

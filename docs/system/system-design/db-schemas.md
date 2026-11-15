@@ -450,7 +450,7 @@ Normalized provider recording jobs for RealtimeKit composite and participant tra
 - **`provider_status`**: `text` (Optional) - Provider-side status.
 - **`stop_requested_at`**: `timestamptz` (Optional)
 - **`stop_confirmed_at`**: `timestamptz` (Optional)
-- **`stop_attempt_count`**: `integer` (Default: 0) - Failed overdue-sweep stop attempts; the sweep stops retrying after 12.
+- **`stop_attempt_count`**: `integer` (Default: 0) - Failed overdue-sweep stop attempts; after 12 failures the sweep retries only every 30 minutes, logs an error per failure, and abandons rows older than 24 hours.
 - **`stop_last_attempted_at`**: `timestamptz` (Optional) - The overdue sweep orders by least recently attempted.
 - **`stop_last_error_code`**: `text` (Optional) - Safe error code only.
 - **`finalization_status`**: `text` with CHECK (`pending`, `processing`, `finalized`, `failed`)
@@ -475,10 +475,10 @@ Durable stop/reconciliation handoff written inside the interview completion tran
 - **`updated_at`**: `timestamptz`
 - **`processed_at`**: `timestamptz` (Optional) - Set once every provider recording is confirmed stopped.
 - **`attempt_count`**: `integer` (Default: 0)
-- **`last_attempted_at`**: `timestamptz` (Optional) - Last failed attempt; the sweep orders by least recently attempted and stops retrying after 12 attempts.
+- **`last_attempted_at`**: `timestamptz` (Optional) - Last failed attempt; the sweep orders by least recently attempted; after 12 failures it retries only every 30 minutes, logs an error per failure, and abandons rows older than 24 hours.
 - **`last_error_code`**: `text` (Optional) - Safe error code only.
-- **`feedback_triggered_at`**: `timestamptz` (Optional) - Set after the feedback workflow `createBatch` succeeds. The sweep starts feedback for processed handoffs where this is NULL (instance id `feedback-v1-{interview_id}` keeps it idempotent).
-- **`feedback_attempt_count`**: `integer` (Default: 0) - Sweep feedback-start failures; retries stop after 12.
+- **`feedback_triggered_at`**: `timestamptz` (Optional) - Set after the feedback workflow `createBatch` succeeds. The sweep starts feedback where this is NULL for processed handoffs and for unprocessed handoffs older than 15 minutes, so feedback does not depend on provider availability (instance id `feedback-v1-{interview_id}` keeps it idempotent).
+- **`feedback_attempt_count`**: `integer` (Default: 0) - Sweep feedback-start failures; same slow-retry and 24-hour limits as the stop attempts.
 - **`feedback_last_attempted_at`**: `timestamptz` (Optional)
 
 Indexes:
