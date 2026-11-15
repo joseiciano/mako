@@ -170,6 +170,9 @@ function createStopFixture(
     async markHandoffProcessed() {
       state.handoff!.processed = true
     },
+    async recordStopFailure() {
+      return 1
+    },
     async listOverdueRecordings() {
       return state.rows
         .filter((r) => !r.stop_confirmed_at)
