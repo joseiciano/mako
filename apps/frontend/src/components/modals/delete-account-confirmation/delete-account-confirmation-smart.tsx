@@ -38,7 +38,11 @@ export function DeleteAccountConfirmation(
       return
     }
 
-    await deleteAccountMutation.mutateAsync()
+    try {
+      await deleteAccountMutation.mutateAsync()
+    } catch {
+      return
+    }
     props.onClose()
     await router.navigate({ to: '/' })
   }
