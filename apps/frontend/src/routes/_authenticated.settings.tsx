@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from '@tanstack/react-router'
+import { createFileRoute, Link, Outlet } from '@tanstack/react-router'
 import { useAccount } from '../hooks/use-account'
 
 export const Route = createFileRoute('/_authenticated/settings')({
@@ -22,6 +22,13 @@ export default function SettingsPage() {
           Profile
         </Link>
 
+        <Link
+          to="/settings/interviewer-application"
+          className="text-sm text-blue-400 hover:text-blue-300 hover:underline"
+        >
+          Become a verified interviewer
+        </Link>
+
         {isVerifiedInterviewer && (
           <Link
             to="/settings/interviewer-availability"
@@ -31,6 +38,10 @@ export default function SettingsPage() {
           </Link>
         )}
       </nav>
+
+      <div className="mt-8">
+        <Outlet />
+      </div>
     </section>
   )
 }
