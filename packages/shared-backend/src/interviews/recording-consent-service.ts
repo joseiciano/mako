@@ -3,6 +3,7 @@ import {
   type ConsentDecision,
   type RecordingConsentResponse,
 } from '@mako/shared'
+import type { RecordingStarter } from './recording-control-service'
 import { InterviewRepository } from './interview-repository'
 import {
   RecordingConsentRepository,
@@ -20,6 +21,7 @@ export class RecordingConsentService {
   constructor(
     private readonly consentRepository: RecordingConsentRepository,
     private readonly interviewRepository: InterviewRepository,
+    private readonly recordingStarter?: RecordingStarter,
   ) {}
 
   async setConsent(
@@ -41,7 +43,13 @@ export class RecordingConsentService {
       consent_copy_version: input.consent_copy_version,
     })
 
-    return this.toConsentResponse(result)
+    const response = this.toConsentResponse(result)
+
+    if (response.decision === 'consented') {
+      await this.recordingStarter?.ensureRecordingStarted(input.interview_id)
+    }
+
+    return response
   }
 
   async revokeConsent(

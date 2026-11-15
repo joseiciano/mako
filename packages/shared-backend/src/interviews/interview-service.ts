@@ -33,6 +33,7 @@ import {
   createDemoRealtimeProvider,
   type RealtimeProvider,
 } from './realtime-provider'
+import type { RecordingStarter } from './recording-control-service'
 import type { TimerOrchestrationPort, TimerStartParams } from './timer-orchestration'
 import {
   NotificationRepository,
@@ -88,6 +89,7 @@ export class InterviewService {
     private readonly aiChatRepository?: AiChatRepository,
     private readonly premiumCancellationService?: PremiumCancellationService,
     private readonly artifactUrlSource?: InterviewArtifactUrlSource,
+    private readonly recordingStarter?: RecordingStarter,
   ) {}
 
   async createInterview(
@@ -519,6 +521,7 @@ export class InterviewService {
           expires_at: expiresAt,
           warning_at: warningAt,
         })
+        await this.ensureRecordingStartedSafely(input.id)
         return toInterviewLifecycleActionResponse(transitionResult.interview)
       case 'already_ongoing': {
         this.logSafely('info', 'start_succeeded', {
@@ -540,6 +543,7 @@ export class InterviewService {
             warning_at: persistedInterview.warning_at,
           })
         }
+        await this.ensureRecordingStartedSafely(input.id)
         return toInterviewLifecycleActionResponse(persistedInterview)
       }
       case 'invalid_status':
@@ -860,6 +864,21 @@ export class InterviewService {
       })
     } catch {
       // no-op: synchronous logger errors must never block interview operations
+    }
+  }
+
+  private async ensureRecordingStartedSafely(interviewId: string): Promise<void> {
+    if (!this.recordingStarter) {
+      return
+    }
+
+    try {
+      await this.recordingStarter.ensureRecordingStarted(interviewId)
+    } catch (error) {
+      this.logSafely('error', 'interview.recording_start_failure', {
+        interview_id: interviewId,
+        error_message: toErrorMessage(error),
+      })
     }
   }
 

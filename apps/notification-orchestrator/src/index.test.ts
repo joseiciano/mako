@@ -500,6 +500,46 @@ describe('notification-orchestrator queue handler', function queueHandlerSuite()
       })
     })
 
+    it('stops provider recordings before triggering the feedback workflow', async function run() {
+      const order: string[] = []
+      const recordingStop = {
+        processStopHandoff: vi.fn(async () => {
+          order.push('stop')
+          return 'processed' as const
+        }),
+        sweepStopHandoffs: vi.fn(async () => 0),
+      }
+      const { worker } = createTestWorker({ recordingStop })
+      const feedbackWorkflow = createMockFeedbackWorkflow()
+      vi.mocked(feedbackWorkflow.createBatch).mockImplementation((async () => {
+        order.push('feedback')
+        return []
+      }) as never)
+      const batch = createMockBatch([createMockMessage('msg-1', completedEventBody)])
+
+      await worker.queue(batch, createMockEnvWithFeedback(feedbackWorkflow))
+
+      expect(recordingStop.processStopHandoff).toHaveBeenCalledWith(completedEventBody.interview.id)
+      expect(order).toEqual(['stop', 'feedback'])
+      expect(batch.acked).toContain('msg-1')
+    })
+
+    it('retries the message and skips feedback handoff while recording stop is pending', async function run() {
+      const recordingStop = {
+        processStopHandoff: vi.fn(async () => 'retry' as const),
+        sweepStopHandoffs: vi.fn(async () => 0),
+      }
+      const { worker } = createTestWorker({ recordingStop })
+      const feedbackWorkflow = createMockFeedbackWorkflow()
+      const batch = createMockBatch([createMockMessage('msg-1', completedEventBody)])
+
+      await worker.queue(batch, createMockEnvWithFeedback(feedbackWorkflow))
+
+      expect(batch.retried).toContain('msg-1')
+      expect(batch.acked).toHaveLength(0)
+      expect(feedbackWorkflow.createBatch).not.toHaveBeenCalled()
+    })
+
     it('interview.completed idempotency - duplicate events trigger same workflow instance', async function run() {
       const { worker } = createTestWorker()
       const feedbackWorkflow = createMockFeedbackWorkflow()
@@ -1066,6 +1106,10 @@ function createTestWorker(options?: {
   queryRowsBySqlIncludes?: Record<string, unknown[]>
   queryErrorsBySqlIncludes?: Record<string, Error>
   releaseRejectsWith?: Error
+  recordingStop?: {
+    processStopHandoff: (interviewId: string) => Promise<'processed' | 'no_handoff' | 'retry'>
+    sweepStopHandoffs: (input: { olderThan: string; limit: number }) => Promise<number>
+  }
 }) {
   const queueSentMessages: NotificationTransportMessage[] = []
   const queries: Array<{ text: string; values: unknown[] }> = []
@@ -1128,6 +1172,9 @@ function createTestWorker(options?: {
   const worker = createNotificationWorker({
     createPool: () => mockPool,
     console: mockConsole,
+    createRecordingStopProcessor: options?.recordingStop
+      ? () => options.recordingStop
+      : undefined,
   })
 
   return { worker, queueSentMessages, logs, queries, clientRelease, poolEnd }

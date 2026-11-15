@@ -25,6 +25,10 @@ import {
   recordingFinalizationPayloadSchema,
 } from './workflows/recording-finalization-workflow'
 import type { RecordingFinalizationPayload } from './workflows/recording-finalization-workflow'
+import {
+  createRecordingStopProcessor,
+  type RecordingStopHandoffProcessor,
+} from './recording-stop'
 import { sweepRecordingFinalizations } from './workflows/recording-finalization-sweep'
 
 export { InterviewFeedbackWorkflow, feedbackWorkflowPayloadSchema }
@@ -51,10 +55,15 @@ export type NotificationWorkerDependencies = {
     }>
   }
   console: Pick<Console, 'error' | 'log'>
+  createRecordingStopProcessor?: (
+    env: WorkerBindings,
+    queryExecutor: SqlQueryExecutor,
+  ) => RecordingStopHandoffProcessor | undefined
 }
 
 export function createNotificationWorker(dependencies: NotificationWorkerDependencies) {
   const { createPool, console: consoleLike } = dependencies
+  const buildRecordingStopProcessor = dependencies.createRecordingStopProcessor ?? createRecordingStopProcessor
 
   return {
     async queue(batch: MessageBatch<unknown>, env: WorkerBindings): Promise<void> {
@@ -136,6 +145,21 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
               await consumerService.processInterviewMatchCreated(event)
             } else if (normalizedBody.event_type === 'interview.completed') {
               const event = interviewCompletedEventSchema.parse(normalizedBody)
+
+              // Stop provider recordings (idempotent) before feedback handoff.
+              // A pending result throws so the message is retried; the
+              // durable handoff row keeps the work recoverable via the sweep.
+              const stopProcessor = buildRecordingStopProcessor(env, queryExecutor as SqlQueryExecutor)
+              if (stopProcessor) {
+                const stopOutcome = await stopProcessor.processStopHandoff(event.interview.id)
+                if (stopOutcome === 'retry') {
+                  throw new Error('recording_stop_pending')
+                }
+              } else {
+                consoleLike.log('[notification-consumer] recording_stop_not_configured', {
+                  interview_id: event.interview.id,
+                })
+              }
 
               // Trigger feedback workflow idempotently. createBatch is
               // idempotent, so duplicate interview.completed events are safe.
@@ -243,6 +267,17 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
           await sweepRecordingFinalizations(env, queryExecutor as SqlQueryExecutor, consoleLike)
         } catch (err) {
           consoleLike.error('recording_finalization_sweep_failed', {
+            error_message: err instanceof Error ? err.message : String(err),
+          })
+        }
+
+        try {
+          await buildRecordingStopProcessor(env, queryExecutor as SqlQueryExecutor)?.sweepStopHandoffs({
+            olderThan: new Date(Date.now() - 2 * 60_000).toISOString(),
+            limit: 20,
+          })
+        } catch (err) {
+          consoleLike.error('recording_stop_sweep_failed', {
             error_message: err instanceof Error ? err.message : String(err),
           })
         }

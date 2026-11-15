@@ -73,6 +73,9 @@ import {
   NotificationDispatchService,
   RecordingConsentRepository,
   RecordingConsentService,
+  RecordingControlRepository,
+  RecordingControlService,
+  createRealtimeKitRecordingProvider,
   ScreenshotRepository,
   ScreenshotService,
   ArtifactReadRepository,
@@ -371,6 +374,7 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
         new AiChatRepository(createWorkerAiChatResponder(context.bindings)),
         premiumCancellationService,
         artifactUrlSource,
+        queryExecutor ? createWorkerRecordingControl(context.bindings, queryExecutor) : undefined,
       )
     },
     createArtifactReadService: function createArtifactReadService(context) {
@@ -407,6 +411,7 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
       return new RecordingConsentService(
         new RecordingConsentRepository({ queryExecutor }),
         new InterviewRepository({ queryExecutor }),
+        createWorkerRecordingControl(context.bindings, queryExecutor),
       )
     },
     createScreenshotService: function createScreenshotService(context) {
@@ -641,6 +646,29 @@ function createWorkerRealtimeProvider(bindings: WorkerBindings): RealtimeProvide
       return getRealtimeProvider().createParticipantToken(input)
     },
   }
+}
+
+function createWorkerRecordingControl(
+  bindings: WorkerBindings,
+  queryExecutor: SqlQueryExecutor,
+): RecordingControlService | undefined {
+  if (
+    !bindings.CLOUDFLARE_ACCOUNT_ID ||
+    !bindings.CLOUDFLARE_API_TOKEN ||
+    !bindings.CLOUDFLARE_REALTIMEKIT_APP_ID
+  ) {
+    return undefined
+  }
+
+  return new RecordingControlService(
+    new RecordingControlRepository(queryExecutor),
+    createRealtimeKitRecordingProvider(bindings),
+    {
+      error(event, context) {
+        console.error({ event, component: 'RecordingControl', ...context })
+      },
+    },
+  )
 }
 
 function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {

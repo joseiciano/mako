@@ -62,6 +62,7 @@ export interface InterviewRepositoryDataSource {
     input: LifecycleInterviewRecordInput,
     outboxEvent?: NotificationQueueEvent,
   ): Promise<LifecycleInterviewRecordResult>
+  listRecordingStopHandoffInterviewIds?(): readonly string[]
 }
 
 export type InterviewFeedbackState = {
@@ -895,6 +896,20 @@ export class InterviewRepository {
         )
 
         if (hasRows(updateResult)) {
+          // Durable recording-stop handoff: same transaction as the completion,
+          // no provider call. ON CONFLICT keeps repeated ends to a single row.
+          await queryExecutor.query(
+            createSqlQuery(
+              `
+                INSERT INTO interview_recording_stop_handoffs (
+                  interview_id, created_at, updated_at, attempt_count
+                )
+                VALUES ($1, $2, $2, 0)
+                ON CONFLICT (interview_id) DO NOTHING;
+              `,
+              [parsedInput.interview_id, parsedInput.updated_at],
+            ),
+          )
           await queryExecutor.query(createSqlQuery('COMMIT;'))
           return {
             outcome: 'completed',
@@ -1357,6 +1372,7 @@ export function createInMemoryInterviewDataSource(
     { credits: number; freeStandardInterviews: number; freeAiInterviews: number }
   >()
   const interviewsById = new Map<string, InterviewWithDetailState>()
+  const recordingStopHandoffs = new Set<string>()
   const cancellationReasonByInterviewId = new Map<
     string,
     InterviewCancellationReason
@@ -1610,6 +1626,9 @@ export function createInMemoryInterviewDataSource(
         interview: structuredClone(cancelledInterview),
       }
     },
+    listRecordingStopHandoffInterviewIds() {
+      return [...recordingStopHandoffs]
+    },
     async transitionInterviewLifecycle(
       input: LifecycleInterviewRecordInput,
     ): Promise<LifecycleInterviewRecordResult> {
@@ -1705,6 +1724,7 @@ export function createInMemoryInterviewDataSource(
       )
 
       interviewsById.set(completedInterview.id, structuredClone(completedInterview))
+      recordingStopHandoffs.add(completedInterview.id)
 
       return {
         outcome: 'completed',
