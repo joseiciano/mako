@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Route } from './_authenticated.admin.reviews'
+import { Route as AuthenticatedRoute } from './_authenticated'
 
 async function runGuard(session: unknown) {
   const fetchQuery = vi.fn().mockResolvedValue(session)
@@ -27,12 +28,17 @@ describe('admin reviews route', function suite() {
     await expect(runGuard(null)).rejects.toMatchObject({ options: { to: '/dashboard' } })
   })
 
-  it('is registered beneath the authenticated tree, which redirects to login', function run() {
+  it('is registered beneath the authenticated tree', function run() {
     const routeTree = readFileSync(resolve(__dirname, '../routeTree.gen.ts'), 'utf8')
     expect(routeTree).toContain("'/_authenticated/admin/reviews'")
     expect(routeTree).toContain("fullPath: '/admin/reviews'")
+  })
 
-    const layoutSource = readFileSync(resolve(__dirname, '_authenticated.tsx'), 'utf8')
-    expect(layoutSource).toMatch(/redirect\(\{\s*to:\s*'\/login'/)
+  it('sits under a parent guard that redirects unauthenticated users to login', async function run() {
+    const fetchQuery = vi.fn().mockResolvedValue({ session: null, user: null })
+
+    await expect(
+      AuthenticatedRoute.options.beforeLoad?.({ context: { queryClient: { fetchQuery } } } as never),
+    ).rejects.toMatchObject({ options: { to: '/login' } })
   })
 })
