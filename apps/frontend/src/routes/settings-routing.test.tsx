@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { RouterProvider, createMemoryHistory, createRouter } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
 import { routeTree } from '../routeTree.gen'
+
+const authState = { isAuthenticated: true }
 
 vi.mock('../hooks/use-auth', function mockUseAuth() {
   return {
@@ -16,7 +18,7 @@ vi.mock('../hooks/use-auth', function mockUseAuth() {
       }
     },
     getAuthState: function getAuthState() {
-      return { isAuthenticated: true }
+      return { isAuthenticated: authState.isAuthenticated }
     },
   }
 })
@@ -46,6 +48,7 @@ function json(body: unknown, status = 200) {
 
 describe('settings routing', function suite() {
   afterEach(function teardown() {
+    authState.isAuthenticated = true
     vi.unstubAllGlobals()
   })
 
@@ -75,5 +78,32 @@ describe('settings routing', function suite() {
     expect(
       await screen.findByRole('heading', { name: 'Become a verified interviewer' }),
     ).toBeTruthy()
+  })
+
+  it('redirects an unauthenticated user from /settings/interviewer-application to /login', async function run() {
+    authState.isAuthenticated = false
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async function impl() {
+        return json({ error: 'not found' }, 404)
+      }),
+    )
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const router = createRouter({
+      routeTree,
+      context: { queryClient },
+      history: createMemoryHistory({ initialEntries: ['/settings/interviewer-application'] }),
+    })
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    )
+
+    await waitFor(function redirected() {
+      expect(router.state.location.pathname).toBe('/login')
+    })
+    expect(screen.queryByRole('heading', { name: 'Become a verified interviewer' })).toBeNull()
   })
 })
