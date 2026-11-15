@@ -9,12 +9,15 @@ const currentDirectory = path.dirname(currentFile)
 const packageDirectory = path.resolve(currentDirectory, '..')
 const migrationsDirectory = path.join(packageDirectory, 'migrations')
 const migrationsTableName = 'schema_migrations'
+const migrationLockKey = 727274001
 
 function isLocalConnectionString(connectionString) {
-  return (
-    connectionString.includes('localhost') ||
-    connectionString.includes('127.0.0.1')
-  )
+  try {
+    const { hostname } = new URL(connectionString)
+    return hostname === 'localhost' || hostname === '127.0.0.1'
+  } catch {
+    return false
+  }
 }
 
 function createPgClient(connectionString) {
@@ -105,6 +108,7 @@ async function main() {
   await client.connect()
 
   try {
+    await client.query('SELECT pg_advisory_lock($1)', [migrationLockKey])
     await ensureMigrationsTable(client)
 
     const migrationFiles = await getMigrationFiles()
@@ -129,6 +133,9 @@ async function main() {
       `Migrations complete. Applied ${pendingMigrations.length} migration(s).\n`,
     )
   } finally {
+    await client
+      .query('SELECT pg_advisory_unlock($1)', [migrationLockKey])
+      .catch(function ignoreUnlockError() {})
     await client.end()
   }
 }

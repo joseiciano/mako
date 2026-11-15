@@ -2,7 +2,7 @@
 
 **Milestone**: Milestone 1: Foundation & Authentication
 **Description**: Implement a lightweight SQL migration system and apply the initial database schemas.
-**Status**: In-Review
+**Status**: Completed
 
 ## What Needs to Be Done
 
