@@ -1,3 +1,23 @@
+# Local Development Stack
+
+Run the whole app locally with one command:
+
+```bash
+pnpm install
+cp .env.example .env   # optional; defaults are used when .env is missing
+pnpm dev
+```
+
+`pnpm dev` (`scripts/dev/dev-stack.mjs`):
+
+1. Starts local Postgres from `docker-compose.dev.yml` (`127.0.0.1:54331`, database `mako_dev`).
+2. Runs `pnpm db:migrate` against it.
+3. Writes `apps/backend-rest/.dev.vars` and `apps/notification-orchestrator/.dev.vars` from `.env` (gitignored).
+4. Runs one `wrangler dev` session with backend-rest (`:8787`), notification-orchestrator and greedy-matcher. R2, Queues, Workflows and rate limiting are emulated locally; Hyperdrive points at the local Postgres through `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE`. The orchestrator runs from a generated config (`wrangler.dev.generated.jsonc`, gitignored) without the `ai` binding, because Workers AI has no local emulation.
+5. Runs the frontend on `:3000`, proxying `/api` to the backend.
+
+Ctrl+C stops all processes and Postgres. Related commands: `pnpm dev:stack:down`, `pnpm dev:stack:reset` (wipes the dev database), `pnpm dev:apps` (per-app `dev` scripts only, no Postgres or emulator setup). Local state lives in `.wrangler/state`. `.env.example` documents every local variable.
+
 # Local Testing Environment
 
 This guide defines the local test workflow for the Mako monorepo.

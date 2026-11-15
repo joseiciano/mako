@@ -1,0 +1,21 @@
+name: mako-dev
+
+services:
+  postgres-dev:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: mako_dev
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - '54331:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d mako_dev']
+      interval: 2s
+      timeout: 5s
+      retries: 15
+    volumes:
+      - mako-postgres-dev-data:/var/lib/postgresql/data
+
+volumes:
+  mako-postgres-dev-data:
