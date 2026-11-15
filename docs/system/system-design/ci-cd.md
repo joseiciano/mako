@@ -59,7 +59,7 @@ Application and runtime values:
 
 | Secret | Purpose |
 |---|---|
-| `CLOUDFLARE_RUNTIME_API_TOKEN` | Separate least-privilege token used by deployed Workers at runtime; synchronized to the Worker secret named `CLOUDFLARE_API_TOKEN` and never used by the bootstrap script or CI deploys |
+| `CLOUDFLARE_RUNTIME_API_TOKEN` | Separate least-privilege token used by deployed Workers at runtime; it needs the account `Realtime` (or `Realtime Admin`) permission for RealtimeKit recording start, stop, and status calls; synchronized to the Worker secret named `CLOUDFLARE_API_TOKEN` and never used by the bootstrap script or CI deploys |
 
 | `DATABASE_URL` | Direct SSL Neon URI used by the migration job; it must target the same database as the environment's Hyperdrive binding |
 | `HYPERDRIVE_ID` | Environment's Hyperdrive configuration ID injected into Wrangler configuration |
@@ -68,6 +68,7 @@ Application and runtime values:
 | `BETTER_AUTH_TRUSTED_ORIGINS` | Comma-separated origins accepted by Better Auth |
 | `VITE_AUTH_BASE_URL` | Required backend origin baked into the frontend build; it must identify the selected environment's backend |
 | `CLOUDFLARE_REALTIMEKIT_APP_ID` | RealtimeKit application belonging to the selected Cloudflare account |
+| `REALTIMEKIT_WEBHOOK_PUBLIC_KEY_URL` | Not a secret and not set by the secret scripts: a plain-text `vars` binding in `apps/backend-rest/wrangler.jsonc` (`https://api.realtime.cloudflare.com/.well-known/webhooks.json`) used to verify RealtimeKit webhook signatures |
 | `STRIPE_SECRET_KEY` | Environment-specific Stripe secret key; optional in staging until payment testing, required in production |
 | `STRIPE_WEBHOOK_SECRET` | Stripe webhook signing secret; optional in staging until webhook testing, required in production |
 | `VITE_STRIPE_PUBLISHABLE_KEY` | Stripe publishable key baked into the frontend build |

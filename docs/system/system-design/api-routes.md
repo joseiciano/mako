@@ -595,23 +595,31 @@ Company route behavior:
 
 ### Recording Consent
 - **`POST /api/interviews/:id/recording-consent`**
-  - **Description**: Records a participant's recording consent or decline decision.
-  - **Request Body**: `{ decision: 'consented' | 'declined' }`
-  - **Response Body**: `{ success: boolean }`
+  - **Description**: Records the authenticated participant's recording consent or decline decision for the current consent copy.
+  - **Request Body**: `{ decision: 'consented' | 'declined', consent_copy_version: string }`
+  - **Response Body**: `{ interview_id, user_id, decision, consent_copy_version, recording_status, revoked_at }` — only the caller's own decision and the aggregate `recording_status`. Another participant's decision and aggregate consent readiness are never returned.
   - **Behavior Rules**:
     - Route is participant-only; non-participants receive 404.
-    - One consent record per participant per interview (composite primary key).
-    - Declining does not block the interview but makes automated feedback unavailable.
+    - One consent record per participant per interview (composite primary key). Writes are idempotent for the same decision and copy version.
+    - Writes are valid only while the interview is `scheduled` or `ongoing` and `recording_status = 'not_started'`; afterwards the route returns 409.
+    - AI-led sessions require one active `consented` decision (scheduler); peer-to-peer sessions require active `consented` decisions from both scheduler and interviewer. Active means `revoked_at IS NULL`.
+    - After a `consented` write, the service calls `ensureRecordingStarted`, which starts recording only if the interview is `ongoing` and every required consent is active. Provider failures never fail the consent request.
+    - Declining does not block the interview but makes recording, transcription, and automated feedback unavailable.
   - **Query Params**: None
 
 - **`DELETE /api/interviews/:id/recording-consent`**
-  - **Description**: Revokes a participant's prior recording consent.
+  - **Description**: Revokes the authenticated participant's prior recording consent.
   - **Request Body**: None
-  - **Response Body**: `{ success: boolean }`
+  - **Response Body**: Same shape as `POST` (own decision with `revoked_at` set, plus `recording_status`).
   - **Behavior Rules**:
     - Route is participant-only.
-    - Sets `revoked_at` on the existing consent record; does not delete the row.
+    - Sets `revoked_at` on the existing consent record; does not delete the row. Rejected with 409 once recording has started.
   - **Query Params**: None
+
+#### Server-controlled recording start and stop (no public route)
+- **Start**: `ensureRecordingStarted(interviewId)` is the single start operation, called after `POST /api/interviews/:id/start` (new or already `ongoing`) and after a consent grant. A compare-and-set `UPDATE` on `interviews` (`status = 'ongoing'`, `recording_status = 'not_started'`, all required consents active) persists a start claim (`recording_status = 'pending'`, `recording_start_claim_id`, `recording_start_claimed_at`) before any provider call, so concurrent callers start recording at most once. It starts one composite recording and one participant-separated audio track recording (each `max_seconds = 3600`) through RealtimeKit using `interviews.realtime_session_id` as the meeting ID, persists each returned provider recording ID as its own `interview_recordings` row, then sets `recording_status = 'recording'`. After a timeout, 5xx, or duplicate-active response it lists active provider recordings and persists any found before retrying; a stale `pending` claim (over 60 seconds) can be taken over and reconciled. Terminal provider errors set `recording_status = 'failed'`. Provider errors never fail the start or consent request.
+- **Stop**: the completion transaction (manual end or workflow timeout) inserts one `interview_recording_stop_handoffs` row (`ON CONFLICT DO NOTHING`); no provider call happens in the transaction. The `interview.completed` consumer in `notification-orchestrator` stops every provider recording idempotently (`stop_requested_at` / `stop_confirmed_at` checkpoints, already-stopped treated as success, active unpersisted provider recordings also stopped) and marks the handoff processed before triggering the feedback workflow. If the provider is unavailable the message is retried, and the scheduled sweep retries unprocessed handoffs.
+- **Provider error mapping** (`RealtimeRecordingError`): network error, timeout, 5xx, 429 -> `provider_unavailable` (ambiguous, reconcile before retry); 404/400 -> `invalid_meeting`; 409 -> `duplicate_active_recording`; other 4xx or `ERRORED` status -> `recording_failed` (terminal). Provider bodies and credentials are never logged or returned.
 
 ### Provider Webhooks
 - **`POST /api/webhooks/realtimekit`**
