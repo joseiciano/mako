@@ -3,19 +3,31 @@ import { Client } from 'pg'
 import { randomUUID } from 'node:crypto'
 import { resolveLocalTestDatabaseUrl } from '../database/test-database-url'
 import type { QueryResult, SqlQuery, SqlQueryExecutor } from '../index'
-import { RecordingStopRepository } from './recording-stop-repository'
-import { MAX_SWEEP_ATTEMPTS, RecordingStopService } from './recording-stop-service'
+import { RecordingStopRepository, type SweepRetryWindow } from './recording-stop-repository'
+import { RecordingStopService, SWEEP_FAST_ATTEMPTS } from './recording-stop-service'
 import { RealtimeRecordingError, type RealtimeRecordingProvider } from './realtime-recording-provider'
 
 describe('recording stop sweeps against postgres', function sweepSuite() {
+  const schema = `recording_stop_sweep_test_${process.pid}`
+  const retry: SweepRetryWindow = {
+    fast_attempts: SWEEP_FAST_ATTEMPTS,
+    slow_retry_before: '2026-01-01T00:00:00Z',
+    created_after: '2025-01-01T00:00:00Z',
+  }
   let client: Client
   let repository: RecordingStopRepository
 
   beforeAll(async function connect() {
     client = new Client({ connectionString: resolveLocalTestDatabaseUrl() })
     await client.connect()
-    // Parent rows (interviews, users) are out of scope here; skip FK checks for this session.
-    await client.query("SET session_replication_role = 'replica'")
+    // Throwaway schema with FK-free copies of the two tables; the shared schema is untouched.
+    await client.query(`CREATE SCHEMA ${schema}`)
+    await client.query(`SET search_path TO ${schema}`)
+    for (const table of ['interview_recordings', 'interview_recording_stop_handoffs']) {
+      await client.query(
+        `CREATE TABLE ${schema}.${table} (LIKE public.${table} INCLUDING DEFAULTS)`,
+      )
+    }
     const executor: SqlQueryExecutor = {
       async query<Row>(query: SqlQuery): Promise<QueryResult<Row>> {
         const result = await client.query(query.text, [...query.values])
@@ -26,12 +38,12 @@ describe('recording stop sweeps against postgres', function sweepSuite() {
   })
 
   afterAll(async function disconnect() {
+    await client.query(`DROP SCHEMA ${schema} CASCADE`)
     await client.end()
   })
 
   beforeEach(async function clean() {
-    await client.query('DELETE FROM interview_recording_stop_handoffs')
-    await client.query('DELETE FROM interview_recordings')
+    await client.query('TRUNCATE interview_recording_stop_handoffs, interview_recordings')
   })
 
   async function insertHandoff(createdAt: string, processedAt: string | null = null) {
@@ -63,52 +75,107 @@ describe('recording stop sweeps against postgres', function sweepSuite() {
     const ids = await repository.listUnprocessedHandoffInterviewIds({
       older_than: '2026-02-01T00:00:00Z',
       limit: 1,
-      max_attempts: MAX_SWEEP_ATTEMPTS,
+      retry,
     })
     expect(ids).toEqual([fresh])
   })
 
-  it('stops listing a handoff after max attempts', async function run() {
+  it('handoffs past the fast attempts retry only after the slow cutoff and are abandoned after the give-up cutoff', async function run() {
     const id = await insertHandoff('2026-01-01T00:00:00Z')
-    let attempts = 0
     for (let i = 0; i < 3; i += 1) {
-      attempts = await repository.recordHandoffFailure(id, 'provider_unavailable', '2026-01-03T00:00:00Z')
+      await repository.recordHandoffFailure(id, 'provider_unavailable', '2026-01-03T00:00:00Z')
     }
-    expect(attempts).toBe(3)
     const query = { older_than: '2026-02-01T00:00:00Z', limit: 10 }
-    expect(await repository.listUnprocessedHandoffInterviewIds({ ...query, max_attempts: 4 })).toEqual([id])
-    expect(await repository.listUnprocessedHandoffInterviewIds({ ...query, max_attempts: 3 })).toEqual([])
+    const window = { ...retry, fast_attempts: 3 }
+    expect(
+      await repository.listUnprocessedHandoffInterviewIds({
+        ...query,
+        retry: { ...window, slow_retry_before: '2026-01-03T00:00:00Z' },
+      }),
+    ).toEqual([])
+    expect(
+      await repository.listUnprocessedHandoffInterviewIds({
+        ...query,
+        retry: { ...window, slow_retry_before: '2026-01-03T00:30:00Z' },
+      }),
+    ).toEqual([id])
+    expect(
+      await repository.listUnprocessedHandoffInterviewIds({
+        ...query,
+        retry: { ...window, slow_retry_before: '2026-01-03T00:30:00Z', created_after: '2026-01-02T00:00:00Z' },
+      }),
+    ).toEqual([])
   })
 
-  it('overdue recordings: failing rows rotate behind never-attempted ones and drop out after max attempts', async function run() {
+  it('overdue recordings: failing rows rotate behind never-attempted ones and slow down after the fast attempts', async function run() {
     const failing = await insertRecording('2026-01-01T00:00:00Z')
     const other = await insertRecording('2026-01-02T00:00:00Z')
     const query = { created_before: '2026-02-01T00:00:00Z', limit: 1 }
+    const window = { ...retry, fast_attempts: 2, slow_retry_before: '2026-01-04T00:00:00Z' }
 
-    expect((await repository.listOverdueRecordings({ ...query, max_attempts: 2 }))[0]?.id).toBe(failing)
+    expect((await repository.listOverdueRecordings({ ...query, retry: window }))[0]?.id).toBe(failing)
     await repository.recordStopFailure(failing, 'provider_unavailable', '2026-01-03T00:00:00Z')
-    expect((await repository.listOverdueRecordings({ ...query, max_attempts: 2 }))[0]?.id).toBe(other)
+    expect((await repository.listOverdueRecordings({ ...query, retry: window }))[0]?.id).toBe(other)
 
     await repository.recordStopFailure(failing, 'provider_unavailable', '2026-01-04T00:00:00Z')
-    const all = await repository.listOverdueRecordings({ ...query, limit: 10, max_attempts: 2 })
-    expect(all.map((r) => r.id)).toEqual([other])
+    const slow = { ...window, slow_retry_before: '2026-01-04T00:00:00Z' }
+    expect((await repository.listOverdueRecordings({ ...query, limit: 10, retry: slow })).map((r) => r.id)).toEqual([
+      other,
+    ])
+    const later = { ...window, slow_retry_before: '2026-01-04T00:30:00Z' }
+    expect((await repository.listOverdueRecordings({ ...query, limit: 10, retry: later })).map((r) => r.id)).toEqual([
+      other,
+      failing,
+    ])
   })
 
-  it('lists processed handoffs without feedback_triggered_at until marked, ignoring unprocessed ones', async function run() {
+  it('lists handoffs without feedback_triggered_at: processed ones after processed_before, unprocessed ones only after unprocessed_before', async function run() {
     const awaiting = await insertHandoff('2026-01-01T00:00:00Z', '2026-01-01T00:01:00Z')
-    await insertHandoff('2026-01-01T00:00:00Z')
+    const stuck = await insertHandoff('2026-01-01T00:00:00Z')
+    const recentStuck = await insertHandoff('2026-01-31T23:50:00Z')
     const done = await insertHandoff('2026-01-01T00:00:00Z', '2026-01-01T00:01:00Z')
     await repository.markFeedbackTriggered(done, '2026-01-01T00:02:00Z')
 
-    const query = { processed_before: '2026-02-01T00:00:00Z', limit: 10, max_attempts: 3 }
-    expect(await repository.listHandoffsAwaitingFeedback(query)).toEqual([awaiting])
+    const query = {
+      processed_before: '2026-02-01T00:00:00Z',
+      unprocessed_before: '2026-01-31T23:45:00Z',
+      limit: 10,
+      retry,
+    }
+    expect((await repository.listHandoffsAwaitingFeedback(query)).sort()).toEqual([awaiting, stuck].sort())
+    expect(await repository.listHandoffsAwaitingFeedback({ ...query, unprocessed_before: '2026-02-01T00:00:00Z' }))
+      .toContain(recentStuck)
 
     await repository.markFeedbackTriggered(awaiting, '2026-01-01T00:03:00Z')
+    await repository.markFeedbackTriggered(stuck, '2026-01-01T00:03:00Z')
     expect(await repository.listHandoffsAwaitingFeedback(query)).toEqual([])
   })
 
+  it('provider down: a never-processed handoff with failing stop attempts still surfaces for feedback', async function run() {
+    const id = await insertHandoff('2026-03-01T00:00:00Z')
+    for (let i = 0; i < 3; i += 1) {
+      await repository.recordHandoffFailure(id, 'provider_unavailable', '2026-03-01T00:10:00Z')
+    }
+    const service = new RecordingStopService(repository, {} as RealtimeRecordingProvider, () => '2026-03-01T00:20:00.000Z')
+
+    expect(
+      await service.listHandoffsAwaitingFeedback({
+        processedBefore: '2026-03-01T00:18:00.000Z',
+        unprocessedBefore: '2026-02-28T23:45:00.000Z',
+        limit: 10,
+      }),
+    ).toEqual([])
+    expect(
+      await service.listHandoffsAwaitingFeedback({
+        processedBefore: '2026-03-01T00:18:00.000Z',
+        unprocessedBefore: '2026-03-01T00:05:00.000Z',
+        limit: 10,
+      }),
+    ).toEqual([id])
+  })
+
   it('end to end: overdue sweep records failure then recovers once the provider answers', async function run() {
-    const id = await insertRecording('2026-01-01T00:00:00Z')
+    const id = await insertRecording('2026-02-28T12:00:00Z')
     let failing = true
     const provider = {
       async stopRecording() {
@@ -117,9 +184,9 @@ describe('recording stop sweeps against postgres', function sweepSuite() {
     } as unknown as RealtimeRecordingProvider
     const service = new RecordingStopService(repository, provider, () => '2026-03-01T00:00:00.000Z')
 
-    expect(await service.sweepOverdueRecordings({ maxAgeSeconds: 3300, limit: 5 })).toBe(0)
+    expect(await service.sweepOverdueRecordings({ maxAgeSeconds: 3600, limit: 5 })).toBe(0)
     failing = false
-    expect(await service.sweepOverdueRecordings({ maxAgeSeconds: 3300, limit: 5 })).toBe(1)
+    expect(await service.sweepOverdueRecordings({ maxAgeSeconds: 3600, limit: 5 })).toBe(1)
 
     const row = await client.query(
       'SELECT stop_attempt_count, stop_last_error_code, stop_confirmed_at FROM interview_recordings WHERE id = $1',
