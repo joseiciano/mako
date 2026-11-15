@@ -23,4 +23,25 @@ describe('AuthGuardDumb', function () {
 
     expect(screen.getByText('Private Content')).toBeInTheDocument()
   })
+
+  it('renders an alert and no children when the session check failed', function () {
+    render(
+      <AuthGuardDumb error={new Error('boom')} isAuthenticated={false} isPending={false}>
+        <section>Private Content</section>
+      </AuthGuardDumb>,
+    )
+
+    expect(screen.getByRole('alert')).toBeInTheDocument()
+    expect(screen.queryByText('Private Content')).not.toBeInTheDocument()
+  })
+
+  it('renders nothing when unauthenticated', function () {
+    const { container } = render(
+      <AuthGuardDumb isAuthenticated={false} isPending={false}>
+        <section>Private Content</section>
+      </AuthGuardDumb>,
+    )
+
+    expect(container).toBeEmptyDOMElement()
+  })
 })
