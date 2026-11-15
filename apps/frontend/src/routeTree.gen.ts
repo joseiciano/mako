@@ -20,6 +20,7 @@ import { Route as AuthenticatedInterviewsRouteImport } from './routes/_authentic
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated.settings'
 import { Route as AuthenticatedInterviewsIdRouteImport } from './routes/_authenticated.interviews.$id'
 import { Route as AuthenticatedInterviewsNewRouteImport } from './routes/_authenticated.interviews.new'
+import { Route as AuthenticatedSettingsInterviewerApplicationRouteImport } from './routes/_authenticated.settings.interviewer-application'
 import { Route as AuthenticatedSettingsInterviewerAvailabilityRouteImport } from './routes/_authenticated.settings.interviewer-availability'
 import { Route as AuthenticatedSettingsProfileRouteImport } from './routes/_authenticated.settings.profile'
 import { Route as AuthenticatedInterviewsIdFeedbackRouteImport } from './routes/_authenticated.interviews.$id.feedback'
@@ -81,6 +82,12 @@ const AuthenticatedInterviewsNewRoute =
     path: '/new',
     getParentRoute: () => AuthenticatedInterviewsRoute,
   } as any)
+const AuthenticatedSettingsInterviewerApplicationRoute =
+  AuthenticatedSettingsInterviewerApplicationRouteImport.update({
+    id: '/interviewer-application',
+    path: '/interviewer-application',
+    getParentRoute: () => AuthenticatedSettingsRoute,
+  } as any)
 const AuthenticatedSettingsInterviewerAvailabilityRoute =
   AuthenticatedSettingsInterviewerAvailabilityRouteImport.update({
     id: '/interviewer-availability',
@@ -117,6 +124,7 @@ export interface FileRoutesByFullPath {
   '/settings': typeof AuthenticatedSettingsRouteWithChildren
   '/interviews/$id': typeof AuthenticatedInterviewsIdRouteWithChildren
   '/interviews/new': typeof AuthenticatedInterviewsNewRoute
+  '/settings/interviewer-application': typeof AuthenticatedSettingsInterviewerApplicationRoute
   '/settings/interviewer-availability': typeof AuthenticatedSettingsInterviewerAvailabilityRoute
   '/settings/profile': typeof AuthenticatedSettingsProfileRoute
   '/interviews/$id/feedback': typeof AuthenticatedInterviewsIdFeedbackRoute
@@ -133,6 +141,7 @@ export interface FileRoutesByTo {
   '/settings': typeof AuthenticatedSettingsRouteWithChildren
   '/interviews/$id': typeof AuthenticatedInterviewsIdRouteWithChildren
   '/interviews/new': typeof AuthenticatedInterviewsNewRoute
+  '/settings/interviewer-application': typeof AuthenticatedSettingsInterviewerApplicationRoute
   '/settings/interviewer-availability': typeof AuthenticatedSettingsInterviewerAvailabilityRoute
   '/settings/profile': typeof AuthenticatedSettingsProfileRoute
   '/interviews/$id/feedback': typeof AuthenticatedInterviewsIdFeedbackRoute
@@ -151,6 +160,7 @@ export interface FileRoutesById {
   '/_authenticated/settings': typeof AuthenticatedSettingsRouteWithChildren
   '/_authenticated/interviews/$id': typeof AuthenticatedInterviewsIdRouteWithChildren
   '/_authenticated/interviews/new': typeof AuthenticatedInterviewsNewRoute
+  '/_authenticated/settings/interviewer-application': typeof AuthenticatedSettingsInterviewerApplicationRoute
   '/_authenticated/settings/interviewer-availability': typeof AuthenticatedSettingsInterviewerAvailabilityRoute
   '/_authenticated/settings/profile': typeof AuthenticatedSettingsProfileRoute
   '/_authenticated/interviews/$id/feedback': typeof AuthenticatedInterviewsIdFeedbackRoute
@@ -169,6 +179,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/interviews/$id'
     | '/interviews/new'
+    | '/settings/interviewer-application'
     | '/settings/interviewer-availability'
     | '/settings/profile'
     | '/interviews/$id/feedback'
@@ -185,6 +196,7 @@ export interface FileRouteTypes {
     | '/settings'
     | '/interviews/$id'
     | '/interviews/new'
+    | '/settings/interviewer-application'
     | '/settings/interviewer-availability'
     | '/settings/profile'
     | '/interviews/$id/feedback'
@@ -202,6 +214,7 @@ export interface FileRouteTypes {
     | '/_authenticated/settings'
     | '/_authenticated/interviews/$id'
     | '/_authenticated/interviews/new'
+    | '/_authenticated/settings/interviewer-application'
     | '/_authenticated/settings/interviewer-availability'
     | '/_authenticated/settings/profile'
     | '/_authenticated/interviews/$id/feedback'
@@ -295,6 +308,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedInterviewsNewRouteImport
       parentRoute: typeof AuthenticatedInterviewsRoute
     }
+    '/_authenticated/settings/interviewer-application': {
+      id: '/_authenticated/settings/interviewer-application'
+      path: '/interviewer-application'
+      fullPath: '/settings/interviewer-application'
+      preLoaderRoute: typeof AuthenticatedSettingsInterviewerApplicationRouteImport
+      parentRoute: typeof AuthenticatedSettingsRoute
+    }
     '/_authenticated/settings/interviewer-availability': {
       id: '/_authenticated/settings/interviewer-availability'
       path: '/interviewer-availability'
@@ -361,11 +381,14 @@ const AuthenticatedInterviewsRouteWithChildren =
   )
 
 interface AuthenticatedSettingsRouteChildren {
+  AuthenticatedSettingsInterviewerApplicationRoute: typeof AuthenticatedSettingsInterviewerApplicationRoute
   AuthenticatedSettingsInterviewerAvailabilityRoute: typeof AuthenticatedSettingsInterviewerAvailabilityRoute
   AuthenticatedSettingsProfileRoute: typeof AuthenticatedSettingsProfileRoute
 }
 
 const AuthenticatedSettingsRouteChildren: AuthenticatedSettingsRouteChildren = {
+  AuthenticatedSettingsInterviewerApplicationRoute:
+    AuthenticatedSettingsInterviewerApplicationRoute,
   AuthenticatedSettingsInterviewerAvailabilityRoute:
     AuthenticatedSettingsInterviewerAvailabilityRoute,
   AuthenticatedSettingsProfileRoute: AuthenticatedSettingsProfileRoute,
