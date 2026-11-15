@@ -450,6 +450,9 @@ Normalized provider recording jobs for RealtimeKit composite and participant tra
 - **`provider_status`**: `text` (Optional) - Provider-side status.
 - **`stop_requested_at`**: `timestamptz` (Optional)
 - **`stop_confirmed_at`**: `timestamptz` (Optional)
+- **`stop_attempt_count`**: `integer` (Default: 0) - Failed overdue-sweep stop attempts; the sweep stops retrying after 12.
+- **`stop_last_attempted_at`**: `timestamptz` (Optional) - The overdue sweep orders by least recently attempted.
+- **`stop_last_error_code`**: `text` (Optional) - Safe error code only.
 - **`finalization_status`**: `text` with CHECK (`pending`, `processing`, `finalized`, `failed`)
 - **`finalization_checkpoint`**: `text` (Optional) - Resumable finalization checkpoint.
 - **`error_code`**: `text` (Optional) - Safe error code (not provider error body).
@@ -472,11 +475,16 @@ Durable stop/reconciliation handoff written inside the interview completion tran
 - **`updated_at`**: `timestamptz`
 - **`processed_at`**: `timestamptz` (Optional) - Set once every provider recording is confirmed stopped.
 - **`attempt_count`**: `integer` (Default: 0)
+- **`last_attempted_at`**: `timestamptz` (Optional) - Last failed attempt; the sweep orders by least recently attempted and stops retrying after 12 attempts.
 - **`last_error_code`**: `text` (Optional) - Safe error code only.
+- **`feedback_triggered_at`**: `timestamptz` (Optional) - Set after the feedback workflow `createBatch` succeeds. The sweep starts feedback for processed handoffs where this is NULL (instance id `feedback-v1-{interview_id}` keeps it idempotent).
+- **`feedback_attempt_count`**: `integer` (Default: 0) - Sweep feedback-start failures; retries stop after 12.
+- **`feedback_last_attempted_at`**: `timestamptz` (Optional)
 
 Indexes:
 
 - `idx_interview_recording_stop_handoffs_pending` on (`created_at`) WHERE `processed_at IS NULL`
+- `idx_interview_recording_stop_handoffs_feedback_pending` on (`processed_at`) WHERE `processed_at IS NOT NULL AND feedback_triggered_at IS NULL`
 
 ### Interview_Recording_Consents
 

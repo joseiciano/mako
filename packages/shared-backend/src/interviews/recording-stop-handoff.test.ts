@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import type { Interview, InterviewDetail } from '@mako/shared'
 import type { SqlQuery } from '../index'
 import { createInMemoryInterviewDataSource, InterviewRepository } from './interview-repository'
-import { RecordingStopService } from './recording-stop-service'
+import { MAX_SWEEP_ATTEMPTS, RecordingStopService } from './recording-stop-service'
 import type { RecordingStopRepository, StopRecordingRow } from './recording-stop-repository'
 import {
   RealtimeRecordingError,
@@ -198,7 +198,7 @@ function createStopFixture(
     ...provider,
   }
   const service = new RecordingStopService(repository, fullProvider, () => '2026-05-22T10:46:00.000Z')
-  return { state, stopped, service }
+  return { state, stopped, service, repository, provider: fullProvider }
 }
 
 function row(id: string, overrides: Partial<StopRecordingRow> = {}): StopRecordingRow {
@@ -321,6 +321,81 @@ describe('RecordingStopService.processStopHandoff', function stopSuite() {
     }, { recording_status: 'pending', start_in_flight: false })
     expect(await t.service.processStopHandoff(interviewId)).toBe('processed')
     expect(t.stopped).toEqual(['orphan'])
+  })
+})
+
+describe('RecordingStopService failure tracking', function trackingSuite() {
+  it('logs an error when a handoff reaches the maximum attempts', async function run() {
+    const logged: string[] = []
+    const t = createStopFixture([row('a')], {
+      async stopRecording() {
+        throw new RealtimeRecordingError('provider_unavailable', true, 'down')
+      },
+    })
+    const repository = {
+      ...(t.repository as object),
+      async recordHandoffFailure() {
+        return MAX_SWEEP_ATTEMPTS
+      },
+    } as unknown as RecordingStopRepository
+    const service = new RecordingStopService(
+      repository,
+      t.provider,
+      () => '2026-05-22T10:46:00.000Z',
+      { error: (event) => void logged.push(event) },
+    )
+    expect(await service.processStopHandoff(interviewId)).toBe('retry')
+    expect(logged).toEqual(['recording_stop_handoff_attempts_exhausted'])
+  })
+
+  it('records overdue stop failures and logs once attempts are exhausted', async function run() {
+    const logged: string[] = []
+    const failures: string[] = []
+    const repository = {
+      async listOverdueRecordings() {
+        return [{ id: 'r1', interview_id: interviewId, provider_recording_id: 'prov-r1' }]
+      },
+      async markStopRequested() {},
+      async markStopConfirmed() {},
+      async recordStopFailure(_id: string, code: string) {
+        failures.push(code)
+        return MAX_SWEEP_ATTEMPTS
+      },
+    } as unknown as RecordingStopRepository
+    const provider = {
+      async stopRecording() {
+        throw new RealtimeRecordingError('provider_unavailable', true, 'down')
+      },
+    } as unknown as RealtimeRecordingProvider
+    const service = new RecordingStopService(repository, provider, undefined, {
+      error: (event) => void logged.push(event),
+    })
+    expect(await service.sweepOverdueRecordings({ maxAgeSeconds: 3300, limit: 5 })).toBe(0)
+    expect(failures).toEqual(['provider_unavailable'])
+    expect(logged).toEqual(['recording_overdue_stop_attempts_exhausted'])
+  })
+
+  it('passes the attempt cap to the repository queries', async function run() {
+    const seen: number[] = []
+    const repository = {
+      async listUnprocessedHandoffInterviewIds(input: { max_attempts: number }) {
+        seen.push(input.max_attempts)
+        return []
+      },
+      async listOverdueRecordings(input: { max_attempts: number }) {
+        seen.push(input.max_attempts)
+        return []
+      },
+      async listHandoffsAwaitingFeedback(input: { max_attempts: number }) {
+        seen.push(input.max_attempts)
+        return []
+      },
+    } as unknown as RecordingStopRepository
+    const service = new RecordingStopService(repository, {} as RealtimeRecordingProvider)
+    await service.sweepStopHandoffs({ olderThan: 'x', limit: 1 })
+    await service.sweepOverdueRecordings({ maxAgeSeconds: 1, limit: 1 })
+    await service.listHandoffsAwaitingFeedback({ processedBefore: 'x', limit: 1 })
+    expect(seen).toEqual([MAX_SWEEP_ATTEMPTS, MAX_SWEEP_ATTEMPTS, MAX_SWEEP_ATTEMPTS])
   })
 })
 

@@ -48,17 +48,18 @@ export class RecordingStopRepository {
   async listUnprocessedHandoffInterviewIds(input: {
     older_than: string
     limit: number
+    max_attempts: number
   }): Promise<string[]> {
     const result = await this.queryExecutor.query<{ interview_id: string }>(
       createSqlQuery(
         `
           SELECT interview_id
           FROM interview_recording_stop_handoffs
-          WHERE processed_at IS NULL AND created_at < $1
-          ORDER BY created_at
+          WHERE processed_at IS NULL AND created_at < $1 AND attempt_count < $3
+          ORDER BY last_attempted_at ASC NULLS FIRST, created_at
           LIMIT $2;
         `,
-        [input.older_than, input.limit],
+        [input.older_than, input.limit, input.max_attempts],
       ),
     )
     return result.rows.map((row) => row.interview_id)
@@ -67,17 +68,18 @@ export class RecordingStopRepository {
   async listOverdueRecordings(input: {
     created_before: string
     limit: number
+    max_attempts: number
   }): Promise<OverdueRecordingRow[]> {
     const result = await this.queryExecutor.query<OverdueRecordingRow>(
       createSqlQuery(
         `
           SELECT id, interview_id, provider_recording_id
           FROM interview_recordings
-          WHERE stop_confirmed_at IS NULL AND created_at < $1
-          ORDER BY created_at
+          WHERE stop_confirmed_at IS NULL AND created_at < $1 AND stop_attempt_count < $3
+          ORDER BY stop_last_attempted_at ASC NULLS FIRST, created_at
           LIMIT $2;
         `,
-        [input.created_before, input.limit],
+        [input.created_before, input.limit, input.max_attempts],
       ),
     )
     return result.rows
@@ -124,17 +126,96 @@ export class RecordingStopRepository {
     )
   }
 
-  async recordHandoffFailure(interviewId: string, errorCode: string, now: string): Promise<void> {
-    await this.queryExecutor.query(
+  /** Returns the new attempt count (0 when the handoff is already processed). */
+  async recordHandoffFailure(interviewId: string, errorCode: string, now: string): Promise<number> {
+    const result = await this.queryExecutor.query<{ attempt_count: number }>(
       createSqlQuery(
         `
           UPDATE interview_recording_stop_handoffs
-          SET attempt_count = attempt_count + 1, last_error_code = $2, updated_at = $3
-          WHERE interview_id = $1 AND processed_at IS NULL;
+          SET attempt_count = attempt_count + 1,
+              last_attempted_at = $3,
+              last_error_code = $2,
+              updated_at = $3
+          WHERE interview_id = $1 AND processed_at IS NULL
+          RETURNING attempt_count;
         `,
         [interviewId, errorCode, now],
       ),
     )
+    return result.rows[0]?.attempt_count ?? 0
+  }
+
+  /** Returns the new attempt count for the recording row. */
+  async recordStopFailure(recordingRowId: string, errorCode: string, now: string): Promise<number> {
+    const result = await this.queryExecutor.query<{ stop_attempt_count: number }>(
+      createSqlQuery(
+        `
+          UPDATE interview_recordings
+          SET stop_attempt_count = stop_attempt_count + 1,
+              stop_last_attempted_at = $3,
+              stop_last_error_code = $2,
+              updated_at = $3
+          WHERE id = $1
+          RETURNING stop_attempt_count;
+        `,
+        [recordingRowId, errorCode, now],
+      ),
+    )
+    return result.rows[0]?.stop_attempt_count ?? 0
+  }
+
+  /** Processed handoffs whose feedback workflow has not been started yet. */
+  async listHandoffsAwaitingFeedback(input: {
+    processed_before: string
+    limit: number
+    max_attempts: number
+  }): Promise<string[]> {
+    const result = await this.queryExecutor.query<{ interview_id: string }>(
+      createSqlQuery(
+        `
+          SELECT interview_id
+          FROM interview_recording_stop_handoffs
+          WHERE processed_at IS NOT NULL
+            AND feedback_triggered_at IS NULL
+            AND processed_at < $1
+            AND feedback_attempt_count < $3
+          ORDER BY feedback_last_attempted_at ASC NULLS FIRST, processed_at
+          LIMIT $2;
+        `,
+        [input.processed_before, input.limit, input.max_attempts],
+      ),
+    )
+    return result.rows.map((row) => row.interview_id)
+  }
+
+  async markFeedbackTriggered(interviewId: string, now: string): Promise<void> {
+    await this.queryExecutor.query(
+      createSqlQuery(
+        `
+          UPDATE interview_recording_stop_handoffs
+          SET feedback_triggered_at = COALESCE(feedback_triggered_at, $2)
+          WHERE interview_id = $1;
+        `,
+        [interviewId, now],
+      ),
+    )
+  }
+
+  /** Returns the new feedback attempt count. */
+  async recordFeedbackFailure(interviewId: string, now: string): Promise<number> {
+    const result = await this.queryExecutor.query<{ feedback_attempt_count: number }>(
+      createSqlQuery(
+        `
+          UPDATE interview_recording_stop_handoffs
+          SET feedback_attempt_count = feedback_attempt_count + 1,
+              feedback_last_attempted_at = $2
+          WHERE interview_id = $1 AND feedback_triggered_at IS NULL
+          RETURNING feedback_attempt_count;
+        `,
+        [interviewId, now],
+      ),
+    )
+    return result.rows[0]?.feedback_attempt_count ?? 0
   }
 
   async markHandoffProcessed(interviewId: string, now: string): Promise<void> {

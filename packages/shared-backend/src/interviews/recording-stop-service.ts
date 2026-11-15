@@ -6,6 +6,13 @@ import {
 
 const START_CLAIM_FRESH_MS = 60_000
 
+/** Sweeps stop retrying a row after this many failed attempts and log an error. */
+export const MAX_SWEEP_ATTEMPTS = 12
+
+export type RecordingStopLogger = {
+  error(event: string, context: Record<string, unknown>): void | Promise<void>
+}
+
 export type StopHandoffOutcome = 'processed' | 'no_handoff' | 'retry'
 
 /**
@@ -20,6 +27,7 @@ export class RecordingStopService {
     private readonly repository: RecordingStopRepository,
     private readonly provider: RealtimeRecordingProvider,
     private readonly now: () => string = () => new Date().toISOString(),
+    private readonly logger: RecordingStopLogger = { error() {} },
   ) {}
 
   async processStopHandoff(interviewId: string): Promise<StopHandoffOutcome> {
@@ -33,7 +41,7 @@ export class RecordingStopService {
     // A start is mid-flight: its recordings are not persisted yet, so a stop
     // now would be missed. The start stops itself if the interview completed.
     if (handoff.start_in_flight) {
-      await this.repository.recordHandoffFailure(interviewId, 'start_in_progress', now)
+      await this.recordHandoffFailure(interviewId, 'start_in_progress', now)
       return 'retry'
     }
 
@@ -83,7 +91,7 @@ export class RecordingStopService {
     }
 
     if (failureCode) {
-      await this.repository.recordHandoffFailure(interviewId, failureCode, this.now())
+      await this.recordHandoffFailure(interviewId, failureCode, this.now())
       return 'retry'
     }
 
@@ -96,6 +104,7 @@ export class RecordingStopService {
     const ids = await this.repository.listUnprocessedHandoffInterviewIds({
       older_than: input.olderThan,
       limit: input.limit,
+      max_attempts: MAX_SWEEP_ATTEMPTS,
     })
     const processed: string[] = []
     for (const id of ids) {
@@ -113,15 +122,79 @@ export class RecordingStopService {
     const rows = await this.repository.listOverdueRecordings({
       created_before: new Date(new Date(this.now()).getTime() - input.maxAgeSeconds * 1000).toISOString(),
       limit: input.limit,
+      max_attempts: MAX_SWEEP_ATTEMPTS,
     })
     let stopped = 0
     for (const row of rows) {
       await this.repository.markStopRequested(row.id, this.now())
-      if (await this.stopProviderRecording(row.provider_recording_id)) continue
+      const code = await this.stopProviderRecording(row.provider_recording_id)
+      if (code) {
+        const attempts = await this.repository.recordStopFailure(row.id, code, this.now())
+        if (attempts >= MAX_SWEEP_ATTEMPTS) {
+          await this.logSafely('recording_overdue_stop_attempts_exhausted', {
+            interview_id: row.interview_id,
+            recording_id: row.id,
+            error_code: code,
+            attempts,
+          })
+        }
+        continue
+      }
       await this.repository.markStopConfirmed(row.id, this.now())
       stopped += 1
     }
     return stopped
+  }
+
+  /** Processed handoffs still missing a feedback workflow start (oldest-attempted first). */
+  async listHandoffsAwaitingFeedback(input: {
+    processedBefore: string
+    limit: number
+  }): Promise<string[]> {
+    return this.repository.listHandoffsAwaitingFeedback({
+      processed_before: input.processedBefore,
+      limit: input.limit,
+      max_attempts: MAX_SWEEP_ATTEMPTS,
+    })
+  }
+
+  /** Call after the feedback workflow createBatch succeeded. */
+  async markFeedbackTriggered(interviewId: string): Promise<void> {
+    await this.repository.markFeedbackTriggered(interviewId, this.now())
+  }
+
+  /** Call when a sweep feedback start failed; logs once retries are exhausted. */
+  async recordFeedbackFailure(interviewId: string): Promise<void> {
+    const attempts = await this.repository.recordFeedbackFailure(interviewId, this.now())
+    if (attempts >= MAX_SWEEP_ATTEMPTS) {
+      await this.logSafely('feedback_trigger_attempts_exhausted', {
+        interview_id: interviewId,
+        attempts,
+      })
+    }
+  }
+
+  private async recordHandoffFailure(
+    interviewId: string,
+    code: string,
+    now: string,
+  ): Promise<void> {
+    const attempts = await this.repository.recordHandoffFailure(interviewId, code, now)
+    if (attempts >= MAX_SWEEP_ATTEMPTS) {
+      await this.logSafely('recording_stop_handoff_attempts_exhausted', {
+        interview_id: interviewId,
+        error_code: code,
+        attempts,
+      })
+    }
+  }
+
+  private async logSafely(event: string, context: Record<string, unknown>): Promise<void> {
+    try {
+      await this.logger.error(event, context)
+    } catch {
+      // Logging must never break a sweep.
+    }
   }
 
   /** Returns null when the recording is stopped (or already gone), else a safe error code. */

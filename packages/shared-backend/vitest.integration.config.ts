@@ -11,6 +11,7 @@ export default mergeConfig(
         'src/auth/rate-limit-schema-readiness.integration.test.ts',
         'src/auth/require-admin.integration.test.ts',
         'src/interviews/backfill-booking-channel.postgres.test.ts',
+        'src/interviews/recording-stop-sweep.integration.test.ts',
       ],
     },
   }),
