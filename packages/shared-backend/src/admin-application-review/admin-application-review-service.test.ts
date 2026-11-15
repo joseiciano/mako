@@ -93,7 +93,7 @@ describe('AdminApplicationReviewService.listApplications', function () {
     { status: 'nope' },
   ])('rejects invalid query %o', async function (query) {
     const { service } = setup()
-    await expect(service.listApplications(query)).rejects.toMatchObject({ name: 'ZodError' })
+    await expect(service.listApplications(query)).rejects.toMatchObject({ name: 'AdminReviewValidationError' })
   })
 })
 
@@ -118,13 +118,25 @@ describe('AdminApplicationReviewService.getApplication', function () {
     })
   })
 
+  it('throws instead of blanking the reviewer when reviewed_by is set but the reviewer is missing', async function () {
+    const { service } = setup([
+      buildDetailRow({
+        status: 'approved',
+        reviewed_by: adminId,
+        reviewed_at: '2026-08-08T00:00:00.000Z',
+      }),
+    ])
+
+    await expect(service.getApplication(applicationId)).rejects.toThrow(/reviewer is missing/)
+  })
+
   it('throws not found for an unknown id and validation for a malformed id', async function () {
     const { service } = setup()
     await expect(service.getApplication(secondApplicationId)).rejects.toBeInstanceOf(
       AdminReviewNotFoundError,
     )
     await expect(service.getApplication('not-a-uuid')).rejects.toMatchObject({
-      name: 'ZodError',
+      name: 'AdminReviewValidationError',
     })
   })
 })
@@ -190,12 +202,12 @@ describe('AdminApplicationReviewService.decide', function () {
     const { service, state } = setup()
     for (const body of [undefined, {}, { decision: 'pending' }, { decision: 'approved', x: 1 }]) {
       await expect(service.decide(admin, applicationId, body)).rejects.toMatchObject({
-        name: 'ZodError',
+        name: 'AdminReviewValidationError',
       })
     }
     await expect(
       service.decide(admin, 'bad-id', { decision: 'approved' }),
-    ).rejects.toMatchObject({ name: 'ZodError' })
+    ).rejects.toMatchObject({ name: 'AdminReviewValidationError' })
     expect(state.decideCalls).toHaveLength(0)
   })
 

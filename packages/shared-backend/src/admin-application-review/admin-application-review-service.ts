@@ -12,6 +12,7 @@ import {
   AdminReviewConflictError,
   AdminReviewForbiddenError,
   AdminReviewNotFoundError,
+  AdminReviewValidationError,
   toAdminApplicationDetail,
   toAdminApplicationSummary,
   type AdminActor,
@@ -29,7 +30,7 @@ export class AdminApplicationReviewService {
   ) {}
 
   async listApplications(rawQuery: unknown): Promise<AdminListResponse> {
-    const query = adminListQuerySchema.parse(rawQuery)
+    const query = parseRequestInput(adminListQuerySchema, rawQuery)
     const rows = await this.repository.listByStatus(query)
     const hasMore = rows.length > query.limit
 
@@ -40,7 +41,7 @@ export class AdminApplicationReviewService {
   }
 
   async getApplication(rawId: unknown): Promise<AdminDetailResponse> {
-    const applicationId = adminApplicationIdParamSchema.parse(rawId)
+    const applicationId = parseRequestInput(adminApplicationIdParamSchema, rawId)
     const row = await this.repository.getDetail(applicationId)
 
     if (!row) {
@@ -55,8 +56,8 @@ export class AdminApplicationReviewService {
     rawId: unknown,
     rawBody: unknown,
   ): Promise<AdminDetailResponse> {
-    const applicationId = adminApplicationIdParamSchema.parse(rawId)
-    const { decision } = adminDecisionBodySchema.parse(rawBody)
+    const applicationId = parseRequestInput(adminApplicationIdParamSchema, rawId)
+    const { decision } = parseRequestInput(adminDecisionBodySchema, rawBody)
     // Audit context: ids and decision only. Never employment history or email.
     const logContext = { applicationId, adminId: admin.userId, decision }
 
@@ -151,6 +152,27 @@ export class AdminApplicationReviewService {
         })
       }
     }
+  }
+}
+
+// @mako/shared resolves a different zod copy than this package, so instanceof
+// checks fail; match by name. Only request-input parses go through this helper.
+function parseRequestInput<Output>(
+  schema: { parse: (input: unknown) => Output },
+  input: unknown,
+): Output {
+  try {
+    return schema.parse(input)
+  } catch (error) {
+    if (
+      typeof error === 'object' &&
+      error !== null &&
+      (error as { name?: unknown }).name === 'ZodError'
+    ) {
+      throw new AdminReviewValidationError((error as { issues: unknown[] }).issues)
+    }
+
+    throw error
   }
 }
 

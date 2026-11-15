@@ -16,7 +16,7 @@ import {
   secondApplicationId,
 } from './test-support'
 
-type SessionKind = 'anonymous' | 'user' | 'admin' | 'self' | 'unavailable'
+type SessionKind = 'anonymous' | 'user' | 'admin' | 'self' | 'unavailable' | 'broken'
 
 function createApp(
   session: SessionKind,
@@ -35,7 +35,10 @@ function createApp(
           handler: async () => new Response(null),
           api: {
             getSession: (async () => {
-              if (session === 'unavailable') throw new Error('session store down')
+              if (session === 'unavailable') {
+                throw Object.assign(new Error('connect failed'), { code: 'ECONNREFUSED' })
+              }
+              if (session === 'broken') throw new TypeError('session bug')
               if (session === 'anonymous') return null
               return {
                 user: {
@@ -98,6 +101,11 @@ describe('admin application review routes', function () {
       expect(response.headers.get('cache-control')).toBe(noStore)
     })
 
+    it('returns 500 when the session provider throws a non-connectivity error', async function () {
+      const { app } = createApp('broken')
+      expect((await app.request('/api/admin/applications')).status).toBe(500)
+    })
+
     it('returns 503 when the database is unavailable and 500 for programming errors', async function () {
       const unavailable = createApp('admin', { failCreate: new DatabaseUnavailableError() })
       expect((await unavailable.app.request('/api/admin/applications')).status).toBe(503)
@@ -106,6 +114,23 @@ describe('admin application review routes', function () {
       const response = await broken.app.request('/api/admin/applications')
       expect(response.status).toBe(500)
       expect(response.headers.get('cache-control')).toBe(noStore)
+    })
+  })
+
+  describe('data errors stay 500', function () {
+    it('does not map row-parse failures to 400 or leak row paths', async function () {
+      const badRow = buildDetailRow({ applicant_name: 123 as never })
+      const { app } = createApp('admin', { rows: [badRow] })
+      const responses = await Promise.all([
+        app.request('/api/admin/applications?status=pending'),
+        app.request(`/api/admin/applications/${applicationId}`),
+        patch(app, applicationId, { decision: 'approved' }),
+      ])
+
+      for (const response of responses) {
+        expect(response.status).toBe(500)
+        expect(await response.text()).not.toContain('applicant_name')
+      }
     })
   })
 

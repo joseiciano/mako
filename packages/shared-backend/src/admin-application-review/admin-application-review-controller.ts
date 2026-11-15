@@ -5,6 +5,7 @@ import {
   AdminReviewConflictError,
   AdminReviewForbiddenError,
   AdminReviewNotFoundError,
+  AdminReviewValidationError,
 } from './types'
 
 type ControllerBindings = Record<string, unknown>
@@ -72,7 +73,7 @@ async function readJsonBody(context: Context): Promise<unknown> {
 }
 
 function toErrorResponse(context: Context, error: unknown) {
-  if (isZodError(error)) {
+  if (error instanceof AdminReviewValidationError) {
     return context.json({ error: 'Invalid request', details: error.issues }, 400)
   }
 
@@ -88,16 +89,7 @@ function toErrorResponse(context: Context, error: unknown) {
     return context.json({ error: error.message }, 409)
   }
 
+  // Row/response parse failures (ZodError) are data errors and stay 500.
   // Unavailability (503) vs programming errors (500) is classified by the app error handler.
   throw error
-}
-
-function isZodError(error: unknown): error is { issues: unknown[] } {
-  // @mako/shared resolves a different zod copy (v4) than this package (v3),
-  // so instanceof checks fail for errors thrown by shared schemas.
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    (error as { name?: unknown }).name === 'ZodError'
-  )
 }
