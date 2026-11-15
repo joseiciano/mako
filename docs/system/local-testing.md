@@ -131,6 +131,6 @@ The `POST /api/payments/webhook` endpoint verifies Stripe webhook signatures usi
 
 ## RealtimeKit Recording Finalization Local Testing
 
-Set `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_REALTIMEKIT_APP_ID`, and `REALTIMEKIT_WEBHOOK_PUBLIC_KEY` in `apps/backend-rest/.dev.vars`. Run notification-orchestrator with matching `HYPERDRIVE`, private R2, and RealtimeKit bindings from its `wrangler.jsonc`.
+Set `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_REALTIMEKIT_APP_ID`, in `apps/backend-rest/.dev.vars`. `REALTIMEKIT_WEBHOOK_PUBLIC_KEY_URL` is a plain `vars` binding already set in `apps/backend-rest/wrangler.jsonc` (`https://api.realtime.cloudflare.com/.well-known/webhooks.json`); override it in `.dev.vars` only to point at a test key endpoint. `CLOUDFLARE_API_TOKEN` needs the account `Realtime` or `Realtime Admin` permission so the backend can start and stop recordings, and notification-orchestrator needs the same three Cloudflare values to stop recordings after an interview completes. Run notification-orchestrator with matching `HYPERDRIVE`, private R2, and RealtimeKit bindings from its `wrangler.jsonc`.
 
 `POST /api/webhooks/realtimekit` requires raw-body `rtk-signature` and `rtk-uuid` headers. Accepted `UPLOADED` events create deterministic `RecordingFinalizationWorkflow` instances; the five-minute scheduled sweep retries due checkpoints.

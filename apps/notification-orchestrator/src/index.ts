@@ -25,6 +25,12 @@ import {
   recordingFinalizationPayloadSchema,
 } from './workflows/recording-finalization-workflow'
 import type { RecordingFinalizationPayload } from './workflows/recording-finalization-workflow'
+import {
+  createRecordingStartSweeper,
+  createRecordingStopProcessor,
+  type RecordingStartSweeper,
+  type RecordingStopHandoffProcessor,
+} from './recording-stop'
 import { sweepRecordingFinalizations } from './workflows/recording-finalization-sweep'
 
 export { InterviewFeedbackWorkflow, feedbackWorkflowPayloadSchema }
@@ -51,10 +57,52 @@ export type NotificationWorkerDependencies = {
     }>
   }
   console: Pick<Console, 'error' | 'log'>
+  createRecordingStopProcessor?: (
+    env: WorkerBindings,
+    queryExecutor: SqlQueryExecutor,
+  ) => RecordingStopHandoffProcessor | undefined
+  createRecordingStartSweeper?: (
+    env: WorkerBindings,
+    queryExecutor: SqlQueryExecutor,
+  ) => RecordingStartSweeper | undefined
 }
+
+// The queue allows 3 retries; after this many failed attempts the consumer
+// stops waiting on the provider and hands off to feedback anyway.
+const STOP_RETRY_ATTEMPTS_BEFORE_FEEDBACK = 3
+// Safety net only: the overdue sweep must never stop a live session. A session
+// lasts 60 minutes, so the threshold equals the 3,600 s ticket bound and is not
+// shortened. The sweep runs every 5 minutes, so a recording can overrun the
+// bound by up to one cron interval plus the created_at lag.
+const RECORDING_MAX_AGE_SECONDS = 3600
+// Unprocessed stop handoffs older than this still start feedback so feedback
+// does not depend on provider availability.
+const FEEDBACK_UNPROCESSED_AFTER_MS = 15 * 60_000
 
 export function createNotificationWorker(dependencies: NotificationWorkerDependencies) {
   const { createPool, console: consoleLike } = dependencies
+  const buildRecordingStopProcessor = dependencies.createRecordingStopProcessor ?? createRecordingStopProcessor
+  const buildRecordingStartSweeper = dependencies.createRecordingStartSweeper ?? createRecordingStartSweeper
+
+  async function triggerFeedbackWorkflow(env: WorkerBindings, interviewId: string): Promise<boolean> {
+    // createBatch is idempotent, so duplicate triggers are safe.
+    if (!env.FEEDBACK_WORKFLOW) {
+      consoleLike.log('[notification-consumer] feedback_workflow_not_configured', {
+        interview_id: interviewId,
+      })
+      return false
+    }
+
+    const instanceId = `feedback-v1-${interviewId}`
+    await env.FEEDBACK_WORKFLOW.createBatch([
+      { id: instanceId, params: { interview_id: interviewId, schema_version: 1 } },
+    ])
+    consoleLike.log('[notification-consumer] feedback_workflow_triggered', {
+      interview_id: interviewId,
+      instance_id: instanceId,
+    })
+    return true
+  }
 
   return {
     async queue(batch: MessageBatch<unknown>, env: WorkerBindings): Promise<void> {
@@ -137,29 +185,47 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
             } else if (normalizedBody.event_type === 'interview.completed') {
               const event = interviewCompletedEventSchema.parse(normalizedBody)
 
-              // Trigger feedback workflow idempotently. createBatch is
-              // idempotent, so duplicate interview.completed events are safe.
-              if (env.FEEDBACK_WORKFLOW) {
-                const instanceId = `feedback-v1-${event.interview.id}`
-                await env.FEEDBACK_WORKFLOW.createBatch([
-                  {
-                    id: instanceId,
-                    params: {
-                      interview_id: event.interview.id,
-                      schema_version: 1,
-                    },
-                  },
-                ])
-                consoleLike.log('[notification-consumer] feedback_workflow_triggered', {
-                  interview_id: event.interview.id,
-                  instance_id: instanceId,
-                })
+              // Stop provider recordings (idempotent) before feedback handoff.
+              // While attempts remain, a pending result retries the message.
+              // Afterwards feedback proceeds anyway: it must not depend on
+              // provider availability, and the scheduled sweep finishes the stop.
+              const stopProcessor = buildRecordingStopProcessor(env, queryExecutor as SqlQueryExecutor)
+              if (stopProcessor) {
+                let stopFailed = false
+                try {
+                  stopFailed = (await stopProcessor.processStopHandoff(event.interview.id)) === 'retry'
+                } catch (stopError) {
+                  stopFailed = true
+                  consoleLike.error('notification_orchestrator.recording_stop_error', {
+                    interview_id: event.interview.id,
+                    error_message: stopError instanceof Error ? stopError.message : String(stopError),
+                  })
+                }
+                if (stopFailed) {
+                  if (message.attempts < STOP_RETRY_ATTEMPTS_BEFORE_FEEDBACK) {
+                    throw new Error('recording_stop_pending')
+                  }
+                  consoleLike.error('notification_orchestrator.recording_stop_deferred_to_sweep', {
+                    interview_id: event.interview.id,
+                  })
+                }
               } else {
-                consoleLike.log('[notification-consumer] feedback_workflow_not_configured', {
+                consoleLike.log('[notification-consumer] recording_stop_not_configured', {
                   interview_id: event.interview.id,
                 })
               }
 
+              if (await triggerFeedbackWorkflow(env, event.interview.id)) {
+                try {
+                  await stopProcessor?.markFeedbackTriggered(event.interview.id)
+                } catch (markError) {
+                  // The sweep re-triggers idempotently if the marker is missing.
+                  consoleLike.error('notification_orchestrator.feedback_marker_failed', {
+                    interview_id: event.interview.id,
+                    error_message: markError instanceof Error ? markError.message : String(markError),
+                  })
+                }
+              }
             } else if (normalizedBody.event_type === 'interview.premium_booked') {
               const event = interviewPremiumBookedEventSchema.parse(normalizedBody)
               await consumerService.processInterviewPremiumBooked(event)
@@ -243,6 +309,71 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
           await sweepRecordingFinalizations(env, queryExecutor as SqlQueryExecutor, consoleLike)
         } catch (err) {
           consoleLike.error('recording_finalization_sweep_failed', {
+            error_message: err instanceof Error ? err.message : String(err),
+          })
+        }
+
+        const sweepStopProcessor = buildRecordingStopProcessor(env, queryExecutor as SqlQueryExecutor)
+
+        try {
+          if (sweepStopProcessor) {
+            const processedInterviewIds = await sweepStopProcessor.sweepStopHandoffs({
+              olderThan: new Date(Date.now() - 2 * 60_000).toISOString(),
+              limit: 20,
+            })
+            // Feedback trigger is durable: handoffs the sweep just finished,
+            // processed handoffs whose feedback start never succeeded, and
+            // handoffs the provider never let finish (older than 15 minutes)
+            // all start feedback here. The instance id keeps it idempotent.
+            const awaitingFeedback = env.FEEDBACK_WORKFLOW
+              ? await sweepStopProcessor.listHandoffsAwaitingFeedback({
+                  processedBefore: new Date(Date.now() - 2 * 60_000).toISOString(),
+                  unprocessedBefore: new Date(Date.now() - FEEDBACK_UNPROCESSED_AFTER_MS).toISOString(),
+                  limit: 20,
+                })
+              : []
+            const feedbackIds = [...new Set([...processedInterviewIds, ...awaitingFeedback])]
+            for (const interviewId of feedbackIds) {
+              try {
+                if (await triggerFeedbackWorkflow(env, interviewId)) {
+                  await sweepStopProcessor.markFeedbackTriggered(interviewId)
+                }
+              } catch (err) {
+                consoleLike.error('feedback_trigger_after_sweep_failed', {
+                  interview_id: interviewId,
+                  error_message: err instanceof Error ? err.message : String(err),
+                })
+                try {
+                  await sweepStopProcessor.recordFeedbackFailure(interviewId)
+                } catch {
+                  // Failure tracking must not break the sweep.
+                }
+              }
+            }
+          }
+        } catch (err) {
+          consoleLike.error('recording_stop_sweep_failed', {
+            error_message: err instanceof Error ? err.message : String(err),
+          })
+        }
+
+        try {
+          await sweepStopProcessor?.sweepOverdueRecordings({
+            maxAgeSeconds: RECORDING_MAX_AGE_SECONDS,
+            limit: 20,
+          })
+        } catch (err) {
+          consoleLike.error('recording_overdue_sweep_failed', {
+            error_message: err instanceof Error ? err.message : String(err),
+          })
+        }
+
+        try {
+          await buildRecordingStartSweeper(env, queryExecutor as SqlQueryExecutor)?.sweepStalePendingClaims({
+            limit: 20,
+          })
+        } catch (err) {
+          consoleLike.error('recording_start_sweep_failed', {
             error_message: err instanceof Error ? err.message : String(err),
           })
         }

@@ -305,6 +305,7 @@ describe('backend-rest smoke tests', function () {
 
     const endResponse = await endInterview(app, createdInterview.interview.id, env)
     expect(endResponse.status).toBe(200)
+    expect([...dbBinding.recordingStopHandoffs]).toEqual([createdInterview.interview.id])
     await expect(endResponse.json()).resolves.toMatchObject({
       success: true,
       interview: {
@@ -1696,6 +1697,7 @@ function createDatabaseBinding(accountState: {
   const executedStatements: string[] = []
   const interviewsById = new Map<string, Record<string, unknown>>()
   const outboxEvents = new Map<string, Record<string, unknown>>()
+  const recordingStopHandoffs = new Set<string>()
   const seenPaymentIntentIds = new Set<string>()
 
   const availabilityRequestsById = new Map<string, Record<string, unknown>>()
@@ -1704,6 +1706,7 @@ function createDatabaseBinding(accountState: {
   return {
     executedStatements,
     outboxEvents,
+    recordingStopHandoffs,
     async query(statementText: string, ...statementValues: readonly unknown[]) {
       executedStatements.push(statementText)
 
@@ -1933,6 +1936,11 @@ function createDatabaseBinding(accountState: {
         return {
           rows: [updatedInterview],
         }
+      }
+
+      if (statementText.includes('INSERT INTO interview_recording_stop_handoffs')) {
+        recordingStopHandoffs.add(String(statementValues[0]))
+        return { rows: [] }
       }
 
       if (statementText.includes("UPDATE interviews") && statementText.includes("status = 'completed'")) {

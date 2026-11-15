@@ -34,6 +34,7 @@ The platform manages interview state across frontend and backend with explicit r
 - **Lifecycle control actions**
   - `POST /api/interviews/:id/start` is participant-only and is source-of-truth route boundary for `scheduled -> ongoing`.
   - Repeated `start` on already `ongoing` interview must be idempotent and return success semantics without conflicting state mutation.
+  - After a successful or already-`ongoing` start, `ensureRecordingStarted` runs. Recording starts only when the interview is `ongoing` and all required consents are active (AI-led: scheduler; peer-to-peer: scheduler and interviewer). `recording_status` moves `not_started -> pending` (start claim persisted before the provider call) `-> recording`, or `failed` on a terminal provider error. The final consent grant calls the same operation, so either ordering yields exactly one start. Provider failures never fail the start request.
   - `POST /api/interviews/:id/end` is participant-only and is source-of-truth route boundary for `ongoing -> completed`.
   - Repeated `end` on already `completed` interview must be idempotent and return success semantics without conflicting state mutation.
   - Invalid transitions must be rejected without state mutation (`cancelled -> start|end`, `completed -> start`, `scheduled -> end`).
@@ -44,6 +45,7 @@ The platform manages interview state across frontend and backend with explicit r
   - `feedback_status` is set to `pending` when all participants have consented to recording, or `not_started` with `feedback_unavailable_reason = 'no_consent'` otherwise.
   - `screenshots_finalized_at` is set to `COALESCE(screenshots_finalized_at, NOW())` to freeze the screenshot upload window.
   - An `interview.completed` outbox event is emitted for notification orchestration and feedback workflow triggering.
+  - In the same transaction a single `interview_recording_stop_handoffs` row is inserted (`ON CONFLICT DO NOTHING`), so manual end and timer timeout both produce exactly one durable stop handoff. The `interview.completed` consumer stops provider recordings idempotently before the feedback handoff; no provider call occurs inside the transaction.
 
 - **Cancelled**
   - Triggered by `POST /api/interviews/:id/cancel` when transition rules permit.
