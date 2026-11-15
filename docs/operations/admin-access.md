@@ -4,6 +4,10 @@ Admin status is a single server-owned boolean, `"user"."isAdmin"` (default `fals
 
 There is no public or admin-management endpoint. Admins are assigned and revoked only through the operational SQL below, never through the application. Better Auth registers `isAdmin` with `input: false`, so no client request can set it.
 
+## Deploy Ordering
+
+Better Auth selects `"user"."isAdmin"` on every sign-in and session read, so the `add_user_is_admin` migration must be applied before any Worker version that includes this change serves traffic. The `deploy-applications` workflow guarantees this: `migrate-db` runs first and every Worker deploy job depends on it. For a manual `wrangler deploy`, run `pnpm db:migrate` against the target database first.
+
 ## Least-Privilege Rules
 
 - Run these statements with a database role that has `UPDATE` on `"user"` only for the duration of the change. Do not use a superuser or the application runtime role.

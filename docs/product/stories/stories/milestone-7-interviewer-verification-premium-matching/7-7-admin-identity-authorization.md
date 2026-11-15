@@ -45,6 +45,7 @@
 - No public or admin-management endpoint is created; admin status changes are performed manually via the documented SQL runbook in `docs/operations/admin-access.md`.
 - No runtime OpenAPI/Swagger annotations are added here and no partial per-feature generated annotation is introduced. API documentation stays in exact Markdown plus the shared Zod schemas and contract tests, until repository-wide tooling exists that would generate annotations consistently across features; no single-feature annotation convention is claimed.
 - Raw SQL via Hyperdrive is used; no ORM is introduced.
+- Deploy ordering: Better Auth selects `"user"."isAdmin"` on every sign-in, so the migration must run before the Worker deploys. `deploy-applications.yml` guarantees this (`migrate-db` is a prerequisite of every Worker deploy job); manual deploys must run `pnpm db:migrate` first.
 
 ## End Goal
 A user's admin status is a single server-owned `"isAdmin"` boolean persisted by migration, returned on the canonical Better Auth session from a single additional-field config, strongly typed on the backend and frontend, and protected by a `requireAdmin` middleware that fails closed (401 unauthenticated, 403 non-admin). Admins are granted/revoked only through a documented least-privilege operational runbook, and no client can set or escalate the flag.
