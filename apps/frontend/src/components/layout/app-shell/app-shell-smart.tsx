@@ -13,7 +13,7 @@ import {
 import { AppShellDumb } from './app-shell-dumb'
 import { MobileNavDumb } from '../mobile-nav/mobile-nav-dumb'
 import {
-  CORE_NAV_ITEMS,
+  getNavigationItems,
   isCoreNavigationItemActive,
 } from '../navigation/nav-items'
 import { SidebarDumb } from '../sidebar/sidebar-dumb'
@@ -88,13 +88,14 @@ export function AppShell(props: AppShellProps) {
 
   const headerContent = getRouteHeaderContent(pathname)
   const resolvedUserName = resolveUserName(user, props.userName)
+  const navigationItems = getNavigationItems(user?.isAdmin === true)
 
   return (
     <>
       <AppShellDumb
         sidebar={
           <SidebarDumb
-            navigationItems={CORE_NAV_ITEMS}
+            navigationItems={navigationItems}
             pathname={pathname}
             isItemActive={isCoreNavigationItemActive}
           />
@@ -115,7 +116,7 @@ export function AppShell(props: AppShellProps) {
         mobileNavigation={
           <MobileNavDumb
             isOpen={isMobileNavOpen}
-            navigationItems={CORE_NAV_ITEMS}
+            navigationItems={navigationItems}
             onClose={closeMobileNav}
             title={headerContent.title}
             pathname={pathname}

@@ -18,6 +18,7 @@ import { Route as AuthenticatedBillingRouteImport } from './routes/_authenticate
 import { Route as AuthenticatedDashboardRouteImport } from './routes/_authenticated.dashboard'
 import { Route as AuthenticatedInterviewsRouteImport } from './routes/_authenticated.interviews'
 import { Route as AuthenticatedSettingsRouteImport } from './routes/_authenticated.settings'
+import { Route as AuthenticatedAdminReviewsRouteImport } from './routes/_authenticated.admin.reviews'
 import { Route as AuthenticatedInterviewsIdRouteImport } from './routes/_authenticated.interviews.$id'
 import { Route as AuthenticatedInterviewsNewRouteImport } from './routes/_authenticated.interviews.new'
 import { Route as AuthenticatedSettingsInterviewerApplicationRouteImport } from './routes/_authenticated.settings.interviewer-application'
@@ -70,6 +71,12 @@ const AuthenticatedSettingsRoute = AuthenticatedSettingsRouteImport.update({
   path: '/settings',
   getParentRoute: () => AuthenticatedRoute,
 } as any)
+const AuthenticatedAdminReviewsRoute =
+  AuthenticatedAdminReviewsRouteImport.update({
+    id: '/admin/reviews',
+    path: '/admin/reviews',
+    getParentRoute: () => AuthenticatedRoute,
+  } as any)
 const AuthenticatedInterviewsIdRoute =
   AuthenticatedInterviewsIdRouteImport.update({
     id: '/$id',
@@ -122,6 +129,7 @@ export interface FileRoutesByFullPath {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/interviews': typeof AuthenticatedInterviewsRouteWithChildren
   '/settings': typeof AuthenticatedSettingsRouteWithChildren
+  '/admin/reviews': typeof AuthenticatedAdminReviewsRoute
   '/interviews/$id': typeof AuthenticatedInterviewsIdRouteWithChildren
   '/interviews/new': typeof AuthenticatedInterviewsNewRoute
   '/settings/interviewer-application': typeof AuthenticatedSettingsInterviewerApplicationRoute
@@ -139,6 +147,7 @@ export interface FileRoutesByTo {
   '/dashboard': typeof AuthenticatedDashboardRoute
   '/interviews': typeof AuthenticatedInterviewsRouteWithChildren
   '/settings': typeof AuthenticatedSettingsRouteWithChildren
+  '/admin/reviews': typeof AuthenticatedAdminReviewsRoute
   '/interviews/$id': typeof AuthenticatedInterviewsIdRouteWithChildren
   '/interviews/new': typeof AuthenticatedInterviewsNewRoute
   '/settings/interviewer-application': typeof AuthenticatedSettingsInterviewerApplicationRoute
@@ -158,6 +167,7 @@ export interface FileRoutesById {
   '/_authenticated/dashboard': typeof AuthenticatedDashboardRoute
   '/_authenticated/interviews': typeof AuthenticatedInterviewsRouteWithChildren
   '/_authenticated/settings': typeof AuthenticatedSettingsRouteWithChildren
+  '/_authenticated/admin/reviews': typeof AuthenticatedAdminReviewsRoute
   '/_authenticated/interviews/$id': typeof AuthenticatedInterviewsIdRouteWithChildren
   '/_authenticated/interviews/new': typeof AuthenticatedInterviewsNewRoute
   '/_authenticated/settings/interviewer-application': typeof AuthenticatedSettingsInterviewerApplicationRoute
@@ -177,6 +187,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/interviews'
     | '/settings'
+    | '/admin/reviews'
     | '/interviews/$id'
     | '/interviews/new'
     | '/settings/interviewer-application'
@@ -194,6 +205,7 @@ export interface FileRouteTypes {
     | '/dashboard'
     | '/interviews'
     | '/settings'
+    | '/admin/reviews'
     | '/interviews/$id'
     | '/interviews/new'
     | '/settings/interviewer-application'
@@ -212,6 +224,7 @@ export interface FileRouteTypes {
     | '/_authenticated/dashboard'
     | '/_authenticated/interviews'
     | '/_authenticated/settings'
+    | '/_authenticated/admin/reviews'
     | '/_authenticated/interviews/$id'
     | '/_authenticated/interviews/new'
     | '/_authenticated/settings/interviewer-application'
@@ -292,6 +305,13 @@ declare module '@tanstack/react-router' {
       path: '/settings'
       fullPath: '/settings'
       preLoaderRoute: typeof AuthenticatedSettingsRouteImport
+      parentRoute: typeof AuthenticatedRoute
+    }
+    '/_authenticated/admin/reviews': {
+      id: '/_authenticated/admin/reviews'
+      path: '/admin/reviews'
+      fullPath: '/admin/reviews'
+      preLoaderRoute: typeof AuthenticatedAdminReviewsRouteImport
       parentRoute: typeof AuthenticatedRoute
     }
     '/_authenticated/interviews/$id': {
@@ -404,6 +424,7 @@ interface AuthenticatedRouteChildren {
   AuthenticatedDashboardRoute: typeof AuthenticatedDashboardRoute
   AuthenticatedInterviewsRoute: typeof AuthenticatedInterviewsRouteWithChildren
   AuthenticatedSettingsRoute: typeof AuthenticatedSettingsRouteWithChildren
+  AuthenticatedAdminReviewsRoute: typeof AuthenticatedAdminReviewsRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
@@ -411,6 +432,7 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedDashboardRoute: AuthenticatedDashboardRoute,
   AuthenticatedInterviewsRoute: AuthenticatedInterviewsRouteWithChildren,
   AuthenticatedSettingsRoute: AuthenticatedSettingsRouteWithChildren,
+  AuthenticatedAdminReviewsRoute: AuthenticatedAdminReviewsRoute,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
