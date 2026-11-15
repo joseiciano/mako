@@ -13,6 +13,8 @@ coverage/
 .wrangler/
 .tanstack/
 .dev.vars
+.dev.vars.bak
+wrangler.dev.generated.jsonc
 
 # Logs
 *.log
