@@ -872,14 +872,8 @@ export class InterviewService {
       return
     }
 
-    try {
-      await this.recordingStarter.ensureRecordingStarted(interviewId)
-    } catch (error) {
-      this.logSafely('error', 'interview.recording_start_failure', {
-        interview_id: interviewId,
-        error_message: toErrorMessage(error),
-      })
-    }
+    // ensureRecordingStarted never throws; failures surface as an outcome.
+    await this.recordingStarter.ensureRecordingStarted(interviewId)
   }
 
   private async triggerTimerOrchestration(params: TimerStartParams): Promise<void> {

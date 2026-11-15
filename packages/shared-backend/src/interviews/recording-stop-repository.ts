@@ -1,6 +1,6 @@
 import { createSqlQuery, type SqlQueryExecutor } from '../index'
 
-export type StopHandoff = {
+type StopHandoff = {
   interview_id: string
   realtime_session_id: string | null
   recording_status: string
@@ -8,7 +8,7 @@ export type StopHandoff = {
   start_in_flight: boolean
 }
 
-export type OverdueRecordingRow = {
+type OverdueRecordingRow = {
   id: string
   interview_id: string
   provider_recording_id: string

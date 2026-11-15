@@ -62,7 +62,6 @@ export interface InterviewRepositoryDataSource {
     input: LifecycleInterviewRecordInput,
     outboxEvent?: NotificationQueueEvent,
   ): Promise<LifecycleInterviewRecordResult>
-  listRecordingStopHandoffInterviewIds?(): readonly string[]
 }
 
 export type InterviewFeedbackState = {
@@ -1366,7 +1365,9 @@ export function createInMemoryInterviewDataSource(
   seedInterviews: readonly Interview[] = [],
   seedCancellationReasons: ReadonlyMap<string, InterviewCancellationReason> =
     new Map(),
-): InterviewRepositoryDataSource {
+): InterviewRepositoryDataSource & {
+  listRecordingStopHandoffInterviewIds(): readonly string[]
+} {
   const accountStateByUserId = new Map<
     string,
     { credits: number; freeStandardInterviews: number; freeAiInterviews: number }

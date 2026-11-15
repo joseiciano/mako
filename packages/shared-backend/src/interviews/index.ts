@@ -28,24 +28,17 @@ export {
 export {
   createRealtimeKitRecordingProvider,
   RealtimeRecordingError,
-  RECORDING_MAX_SECONDS,
-  type ProviderRecording,
-  type RealtimeRecordingErrorCode,
   type RealtimeRecordingProvider,
 } from './realtime-recording-provider'
 export {
   RecordingControlRepository,
-  type RecordingClaimResult,
-  type RecordingRow,
 } from './recording-control-repository'
 export {
   RecordingControlService,
-  type EnsureRecordingStartedOutcome,
-  type RecordingControlLogger,
   type RecordingStarter,
 } from './recording-control-service'
 export { RecordingStopRepository } from './recording-stop-repository'
-export { RecordingStopService, type StopHandoffOutcome } from './recording-stop-service'
+export { RecordingStopService } from './recording-stop-service'
 export {
   createInMemoryTimerOrchestration,
   createWorkflowTimerOrchestration,

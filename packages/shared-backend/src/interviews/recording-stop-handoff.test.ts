@@ -110,7 +110,7 @@ describe('completion transaction recording-stop handoff', function suite() {
 
     expect((await repository.transitionInterviewLifecycle(input)).outcome).toBe('completed')
     expect((await repository.transitionInterviewLifecycle(input)).outcome).toBe('already_completed')
-    expect(dataSource.listRecordingStopHandoffInterviewIds?.()).toEqual([interviewId])
+    expect(dataSource.listRecordingStopHandoffInterviewIds()).toEqual([interviewId])
   })
 })
 

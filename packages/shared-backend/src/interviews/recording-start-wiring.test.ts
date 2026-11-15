@@ -69,26 +69,6 @@ describe('InterviewService recording start wiring', function suite() {
     expect(starter.ensureRecordingStarted).toHaveBeenCalledTimes(2)
     expect(starter.ensureRecordingStarted).toHaveBeenCalledWith(interviewId)
   })
-
-  it('does not fail the start request when recording start throws, and logs it', async function run() {
-    const starter = { ensureRecordingStarted: vi.fn().mockRejectedValue(new Error('provider down')) }
-    const logger = { error: vi.fn(), info: vi.fn() }
-    const service = new InterviewService(
-      repositoryFor('scheduled'),
-      undefined, undefined, undefined, undefined,
-      logger,
-      undefined, undefined, undefined, undefined, undefined, undefined, undefined, undefined,
-      starter,
-    )
-
-    const response = await service.startInterview(session, { id: interviewId })
-
-    expect(response.interview.status).toBe('ongoing')
-    expect(logger.error).toHaveBeenCalledWith(
-      'interview.recording_start_failure',
-      expect.objectContaining({ interview_id: interviewId }),
-    )
-  })
 })
 
 describe('RecordingConsentService recording start wiring', function consentSuite() {
@@ -108,6 +88,7 @@ describe('RecordingConsentService recording start wiring', function consentSuite
         },
         recording_status: 'not_started',
       }),
+      getRecordingStatus: vi.fn().mockResolvedValue('recording'),
     } as unknown as RecordingConsentRepository
     const starter = { ensureRecordingStarted: vi.fn().mockResolvedValue('started') }
     const service = new RecordingConsentService(consentRepository, repositoryFor('ongoing'), starter)
@@ -122,6 +103,16 @@ describe('RecordingConsentService recording start wiring', function consentSuite
       consent_copy_version: 'v1',
     })
     expect(starter.ensureRecordingStarted).toHaveBeenCalledWith(interviewId)
+  })
+
+  it('reports the recording status as it is after the start attempt', async function run() {
+    const { service } = build('consented')
+    const response = await service.setConsent(session, {
+      interview_id: interviewId,
+      decision: 'consented',
+      consent_copy_version: 'v1',
+    })
+    expect(response.recording_status).toBe('recording')
   })
 
   it('does not attempt a start after a declined decision', async function run() {

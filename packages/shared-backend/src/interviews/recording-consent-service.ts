@@ -45,8 +45,12 @@ export class RecordingConsentService {
 
     const response = this.toConsentResponse(result)
 
-    if (response.decision === 'consented') {
-      await this.recordingStarter?.ensureRecordingStarted(input.interview_id)
+    if (response.decision === 'consented' && this.recordingStarter) {
+      await this.recordingStarter.ensureRecordingStarted(input.interview_id)
+      const recordingStatus = await this.consentRepository.getRecordingStatus(input.interview_id)
+      if (recordingStatus) {
+        return { ...response, recording_status: recordingStatus }
+      }
     }
 
     return response

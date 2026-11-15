@@ -13,7 +13,7 @@ export type RecordingClaimResult =
   | { outcome: 'claimed'; context: RecordingStartContext }
   | { outcome: 'not_eligible' | 'in_progress' | 'already_started' }
 
-export type RecordingRowType = 'composite' | 'participant_track'
+type RecordingRowType = 'composite' | 'participant_track'
 
 export type RecordingRow = {
   provider_recording_id: string
@@ -22,7 +22,7 @@ export type RecordingRow = {
   participant_role: string | null
 }
 
-export type InsertRecordingInput = RecordingRow & {
+type InsertRecordingInput = RecordingRow & {
   id: string
   interview_id: string
   now: string
