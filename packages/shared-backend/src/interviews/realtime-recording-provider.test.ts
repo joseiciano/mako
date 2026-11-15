@@ -70,13 +70,15 @@ describe('RealtimeKit recording provider', function suite() {
     expect(JSON.parse(init.body as string)).toEqual({ action: 'stop' })
   })
 
-  it('lists only active recordings for the meeting', async function run() {
+  it('lists only active recordings of known kinds for the meeting (unknown kinds are skipped, not defaulted to composite)', async function run() {
     const fetchImpl = vi.fn(async () =>
       jsonResponse({
         data: [
           { id: 'a', status: 'RECORDING', type: 'TRACK', output_file_name: 'u-1_x.mp3' },
           { id: 'b', status: 'UPLOADED' },
-          { id: 'c', status: 'INVOKED' },
+          { id: 'c', status: 'INVOKED', type: 'COMPOSITE' },
+          { id: 'd', status: 'RECORDING', type: 'LIVESTREAM' },
+          { id: 'e', status: 'RECORDING' },
         ],
       }),
     )

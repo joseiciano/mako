@@ -231,18 +231,14 @@ function parseRecording(
 
 function parseRecordingItem(
   item: unknown,
-  fallbackKind: ProviderRecordingKind = 'composite',
+  fallbackKind?: ProviderRecordingKind,
 ): ProviderRecording | null {
   if (typeof item !== 'object' || item === null) return null
   const record = item as Record<string, unknown>
   if (typeof record.id !== 'string' || record.id.length === 0) return null
 
-  const kind: ProviderRecordingKind =
-    record.type === 'TRACK'
-      ? 'participant_track'
-      : typeof record.type === 'string'
-        ? 'composite'
-        : fallbackKind
+  const kind = resolveKind(record.type, fallbackKind)
+  if (!kind) return null
 
   return {
     id: record.id,
@@ -251,4 +247,14 @@ function parseRecordingItem(
     outputFileName:
       typeof record.output_file_name === 'string' ? record.output_file_name : null,
   }
+}
+
+function resolveKind(
+  type: unknown,
+  fallbackKind: ProviderRecordingKind | undefined,
+): ProviderRecordingKind | null {
+  if (typeof type !== 'string') return fallbackKind ?? null
+  if (type === 'TRACK') return 'participant_track'
+  if (type === 'COMPOSITE') return 'composite'
+  return null
 }
