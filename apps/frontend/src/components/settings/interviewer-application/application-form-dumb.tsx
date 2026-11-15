@@ -2,12 +2,7 @@ import { useEffect, useRef, type FormEvent } from 'react'
 import { Link } from '@tanstack/react-router'
 import type { EmploymentRecordCompatibilityResponse } from '@mako/shared'
 import { formatDateRange } from '../../profile/company-list/company-list-dumb'
-
-export type ApplicationFormErrors = {
-  email?: string
-  selection?: string
-  submit?: string
-}
+import type { ApplicationFormErrors } from './validate-application'
 
 type ApplicationFormDumbProps = {
   records: EmploymentRecordCompatibilityResponse[]
@@ -60,6 +55,9 @@ export function ApplicationFormDumb(props: ApplicationFormDumbProps) {
   const firstCompleteId = props.records.find(function isComplete(r) {
     return r.isComplete
   })?.id
+  const selectedCount = props.records.filter(function isSelected(record) {
+    return record.isComplete && props.selectedIds.includes(record.id)
+  }).length
   const selectionErrorId = 'application-selection-error'
   const emailErrorId = 'application-email-error'
 
@@ -84,7 +82,7 @@ export function ApplicationFormDumb(props: ApplicationFormDumbProps) {
         className="flex flex-col gap-2"
       >
         <legend className="mb-2 text-sm font-medium text-slate-200">
-          Select 1 to 10 employment records ({props.selectedIds.length} selected)
+          Select 1 to 10 employment records ({selectedCount} selected)
         </legend>
         {props.errors.selection && (
           <p id={selectionErrorId} role="alert" className="text-sm text-red-300">

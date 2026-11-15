@@ -135,4 +135,9 @@ describe('ApplicationFormDumb', function suite() {
     renderForm()
     expect(screen.queryByText(/verified/i, { selector: 'span' })).toBeNull()
   })
+
+  it('counts only selected complete records in the legend', function run() {
+    renderForm({ selectedIds: [complete.id, incomplete.id, 'stale-id'] })
+    expect(screen.getByText(/\(1 selected\)/)).toBeTruthy()
+  })
 })
