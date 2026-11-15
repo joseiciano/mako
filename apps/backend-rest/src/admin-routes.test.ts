@@ -9,7 +9,7 @@ describe('admin review route registration', function () {
     ['GET', applicationPath],
     ['PATCH', applicationPath],
   ])(
-    '%s %s is guarded: unauthenticated requests get 401 with no demo fallback',
+    '%s %s is guarded: no usable auth runtime gets 503 with no demo fallback',
     async function (method, path) {
       const app = createApp()
       const response = await app.request(path, {
@@ -23,7 +23,7 @@ describe('admin review route registration', function () {
         body: method === 'PATCH' ? JSON.stringify({ decision: 'approved' }) : undefined,
       })
 
-      expect(response.status).toBe(401)
+      expect(response.status).toBe(503)
       expect(response.headers.get('cache-control')).toBe('private, no-store')
     },
   )
