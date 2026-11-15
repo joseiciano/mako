@@ -8,7 +8,10 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "pnpm -r --parallel --if-present run dev",
+    "dev": "node ./scripts/dev/dev-stack.mjs up",
+    "dev:apps": "pnpm -r --parallel --if-present run dev",
+    "dev:stack:down": "node ./scripts/dev/dev-stack.mjs down",
+    "dev:stack:reset": "node ./scripts/dev/dev-stack.mjs reset",
     "build": "pnpm -r --if-present run build",
     "typecheck": "pnpm -r --if-present run typecheck",
     "test": "pnpm -r --if-present run test",
