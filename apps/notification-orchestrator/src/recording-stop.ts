@@ -15,7 +15,12 @@ type RecordingStopBindings = {
 
 export type RecordingStopHandoffProcessor = Pick<
   RecordingStopService,
-  'processStopHandoff' | 'sweepStopHandoffs' | 'sweepOverdueRecordings'
+  | 'processStopHandoff'
+  | 'sweepStopHandoffs'
+  | 'sweepOverdueRecordings'
+  | 'listHandoffsAwaitingFeedback'
+  | 'markFeedbackTriggered'
+  | 'recordFeedbackFailure'
 >
 
 export type RecordingStartSweeper = Pick<RecordingControlService, 'sweepStalePendingClaims'>
@@ -52,5 +57,11 @@ export function createRecordingStopProcessor(
   return new RecordingStopService(
     new RecordingStopRepository(queryExecutor),
     createRealtimeKitRecordingProvider(env),
+    undefined,
+    {
+      error(event, context) {
+        console.error({ event, component: 'RecordingStop', ...context })
+      },
+    },
   )
 }

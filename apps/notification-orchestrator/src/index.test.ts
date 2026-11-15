@@ -716,8 +716,128 @@ describe('notification-orchestrator scheduled handler', function scheduledHandle
     expect(feedbackWorkflow.createBatch).toHaveBeenCalledWith([
       { id: 'feedback-v1-int-swept', params: { interview_id: 'int-swept', schema_version: 1 } },
     ])
-    expect(recordingStop.sweepOverdueRecordings).toHaveBeenCalledWith({ maxAgeSeconds: 3600, limit: 20 })
+    expect(recordingStop.sweepOverdueRecordings).toHaveBeenCalledWith({ maxAgeSeconds: 3300, limit: 20 })
     expect(recordingStart.sweepStalePendingClaims).toHaveBeenCalledWith({ limit: 20 })
+  })
+
+  it('sweep starts feedback for processed handoffs missing feedback_triggered_at and marks them', async function run() {
+    const markFeedbackTriggered = vi.fn(async () => {})
+    const recordingStop = {
+      processStopHandoff: vi.fn(async () => 'processed' as const),
+      sweepStopHandoffs: vi.fn(async () => [] as string[]),
+      sweepOverdueRecordings: vi.fn(async () => 0),
+      listHandoffsAwaitingFeedback: vi.fn(async () => ['int-lost']),
+      markFeedbackTriggered,
+    }
+    const { worker } = createTestWorker({ recordingStop })
+    const feedbackWorkflow = createMockFeedbackWorkflow()
+
+    await worker.scheduled(
+      { scheduledTime: Date.now(), cron: '*/5 * * * *', noRetry() {} } as never,
+      createMockEnvWithFeedback(feedbackWorkflow),
+    )
+
+    expect(feedbackWorkflow.createBatch).toHaveBeenCalledWith([
+      { id: 'feedback-v1-int-lost', params: { interview_id: 'int-lost', schema_version: 1 } },
+    ])
+    expect(markFeedbackTriggered).toHaveBeenCalledWith('int-lost')
+  })
+
+  it('recovers when createBatch fails after the handoff was processed: queue leaves the marker unset, the sweep starts feedback', async function run() {
+    const completedEventBody = {
+      event_type: 'interview.completed',
+      event_id: '11111111-1111-4111-8111-111111111111',
+      idempotency_key: 'interview.completed:22222222-2222-4222-8222-222222222222',
+      occurred_at: '2026-05-22T10:00:00.000Z',
+      interview: {
+        id: '22222222-2222-4222-8222-222222222222',
+        scheduler_id: '33333333-3333-4333-8333-333333333333',
+        interviewer_id: null,
+        type: 'system_design',
+        mode: 'ai_led',
+        tier: 'standard',
+        status: 'completed',
+        scheduled_at: '2026-05-22T14:00:00.000Z',
+      },
+      participants: {
+        scheduler_user_id: '33333333-3333-4333-8333-333333333333',
+        interviewer_user_id: null,
+      },
+    }
+    const triggered = new Set<string>()
+    const recordingStop = {
+      processStopHandoff: vi.fn(async () => 'no_handoff' as const),
+      sweepStopHandoffs: vi.fn(async () => [] as string[]),
+      sweepOverdueRecordings: vi.fn(async () => 0),
+      listHandoffsAwaitingFeedback: vi.fn(async () =>
+        triggered.has(completedEventBody.interview.id) ? [] : [completedEventBody.interview.id],
+      ),
+      markFeedbackTriggered: vi.fn(async (id: string) => {
+        triggered.add(id)
+      }),
+      recordFeedbackFailure: vi.fn(async () => {}),
+    }
+    const { worker } = createTestWorker({ recordingStop })
+    const feedbackWorkflow = createMockFeedbackWorkflow()
+    vi.mocked(feedbackWorkflow.createBatch).mockRejectedValueOnce(new Error('workflows down'))
+
+    const batch = createMockBatch([createMockMessage('msg-1', completedEventBody, 3)])
+    await worker.queue(batch, createMockEnvWithFeedback(feedbackWorkflow))
+    expect(batch.retried).toContain('msg-1')
+    expect(recordingStop.markFeedbackTriggered).not.toHaveBeenCalled()
+
+    await worker.scheduled(
+      { scheduledTime: Date.now(), cron: '*/5 * * * *', noRetry() {} } as never,
+      createMockEnvWithFeedback(feedbackWorkflow),
+    )
+    expect(feedbackWorkflow.createBatch).toHaveBeenCalledTimes(2)
+    expect(feedbackWorkflow.createBatch).toHaveBeenLastCalledWith([
+      {
+        id: `feedback-v1-${completedEventBody.interview.id}`,
+        params: { interview_id: completedEventBody.interview.id, schema_version: 1 },
+      },
+    ])
+    expect(recordingStop.markFeedbackTriggered).toHaveBeenCalledWith(completedEventBody.interview.id)
+  })
+
+  it('records a feedback failure in the sweep and still runs the overdue sweep', async function run() {
+    const recordFeedbackFailure = vi.fn(async () => {})
+    const recordingStop = {
+      processStopHandoff: vi.fn(async () => 'processed' as const),
+      sweepStopHandoffs: vi.fn(async () => ['int-a']),
+      sweepOverdueRecordings: vi.fn(async () => 0),
+      recordFeedbackFailure,
+    }
+    const { worker } = createTestWorker({ recordingStop })
+    const feedbackWorkflow = createMockFeedbackWorkflow()
+    vi.mocked(feedbackWorkflow.createBatch).mockRejectedValue(new Error('down'))
+
+    await worker.scheduled(
+      { scheduledTime: Date.now(), cron: '*/5 * * * *', noRetry() {} } as never,
+      createMockEnvWithFeedback(feedbackWorkflow),
+    )
+
+    expect(recordFeedbackFailure).toHaveBeenCalledWith('int-a')
+    expect(recordingStop.sweepOverdueRecordings).toHaveBeenCalled()
+  })
+
+  it('runs the overdue sweep even when the handoff sweep throws', async function run() {
+    const recordingStop = {
+      processStopHandoff: vi.fn(async () => 'processed' as const),
+      sweepStopHandoffs: vi.fn(async () => {
+        throw new Error('handoff sweep boom')
+      }),
+      sweepOverdueRecordings: vi.fn(async () => 0),
+    }
+    const { worker, logs } = createTestWorker({ recordingStop })
+
+    await worker.scheduled(
+      { scheduledTime: Date.now(), cron: '*/5 * * * *', noRetry() {} } as never,
+      createMockEnvWithFeedback(createMockFeedbackWorkflow()),
+    )
+
+    expect(recordingStop.sweepOverdueRecordings).toHaveBeenCalledTimes(1)
+    expect(logs.errors.map((e) => e.event)).toContain('recording_stop_sweep_failed')
   })
 
   it('handles missing hyperdrive gracefully', async function run() {
@@ -1168,6 +1288,9 @@ function createTestWorker(options?: {
     processStopHandoff: (interviewId: string) => Promise<'processed' | 'no_handoff' | 'retry'>
     sweepStopHandoffs: (input: { olderThan: string; limit: number }) => Promise<string[]>
     sweepOverdueRecordings: (input: { maxAgeSeconds: number; limit: number }) => Promise<number>
+    listHandoffsAwaitingFeedback?: (input: { processedBefore: string; limit: number }) => Promise<string[]>
+    markFeedbackTriggered?: (interviewId: string) => Promise<void>
+    recordFeedbackFailure?: (interviewId: string) => Promise<void>
   }
   recordingStart?: {
     sweepStalePendingClaims: (input: { limit: number }) => Promise<number>
@@ -1235,7 +1358,13 @@ function createTestWorker(options?: {
     createPool: () => mockPool,
     console: mockConsole,
     createRecordingStopProcessor: options?.recordingStop
-      ? () => options.recordingStop
+      ? () =>
+          ({
+            listHandoffsAwaitingFeedback: async () => [],
+            markFeedbackTriggered: async () => {},
+            recordFeedbackFailure: async () => {},
+            ...options.recordingStop,
+          }) as never
       : undefined,
     createRecordingStartSweeper: options?.recordingStart
       ? () => options.recordingStart
