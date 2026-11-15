@@ -32,7 +32,7 @@ The `"user"` schema extends the default **Better Auth** requirements to include 
 - **`credits`**: `integer` (Default: 0) - Current balance of interview credits.
 - **`free_standard_interviews`**: `integer` (Default: 1) - Remaining free standard (random) peer interviews.
 - **`free_ai_interviews`**: `integer` (Default: 1) - Remaining free AI-led interviews.
-- **`companies`**: `boolean` (Default: false) - Flag indicating if the user is authorized to conduct interviews.
+- **`companies`**: `boolean` (Default: false) - Flag indicating if the user is authorized to conduct interviews. This is the verified-interviewer eligibility flag: an admin approval of an interviewer application sets `companies = true`. It is distinct from the `user_companies` employment history table.
 - **`isAdmin`**: `boolean` (Not Null, Default: false) - Server-owned admin flag. Better Auth registers it with `input: false`; there is no client write path. Set only through the SQL runbook in `docs/operations/admin-access.md`.
 - **`createdAt`**: `timestamptz` - Account creation date.
 - **`updatedAt`**: `timestamptz` - Last profile update.
@@ -134,7 +134,7 @@ Used to track the verification flow for users wanting to become interviewers.
 - **`employment_history`**: `jsonb` - Immutable submission-time snapshots shaped as `{ sourceCompanyId: uuid | null, company: string, role: string, start: YYYY-MM-DD, end: YYYY-MM-DD | null }[]`; persisted/admin read contracts permit null only for legacy applications, while every new submission requires a non-null source record UUID.
 - **`status`**: `text` with CHECK (`pending`, `approved`, `rejected`) - Current state of the application.
 - **`reviewed_by`**: `uuid` (Optional, Foreign Key -> `"user".id`) - Admin who reviewed the application.
-- **`reviewed_at`**: `timestamptz` (Optional) - Decision timestamp; null while pending. Added in Story 7.8, not yet present in the current schema.
+- **`reviewed_at`**: `timestamptz` (Optional) - Nullable decision timestamp; `NULL` while pending, set together with `status`, `reviewed_by`, and `updated_at` on an admin decision. Added by Story 7.8 (`20261115020000_add_application_reviewed_at.sql`).
 - **`created_at`**: `timestamptz`
 - **`updated_at`**: `timestamptz`
 
