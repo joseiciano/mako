@@ -125,9 +125,7 @@ function isBetterAuthSessionUser(input: unknown): input is BetterAuthSessionUser
     'id' in input &&
     typeof input.id === 'string' &&
     'email' in input &&
-    typeof input.email === 'string' &&
-    'isAdmin' in input &&
-    typeof input.isAdmin === 'boolean'
+    typeof input.email === 'string'
   )
 }
 
