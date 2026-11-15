@@ -232,9 +232,22 @@ function terminate(childProcess) {
   })
 }
 
+function requireLocalDatabaseUrl(environment) {
+  const databaseUrl = requireEnvironmentValue(environment, 'DATABASE_URL')
+  const { hostname } = new URL(databaseUrl)
+
+  if (!['localhost', '127.0.0.1', '::1', '[::1]'].includes(hostname)) {
+    throw new Error(
+      `Refusing to run the dev stack against non-local database host "${hostname}". Point DATABASE_URL in .env at the local dev Postgres.`,
+    )
+  }
+
+  return databaseUrl
+}
+
 async function up() {
   const environment = await loadEnvironment()
-  const databaseUrl = requireEnvironmentValue(environment, 'DATABASE_URL')
+  const databaseUrl = requireLocalDatabaseUrl(environment)
 
   const workerEnvironment = {
     ...environment,
@@ -300,9 +313,15 @@ async function up() {
   }
 
   function onSignal() {
-    void shutdown().finally(function exitProcess() {
-      process.exit(0)
-    })
+    shutdown().then(
+      function exitClean() {
+        process.exit(0)
+      },
+      function exitFailed(error) {
+        process.stderr.write(`Shutdown failed: ${String(error)}\n`)
+        process.exit(1)
+      },
+    )
   }
 
   process.once('SIGINT', onSignal)
@@ -334,6 +353,8 @@ async function down() {
 
 async function reset() {
   const environment = await loadEnvironment()
+
+  requireLocalDatabaseUrl(environment)
 
   await runCommand(
     'docker',
