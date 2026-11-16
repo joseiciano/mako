@@ -26,6 +26,20 @@ export {
   type RealtimeProvider,
 } from './realtime-provider'
 export {
+  createRealtimeKitRecordingProvider,
+  RealtimeRecordingError,
+  type RealtimeRecordingProvider,
+} from './realtime-recording-provider'
+export {
+  RecordingControlRepository,
+} from './recording-control-repository'
+export {
+  RecordingControlService,
+  type RecordingStarter,
+} from './recording-control-service'
+export { RecordingStopRepository } from './recording-stop-repository'
+export { RecordingStopService } from './recording-stop-service'
+export {
   createInMemoryTimerOrchestration,
   createWorkflowTimerOrchestration,
   type TimerOrchestrationPort,

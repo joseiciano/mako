@@ -5,6 +5,13 @@ import {
 } from '@mako/shared'
 import {
   AccountRepository,
+  AdminApplicationReviewRepository,
+  AdminApplicationReviewService,
+  type AdminReviewLogger,
+  DatabaseUnavailableError,
+  handleUnexpectedError,
+  registerAdminApplicationReviewController,
+  requireAdmin,
   AccountService,
   AiChatRepository,
   AvailabilityRepository,
@@ -66,6 +73,9 @@ import {
   NotificationDispatchService,
   RecordingConsentRepository,
   RecordingConsentService,
+  RecordingControlRepository,
+  RecordingControlService,
+  createRealtimeKitRecordingProvider,
   ScreenshotRepository,
   ScreenshotService,
   ArtifactReadRepository,
@@ -187,6 +197,15 @@ const consoleInterviewerApplicationServiceLogger: InterviewerApplicationServiceL
   },
   error(event, context) {
     console.error({ event, component: 'InterviewerApplicationService', ...context })
+  },
+}
+
+const consoleAdminReviewLogger: AdminReviewLogger = {
+  info(event, context) {
+    console.info({ event, component: 'AdminApplicationReview', ...context })
+  },
+  error(event, context) {
+    console.error({ event, component: 'AdminApplicationReview', ...context })
   },
 }
 
@@ -359,6 +378,7 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
         new AiChatRepository(createWorkerAiChatResponder(context.bindings)),
         premiumCancellationService,
         artifactUrlSource,
+        queryExecutor ? createWorkerRecordingControl(context.bindings, queryExecutor) : undefined,
       )
     },
     createArtifactReadService: function createArtifactReadService(context) {
@@ -395,6 +415,7 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
       return new RecordingConsentService(
         new RecordingConsentRepository({ queryExecutor }),
         new InterviewRepository({ queryExecutor }),
+        createWorkerRecordingControl(context.bindings, queryExecutor),
       )
     },
     createScreenshotService: function createScreenshotService(context) {
@@ -469,6 +490,21 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
     },
     resolveSession: function resolveSession(context) {
       return resolveAppSession(context, demoSessionResolver)
+    },
+  })
+
+  registerAdminApplicationReviewController(app, {
+    guard: requireAdmin,
+    createService: function createService(context) {
+      // Admin review never falls back to demo data: no database means unavailable.
+      if (!hasDatabaseAccess(context.bindings)) {
+        throw new DatabaseUnavailableError()
+      }
+
+      return new AdminApplicationReviewService(
+        new AdminApplicationReviewRepository(createDatabaseQueryExecutor(context.bindings)),
+        consoleAdminReviewLogger,
+      )
     },
   })
 
@@ -557,6 +593,9 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
     },
   })
 
+  // Fail closed: auth/session and database unavailability are 503; other errors stay 500.
+  app.onError(handleUnexpectedError)
+
   app.get('/', function rootHandler(c) {
     return c.json({
       message: 'Mako backend API is running.',
@@ -615,6 +654,29 @@ function createWorkerRealtimeProvider(bindings: WorkerBindings): RealtimeProvide
       return getRealtimeProvider().createParticipantToken(input)
     },
   }
+}
+
+function createWorkerRecordingControl(
+  bindings: WorkerBindings,
+  queryExecutor: SqlQueryExecutor,
+): RecordingControlService | undefined {
+  if (
+    !bindings.CLOUDFLARE_ACCOUNT_ID ||
+    !bindings.CLOUDFLARE_API_TOKEN ||
+    !bindings.CLOUDFLARE_REALTIMEKIT_APP_ID
+  ) {
+    return undefined
+  }
+
+  return new RecordingControlService(
+    new RecordingControlRepository(queryExecutor),
+    createRealtimeKitRecordingProvider(bindings),
+    {
+      error(event, context) {
+        console.error({ event, component: 'RecordingControl', ...context })
+      },
+    },
+  )
 }
 
 function createDemoDataSources(seedAccounts: readonly AccountProfileRecord[]): {

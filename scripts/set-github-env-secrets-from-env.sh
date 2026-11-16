@@ -6,7 +6,11 @@
 # the given GitHub deployment environment. Unknown keys are skipped as a
 # safety guard so unrelated .env entries never reach GitHub.
 #
-# Usage: ./scripts/set-github-env-secrets-from-env.sh <staging|production> [path/to/.env]
+# Usage: ./scripts/set-github-env-secrets-from-env.sh <staging|production> <path/to/.env>
+#
+# The env file path is required: the repo-root .env is the local-dev file and
+# must never be uploaded by default. Values that look like local placeholders
+# are refused.
 #
 # The canonical secret inventory is the menu in scripts/set-github-env-secrets.sh;
 # keep KNOWN_SECRETS below in sync with that list.
@@ -43,7 +47,7 @@ NON_SECRET_KEYS=(
 )
 
 usage() {
-  echo "Usage: $0 <staging|production> [path/to/.env]" >&2
+  echo "Usage: $0 <staging|production> <path/to/.env>" >&2
 }
 
 if ! command -v gh >/dev/null 2>&1; then
@@ -59,11 +63,17 @@ fi
 REPO="joseiciano/mako"
 
 ENVIRONMENT="${1:-}"
-ENV_FILE="${2:-.env}"
+ENV_FILE="${2:-}"
 
 if [[ "$ENVIRONMENT" != "staging" && "$ENVIRONMENT" != "production" ]]; then
   usage
   echo "Invalid environment. Choose either 'staging' or 'production'."
+  exit 1
+fi
+
+if [[ -z "$ENV_FILE" ]]; then
+  usage
+  echo "Env file path is required."
   exit 1
 fi
 
@@ -90,6 +100,17 @@ is_non_secret_key() {
       return 0
     fi
   done
+  return 1
+}
+
+looks_like_local_placeholder() {
+  local key="$1" candidate="$2"
+  if [[ "$candidate" == *placeholder* || "$candidate" == *local-dev-only* ]]; then
+    return 0
+  fi
+  if [[ "$key" == "DATABASE_URL" && "$candidate" =~ ^[a-zA-Z0-9+.-]+://([^@/]*@)?(localhost|127\.0\.0\.1|\[::1\])([:/?]|$) ]]; then
+    return 0
+  fi
   return 1
 }
 
@@ -144,6 +165,11 @@ while IFS= read -r raw || [[ -n "$raw" ]]; do
   if [[ -z "$value" ]]; then
     echo "Skipping $key: value is empty."
     continue
+  fi
+
+  if looks_like_local_placeholder "$key" "$value"; then
+    echo "Refusing $key: value looks like a local placeholder. Use a real deployment env file, not the local-dev .env."
+    exit 1
   fi
 
   printf '%s' "$value" | gh secret set "$key" --repo "$REPO" --env "$ENVIRONMENT"

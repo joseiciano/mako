@@ -113,6 +113,7 @@ export class InterviewerApplicationRepository {
           employment_history,
           status,
           reviewed_by,
+          reviewed_at,
           created_at,
           updated_at
         FROM user_interviewer_applications
@@ -251,6 +252,7 @@ export class InterviewerApplicationRepository {
                 employment_history,
                 status,
                 reviewed_by,
+                reviewed_at,
                 created_at,
                 updated_at;
             `,
@@ -338,6 +340,7 @@ export function createInMemoryInterviewerApplicationDataSource(): InterviewerApp
         ),
         status: 'pending',
         reviewed_by: null,
+        reviewed_at: null,
         created_at: now,
         updated_at: now,
       })

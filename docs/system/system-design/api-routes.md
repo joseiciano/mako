@@ -37,6 +37,7 @@
   - **Description**: Validates the current session and returns the authenticated user's data.
   - **Request Body**: None
   - **Response Body**: `{ user: User, session: Session } | null`
+  - **Admin Flag**: The canonical session `user` carries the server-owned `isAdmin: boolean` field (default `false`, never client-writable through auth endpoints; also returned by `POST /api/auth/sign-in/email`). Admin-protected routes authorize exclusively from this session value through the `requireAdmin` middleware: `401` when unauthenticated, `403` when `isAdmin` is not `true` (a missing or non-boolean value counts as `false`). `GET /api/account` is not an authorization source for admin status.
 
 ### Account Management
 - **`GET /api/account`**
@@ -93,6 +94,40 @@
   - **Behavior Rules**: Returns the current user's latest application using deterministic `created_at DESC, id DESC` ordering. This returns the latest rejected row when no newer reapplication exists and the newer pending/decided row after reapplication.
 
 `InterviewerApplication` is exactly `{ applicationId: UUID, email: string, employmentHistory: { sourceCompanyId: UUID | null, company: string, role: string, start: YYYY-MM-DD, end: YYYY-MM-DD | null }[], status: 'pending' | 'approved' | 'rejected', createdAt: ISO-8601, updatedAt: ISO-8601 }`. Applicant routes do not expose reviewer identity. New submissions always populate a non-null `sourceCompanyId`; null remains read-compatible only for controlled pre-contract data. Both routes set `Cache-Control: private, no-store`.
+
+### Admin Review
+All admin routes are protected by `requireAdmin` (`packages/shared-backend/src/auth/require-admin.ts`): `401` unauthenticated, `403` non-admin. There is no demo/header authorization fallback. Every response from these routes, including `401`/`403`/`4xx`/`5xx`, sets `Cache-Control: private, no-store`. Request/response shapes are the shared Zod schemas in `packages/shared/src/admin-review.ts`.
+
+Failures are classified fail-closed: an unreachable session store or Better Auth session provider, or database unavailability (not configured, connection refused/timeout/terminated, SQLSTATE class `08`, `57P01`-`57P03`, `53300`, `53400`) returns `503 { error: 'Service unavailable' }`; programming or query errors on valid data remain `500`; unauthenticated requests against a healthy runtime remain `401`.
+
+- **`GET /api/admin/applications`**
+  - **Description**: Lists interviewer applications for review.
+  - **Query Params**: `status` = `pending | approved | rejected` (default `pending`); `limit` integer `1..100` (default `25`); `offset` non-negative integer (default `0`).
+  - **Response Body**: `{ applications: AdminApplicationSummary[], pagination: { limit: number, offset: number, hasMore: boolean } }`
+  - **Status Codes**: `200`; `400` invalid query (`limit` outside `1..100`, negative/non-integer/non-numeric `offset` or `limit`, malformed `status`); `401`; `403`; `503`.
+  - **Behavior Rules**: Offset pagination (not cursor). Ordering is stable oldest-first `created_at ASC, id ASC`. `hasMore` is computed by fetching `limit + 1` rows. Summaries never include `employmentHistory` or `reviewedBy`.
+
+- **`GET /api/admin/applications/:id`**
+  - **Description**: Returns one application with its employment snapshot and reviewer.
+  - **Response Body**: `{ application: AdminApplicationDetail }`
+  - **Status Codes**: `200`; `400` malformed id; `401`; `403`; `404` unknown id; `503`.
+
+- **`PATCH /api/admin/applications/:id`**
+  - **Description**: Atomically approves or rejects a pending application.
+  - **Request Body**: `{ decision: 'approved' | 'rejected' }` (strict; no reason/note field in MVP).
+  - **Response Body**: `{ application: AdminApplicationDetail }`
+  - **Status Codes**: `200`; `400` invalid JSON/body/id; `401`; `403` non-admin or self-review (`applicant.userId` equals the acting admin); `404` unknown application; `409` non-pending, concurrent loser, approval of a deleted applicant, or exhausted transaction retries; `503`.
+  - **Behavior Rules**:
+    - One transaction: guarded `UPDATE ... WHERE status = 'pending'` sets `status`, `reviewed_by` (always the acting admin), `reviewed_at`, and `updated_at` together. First concurrent decision wins; the other receives `409`.
+    - `approved` also sets `"user".companies = true` in the same transaction (idempotent when already `true`). If the applicant account is inactive/deleted the whole transaction rolls back and returns `409`.
+    - `rejected` never mutates the applicant `"user"` row and is allowed for deleted applicants.
+    - Retryable conflicts (`40001`, `40P01`) are retried with three total attempts.
+    - No applicant notification is sent in this story.
+
+Shapes:
+- `AdminApplicationSummary` = `{ applicationId: UUID, applicant: { userId: UUID, name: string, email: string, isAccountDeleted: boolean }, status, createdAt: ISO-8601, reviewedAt: ISO-8601 | null }`.
+- `AdminApplicationDetail` = summary fields plus `employmentHistory: { sourceCompanyId: UUID | null, company: string, role: string, start: YYYY-MM-DD, end: YYYY-MM-DD | null }[]` (immutable submission snapshot; `sourceCompanyId` null only for legacy applications) and `reviewedBy: { userId: UUID, name: string, email: string } | null`.
+- `applicant.name` is the current account name, `applicant.email` is the email stored on the application, and `reviewedBy` is the reviewer's current account identity.
 
 ### Payments & Credits
 - **`GET /api/payments/packages`**
@@ -566,23 +601,31 @@ Company route behavior:
 
 ### Recording Consent
 - **`POST /api/interviews/:id/recording-consent`**
-  - **Description**: Records a participant's recording consent or decline decision.
-  - **Request Body**: `{ decision: 'consented' | 'declined' }`
-  - **Response Body**: `{ success: boolean }`
+  - **Description**: Records the authenticated participant's recording consent or decline decision for the current consent copy.
+  - **Request Body**: `{ decision: 'consented' | 'declined', consent_copy_version: string }`
+  - **Response Body**: `{ interview_id, user_id, decision, consent_copy_version, recording_status, revoked_at }` — only the caller's own decision and the aggregate `recording_status`. Another participant's decision and aggregate consent readiness are never returned.
   - **Behavior Rules**:
     - Route is participant-only; non-participants receive 404.
-    - One consent record per participant per interview (composite primary key).
-    - Declining does not block the interview but makes automated feedback unavailable.
+    - One consent record per participant per interview (composite primary key). Writes are idempotent for the same decision and copy version.
+    - Writes are valid only while the interview is `scheduled` or `ongoing` and `recording_status = 'not_started'`; afterwards the route returns 409.
+    - AI-led sessions require one active `consented` decision (scheduler); peer-to-peer sessions require active `consented` decisions from both scheduler and interviewer. Active means `revoked_at IS NULL`.
+    - After a `consented` write, the service calls `ensureRecordingStarted`, which starts recording only if the interview is `ongoing` and every required consent is active. Provider failures never fail the consent request.
+    - Declining does not block the interview but makes recording, transcription, and automated feedback unavailable.
   - **Query Params**: None
 
 - **`DELETE /api/interviews/:id/recording-consent`**
-  - **Description**: Revokes a participant's prior recording consent.
+  - **Description**: Revokes the authenticated participant's prior recording consent.
   - **Request Body**: None
-  - **Response Body**: `{ success: boolean }`
+  - **Response Body**: Same shape as `POST` (own decision with `revoked_at` set, plus `recording_status`).
   - **Behavior Rules**:
     - Route is participant-only.
-    - Sets `revoked_at` on the existing consent record; does not delete the row.
+    - Sets `revoked_at` on the existing consent record; does not delete the row. Rejected with 409 once recording has started.
   - **Query Params**: None
+
+#### Server-controlled recording start and stop (no public route)
+- **Start**: `ensureRecordingStarted(interviewId)` is the single start operation, called after `POST /api/interviews/:id/start` (new or already `ongoing`) and after a consent grant. A compare-and-set `UPDATE` on `interviews` (`status = 'ongoing'`, `recording_status = 'not_started'`, all required consents active) persists a start claim (`recording_status = 'pending'`, `recording_start_claim_id`, `recording_start_claimed_at`) before any provider call, so concurrent callers start recording at most once. It starts one composite recording and one participant-separated audio track recording (`max_seconds = 3600` on the composite only; the track recording API documents no duration field) through RealtimeKit using `interviews.realtime_session_id` as the meeting ID, persists each returned provider recording ID as its own `interview_recordings` row, then sets `recording_status = 'recording'`. After a timeout, 5xx, or duplicate-active response it lists active provider recordings and persists any found before retrying; a stale `pending` claim (over 60 seconds) can be taken over and reconciled. Terminal provider errors set `recording_status = 'failed'`. Provider errors never fail the start or consent request.
+- **Stop**: the completion transaction (manual end or workflow timeout) inserts one `interview_recording_stop_handoffs` row (`ON CONFLICT DO NOTHING`); no provider call happens in the transaction. The `interview.completed` consumer in `notification-orchestrator` stops every provider recording idempotently (`stop_requested_at` / `stop_confirmed_at` checkpoints, already-stopped treated as success, active unpersisted provider recordings also stopped) and marks the handoff processed before triggering the feedback workflow. If the provider is unavailable the message is retried, and the scheduled sweep retries unprocessed handoffs. The sweep also stops any recording unconfirmed 3,600 s after its row was created (safety net; it can overrun by up to one 5-minute cron interval) and starts feedback for handoffs still unprocessed after 15 minutes.
+- **Provider error mapping** (`RealtimeRecordingError`): network error, timeout, 5xx, 429 -> `provider_unavailable` (ambiguous, reconcile before retry); 404/400 -> `invalid_meeting`; 409 -> `duplicate_active_recording`; other 4xx or `ERRORED` status -> `recording_failed` (terminal). Provider bodies and credentials are never logged or returned.
 
 ### Provider Webhooks
 - **`POST /api/webhooks/realtimekit`**

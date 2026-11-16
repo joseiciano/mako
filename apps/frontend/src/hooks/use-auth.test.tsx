@@ -44,7 +44,7 @@ describe('getAuthState', function () {
     const payload = {
       session: { id: 'session-1' },
       user: { id: 'user-1', email: 'user@example.com' },
-    }
+    } as unknown as NonNullable<Parameters<typeof getAuthState>[0]>
 
     expect(getAuthState(payload)).toEqual({
       isAuthenticated: true,

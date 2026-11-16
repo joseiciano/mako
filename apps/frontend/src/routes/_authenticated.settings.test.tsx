@@ -19,6 +19,9 @@ vi.mock('@tanstack/react-router', function mockTanstackRouter() {
     Link: function Link(props: { to: string; children: ReactNode }) {
       return <a href={props.to}>{props.children}</a>
     },
+    Outlet: function Outlet() {
+      return null
+    },
     createFileRoute: function createFileRoute() {
       return function configRoute(config: unknown) {
         return config
@@ -51,6 +54,22 @@ describe('SettingsPage', function suite() {
 
     renderWithQueryClient(<SettingsPage />)
     expect(screen.getByText('Interviewer Availability')).toBeTruthy()
+  })
+
+  it('links to the interviewer application page for every authenticated user', function run() {
+    for (const isVerifiedInterviewer of [true, false]) {
+      useAccountMock.mockReturnValue({
+        data: { isVerifiedInterviewer },
+        isLoading: false,
+        isError: false,
+        error: null,
+      })
+
+      const { unmount } = renderWithQueryClient(<SettingsPage />)
+      const link = screen.getByText('Become a verified interviewer').closest('a')
+      expect(link?.getAttribute('href')).toBe('/settings/interviewer-application')
+      unmount()
+    }
   })
 
   it('hides interviewer availability link for non-verified users', function run() {

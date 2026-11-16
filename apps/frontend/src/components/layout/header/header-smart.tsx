@@ -22,6 +22,7 @@ const routeTitleMap: Record<string, string> = {
   '/interviews/new': 'Schedule Interview',
   '/billing': 'Billing',
   '/settings': 'Settings',
+  '/admin/reviews': 'Application Reviews',
 }
 
 export function formatPathSegment(segment: string) {

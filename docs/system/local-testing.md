@@ -1,3 +1,23 @@
+# Local Development Stack
+
+Run the whole app locally with one command:
+
+```bash
+pnpm install
+cp .env.example .env   # optional; defaults are used when .env is missing
+pnpm dev
+```
+
+`pnpm dev` (`scripts/dev/dev-stack.mjs`):
+
+1. Starts local Postgres from `docker-compose.dev.yml` (`127.0.0.1:54331`, database `mako_dev`).
+2. Runs `pnpm db:migrate` against it.
+3. Writes `apps/backend-rest/.dev.vars` and `apps/notification-orchestrator/.dev.vars` from `.env` (gitignored).
+4. Runs one `wrangler dev` session with backend-rest (`:8787`), notification-orchestrator and greedy-matcher. R2, Queues, Workflows and rate limiting are emulated locally; Hyperdrive points at the local Postgres through `CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE`. The orchestrator runs from a generated config (`wrangler.dev.generated.jsonc`, gitignored) without the `ai` binding, because Workers AI has no local emulation.
+5. Runs the frontend on `:3000`, proxying `/api` to the backend.
+
+Ctrl+C stops all processes and Postgres. Related commands: `pnpm dev:stack:down`, `pnpm dev:stack:reset` (wipes the dev database), `pnpm dev:apps` (per-app `dev` scripts only, no Postgres or emulator setup). Local state lives in `.wrangler/state`. `.env.example` documents every local variable.
+
 # Local Testing Environment
 
 This guide defines the local test workflow for the Mako monorepo.
@@ -111,6 +131,6 @@ The `POST /api/payments/webhook` endpoint verifies Stripe webhook signatures usi
 
 ## RealtimeKit Recording Finalization Local Testing
 
-Set `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_REALTIMEKIT_APP_ID`, and `REALTIMEKIT_WEBHOOK_PUBLIC_KEY` in `apps/backend-rest/.dev.vars`. Run notification-orchestrator with matching `HYPERDRIVE`, private R2, and RealtimeKit bindings from its `wrangler.jsonc`.
+Set `CLOUDFLARE_ACCOUNT_ID`, `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_REALTIMEKIT_APP_ID`, in `apps/backend-rest/.dev.vars`. `REALTIMEKIT_WEBHOOK_PUBLIC_KEY_URL` is a plain `vars` binding already set in `apps/backend-rest/wrangler.jsonc` (`https://api.realtime.cloudflare.com/.well-known/webhooks.json`); override it in `.dev.vars` only to point at a test key endpoint. `CLOUDFLARE_API_TOKEN` needs the account `Realtime` or `Realtime Admin` permission so the backend can start and stop recordings, and notification-orchestrator needs the same three Cloudflare values to stop recordings after an interview completes. Run notification-orchestrator with matching `HYPERDRIVE`, private R2, and RealtimeKit bindings from its `wrangler.jsonc`.
 
 `POST /api/webhooks/realtimekit` requires raw-body `rtk-signature` and `rtk-uuid` headers. Accepted `UPLOADED` events create deterministic `RecordingFinalizationWorkflow` instances; the five-minute scheduled sweep retries due checkpoints.

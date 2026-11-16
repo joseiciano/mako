@@ -32,7 +32,8 @@ The `"user"` schema extends the default **Better Auth** requirements to include 
 - **`credits`**: `integer` (Default: 0) - Current balance of interview credits.
 - **`free_standard_interviews`**: `integer` (Default: 1) - Remaining free standard (random) peer interviews.
 - **`free_ai_interviews`**: `integer` (Default: 1) - Remaining free AI-led interviews.
-- **`companies`**: `boolean` (Default: false) - Flag indicating if the user is authorized to conduct interviews.
+- **`companies`**: `boolean` (Default: false) - Flag indicating if the user is authorized to conduct interviews. This is the verified-interviewer eligibility flag: an admin approval of an interviewer application sets `companies = true`. It is distinct from the `user_companies` employment history table.
+- **`isAdmin`**: `boolean` (Not Null, Default: false) - Server-owned admin flag. Better Auth registers it with `input: false`; there is no client write path. Set only through the SQL runbook in `docs/operations/admin-access.md`.
 - **`createdAt`**: `timestamptz` - Account creation date.
 - **`updatedAt`**: `timestamptz` - Last profile update.
 - **`deleted_at`**: `timestamptz`
@@ -133,7 +134,7 @@ Used to track the verification flow for users wanting to become interviewers.
 - **`employment_history`**: `jsonb` - Immutable submission-time snapshots shaped as `{ sourceCompanyId: uuid | null, company: string, role: string, start: YYYY-MM-DD, end: YYYY-MM-DD | null }[]`; persisted/admin read contracts permit null only for legacy applications, while every new submission requires a non-null source record UUID.
 - **`status`**: `text` with CHECK (`pending`, `approved`, `rejected`) - Current state of the application.
 - **`reviewed_by`**: `uuid` (Optional, Foreign Key -> `"user".id`) - Admin who reviewed the application.
-- **`reviewed_at`**: `timestamptz` (Optional) - Decision timestamp; null while pending. Added in Story 7.8, not yet present in the current schema.
+- **`reviewed_at`**: `timestamptz` (Optional) - Nullable decision timestamp; `NULL` while pending, set together with `status`, `reviewed_by`, and `updated_at` on an admin decision. Added by Story 7.8 (`20261115020000_add_application_reviewed_at.sql`).
 - **`created_at`**: `timestamptz`
 - **`updated_at`**: `timestamptz`
 
@@ -173,6 +174,8 @@ Core entity for tracking mock sessions and AI-led interviews.
 - **`recording_url`**: `text` (Optional, **deprecated**) - Legacy URL for the session recording in R2. Kept during compatibility window; new writes must use normalized `interview_artifacts` rows with private object keys.
 - **`screenshot_urls`**: `jsonb` (Optional, **deprecated**) - Legacy array of URLs for whiteboard captures stored in R2. Kept during compatibility window; new writes must use normalized `interview_artifacts` rows with private object keys.
 - **`feedback`**: `jsonb` (Optional, **deprecated for client contracts**) - Stores the raw feedback JSON. DB persistence tolerates legacy freeform JSON; client-facing contracts validate/map to the strict versioned feedback v1 schema (see `docs/system/system-design/ai-feedback-pipeline.md` §5) only at ready-persistence and client-detail boundaries.
+- **`recording_start_claim_id`**: `text` (Optional) - Opaque claim ID persisted by the compare-and-set recording start claim before the provider call.
+- **`recording_start_claimed_at`**: `timestamptz` (Optional) - When the start claim was written; a `pending` claim older than 60 seconds can be taken over after reconciliation.
 - **`recording_status`**: `text` with CHECK (`not_started`, `pending`, `recording`, `processing`, `ready`, `failed`) (Default: `not_started`) - Aggregate recording status derived from `interview_recordings` rows.
 - **`screenshots_finalized_at`**: `timestamptz` (Optional) - When screenshot upload was finalized. `NULL` means upload is still open; a timestamp means finalized (zero screenshot rows at that point is a valid finalized-empty set).
 - **`transcript`**: `text` (Optional) - Denormalized transcript text aggregate for client detail reads. Source-of-truth transcript chunks live in `interview_transcription_chunks`; this column is a read-optimized cache.
@@ -443,10 +446,13 @@ Normalized provider recording jobs for RealtimeKit composite and participant tra
 - **`provider_recording_id`**: `text` (Unique) - RealtimeKit provider recording identifier.
 - **`recording_type`**: `text` with CHECK (`composite`, `participant_track`)
 - **`participant_id`**: `uuid` (Optional, Foreign Key -> `"user".id`) - Participant for track recordings.
-- **`participant_role`**: `text` (Optional) - Role label (`scheduler` or `interviewer`) for track recordings.
+- **`participant_role`**: `text` (Optional) - Role label (`candidate` or `interviewer`). AI-led track rows bind the scheduler as `candidate`; peer-to-peer track rows cover both participants and leave participant fields NULL because the provider emits one file per participant that finalization maps to roles.
 - **`provider_status`**: `text` (Optional) - Provider-side status.
 - **`stop_requested_at`**: `timestamptz` (Optional)
 - **`stop_confirmed_at`**: `timestamptz` (Optional)
+- **`stop_attempt_count`**: `integer` (Default: 0) - Failed overdue-sweep stop attempts; after 12 failures the sweep retries only every 30 minutes, logs an error per failure, and abandons rows older than 24 hours.
+- **`stop_last_attempted_at`**: `timestamptz` (Optional) - The overdue sweep orders by least recently attempted.
+- **`stop_last_error_code`**: `text` (Optional) - Safe error code only.
 - **`finalization_status`**: `text` with CHECK (`pending`, `processing`, `finalized`, `failed`)
 - **`finalization_checkpoint`**: `text` (Optional) - Resumable finalization checkpoint.
 - **`error_code`**: `text` (Optional) - Safe error code (not provider error body).
@@ -459,6 +465,26 @@ Indexes:
 - `idx_interview_recordings_provider` on (`provider_recording_id`)
 - `idx_interview_recordings_stop_reconcile` on (`stop_requested_at`) WHERE `stop_confirmed_at` IS NULL
 - `idx_interview_recordings_pending_finalization` on (`finalization_status`) WHERE `finalization_status IN ('pending', 'processing')`
+
+### Interview_Recording_Stop_Handoffs
+
+Durable stop/reconciliation handoff written inside the interview completion transaction (migration `20261115030000`).
+
+- **`interview_id`**: `uuid` (Primary Key, Foreign Key -> `interviews.id`, On Delete Cascade) - One handoff per interview; inserted with `ON CONFLICT DO NOTHING`.
+- **`created_at`**: `timestamptz`
+- **`updated_at`**: `timestamptz`
+- **`processed_at`**: `timestamptz` (Optional) - Set once every provider recording is confirmed stopped.
+- **`attempt_count`**: `integer` (Default: 0)
+- **`last_attempted_at`**: `timestamptz` (Optional) - Last failed attempt; the sweep orders by least recently attempted; after 12 failures it retries only every 30 minutes, logs an error per failure, and abandons rows older than 24 hours.
+- **`last_error_code`**: `text` (Optional) - Safe error code only.
+- **`feedback_triggered_at`**: `timestamptz` (Optional) - Set after the feedback workflow `createBatch` succeeds. The sweep starts feedback where this is NULL for processed handoffs and for unprocessed handoffs older than 15 minutes, so feedback does not depend on provider availability (instance id `feedback-v1-{interview_id}` keeps it idempotent).
+- **`feedback_attempt_count`**: `integer` (Default: 0) - Sweep feedback-start failures; same slow-retry and 24-hour limits as the stop attempts.
+- **`feedback_last_attempted_at`**: `timestamptz` (Optional)
+
+Indexes:
+
+- `idx_interview_recording_stop_handoffs_pending` on (`created_at`) WHERE `processed_at IS NULL`
+- `idx_interview_recording_stop_handoffs_feedback_pending` on (`processed_at`) WHERE `processed_at IS NOT NULL AND feedback_triggered_at IS NULL`
 
 ### Interview_Recording_Consents
 

@@ -65,7 +65,7 @@ Reference `../docs/infrastructure/frontend.md` for frontend services.
 **NOTE**: Two scripts configure GitHub deployment secrets, and both use the same canonical secret inventory documented in `./scripts/set-github-env-secrets.sh` and `docs/system/system-design/ci-cd.md`:
 
 - `./scripts/set-github-env-secrets.sh` — interactive: prompts for each secret value; use it for manual one-off setup. It also acts as documentation for the inventory.
-- `./scripts/set-github-env-secrets-from-env.sh <staging|production> [path/to/.env]` — batch: parses `KEY=VALUE` lines from a `.env` file and uploads every known secret; unknown keys are skipped as a safety guard.
+- `./scripts/set-github-env-secrets-from-env.sh <staging|production> <path/to/.env>` — batch: parses `KEY=VALUE` lines from the given env file (path is required) and uploads every known secret; unknown keys are skipped as a safety guard, and local placeholder values are refused.
 
 If we ever need to add a new service that requires a new secret, update **both** scripts to include the new value.
 
