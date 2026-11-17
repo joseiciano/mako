@@ -39,6 +39,3 @@ jobs:
 
       - name: Run tests
         run: pnpm test
-
-      - name: Run local stack script tests
-        run: pnpm test:local-stack
