@@ -74,10 +74,13 @@ async function reset() {
 const commands = { up, down, reset }
 
 async function main() {
-  const handler = commands[process.argv[2] ?? 'up']
+  const handler = Object.hasOwn(commands, process.argv[2] ?? 'up')
+    ? commands[process.argv[2] ?? 'up']
+    : undefined
 
   if (!handler) {
-    process.stdout.write(
+    process.exitCode = 1
+    process.stderr.write(
       'Usage: pnpm local:up | pnpm local:down | pnpm local:reset\n  up     start Postgres and run migrations\n  down   stop the local stack\n  reset  wipe all local data and start clean\n',
     )
     return
