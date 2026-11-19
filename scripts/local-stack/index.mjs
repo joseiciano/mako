@@ -66,17 +66,21 @@ function runCompose(args, environment) {
   })
 }
 
+async function syncFakes(environment) {
+  if (fakesEnabled()) {
+    await runCompose(['up', '-d', '--build', '--no-deps', '--wait', 'fakes'], environment)
+  } else {
+    await runCompose(['rm', '--stop', '--force', 'fakes'], environment)
+  }
+}
+
 async function startAndMigrate(environment) {
   await runCompose(['up', '-d', '--build', '--wait', 'postgres'], environment)
   await runCompose(
     ['up', '--build', '--no-deps', '--exit-code-from', 'migrate', 'migrate'],
     environment,
   )
-  if (fakesEnabled()) {
-    await runCompose(['up', '-d', '--build', '--no-deps', '--wait', 'fakes'], environment)
-  } else {
-    await runCompose(['rm', '--stop', '--force', 'fakes'], environment)
-  }
+  await syncFakes(environment)
   await runCompose(['up', '-d', '--no-deps', '--wait', 'workers'], environment)
   await runCompose(['up', '-d', '--no-deps', '--wait', 'frontend'], environment)
 }
@@ -88,7 +92,9 @@ async function runSeed(environment) {
 async function seed() {
   const environment = buildEnvironment()
 
-  await runCompose(['up', '-d', '--wait', 'postgres', 'workers'], environment)
+  await runCompose(['up', '-d', '--wait', 'postgres'], environment)
+  await syncFakes(environment)
+  await runCompose(['up', '-d', '--wait', 'workers'], environment)
   await runSeed(environment)
 }
 
