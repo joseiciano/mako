@@ -35,7 +35,7 @@ describe('signed payment-success webhook', () => {
       return new Response('{"received":true}', { status: 200 })
     })
 
-    const response = await send({ payment_intent_id: 'pi_1', user_id: 'u1', package_id: 'credits_5' })
+    const response = await send({ payment_intent_id: 'pi_1', user_id: 'u1', package_id: 'credits_5', amount_cents: 2500 })
 
     expect(response.status).toBe(200)
     expect(sent).toHaveLength(1)
@@ -61,17 +61,17 @@ describe('signed payment-success webhook', () => {
   it('surfaces a backend rejection as 502', async () => {
     vi.stubGlobal('fetch', async () => new Response('{"error":"bad"}', { status: 400 }))
 
-    const response = await send({ payment_intent_id: 'pi_1', user_id: 'u1', package_id: 'credits_5' })
+    const response = await send({ payment_intent_id: 'pi_1', user_id: 'u1', package_id: 'credits_5', amount_cents: 2500 })
 
     expect(response.status).toBe(502)
     expect(await response.json()).toMatchObject({ backend_status: 400 })
   })
 
-  it('rejects a request without a known package or learner', async () => {
+  it('rejects a request missing the learner, package or amount', async () => {
     vi.stubGlobal('fetch', vi.fn())
 
-    expect((await send({ payment_intent_id: 'pi_1', user_id: 'u1', package_id: 'nope' })).status).toBe(400)
-    expect((await send({ package_id: 'credits_5' })).status).toBe(400)
+    expect((await send({ payment_intent_id: 'pi_1', user_id: 'u1', package_id: 'credits_5' })).status).toBe(400)
+    expect((await send({ package_id: 'credits_5', amount_cents: 2500 })).status).toBe(400)
     expect(fetch).not.toHaveBeenCalled()
   })
 })

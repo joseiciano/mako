@@ -1,5 +1,4 @@
 import { createHmac } from 'node:crypto'
-import { findCreditPackage } from '@mako/shared-backend'
 import { jsonResponse } from '../http.ts'
 
 const SEND_PATH = '/stripe/payment-succeeded'
@@ -7,7 +6,12 @@ const BACKEND_WEBHOOK_PATH = '/api/payments/webhook'
 const DEFAULT_WEBHOOK_SECRET = 'whsec_placeholder'
 const DEFAULT_BACKEND_URL = 'http://workers:8787'
 
-type SendRequest = { payment_intent_id?: unknown; package_id?: unknown; user_id?: unknown }
+type SendRequest = {
+  payment_intent_id?: unknown
+  package_id?: unknown
+  user_id?: unknown
+  amount_cents?: unknown
+}
 
 /** Stripe signing scheme: `t=<unix seconds>,v1=<hex HMAC-SHA256 of "<t>.<payload>">`. */
 export const signStripePayload = (payload: string, secret: string, timestamp: number): string => {
@@ -45,18 +49,23 @@ const isNonEmptyString = (value: unknown): value is string =>
 
 /**
  * POST /stripe/payment-succeeded builds a `payment_intent.succeeded` event for
- * the given payment intent, signs it with the local webhook secret and posts it
+ * the given payment intent, learner, package and amount, signs it with the local webhook secret and posts it
  * to the backend webhook route, returning the backend's answer.
  */
 export const handleStripeWebhook = async (request: Request, path: string): Promise<Response | null> => {
   if (request.method !== 'POST' || path !== SEND_PATH) return null
 
   const body = (await request.json().catch(() => ({}))) as SendRequest
-  const pkg = isNonEmptyString(body.package_id) ? findCreditPackage(body.package_id) : undefined
 
-  if (!isNonEmptyString(body.payment_intent_id) || !isNonEmptyString(body.user_id) || !pkg) {
+  if (
+    !isNonEmptyString(body.payment_intent_id) ||
+    !isNonEmptyString(body.user_id) ||
+    !isNonEmptyString(body.package_id) ||
+    !Number.isInteger(body.amount_cents) ||
+    (body.amount_cents as number) <= 0
+  ) {
     return jsonResponse(
-      { error: 'payment_intent_id, user_id and a known package_id are required.' },
+      { error: 'payment_intent_id, user_id, package_id and a positive integer amount_cents are required.' },
       400,
     )
   }
@@ -64,9 +73,9 @@ export const handleStripeWebhook = async (request: Request, path: string): Promi
   const payload = JSON.stringify(
     buildPaymentSucceededEvent({
       paymentIntentId: body.payment_intent_id,
-      packageId: pkg.package_id,
+      packageId: body.package_id,
       userId: body.user_id,
-      amountCents: pkg.amount_cents,
+      amountCents: body.amount_cents as number,
     }),
   )
   const secret = process.env.STRIPE_WEBHOOK_SECRET || DEFAULT_WEBHOOK_SECRET

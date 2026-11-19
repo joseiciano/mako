@@ -26,7 +26,12 @@ function withApiBaseUrl(config, environment) {
   return { ...config, vars: { ...config.vars, CLOUDFLARE_API_BASE_URL: baseUrl } }
 }
 
-/** Same as withApiBaseUrl, for the optional Stripe API base URL (local stripe-mock). */
+/**
+ * Same as withApiBaseUrl, for the optional Stripe API base URL (local
+ * stripe-mock). The Stripe keys are not `secrets.required` names, so wrangler
+ * dev would not load them from the process env; with the base URL set they are
+ * written as vars too (local placeholder values from the compose env).
+ */
 function withStripeApiBaseUrl(config, environment) {
   const baseUrl = environment.STRIPE_API_BASE_URL?.trim()
 
@@ -34,7 +39,13 @@ function withStripeApiBaseUrl(config, environment) {
     return config
   }
 
-  return { ...config, vars: { ...config.vars, STRIPE_API_BASE_URL: baseUrl } }
+  const keyVars = Object.fromEntries(
+    ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET']
+      .filter((name) => environment[name]?.trim())
+      .map((name) => [name, environment[name].trim()]),
+  )
+
+  return { ...config, vars: { ...config.vars, ...keyVars, STRIPE_API_BASE_URL: baseUrl } }
 }
 
 function fakesOn(environment) {

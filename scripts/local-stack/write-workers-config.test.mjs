@@ -44,8 +44,27 @@ describe('STRIPE_API_BASE_URL var', function describeStripeBaseUrl() {
     expect(buildOrchestratorConfig(source, environment).vars).toEqual({ A: '1' })
   })
 
-  it('leaves vars untouched when unset or blank', function skipsVar() {
-    for (const environment of [{}, { STRIPE_API_BASE_URL: '' }, { STRIPE_API_BASE_URL: '  ' }]) {
+  it('also writes the Stripe keys as vars when set, since they are not required secrets', function addsKeys() {
+    const environment = {
+      STRIPE_API_BASE_URL: 'http://stripe-mock:12111',
+      STRIPE_SECRET_KEY: 'sk_test_placeholder',
+      STRIPE_WEBHOOK_SECRET: 'whsec_placeholder',
+    }
+
+    expect(buildBackendConfig(source, environment).vars).toEqual({
+      A: '1',
+      STRIPE_API_BASE_URL: 'http://stripe-mock:12111',
+      STRIPE_SECRET_KEY: 'sk_test_placeholder',
+      STRIPE_WEBHOOK_SECRET: 'whsec_placeholder',
+    })
+  })
+
+  it('leaves vars untouched when unset or blank, even if Stripe keys exist', function skipsVar() {
+    for (const environment of [
+      {},
+      { STRIPE_API_BASE_URL: '' },
+      { STRIPE_API_BASE_URL: '  ', STRIPE_SECRET_KEY: 'sk_test_placeholder' },
+    ]) {
       expect(buildBackendConfig(source, environment).vars).toEqual({ A: '1' })
     }
   })
