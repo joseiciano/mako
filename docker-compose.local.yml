@@ -62,6 +62,7 @@ services:
       CLOUDFLARE_ACCOUNT_ID: local-placeholder
       CLOUDFLARE_API_TOKEN: local-placeholder
       CLOUDFLARE_REALTIMEKIT_APP_ID: local-placeholder
+      CLOUDFLARE_API_BASE_URL: ${LOCAL_CLOUDFLARE_API_BASE_URL:-}
       STRIPE_SECRET_KEY: sk_test_placeholder
       STRIPE_WEBHOOK_SECRET: whsec_placeholder
     ports:
@@ -91,6 +92,27 @@ services:
       - mako-local-node-modules-shared-backend:/app/packages/shared-backend/node_modules
       - mako-local-node-modules-shared-frontend:/app/packages/shared-frontend/node_modules
       - mako-local-workers-state:/state
+
+  fakes:
+    image: mako-local-base
+    profiles: [fakes]
+    working_dir: /app
+    command: ['node', 'apps/fakes/src/index.ts']
+    environment:
+      FAKES_PORT: ${LOCAL_FAKES_PORT:?set by scripts/local-stack}
+    ports:
+      - '127.0.0.1:${LOCAL_FAKES_PORT:?set by scripts/local-stack}:${LOCAL_FAKES_PORT:?set by scripts/local-stack}'
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:' + process.env.FAKES_PORT + '/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 2s
+      timeout: 5s
+      retries: 15
+    volumes:
+      - .:/app
 
   seed:
     image: mako-local-base
