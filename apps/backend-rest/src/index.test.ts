@@ -1262,6 +1262,17 @@ describe('payment routes', function () {
     })
   })
 
+  it('passes the optional Stripe base URL to the client, and none when unset', async function () {
+    const createClient = vi.spyOn(sharedBackend, 'createStripeClient').mockReturnValue(createMockStripeClient())
+    await createPaymentIntent(createApp(), { package_id: 'credits_5' })
+    expect(createClient).toHaveBeenLastCalledWith(expect.any(String), undefined)
+
+    await createPaymentIntent(createApp(), { package_id: 'credits_5' }, {
+      STRIPE_API_BASE_URL: 'http://stripe-mock:12111',
+    })
+    expect(createClient).toHaveBeenLastCalledWith(expect.any(String), 'http://stripe-mock:12111')
+  })
+
   it('rejects unknown package_id with 400', async function () {
     vi.spyOn(sharedBackend, 'createStripeClient').mockReturnValue(createMockStripeClient())
     const app = createApp()

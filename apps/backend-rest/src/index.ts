@@ -131,6 +131,8 @@ export type WorkerBindings = Partial<
   AI_GATEWAY_BASE_URL?: string
   // Optional Cloudflare API base override (local fakes); unset uses api.cloudflare.com.
   CLOUDFLARE_API_BASE_URL?: string
+  // Optional Stripe API base override (local stripe-mock); unset uses api.stripe.com.
+  STRIPE_API_BASE_URL?: string
   STRIPE_SECRET_KEY?: string
   STRIPE_WEBHOOK_SECRET?: string
   // Raw media retention window in days (Story 5.15); production default is 30.
@@ -232,7 +234,10 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
 
   function getStripeClient(bindings: WorkerBindings | undefined): StripeClient {
     if (!stripeClient) {
-      stripeClient = createStripeClient(bindings?.STRIPE_SECRET_KEY ?? 'sk_test_disabled')
+      stripeClient = createStripeClient(
+        bindings?.STRIPE_SECRET_KEY ?? 'sk_test_disabled',
+        bindings?.STRIPE_API_BASE_URL,
+      )
     }
     return stripeClient
   }

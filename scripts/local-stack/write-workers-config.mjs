@@ -26,6 +26,28 @@ function withApiBaseUrl(config, environment) {
   return { ...config, vars: { ...config.vars, CLOUDFLARE_API_BASE_URL: baseUrl } }
 }
 
+/**
+ * Same as withApiBaseUrl, for the optional Stripe API base URL (local
+ * stripe-mock). The Stripe keys are not `secrets.required` names, so wrangler
+ * dev would not load them from the process env; with the base URL set they are
+ * written as vars too (local placeholder values from the compose env).
+ */
+function withStripeApiBaseUrl(config, environment) {
+  const baseUrl = environment.STRIPE_API_BASE_URL?.trim()
+
+  if (!baseUrl) {
+    return config
+  }
+
+  const keyVars = Object.fromEntries(
+    ['STRIPE_SECRET_KEY', 'STRIPE_WEBHOOK_SECRET']
+      .filter((name) => environment[name]?.trim())
+      .map((name) => [name, environment[name].trim()]),
+  )
+
+  return { ...config, vars: { ...config.vars, ...keyVars, STRIPE_API_BASE_URL: baseUrl } }
+}
+
 function fakesOn(environment) {
   return environment.LOCAL_FAKES_ENABLED === '1'
 }
@@ -81,7 +103,7 @@ export function buildFakeAiWorkerConfig(orchestratorConfig) {
 }
 
 export function buildBackendConfig(config, environment = {}) {
-  return withFakeGateway(withApiBaseUrl({
+  return withFakeGateway(withStripeApiBaseUrl(withApiBaseUrl({
     ...config,
     main: bridgeEntryFromBackend,
     compatibility_flags: [
@@ -91,7 +113,7 @@ export function buildBackendConfig(config, environment = {}) {
       ...(config.services ?? []),
       ...Object.values(cronBindings),
     ],
-  }, environment), environment)
+  }, environment), environment), environment)
 }
 
 export async function writeWorkersConfigs(rootDirectory) {

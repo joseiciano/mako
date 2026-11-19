@@ -64,6 +64,7 @@ services:
       CLOUDFLARE_REALTIMEKIT_APP_ID: local-placeholder
       CLOUDFLARE_API_BASE_URL: ${LOCAL_CLOUDFLARE_API_BASE_URL:-}
       LOCAL_FAKES_ENABLED: ${LOCAL_FAKES_ENABLED:-}
+      STRIPE_API_BASE_URL: ${LOCAL_STRIPE_API_BASE_URL:-}
       STRIPE_SECRET_KEY: sk_test_placeholder
       STRIPE_WEBHOOK_SECRET: whsec_placeholder
     ports:
@@ -101,6 +102,8 @@ services:
     command: ['node', 'apps/fakes/src/index.ts']
     environment:
       FAKES_PORT: ${LOCAL_FAKES_PORT:?set by scripts/local-stack}
+      FAKES_BACKEND_URL: http://workers:8787
+      STRIPE_WEBHOOK_SECRET: whsec_placeholder
     ports:
       - '127.0.0.1:${LOCAL_FAKES_PORT:?set by scripts/local-stack}:${LOCAL_FAKES_PORT:?set by scripts/local-stack}'
     healthcheck:
@@ -114,6 +117,11 @@ services:
       retries: 15
     volumes:
       - .:/app
+
+  stripe-mock:
+    image: stripe/stripe-mock:v0.206.0
+    profiles: [fakes]
+    command: ['-http-port', '12111']
 
   seed:
     image: mako-local-base
