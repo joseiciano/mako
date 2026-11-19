@@ -34,7 +34,10 @@ services:
       dockerfile: docker/local/Dockerfile
     image: mako-local-base
     working_dir: /app
-    command: ['pnpm', 'db:migrate']
+    command:
+      - sh
+      - -c
+      - pnpm db:migrate && pnpm --filter @mako/shared-backend exec node ../../docker/local/local-schema-patch.mjs
     environment:
       DATABASE_URL: ${LOCAL_DATABASE_URL:?set by scripts/local-stack}
     depends_on:
