@@ -6,6 +6,9 @@ import { readJsoncConfig } from '../dev/orchestrator-dev-config.mjs'
 import { cronBindings } from './cron-targets.mjs'
 
 export const generatedConfigName = 'wrangler.dev.generated.jsonc'
+export const fakeAiWorkerName = 'mako-fake-ai'
+const fakeGatewayId = 'local-fake-gateway'
+const localPlaceholder = 'local-placeholder'
 const bridgeEntryFromBackend = '../../docker/local/cron-bridge-entry.mjs'
 
 /**
@@ -23,14 +26,58 @@ function withApiBaseUrl(config, environment) {
   return { ...config, vars: { ...config.vars, CLOUDFLARE_API_BASE_URL: baseUrl } }
 }
 
+function fakesOn(environment) {
+  return environment.LOCAL_FAKES_ENABLED === '1'
+}
+
+/**
+ * With fakes on, AI Gateway calls go to the fakes service: the gateway id is
+ * the last segment of this URL, so a non-empty value turns the gateway path on.
+ */
+function withFakeGateway(config, environment) {
+  const baseUrl = environment.CLOUDFLARE_API_BASE_URL?.trim()
+
+  if (!fakesOn(environment) || !baseUrl) {
+    return config
+  }
+
+  return {
+    ...config,
+    vars: {
+      CLOUDFLARE_ACCOUNT_ID: localPlaceholder,
+      CLOUDFLARE_API_TOKEN: localPlaceholder,
+      ...config.vars,
+      AI_GATEWAY_BASE_URL: `${baseUrl}/${fakeGatewayId}`,
+    },
+  }
+}
+
 export function buildOrchestratorConfig(config, environment = {}) {
   const { ai: _ai, ...rest } = config
 
-  return withApiBaseUrl(rest, environment)
+  if (!fakesOn(environment)) {
+    return withApiBaseUrl(rest, environment)
+  }
+
+  return withFakeGateway(withApiBaseUrl({
+    ...rest,
+    services: [
+      ...(rest.services ?? []),
+      { binding: 'AI', service: fakeAiWorkerName, entrypoint: 'FakeAi' },
+    ],
+  }, environment), environment)
+}
+
+export function buildFakeAiWorkerConfig(orchestratorConfig) {
+  return {
+    name: fakeAiWorkerName,
+    main: 'src/ai-binding-worker.ts',
+    compatibility_date: orchestratorConfig.compatibility_date,
+  }
 }
 
 export function buildBackendConfig(config, environment = {}) {
-  return withApiBaseUrl({
+  return withFakeGateway(withApiBaseUrl({
     ...config,
     main: bridgeEntryFromBackend,
     compatibility_flags: [
@@ -40,7 +87,7 @@ export function buildBackendConfig(config, environment = {}) {
       ...(config.services ?? []),
       ...Object.values(cronBindings),
     ],
-  }, environment)
+  }, environment), environment)
 }
 
 export async function writeWorkersConfigs(rootDirectory) {
@@ -54,6 +101,13 @@ export async function writeWorkersConfigs(rootDirectory) {
     await readJsoncConfig(path.join(orchestratorDirectory, 'wrangler.jsonc')),
     process.env,
   )
+
+  if (fakesOn(process.env)) {
+    await writeFile(
+      path.join(rootDirectory, 'apps/fakes', generatedConfigName),
+      `${JSON.stringify(buildFakeAiWorkerConfig(orchestratorConfig), null, 2)}\n`,
+    )
+  }
 
   await writeFile(
     path.join(backendDirectory, generatedConfigName),
