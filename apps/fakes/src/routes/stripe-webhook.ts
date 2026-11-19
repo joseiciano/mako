@@ -80,14 +80,22 @@ export const handleStripeWebhook = async (request: Request, path: string): Promi
   )
   const secret = process.env.STRIPE_WEBHOOK_SECRET || DEFAULT_WEBHOOK_SECRET
   const backendUrl = (process.env.FAKES_BACKEND_URL || DEFAULT_BACKEND_URL).replace(/\/+$/, '')
-  const backendResponse = await fetch(`${backendUrl}${BACKEND_WEBHOOK_PATH}`, {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'stripe-signature': signStripePayload(payload, secret, Math.floor(Date.now() / 1000)),
-    },
-    body: payload,
-  })
+  let backendResponse: Response
+  try {
+    backendResponse = await fetch(`${backendUrl}${BACKEND_WEBHOOK_PATH}`, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'stripe-signature': signStripePayload(payload, secret, Math.floor(Date.now() / 1000)),
+      },
+      body: payload,
+    })
+  } catch (error) {
+    return jsonResponse(
+      { error: 'backend unreachable', detail: error instanceof Error ? error.message : String(error) },
+      502,
+    )
+  }
 
   return jsonResponse(
     { backend_status: backendResponse.status, backend_body: await backendResponse.text() },

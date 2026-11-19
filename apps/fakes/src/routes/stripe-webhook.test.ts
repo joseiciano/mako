@@ -67,6 +67,17 @@ describe('signed payment-success webhook', () => {
     expect(await response.json()).toMatchObject({ backend_status: 400 })
   })
 
+  it('answers 502 when the backend is unreachable', async () => {
+    vi.stubGlobal('fetch', async () => {
+      throw new Error('connect ECONNREFUSED')
+    })
+
+    const response = await send({ payment_intent_id: 'pi_1', user_id: 'u1', package_id: 'credits_5', amount_cents: 2500 })
+
+    expect(response.status).toBe(502)
+    expect(await response.json()).toMatchObject({ error: 'backend unreachable' })
+  })
+
   it('rejects a request missing the learner, package or amount', async () => {
     vi.stubGlobal('fetch', vi.fn())
 
