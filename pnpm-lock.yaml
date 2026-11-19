@@ -55,6 +55,21 @@ importers:
         specifier: ^4.4.0
         version: 4.73.0(@cloudflare/workers-types@5.20260804.1)
 
+  apps/fakes:
+    devDependencies:
+      '@mako/shared-backend':
+        specifier: workspace:*
+        version: link:../../packages/shared-backend
+      '@types/node':
+        specifier: ^22.18.11
+        version: 22.19.15
+      typescript:
+        specifier: ^5.8.2
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/debug@4.1.13)(@types/node@22.19.15)(jiti@2.7.0)(jsdom@27.4.0(@noble/hashes@2.0.1))(lightningcss@1.32.0)(tsx@4.21.0)
+
   apps/frontend:
     dependencies:
       '@cloudflare/realtimekit-react':
