@@ -18,6 +18,7 @@
     "build": "pnpm -r --if-present run build",
     "typecheck": "pnpm -r --if-present run typecheck",
     "test": "pnpm -r --if-present run test",
+    "local:smoke": "node ./scripts/local-stack/smoke-workers.mjs",
     "test:local-stack": "vitest run scripts/local-stack",
     "test:watch": "pnpm -r --parallel --if-present run test:watch",
     "test:coverage": "pnpm -r --if-present run test:coverage",
