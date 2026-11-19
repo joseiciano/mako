@@ -1,17 +1,34 @@
 import { spawn } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+import path from 'node:path'
 import process from 'node:process'
 import {
   composeFilePath,
   composeProjectName,
   defaultDatabaseUrl,
+  fakesApiBaseUrl,
+  fakesHostPort,
   postgresHostPort,
   rootDirectory,
   workersHostPort,
 } from './constants.mjs'
 import { assertLocalDatabaseUrl } from './database-guard.mjs'
+import { isFakesEnabled } from './fakes-setting.mjs'
 
 function composeArgs(...args) {
-  return ['compose', '-p', composeProjectName, '-f', composeFilePath, ...args]
+  return ['compose', '-p', composeProjectName, '--profile', 'fakes', '-f', composeFilePath, ...args]
+}
+
+function readDotEnv() {
+  try {
+    return readFileSync(path.join(rootDirectory, '.env'), 'utf8')
+  } catch {
+    return ''
+  }
+}
+
+function fakesEnabled() {
+  return isFakesEnabled(process.env, readDotEnv())
 }
 
 function buildEnvironment() {
@@ -22,6 +39,8 @@ function buildEnvironment() {
   return {
     ...process.env,
     LOCAL_DATABASE_URL: databaseUrl,
+    LOCAL_CLOUDFLARE_API_BASE_URL: fakesEnabled() ? fakesApiBaseUrl : '',
+    LOCAL_FAKES_PORT: String(fakesHostPort),
     LOCAL_POSTGRES_PORT: String(postgresHostPort),
     LOCAL_WORKERS_PORT: String(workersHostPort),
   }
@@ -53,6 +72,11 @@ async function startAndMigrate(environment) {
     ['up', '--build', '--no-deps', '--exit-code-from', 'migrate', 'migrate'],
     environment,
   )
+  if (fakesEnabled()) {
+    await runCompose(['up', '-d', '--build', '--no-deps', '--wait', 'fakes'], environment)
+  } else {
+    await runCompose(['rm', '--stop', '--force', 'fakes'], environment)
+  }
   await runCompose(['up', '-d', '--no-deps', '--wait', 'workers'], environment)
   await runCompose(['up', '-d', '--no-deps', '--wait', 'frontend'], environment)
 }

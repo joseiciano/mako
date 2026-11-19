@@ -11,3 +11,5 @@ export const postgresHostPort = 54332
 export const workersHostPort = 8788
 export const defaultDatabaseUrl =
   'postgres://postgres:postgres@postgres:5432/mako_local?sslmode=disable'
+export const fakesHostPort = 8790
+export const fakesApiBaseUrl = `http://fakes:${fakesHostPort}/client/v4`
