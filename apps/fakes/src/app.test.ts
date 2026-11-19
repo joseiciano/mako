@@ -107,7 +107,7 @@ describe('recording routes parsed by the real recording provider', () => {
       const response = await handleRequest(
         new Request(`${recordings}${path}`, {
           method: 'POST',
-          body: JSON.stringify({ meeting_id: 'm' }),
+          body: JSON.stringify({ meeting_id: 'm', user_ids: ['u1'] }),
           ...authed,
         }),
       )

@@ -1,7 +1,9 @@
 import { type FakeHandler, hasAuthorization, jsonResponse, notFound, unauthorized } from './http.ts'
 import { handleAiChat } from './routes/ai-chat.ts'
+import { handleRecordingDownload } from './routes/recording-download.ts'
 import { handleRealtimeRecordings } from './routes/realtime-recordings.ts'
 import { handleRealtimeRooms } from './routes/realtime-rooms.ts'
+import { handleRealtimeWebhooks } from './routes/realtime-webhooks.ts'
 import { handleStripeWebhook } from './routes/stripe-webhook.ts'
 
 const AI_PREFIX = /^\/client\/v4\/accounts\/[^/]+(?=\/ai\/)/
@@ -14,6 +16,14 @@ export const handleRequest: FakeHandler = async (request) => {
 
   if (pathname.startsWith('/stripe/')) {
     return (await handleStripeWebhook(request, pathname)) ?? notFound()
+  }
+
+  if (pathname.startsWith('/realtimekit/')) {
+    return (await handleRealtimeWebhooks(request, pathname)) ?? notFound()
+  }
+
+  if (pathname.startsWith('/recordings/')) {
+    return handleRecordingDownload(request, pathname) ?? notFound()
   }
 
   const aiPrefix = AI_PREFIX.exec(pathname)
