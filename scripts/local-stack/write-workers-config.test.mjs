@@ -75,6 +75,10 @@ describe('fake AI wiring when fakes are on', function describeFakeAi() {
     }
   })
 
+  it('leaves backend credentials to its required secrets', function backendNoCredentials() {
+    expect(buildBackendConfig(source, environment).vars).not.toHaveProperty('CLOUDFLARE_ACCOUNT_ID')
+  })
+
   it('gives the orchestrator placeholder credentials without overriding existing vars', function setsCredentials() {
     const result = buildOrchestratorConfig({ ...source, vars: { CLOUDFLARE_ACCOUNT_ID: 'real' } }, environment)
 

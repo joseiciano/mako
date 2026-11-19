@@ -33,8 +33,10 @@ function fakesOn(environment) {
 /**
  * With fakes on, AI Gateway calls go to the fakes service: the gateway id is
  * the last segment of this URL, so a non-empty value turns the gateway path on.
+ * The backend already receives its credentials as required secrets; the
+ * orchestrator has none, so it gets placeholders as vars.
  */
-function withFakeGateway(config, environment) {
+function withFakeGateway(config, environment, credentialVars = {}) {
   const baseUrl = environment.CLOUDFLARE_API_BASE_URL?.trim()
 
   if (!fakesOn(environment) || !baseUrl) {
@@ -44,8 +46,7 @@ function withFakeGateway(config, environment) {
   return {
     ...config,
     vars: {
-      CLOUDFLARE_ACCOUNT_ID: localPlaceholder,
-      CLOUDFLARE_API_TOKEN: localPlaceholder,
+      ...credentialVars,
       ...config.vars,
       AI_GATEWAY_BASE_URL: `${baseUrl}/${fakeGatewayId}`,
     },
@@ -65,7 +66,10 @@ export function buildOrchestratorConfig(config, environment = {}) {
       ...(rest.services ?? []),
       { binding: 'AI', service: fakeAiWorkerName, entrypoint: 'FakeAi' },
     ],
-  }, environment), environment)
+  }, environment), environment, {
+    CLOUDFLARE_ACCOUNT_ID: localPlaceholder,
+    CLOUDFLARE_API_TOKEN: localPlaceholder,
+  })
 }
 
 export function buildFakeAiWorkerConfig(orchestratorConfig) {
