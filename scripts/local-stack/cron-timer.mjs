@@ -11,8 +11,16 @@ export function createCronTimer({
   log = console.log,
 }) {
   let handles = []
+  const running = new Set()
 
   async function fire(target) {
+    if (running.has(target.name)) {
+      log(`[cron-timer] ${target.name} previous run still pending, skipping tick`)
+      return
+    }
+
+    running.add(target.name)
+
     const url = `${baseUrl}${cronPathFor(target.name)}`
 
     try {
@@ -21,6 +29,8 @@ export function createCronTimer({
       log(`[cron-timer] ${target.name} scheduled handler -> HTTP ${response.status}`)
     } catch (error) {
       log(`[cron-timer] ${target.name} scheduled handler failed: ${String(error)}`)
+    } finally {
+      running.delete(target.name)
     }
   }
 

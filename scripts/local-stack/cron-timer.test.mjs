@@ -66,6 +66,20 @@ describe('createCronTimer', function describeTimer() {
     expect(log).toHaveBeenCalledWith(expect.stringContaining('failed'))
   })
 
+  it('skips a tick while the previous call is pending', async function checkOverlap() {
+    let release
+    const fetchImpl = vi.fn(() => new Promise((resolve) => { release = resolve }))
+    const { scheduled, timer } = createHarness(fetchImpl)
+
+    timer.start()
+    const first = scheduled[0].callback()
+    await scheduled[0].callback()
+    release({ status: 200 })
+    await first
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1)
+  })
+
   it('clears every interval on stop', function checkStop() {
     const clearIntervalImpl = vi.fn()
     const timer = createCronTimer({
