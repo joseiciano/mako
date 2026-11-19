@@ -1,4 +1,13 @@
+import pg from '../../packages/shared-backend/node_modules/pg'
 import app, { SessionTimerWorkflow } from '../../apps/backend-rest/src/index.ts'
+
+const timestampTypeIds = [1114, 1184]
+
+for (const typeId of timestampTypeIds) {
+  pg.types.setTypeParser(typeId, function parseTimestampAsIsoText(value) {
+    return new Date(/(Z|[+-]\d\d(:\d\d)?)$/.test(value) ? value : `${value}Z`).toISOString()
+  })
+}
 
 const cronPathPattern = /^\/__local\/cron\/(orchestrator|matcher)$/
 const cronBindingNames = {
