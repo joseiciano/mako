@@ -8,5 +8,6 @@ export const rootDirectory = path.resolve(
 export const composeFilePath = path.join(rootDirectory, 'docker-compose.local.yml')
 export const composeProjectName = 'mako-local'
 export const postgresHostPort = 54332
+export const workersHostPort = 8788
 export const defaultDatabaseUrl =
   'postgres://postgres:postgres@postgres:5432/mako_local?sslmode=disable'
