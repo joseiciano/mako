@@ -40,14 +40,6 @@ export function createAiGatewayResponder(
   const gatewayId = options.gatewayId
   const fetchImpl = options.fetch ?? globalThis.fetch
 
-  const chatCompletionsEndpoint = buildCloudflareApiUrl(
-    options.apiBaseUrl,
-    `/accounts/${accountId}/ai/v1/chat/completions`,
-  )
-  const runEndpoint = buildCloudflareApiUrl(
-    options.apiBaseUrl,
-    `/accounts/${accountId}/ai/run/${AI_CHAT_MODEL}`,
-  )
 
   return {
     async generateReply(input: AiChatServiceInput): Promise<AiChatServiceResult> {
@@ -71,7 +63,12 @@ export function createAiGatewayResponder(
         headers['cf-aig-request-timeout'] = AI_CHAT_TIMEOUT_HEADER_MS
       }
 
-      const endpoint = gatewayId ? chatCompletionsEndpoint : runEndpoint
+      const endpoint = buildCloudflareApiUrl(
+        options.apiBaseUrl,
+        gatewayId
+          ? `/accounts/${accountId}/ai/v1/chat/completions`
+          : `/accounts/${accountId}/ai/run/${AI_CHAT_MODEL}`,
+      )
 
       let response: Response
       try {

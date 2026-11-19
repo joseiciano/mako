@@ -249,20 +249,14 @@ describe('createAiGatewayFeedbackAnalysisAdapter apiBaseUrl', function apiBaseUr
     expect(lastUrl).toBe('http://fakes:9000/client/v4/accounts/acct-1/ai/v1/chat/completions')
   })
 
-  it('rejects an invalid override base without calling the provider', async function run() {
-    let called = false
-    const adapter = createAiGatewayFeedbackAnalysisAdapter(config, {
-      accountId: 'acct-1',
-      apiToken: 'tok-1',
-      gatewayId: 'gw-1',
-      apiBaseUrl: 'nope',
-      fetch: (async () => {
-        called = true
-        return jsonResponse(200, {})
-      }) as typeof fetch,
-    })
-
-    await expect(adapter.analyze(messages)).rejects.toThrow('CLOUDFLARE_API_BASE_URL')
-    expect(called).toBe(false)
+  it('throws at construction for an invalid override base', function run() {
+    expect(() =>
+      createAiGatewayFeedbackAnalysisAdapter(config, {
+        accountId: 'acct-1',
+        apiToken: 'tok-1',
+        gatewayId: 'gw-1',
+        apiBaseUrl: 'nope',
+      }),
+    ).toThrow('CLOUDFLARE_API_BASE_URL')
   })
 })

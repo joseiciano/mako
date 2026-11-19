@@ -69,6 +69,10 @@ export function createAiGatewayFeedbackAnalysisAdapter(
 ): FeedbackAnalysisAdapterPort {
   const { accountId, apiToken, gatewayId } = options
   const fetchImpl = options.fetch ?? globalThis.fetch
+  const endpoint = buildCloudflareApiUrl(
+    options.apiBaseUrl,
+    `/accounts/${accountId}/ai/v1/chat/completions`,
+  )
 
   return {
     async analyze(messages): Promise<FeedbackAnalysisAdapterResult> {
@@ -76,10 +80,6 @@ export function createAiGatewayFeedbackAnalysisAdapter(
         throw new FeedbackAnalysisUnavailableError()
       }
 
-      const endpoint = buildCloudflareApiUrl(
-        options.apiBaseUrl,
-        `/accounts/${accountId}/ai/v1/chat/completions`,
-      )
       const headers: Record<string, string> = {
         Authorization: `Bearer ${apiToken}`,
         'Content-Type': 'application/json',

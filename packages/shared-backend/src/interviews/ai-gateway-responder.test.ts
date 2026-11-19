@@ -400,9 +400,13 @@ describe('createAiGatewayResponder apiBaseUrl', function apiBaseUrlSuite() {
     expect(lastRequest.url).toBe('http://fakes:9000/client/v4/accounts/acct-1/ai/v1/chat/completions')
   })
 
-  it('throws for an invalid override base', function run() {
-    expect(() =>
-      createAiGatewayResponder({ accountId: 'a', apiToken: 't', apiBaseUrl: 'nope' }),
-    ).toThrow('CLOUDFLARE_API_BASE_URL')
+  it('throws for an invalid override base when generating a reply', async function run() {
+    const responder = createAiGatewayResponder({ accountId: 'a', apiToken: 't', apiBaseUrl: 'nope' })
+    await expect(responder.generateReply(BASE_INPUT)).rejects.toThrow('CLOUDFLARE_API_BASE_URL')
+  })
+
+  it('still reports unavailable without credentials even if the override base is invalid', async function run() {
+    const responder = createAiGatewayResponder({ apiBaseUrl: 'nope' })
+    await expect(responder.generateReply(BASE_INPUT)).rejects.toBeInstanceOf(AiChatUnavailableError)
   })
 })

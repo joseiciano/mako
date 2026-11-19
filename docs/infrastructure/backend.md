@@ -63,7 +63,7 @@ The backend worker reads secrets from Cloudflare Workers bindings (`wrangler sec
 |---|---|
 | Unset or blank | Production default `https://api.cloudflare.com/client/v4`. Leave it unset in staging and production. |
 | Value | Full base including the version path, for example `http://127.0.0.1:9000/client/v4`. Trailing slashes are removed. |
-| Invalid value | Anything that is not an http(s) URL throws `CLOUDFLARE_API_BASE_URL must be an http or https URL.` at the call site. There is no silent fallback. |
+| Invalid value | Anything that is not an http(s) URL throws `CLOUDFLARE_API_BASE_URL must be an http or https URL.` where the Cloudflare client is created or called (the AI chat responder checks it on the first reply, after its credentials check). There is no silent fallback. |
 
 The URL is built by `buildCloudflareApiUrl` in `packages/shared-backend/src/cloudflare-api-url.ts`. The variable is not declared in any `wrangler.jsonc`; supply it locally through `.dev.vars` or the local stack env, and never set it on a deployed worker.
 
