@@ -26,6 +26,17 @@ function withApiBaseUrl(config, environment) {
   return { ...config, vars: { ...config.vars, CLOUDFLARE_API_BASE_URL: baseUrl } }
 }
 
+/** Same as withApiBaseUrl, for the optional Stripe API base URL (local stripe-mock). */
+function withStripeApiBaseUrl(config, environment) {
+  const baseUrl = environment.STRIPE_API_BASE_URL?.trim()
+
+  if (!baseUrl) {
+    return config
+  }
+
+  return { ...config, vars: { ...config.vars, STRIPE_API_BASE_URL: baseUrl } }
+}
+
 function fakesOn(environment) {
   return environment.LOCAL_FAKES_ENABLED === '1'
 }
@@ -81,7 +92,7 @@ export function buildFakeAiWorkerConfig(orchestratorConfig) {
 }
 
 export function buildBackendConfig(config, environment = {}) {
-  return withFakeGateway(withApiBaseUrl({
+  return withFakeGateway(withStripeApiBaseUrl(withApiBaseUrl({
     ...config,
     main: bridgeEntryFromBackend,
     compatibility_flags: [
@@ -91,7 +102,7 @@ export function buildBackendConfig(config, environment = {}) {
       ...(config.services ?? []),
       ...Object.values(cronBindings),
     ],
-  }, environment), environment)
+  }, environment), environment), environment)
 }
 
 export async function writeWorkersConfigs(rootDirectory) {

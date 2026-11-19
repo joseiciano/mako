@@ -98,6 +98,8 @@ Application logs must never contain recipient addresses, verification URLs, toke
 
 **Local development**: add both values to `apps/backend-rest/.dev.vars`.
 
+**API base URL**: `STRIPE_API_BASE_URL` is an optional plain-text variable read by `backend-rest`. When set to an http(s) URL (for example `http://stripe-mock:12111`), the Stripe client uses that host, port and protocol instead of `api.stripe.com`; unset or blank keeps the SDK defaults and any other value throws `STRIPE_API_BASE_URL must be an http or https URL.`. It exists for the local Docker stack with fakes on; never set it on a deployed worker.
+
 **Staging optionality**: staging may omit both Stripe secrets until payment testing begins. The Worker still deploys and unrelated routes remain available; payment-client calls use a disabled fallback key, and the webhook endpoint returns `500 Webhook secret is not configured.` Production CI requires both values.
 
 **Webhook endpoint**: register `https://api.mako.example.com/api/payments/webhook` in the Stripe Dashboard. For local testing, use the Stripe CLI to forward events (see `docs/system/local-testing.md`).

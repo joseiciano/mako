@@ -10,6 +10,7 @@ import {
   fakesHostPort,
   postgresHostPort,
   rootDirectory,
+  stripeMockApiBaseUrl,
   workersHostPort,
 } from './constants.mjs'
 import { assertLocalDatabaseUrl } from './database-guard.mjs'
@@ -42,6 +43,7 @@ function buildEnvironment() {
     LOCAL_CLOUDFLARE_API_BASE_URL: fakesEnabled() ? fakesApiBaseUrl : '',
     LOCAL_FAKES_ENABLED: fakesEnabled() ? '1' : '',
     LOCAL_FAKES_PORT: String(fakesHostPort),
+    LOCAL_STRIPE_API_BASE_URL: fakesEnabled() ? stripeMockApiBaseUrl : '',
     LOCAL_POSTGRES_PORT: String(postgresHostPort),
     LOCAL_WORKERS_PORT: String(workersHostPort),
   }
@@ -69,9 +71,9 @@ function runCompose(args, environment) {
 
 async function syncFakes(environment) {
   if (fakesEnabled()) {
-    await runCompose(['up', '-d', '--build', '--no-deps', '--wait', 'fakes'], environment)
+    await runCompose(['up', '-d', '--build', '--no-deps', '--wait', 'stripe-mock', 'fakes'], environment)
   } else {
-    await runCompose(['rm', '--stop', '--force', 'fakes'], environment)
+    await runCompose(['rm', '--stop', '--force', 'stripe-mock', 'fakes'], environment)
   }
 }
 

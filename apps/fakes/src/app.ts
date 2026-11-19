@@ -2,6 +2,7 @@ import { type FakeHandler, hasAuthorization, jsonResponse, notFound, unauthorize
 import { handleAiChat } from './routes/ai-chat.ts'
 import { handleRealtimeRecordings } from './routes/realtime-recordings.ts'
 import { handleRealtimeRooms } from './routes/realtime-rooms.ts'
+import { handleStripeWebhook } from './routes/stripe-webhook.ts'
 
 const AI_PREFIX = /^\/client\/v4\/accounts\/[^/]+(?=\/ai\/)/
 const REALTIME_KIT_PREFIX = /^\/client\/v4\/accounts\/[^/]+\/realtime\/kit\/[^/]+/
@@ -10,6 +11,10 @@ export const handleRequest: FakeHandler = async (request) => {
   const { pathname } = new URL(request.url)
 
   if (pathname === '/health') return jsonResponse({ ok: true })
+
+  if (pathname.startsWith('/stripe/')) {
+    return (await handleStripeWebhook(request, pathname)) ?? notFound()
+  }
 
   const aiPrefix = AI_PREFIX.exec(pathname)
   if (aiPrefix) {

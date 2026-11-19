@@ -31,6 +31,26 @@ describe('CLOUDFLARE_API_BASE_URL var', function describeBaseUrl() {
   })
 })
 
+describe('STRIPE_API_BASE_URL var', function describeStripeBaseUrl() {
+  const source = { name: 'b', vars: { A: '1' } }
+
+  it('is added to the backend config only when set', function addsVar() {
+    const environment = { STRIPE_API_BASE_URL: 'http://stripe-mock:12111' }
+
+    expect(buildBackendConfig(source, environment).vars).toEqual({
+      A: '1',
+      STRIPE_API_BASE_URL: 'http://stripe-mock:12111',
+    })
+    expect(buildOrchestratorConfig(source, environment).vars).toEqual({ A: '1' })
+  })
+
+  it('leaves vars untouched when unset or blank', function skipsVar() {
+    for (const environment of [{}, { STRIPE_API_BASE_URL: '' }, { STRIPE_API_BASE_URL: '  ' }]) {
+      expect(buildBackendConfig(source, environment).vars).toEqual({ A: '1' })
+    }
+  })
+})
+
 describe('buildBackendConfig', function describeBackend() {
   const source = { name: 'b', main: 'src/index.ts', compatibility_flags: ['nodejs_compat'], hyperdrive: [{ binding: 'HYPERDRIVE' }] }
 

@@ -2,13 +2,15 @@ import Stripe from 'stripe'
 
 export type StripeClient = Stripe
 
+type StripeConfig = NonNullable<ConstructorParameters<typeof Stripe>[1]>
+
 /**
  * `apiBaseUrl` is the optional `STRIPE_API_BASE_URL` operator setting (local
  * stripe-mock). Unset or blank leaves the SDK defaults untouched; a value that
  * is not an http(s) URL throws.
  */
 export function createStripeClient(secretKey: string, apiBaseUrl?: string): StripeClient {
-  const config: Stripe.StripeConfig = {
+  const config: StripeConfig = {
     httpClient: Stripe.createFetchHttpClient(),
     ...parseStripeHostOptions(apiBaseUrl),
   }
@@ -16,7 +18,7 @@ export function createStripeClient(secretKey: string, apiBaseUrl?: string): Stri
   return new Stripe(secretKey, config)
 }
 
-function parseStripeHostOptions(apiBaseUrl: string | undefined): Stripe.StripeConfig {
+function parseStripeHostOptions(apiBaseUrl: string | undefined): StripeConfig {
   const trimmed = apiBaseUrl?.trim()
   if (!trimmed) {
     return {}

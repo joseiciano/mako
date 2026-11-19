@@ -13,3 +13,4 @@ export const defaultDatabaseUrl =
   'postgres://postgres:postgres@postgres:5432/mako_local?sslmode=disable'
 export const fakesHostPort = 8790
 export const fakesApiBaseUrl = `http://fakes:${fakesHostPort}/client/v4`
+export const stripeMockApiBaseUrl = 'http://stripe-mock:12111'
