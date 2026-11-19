@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "@mako/shared": "workspace:*",
     "@mako/shared-backend": "workspace:*",
     "@types/node": "^22.18.11",
     "typescript": "^5.8.2",

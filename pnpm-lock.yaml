@@ -57,6 +57,9 @@ importers:
 
   apps/fakes:
     devDependencies:
+      '@mako/shared':
+        specifier: workspace:*
+        version: link:../../packages/shared
       '@mako/shared-backend':
         specifier: workspace:*
         version: link:../../packages/shared-backend
