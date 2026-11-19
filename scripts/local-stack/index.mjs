@@ -6,6 +6,7 @@ import {
   defaultDatabaseUrl,
   postgresHostPort,
   rootDirectory,
+  workersHostPort,
 } from './constants.mjs'
 import { assertLocalDatabaseUrl } from './database-guard.mjs'
 
@@ -22,6 +23,7 @@ function buildEnvironment() {
     ...process.env,
     LOCAL_DATABASE_URL: databaseUrl,
     LOCAL_POSTGRES_PORT: String(postgresHostPort),
+    LOCAL_WORKERS_PORT: String(workersHostPort),
   }
 }
 
@@ -51,12 +53,13 @@ async function startAndMigrate(environment) {
     ['up', '--build', '--no-deps', '--exit-code-from', 'migrate', 'migrate'],
     environment,
   )
+  await runCompose(['up', '-d', '--no-deps', '--wait', 'workers'], environment)
 }
 
 async function up() {
   await startAndMigrate(buildEnvironment())
   process.stdout.write(
-    `Local stack up: Postgres on localhost:${postgresHostPort}, migrations applied.\n`,
+    `Local stack up: Postgres on localhost:${postgresHostPort}, migrations applied, workers on http://localhost:${workersHostPort}.\n`,
   )
 }
 
@@ -81,7 +84,7 @@ async function main() {
   if (!handler) {
     process.exitCode = 1
     process.stderr.write(
-      'Usage: pnpm local:up | pnpm local:down | pnpm local:reset\n  up     start Postgres and run migrations\n  down   stop the local stack\n  reset  wipe all local data and start clean\n',
+      'Usage: pnpm local:up | pnpm local:down | pnpm local:reset\n  up     start Postgres, run migrations, start workers\n  down   stop the local stack\n  reset  wipe all local data and start clean\n',
     )
     return
   }

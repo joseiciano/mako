@@ -43,7 +43,54 @@ services:
     restart: 'no'
     volumes: *node-modules-volumes
 
+  workers:
+    image: mako-local-base
+    working_dir: /app
+    command: ['sh', 'docker/local/workers-entrypoint.sh']
+    environment:
+      CHOKIDAR_USEPOLLING: 'true'
+      CLOUDFLARE_INCLUDE_PROCESS_ENV: 'true'
+      CLOUDFLARE_HYPERDRIVE_LOCAL_CONNECTION_STRING_HYPERDRIVE: ${LOCAL_DATABASE_URL:?set by scripts/local-stack}
+      WRANGLER_SEND_METRICS: 'false'
+      BETTER_AUTH_SECRET: local-dev-only-secret-change-me-0123456789
+      BETTER_AUTH_URL: http://localhost:3000
+      BETTER_AUTH_TRUSTED_ORIGINS: http://localhost:3000
+      AUTH_EMAIL_VERIFICATION_ENFORCED: 'false'
+      CLOUDFLARE_ACCOUNT_ID: local-placeholder
+      CLOUDFLARE_API_TOKEN: local-placeholder
+      CLOUDFLARE_REALTIMEKIT_APP_ID: local-placeholder
+      STRIPE_SECRET_KEY: sk_test_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_placeholder
+    ports:
+      - '127.0.0.1:${LOCAL_WORKERS_PORT:?set by scripts/local-stack}:8787'
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8787/health').then((r) => process.exit(r.ok ? 0 : 1), () => process.exit(1))"
+      interval: 5s
+      timeout: 5s
+      retries: 60
+    volumes:
+      - .:/app
+      - mako-local-node-modules-root:/app/node_modules
+      - mako-local-node-modules-backend-rest:/app/apps/backend-rest/node_modules
+      - mako-local-node-modules-frontend:/app/apps/frontend/node_modules
+      - mako-local-node-modules-greedy-matcher:/app/apps/greedy-matcher/node_modules
+      - mako-local-node-modules-notification-orchestrator:/app/apps/notification-orchestrator/node_modules
+      - mako-local-node-modules-shared:/app/packages/shared/node_modules
+      - mako-local-node-modules-shared-backend:/app/packages/shared-backend/node_modules
+      - mako-local-node-modules-shared-frontend:/app/packages/shared-frontend/node_modules
+      - mako-local-workers-state:/state
+
 volumes:
+  mako-local-workers-state:
   mako-local-postgres-data:
   mako-local-node-modules-root:
   mako-local-node-modules-backend-rest:
