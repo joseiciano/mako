@@ -54,12 +54,13 @@ async function startAndMigrate(environment) {
     environment,
   )
   await runCompose(['up', '-d', '--no-deps', '--wait', 'workers'], environment)
+  await runCompose(['up', '-d', '--no-deps', '--wait', 'frontend'], environment)
 }
 
 async function up() {
   await startAndMigrate(buildEnvironment())
   process.stdout.write(
-    `Local stack up: Postgres on localhost:${postgresHostPort}, migrations applied, workers on http://localhost:${workersHostPort}.\n`,
+    `Local stack up: Postgres on localhost:${postgresHostPort}, migrations applied, workers on http://localhost:${workersHostPort}, app on http://localhost:3000.\n`,
   )
 }
 
@@ -84,7 +85,7 @@ async function main() {
   if (!handler) {
     process.exitCode = 1
     process.stderr.write(
-      'Usage: pnpm local:up | pnpm local:down | pnpm local:reset\n  up     start Postgres, run migrations, start workers\n  down   stop the local stack\n  reset  wipe all local data and start clean\n',
+      'Usage: pnpm local:up | pnpm local:down | pnpm local:reset\n  up     start Postgres, run migrations, start workers and frontend\n  down   stop the local stack\n  reset  wipe all local data and start clean\n',
     )
     return
   }
