@@ -8,14 +8,29 @@ import { cronBindings } from './cron-targets.mjs'
 export const generatedConfigName = 'wrangler.dev.generated.jsonc'
 const bridgeEntryFromBackend = '../../docker/local/cron-bridge-entry.mjs'
 
-export function buildOrchestratorConfig(config) {
-  const { ai: _ai, ...rest } = config
+/**
+ * wrangler dev only loads names listed under `secrets.required` from the
+ * process environment, so the optional API base URL is written as a var.
+ * Unset or blank leaves the vars untouched.
+ */
+function withApiBaseUrl(config, environment) {
+  const baseUrl = environment.CLOUDFLARE_API_BASE_URL?.trim()
 
-  return rest
+  if (!baseUrl) {
+    return config
+  }
+
+  return { ...config, vars: { ...config.vars, CLOUDFLARE_API_BASE_URL: baseUrl } }
 }
 
-export function buildBackendConfig(config) {
-  return {
+export function buildOrchestratorConfig(config, environment = {}) {
+  const { ai: _ai, ...rest } = config
+
+  return withApiBaseUrl(rest, environment)
+}
+
+export function buildBackendConfig(config, environment = {}) {
+  return withApiBaseUrl({
     ...config,
     main: bridgeEntryFromBackend,
     compatibility_flags: [
@@ -25,7 +40,7 @@ export function buildBackendConfig(config) {
       ...(config.services ?? []),
       ...Object.values(cronBindings),
     ],
-  }
+  }, environment)
 }
 
 export async function writeWorkersConfigs(rootDirectory) {
@@ -33,9 +48,11 @@ export async function writeWorkersConfigs(rootDirectory) {
   const orchestratorDirectory = path.join(rootDirectory, 'apps/notification-orchestrator')
   const backendConfig = buildBackendConfig(
     await readJsoncConfig(path.join(backendDirectory, 'wrangler.jsonc')),
+    process.env,
   )
   const orchestratorConfig = buildOrchestratorConfig(
     await readJsoncConfig(path.join(orchestratorDirectory, 'wrangler.jsonc')),
+    process.env,
   )
 
   await writeFile(
