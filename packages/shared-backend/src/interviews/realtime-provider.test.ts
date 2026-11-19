@@ -269,3 +269,42 @@ describe('RealtimeProvider', function realtimeProviderSuite() {
     })
   })
 })
+
+describe('createRealtimeKitProvider CLOUDFLARE_API_BASE_URL', function suite() {
+  const bindings = {
+    CLOUDFLARE_ACCOUNT_ID: 'acct',
+    CLOUDFLARE_API_TOKEN: 'tok',
+    CLOUDFLARE_REALTIMEKIT_APP_ID: 'app',
+  }
+
+  afterEach(function restore() {
+    vi.restoreAllMocks()
+  })
+
+  it('posts meeting and participant calls to the override base', async function run() {
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => new Response(JSON.stringify({ data: { id: 'm-1', token: 't' } }), { status: 200 }))
+    const provider = createRealtimeKitProvider({ ...bindings, CLOUDFLARE_API_BASE_URL: 'http://fakes:9000/client/v4/' })
+
+    await provider.createSession({ interviewId: 'i-1' })
+    await provider.createParticipantToken({
+      realtimeSessionId: 'm-1',
+      participantUserId: 'u',
+      participantName: 'n',
+      participantEmail: 'e@example.com',
+      interviewId: 'i-1',
+    })
+
+    expect(fetchSpy.mock.calls.map((call) => call[0])).toEqual([
+      'http://fakes:9000/client/v4/accounts/acct/realtime/kit/app/meetings',
+      'http://fakes:9000/client/v4/accounts/acct/realtime/kit/app/meetings/m-1/participants',
+    ])
+  })
+
+  it('throws for an invalid override base', function run() {
+    expect(() =>
+      createRealtimeKitProvider({ ...bindings, CLOUDFLARE_API_BASE_URL: 'nope' }),
+    ).toThrow('CLOUDFLARE_API_BASE_URL')
+  })
+})

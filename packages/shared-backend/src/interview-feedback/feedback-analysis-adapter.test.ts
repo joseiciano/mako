@@ -228,3 +228,41 @@ describe('createAiGatewayFeedbackAnalysisAdapter', function suite() {
     expect(callCount).toBe(slowConfig.maxRetries + 1)
   })
 })
+
+describe('createAiGatewayFeedbackAnalysisAdapter apiBaseUrl', function apiBaseUrlSuite() {
+  it('posts to the override base', async function run() {
+    let lastUrl = ''
+    const fetchImpl = (async (input: RequestInfo | URL) => {
+      lastUrl = String(input)
+      return jsonResponse(200, { result: { choices: [{ message: { content: '{"ok":true}' } }] } })
+    }) as typeof fetch
+
+    const adapter = createAiGatewayFeedbackAnalysisAdapter(config, {
+      accountId: 'acct-1',
+      apiToken: 'tok-1',
+      gatewayId: 'gw-1',
+      apiBaseUrl: 'http://fakes:9000/client/v4/',
+      fetch: fetchImpl,
+    })
+    await adapter.analyze(messages)
+
+    expect(lastUrl).toBe('http://fakes:9000/client/v4/accounts/acct-1/ai/v1/chat/completions')
+  })
+
+  it('rejects an invalid override base without calling the provider', async function run() {
+    let called = false
+    const adapter = createAiGatewayFeedbackAnalysisAdapter(config, {
+      accountId: 'acct-1',
+      apiToken: 'tok-1',
+      gatewayId: 'gw-1',
+      apiBaseUrl: 'nope',
+      fetch: (async () => {
+        called = true
+        return jsonResponse(200, {})
+      }) as typeof fetch,
+    })
+
+    await expect(adapter.analyze(messages)).rejects.toThrow('CLOUDFLARE_API_BASE_URL')
+    expect(called).toBe(false)
+  })
+})

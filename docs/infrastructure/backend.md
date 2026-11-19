@@ -55,6 +55,18 @@ This document goes over all the tools we will be using for our backend services
 
 The backend worker reads secrets from Cloudflare Workers bindings (`wrangler secret put`) or `.dev.vars` locally. For deployed environments, copy `.env.staging.example` / `.env.production.example` to their gitignored counterparts and run `make envs-staging .env.staging` or `make envs-production .env.production`; these targets upload both GitHub secrets and non-secret variables.
 
+### Cloudflare API Base URL
+
+`CLOUDFLARE_API_BASE_URL` is an optional plain-text variable read from the worker env by `backend-rest` and `notification-orchestrator`. When set, all six Cloudflare REST calls (RealtimeKit meetings, participants and recordings, the recording-details fetch in `RecordingFinalizationWorkflow`, and the AI Gateway chat and feedback calls) go to that base instead of `https://api.cloudflare.com/client/v4`.
+
+| Rule | Behavior |
+|---|---|
+| Unset or blank | Production default `https://api.cloudflare.com/client/v4`. Leave it unset in staging and production. |
+| Value | Full base including the version path, for example `http://127.0.0.1:9000/client/v4`. Trailing slashes are removed. |
+| Invalid value | Anything that is not an http(s) URL throws `CLOUDFLARE_API_BASE_URL must be an http or https URL.` at the call site. There is no silent fallback. |
+
+The URL is built by `buildCloudflareApiUrl` in `packages/shared-backend/src/cloudflare-api-url.ts`. The variable is not declared in any `wrangler.jsonc`; supply it locally through `.dev.vars` or the local stack env, and never set it on a deployed worker.
+
 ### Email Service Infrastructure
 
 `scripts/bootstrap.sh` owns the persistent Email Sending resources (the sending subdomain is created via the zone-scoped Email Service REST API with `preview_enabled: false` and `drop_suppressed_recipients: false`, followed by a 12-attempt readiness poll on every run). The backend Worker's `EMAIL` and `AUTH_EMAIL_FROM` bindings are owned by the committed `apps/backend-rest/wrangler.jsonc` and rendered by CI. Each environment must supply its own non-secret GitHub variables `EMAIL_SENDING_ZONE_ID` and `EMAIL_SENDING_DOMAIN`, and those zone, domain, token, and account values belong to that environment's Cloudflare account—staging must never reference production resources or vice versa.

@@ -152,6 +152,36 @@ describe('RecordingFinalizationWorkflow', function workflowSuite() {
     expect(pool.calls.every(({ values }) => values.every((value) => !String(value).includes('signed.invalid')))).toBe(true)
   })
 
+  it('fetches recording details from the default Cloudflare API base when the setting is unset', async function run() {
+    const { bucket } = createBucket()
+    const pool = createPool({ id: 'job', interview_id: INTERVIEW_ID, provider_recording_id: PROVIDER_ID, recording_type: 'composite', provider_status: 'UPLOADED', finalization_status: 'pending' })
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => String(input).includes('/recordings/') ? detailsResponse() : downloadResponse())
+    vi.stubGlobal('fetch', fetchSpy)
+    await runWorkflow(createEnv(bucket, pool))
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toBe(`https://api.cloudflare.com/client/v4/accounts/account/realtime/kit/app/recordings/${PROVIDER_ID}`)
+  })
+
+  it('fetches recording details from CLOUDFLARE_API_BASE_URL when set', async function run() {
+    const { bucket } = createBucket()
+    const pool = createPool({ id: 'job', interview_id: INTERVIEW_ID, provider_recording_id: PROVIDER_ID, recording_type: 'composite', provider_status: 'UPLOADED', finalization_status: 'pending' })
+    const fetchSpy = vi.fn(async (input: RequestInfo | URL) => String(input).includes('/recordings/') ? detailsResponse() : downloadResponse())
+    vi.stubGlobal('fetch', fetchSpy)
+    const env = { ...createEnv(bucket, pool), CLOUDFLARE_API_BASE_URL: 'http://fakes:9000/client/v4/' } as WorkerBindings
+    await runWorkflow(env)
+    expect(String(fetchSpy.mock.calls[0]?.[0])).toBe(`http://fakes:9000/client/v4/accounts/account/realtime/kit/app/recordings/${PROVIDER_ID}`)
+  })
+
+  it('fails the transfer with a safe code when CLOUDFLARE_API_BASE_URL is invalid', async function run() {
+    const { bucket } = createBucket()
+    const pool = createPool({ id: 'job', interview_id: INTERVIEW_ID, provider_recording_id: PROVIDER_ID, recording_type: 'composite', provider_status: 'UPLOADED', finalization_status: 'pending' })
+    const fetchSpy = vi.fn(async () => detailsResponse())
+    vi.stubGlobal('fetch', fetchSpy)
+    const env = { ...createEnv(bucket, pool), CLOUDFLARE_API_BASE_URL: 'nope' } as WorkerBindings
+    const output = await runWorkflow(env)
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(output.result).toMatchObject({ status: 'failed' })
+  })
+
   it.each([
     ['http URL', detailsResponse({ download_url: 'http://signed.invalid/file.webm' }), undefined],
     ['non-2xx download', detailsResponse(), new Response('bad', { status: 503, headers: { 'content-type': 'video/webm' } })],

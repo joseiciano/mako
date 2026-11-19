@@ -2,6 +2,7 @@ import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloud
 import { z } from 'zod'
 import type { R2Bucket } from '@cloudflare/workers-types'
 import {
+  buildCloudflareApiUrl,
   buildRecordingKey,
   createArtifactStorage,
   createPostgresConnectionPool,
@@ -91,7 +92,10 @@ function buildRealtimeKitRecordingUrl(env: WorkerBindings, providerId: string): 
   if (!accountId || !appId) {
     throw new Error('Missing RealtimeKit bindings')
   }
-  return `https://api.cloudflare.com/client/v4/accounts/${accountId}/realtime/kit/${appId}/recordings/${providerId}`
+  return buildCloudflareApiUrl(
+    env.CLOUDFLARE_API_BASE_URL,
+    `/accounts/${accountId}/realtime/kit/${appId}/recordings/${providerId}`,
+  )
 }
 
 function getSafeCode(err: unknown): string {

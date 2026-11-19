@@ -365,3 +365,44 @@ describe('createAiGatewayResponder', function aiGatewayResponderSuite() {
     )
   })
 })
+
+describe('createAiGatewayResponder apiBaseUrl', function apiBaseUrlSuite() {
+  it('uses the override base for the direct run endpoint', async function run() {
+    const { fetchImpl, lastRequest } = createFetchStub(200, { result: { response: 'ok' } })
+    const responder = createAiGatewayResponder({
+      accountId: 'acct-1',
+      apiToken: 'tok-1',
+      apiBaseUrl: 'http://fakes:9000/client/v4/',
+      fetch: fetchImpl,
+    })
+
+    await responder.generateReply(BASE_INPUT)
+
+    expect(lastRequest.url).toBe(
+      'http://fakes:9000/client/v4/accounts/acct-1/ai/run/@cf/meta/llama-3.3-70b-instruct-fp8-fast',
+    )
+  })
+
+  it('uses the override base for the gateway chat-completions endpoint', async function run() {
+    const { fetchImpl, lastRequest } = createFetchStub(200, {
+      choices: [{ message: { content: 'ok' } }],
+    })
+    const responder = createAiGatewayResponder({
+      accountId: 'acct-1',
+      apiToken: 'tok-1',
+      gatewayId: 'gw-1',
+      apiBaseUrl: 'http://fakes:9000/client/v4',
+      fetch: fetchImpl,
+    })
+
+    await responder.generateReply(BASE_INPUT)
+
+    expect(lastRequest.url).toBe('http://fakes:9000/client/v4/accounts/acct-1/ai/v1/chat/completions')
+  })
+
+  it('throws for an invalid override base', function run() {
+    expect(() =>
+      createAiGatewayResponder({ accountId: 'a', apiToken: 't', apiBaseUrl: 'nope' }),
+    ).toThrow('CLOUDFLARE_API_BASE_URL')
+  })
+})

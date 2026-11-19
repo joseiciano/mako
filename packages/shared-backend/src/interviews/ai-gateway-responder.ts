@@ -1,3 +1,4 @@
+import { buildCloudflareApiUrl } from '../cloudflare-api-url'
 import { AiChatUnavailableError } from './ai-chat-repository'
 import {
   AI_CHAT_PROMPT_VERSION,
@@ -22,6 +23,7 @@ export type AiGatewayResponderOptions = {
   accountId?: string
   apiToken?: string
   gatewayId?: string
+  apiBaseUrl?: string
   fetch?: typeof fetch
 }
 
@@ -38,8 +40,14 @@ export function createAiGatewayResponder(
   const gatewayId = options.gatewayId
   const fetchImpl = options.fetch ?? globalThis.fetch
 
-  const chatCompletionsEndpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`
-  const runEndpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${AI_CHAT_MODEL}`
+  const chatCompletionsEndpoint = buildCloudflareApiUrl(
+    options.apiBaseUrl,
+    `/accounts/${accountId}/ai/v1/chat/completions`,
+  )
+  const runEndpoint = buildCloudflareApiUrl(
+    options.apiBaseUrl,
+    `/accounts/${accountId}/ai/run/${AI_CHAT_MODEL}`,
+  )
 
   return {
     async generateReply(input: AiChatServiceInput): Promise<AiChatServiceResult> {
