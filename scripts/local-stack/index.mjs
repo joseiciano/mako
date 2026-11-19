@@ -40,6 +40,7 @@ function buildEnvironment() {
     ...process.env,
     LOCAL_DATABASE_URL: databaseUrl,
     LOCAL_CLOUDFLARE_API_BASE_URL: fakesEnabled() ? fakesApiBaseUrl : '',
+    LOCAL_FAKES_ENABLED: fakesEnabled() ? '1' : '',
     LOCAL_FAKES_PORT: String(fakesHostPort),
     LOCAL_POSTGRES_PORT: String(postgresHostPort),
     LOCAL_WORKERS_PORT: String(workersHostPort),

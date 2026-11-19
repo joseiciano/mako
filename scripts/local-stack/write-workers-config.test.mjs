@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildBackendConfig, buildOrchestratorConfig } from './write-workers-config.mjs'
+import { buildBackendConfig, buildFakeAiWorkerConfig, buildOrchestratorConfig } from './write-workers-config.mjs'
 
 describe('buildOrchestratorConfig', function describeOrchestrator() {
   it('drops the ai binding and keeps the rest', function dropsAi() {
@@ -52,5 +52,58 @@ describe('buildBackendConfig', function describeBackend() {
     buildBackendConfig(source)
 
     expect(source.main).toBe('src/index.ts')
+  })
+})
+
+describe('fake AI wiring when fakes are on', function describeFakeAi() {
+  const environment = { LOCAL_FAKES_ENABLED: '1', CLOUDFLARE_API_BASE_URL: 'http://fakes:8790/client/v4' }
+  const source = { name: 'o', compatibility_date: '2026-03-15', ai: { binding: 'AI' }, services: [{ binding: 'X', service: 'x' }] }
+
+  it('binds the fake worker as AI and keeps other services', function bindsAi() {
+    const result = buildOrchestratorConfig(source, environment)
+
+    expect(result.ai).toBeUndefined()
+    expect(result.services).toEqual([
+      { binding: 'X', service: 'x' },
+      { binding: 'AI', service: 'mako-fake-ai', entrypoint: 'FakeAi' },
+    ])
+  })
+
+  it('sets a gateway URL whose last segment is the gateway id, on both configs', function setsGateway() {
+    for (const result of [buildOrchestratorConfig(source, environment), buildBackendConfig(source, environment)]) {
+      expect(result.vars.AI_GATEWAY_BASE_URL).toBe('http://fakes:8790/client/v4/local-fake-gateway')
+    }
+  })
+
+  it('leaves backend credentials to its required secrets', function backendNoCredentials() {
+    expect(buildBackendConfig(source, environment).vars).not.toHaveProperty('CLOUDFLARE_ACCOUNT_ID')
+  })
+
+  it('gives the orchestrator placeholder credentials without overriding existing vars', function setsCredentials() {
+    const result = buildOrchestratorConfig({ ...source, vars: { CLOUDFLARE_ACCOUNT_ID: 'real' } }, environment)
+
+    expect(result.vars.CLOUDFLARE_ACCOUNT_ID).toBe('real')
+    expect(result.vars.CLOUDFLARE_API_TOKEN).toBe('local-placeholder')
+  })
+
+  it('builds a fake worker config using the orchestrator compatibility date', function fakeWorker() {
+    expect(buildFakeAiWorkerConfig(source)).toEqual({
+      name: 'mako-fake-ai',
+      main: 'src/ai-binding-worker.ts',
+      compatibility_date: '2026-03-15',
+    })
+  })
+})
+
+describe('fake AI wiring when fakes are off', function describeFakeAiOff() {
+  const source = { name: 'o', ai: { binding: 'AI' } }
+
+  it('adds no service or gateway var', function addsNothing() {
+    for (const environment of [{}, { LOCAL_FAKES_ENABLED: '' }]) {
+      const result = buildOrchestratorConfig(source, environment)
+
+      expect(result).toEqual({ name: 'o' })
+      expect(buildBackendConfig({ name: 'b' }, environment).vars).toBeUndefined()
+    }
   })
 })

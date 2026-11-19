@@ -63,6 +63,7 @@ services:
       CLOUDFLARE_API_TOKEN: local-placeholder
       CLOUDFLARE_REALTIMEKIT_APP_ID: local-placeholder
       CLOUDFLARE_API_BASE_URL: ${LOCAL_CLOUDFLARE_API_BASE_URL:-}
+      LOCAL_FAKES_ENABLED: ${LOCAL_FAKES_ENABLED:-}
       STRIPE_SECRET_KEY: sk_test_placeholder
       STRIPE_WEBHOOK_SECRET: whsec_placeholder
     ports:
