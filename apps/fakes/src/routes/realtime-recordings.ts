@@ -2,61 +2,79 @@ import { jsonResponse } from '../http.ts'
 
 type RecordingKind = 'composite' | 'participant_track'
 
+type StartedRecording = {
+  id: string
+  kind: RecordingKind
+  meetingId: string | null
+  userIds: string[]
+}
+
 const MAX_REMEMBERED_RECORDINGS = 1000
-const recordingKinds = new Map<string, RecordingKind>()
+const startedRecordings = new Map<string, StartedRecording>()
 
 /**
  * Download URLs must be https (the finalization workflow rejects anything else).
- * The host is a reserved `.invalid` name: the fake declares a valid https URL
- * but does not serve it. Serving recording bytes belongs to a later ticket.
+ * The host is a reserved `.invalid` name that nothing resolves; the local
+ * orchestrator entry (docker/local/orchestrator-fakes-entry.mjs) rewrites it to
+ * the fakes service, which serves `/recordings/:file` (see recording-download.ts).
  */
 export const FAKE_DOWNLOAD_ORIGIN = 'https://fakes.invalid'
+
+/** Recordings started through the fake, oldest first. */
+export const listStartedRecordings = (): StartedRecording[] => [...startedRecordings.values()]
 
 const RECORDINGS_PATH = /^\/recordings$/
 const TRACK_PATH = /^\/recordings\/track$/
 const RECORDING_PATH = /^\/recordings\/([^/]+)$/
 
-function rememberKind(id: string, kind: RecordingKind): void {
-  if (recordingKinds.size >= MAX_REMEMBERED_RECORDINGS) {
-    const oldest = recordingKinds.keys().next().value
-    if (oldest !== undefined) recordingKinds.delete(oldest)
+function remember(recording: StartedRecording): void {
+  if (startedRecordings.size >= MAX_REMEMBERED_RECORDINGS) {
+    const oldest = startedRecordings.keys().next().value
+    if (oldest !== undefined) startedRecordings.delete(oldest)
   }
-  recordingKinds.set(id, kind)
+  startedRecordings.set(recording.id, recording)
 }
 
-function startedRecording(kind: RecordingKind, meetingId: unknown): Response {
+function startedRecording(kind: RecordingKind, body: { meeting_id?: unknown; user_ids?: unknown }): Response {
   const id = crypto.randomUUID()
-  rememberKind(id, kind)
+  const meetingId = typeof body.meeting_id === 'string' ? body.meeting_id : null
+  const userIds = Array.isArray(body.user_ids)
+    ? body.user_ids.filter((userId): userId is string => typeof userId === 'string')
+    : []
+  remember({ id, kind, meetingId, userIds })
   return jsonResponse({
     success: true,
     data: {
       id,
       status: 'INVOKED',
       type: kind === 'composite' ? 'COMPOSITE' : 'TRACK',
-      meeting_id: typeof meetingId === 'string' ? meetingId : null,
+      meeting_id: meetingId,
       output_file_name: `${id}.webm`,
     },
   })
 }
 
 function uploadedRecording(id: string): Response {
-  const kind = recordingKinds.get(id) ?? 'composite'
-  const fileName = `${id}.webm`
-  const url = `${FAKE_DOWNLOAD_ORIGIN}/recordings/${encodeURIComponent(fileName)}`
+  const { kind, userIds } = startedRecordings.get(id) ?? { kind: 'composite' as const, userIds: [] }
+  const downloadUrl = (fileName: string) =>
+    `${FAKE_DOWNLOAD_ORIGIN}/recordings/${encodeURIComponent(fileName)}`
   const base = {
     id,
     status: 'UPLOADED',
     type: kind === 'composite' ? 'COMPOSITE' : 'TRACK',
-    output_file_name: fileName,
+    output_file_name: `${id}.webm`,
   }
 
-  return jsonResponse({
-    success: true,
-    data:
-      kind === 'composite'
-        ? { ...base, download_url: url }
-        : { ...base, download_urls: [{ download_urls: { [fileName]: url } }] },
-  })
+  if (kind === 'composite') {
+    return jsonResponse({ success: true, data: { ...base, download_url: downloadUrl(`${id}.webm`) } })
+  }
+
+  // The finalization workflow maps a track file to a participant by the first
+  // UUID in its name, so each participant file is named after its user id.
+  const files = Object.fromEntries(
+    userIds.map((userId) => [`${userId}-${id}.webm`, downloadUrl(`${userId}-${id}.webm`)]),
+  )
+  return jsonResponse({ success: true, data: { ...base, download_urls: [{ download_urls: files }] } })
 }
 
 /**
@@ -70,8 +88,8 @@ export const handleRealtimeRecordings = async (
   const { method } = request
 
   if (method === 'POST' && (RECORDINGS_PATH.test(path) || TRACK_PATH.test(path))) {
-    const body = (await request.json().catch(() => ({}))) as { meeting_id?: unknown }
-    return startedRecording(TRACK_PATH.test(path) ? 'participant_track' : 'composite', body.meeting_id)
+    const body = (await request.json().catch(() => ({}))) as { meeting_id?: unknown; user_ids?: unknown }
+    return startedRecording(TRACK_PATH.test(path) ? 'participant_track' : 'composite', body)
   }
 
   if (method === 'GET' && RECORDINGS_PATH.test(path)) {

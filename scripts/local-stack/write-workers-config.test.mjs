@@ -134,6 +134,31 @@ describe('fake AI wiring when fakes are on', function describeFakeAi() {
   })
 })
 
+describe('fake RealtimeKit recording wiring', function describeFakeRecording() {
+  const environment = { LOCAL_FAKES_ENABLED: '1', CLOUDFLARE_API_BASE_URL: 'http://fakes:8790/client/v4' }
+
+  it('points the backend webhook key URL at the fakes service', function pointsKeyUrl() {
+    const result = buildBackendConfig({ name: 'b', vars: { REALTIMEKIT_WEBHOOK_PUBLIC_KEY_URL: 'https://prod' } }, environment)
+
+    expect(result.vars.REALTIMEKIT_WEBHOOK_PUBLIC_KEY_URL).toBe('http://fakes:8790/realtimekit/.well-known/webhooks.json')
+  })
+
+  it('runs the orchestrator through the fake download entry with the fakes origin and a placeholder app id', function rewritesDownloads() {
+    const result = buildOrchestratorConfig({ name: 'o', main: 'src/index.ts' }, environment)
+
+    expect(result.main).toBe('../../docker/local/orchestrator-fakes-entry.mjs')
+    expect(result.define).toEqual({ FAKES_DOWNLOAD_TARGET: '"http://fakes:8790"' })
+    expect(result.vars.CLOUDFLARE_REALTIMEKIT_APP_ID).toBe('local-placeholder')
+  })
+
+  it('changes nothing when fakes are off or the API base URL is blank', function offUnchanged() {
+    for (const off of [{}, { CLOUDFLARE_API_BASE_URL: 'http://fakes:8790/client/v4' }, { LOCAL_FAKES_ENABLED: '1' }]) {
+      expect(buildBackendConfig({ name: 'b' }, off).vars?.REALTIMEKIT_WEBHOOK_PUBLIC_KEY_URL).toBeUndefined()
+      expect(buildOrchestratorConfig({ name: 'o', main: 'src/index.ts' }, off).main).toBe('src/index.ts')
+    }
+  })
+})
+
 describe('fake AI wiring when fakes are off', function describeFakeAiOff() {
   const source = { name: 'o', ai: { binding: 'AI' } }
 
