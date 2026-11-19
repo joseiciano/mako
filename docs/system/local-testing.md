@@ -18,6 +18,79 @@ pnpm dev
 
 Ctrl+C stops all processes and Postgres. Related commands: `pnpm dev:stack:down`, `pnpm dev:stack:reset` (wipes the dev database), `pnpm dev:apps` (per-app `dev` scripts only, no Postgres or emulator setup). Local state lives in `.wrangler/state`. `.env.example` documents every local variable.
 
+# Docker Local Stack
+
+The whole app runs in Docker under the Compose project `mako-local` (`docker-compose.local.yml`): Postgres, a one-shot migrate job, the workers container (backend-rest, notification-orchestrator and greedy-matcher in one `wrangler dev`, plus a cron timer), the frontend, and a one-shot seed job. Docker Desktop (or Docker Engine with Compose) is the only extra requirement.
+
+## Commands
+
+| Command | What it does |
+|---|---|
+| `pnpm local:up` | Starts Postgres, runs migrations, starts workers and frontend, seeds the users. Safe to repeat. |
+| `pnpm local:down` | Stops the stack. Data stays in Docker volumes. |
+| `pnpm local:reset` | Deletes all local data and volumes, then starts clean and seeds. |
+| `pnpm local:seed` | Creates the four role users and premium slots. Safe to repeat. |
+| `pnpm local:smoke` | Checks health, sign-in and roles against the running stack. |
+| `pnpm local:smoke:workers` | Sends 40 auth requests and fails if the workers container crashes or returns a 5xx. |
+| `pnpm test:local-stack` | Runs the unit tests for the stack scripts. Needs no running stack. |
+
+## URLs and ports
+
+| Service | Address |
+|---|---|
+| App (frontend, proxies `/api` to workers) | `http://localhost:3000` |
+| Workers (backend API) | `http://localhost:8788` |
+| Postgres (database `mako_local`) | `127.0.0.1:54332`, user `postgres`, password `postgres` |
+
+These ports are fixed in `scripts/local-stack/constants.mjs` and `docker-compose.local.yml`. They do not conflict with `pnpm dev` (Postgres `54331`, backend `8787`).
+
+## Seeded users
+
+All four users share one password. It is for local use only. Never reuse it anywhere else.
+
+Password: `LocalDevPassw0rd!` (defined in `scripts/local-stack/constants.mjs`)
+
+| Role | Email |
+|---|---|
+| Learner (10 credits) | `learner@mako.test` |
+| Interviewer | `interviewer@mako.test` |
+| Verified interviewer | `verified@mako.test` |
+| Admin | `admin@mako.test` |
+
+## Logs
+
+Raw `docker compose` calls need the three variables that `pnpm local:*` sets for you. Set them once in your shell:
+
+```bash
+export LOCAL_DATABASE_URL='postgres://postgres:postgres@postgres:5432/mako_local?sslmode=disable'
+export LOCAL_POSTGRES_PORT=54332
+export LOCAL_WORKERS_PORT=8788
+```
+
+Follow the logs of one service (`postgres`, `migrate`, `workers`, `frontend` or `seed`):
+
+```bash
+docker compose -p mako-local -f docker-compose.local.yml logs -f workers
+```
+
+## Read the verification email
+
+The stack has no mail server. The email binding writes each message to a file inside the `workers` container, and the workers log shows the path (`Text: /tmp/miniflare-<hash>/files/email-text/<id>.txt`). The `<hash>` changes when the container is recreated. After you sign up in the app, print the newest verification email:
+
+```bash
+docker compose -p mako-local -f docker-compose.local.yml exec workers \
+  sh -c 'cat "$(ls -t /tmp/miniflare-*/files/email-text/*.txt | head -1)"'
+```
+
+The output contains the link `http://localhost:3000/api/auth/verify-email?token=...`. Open it in the browser to verify the account. The matching HTML file is in `email-html/` next to `email-text/`.
+
+## Environment variables
+
+The stack reads no `.env` file, so `.env.example` has no entries for it. Two optional shell variables exist:
+
+- `LOCAL_DATABASE_URL`: overrides the database URL. Only localhost, `127.0.0.1`, `::1` and the `postgres` service are accepted.
+- `LOCAL_APP_ORIGIN`: app URL used by `pnpm local:smoke:workers` (default `http://localhost:3000`).
+
 # Local Testing Environment
 
 This guide defines the local test workflow for the Mako monorepo.
