@@ -10,6 +10,8 @@ export const fakeAiWorkerName = 'mako-fake-ai'
 const fakeGatewayId = 'local-fake-gateway'
 const localPlaceholder = 'local-placeholder'
 const bridgeEntryFromBackend = '../../docker/local/cron-bridge-entry.mjs'
+const fakesEntryFromOrchestrator = '../../docker/local/orchestrator-fakes-entry.mjs'
+const fakeWebhookKeyPath = '/realtimekit/.well-known/webhooks.json'
 
 /**
  * wrangler dev only loads names listed under `secrets.required` from the
@@ -75,6 +77,49 @@ function withFakeGateway(config, environment, credentialVars = {}) {
   }
 }
 
+/**
+ * With fakes on, the backend fetches the RealtimeKit webhook public key from
+ * the fakes service (which signs the simulated webhooks) instead of Cloudflare.
+ * The fakes origin is the API base URL's origin.
+ */
+function withFakeWebhookKey(config, environment) {
+  const baseUrl = environment.CLOUDFLARE_API_BASE_URL?.trim()
+
+  if (!fakesOn(environment) || !baseUrl) {
+    return config
+  }
+
+  return {
+    ...config,
+    vars: {
+      ...config.vars,
+      REALTIMEKIT_WEBHOOK_PUBLIC_KEY_URL: `${new URL(baseUrl).origin}${fakeWebhookKeyPath}`,
+    },
+  }
+}
+
+/**
+ * The finalization workflow downloads recordings from https URLs only, and the
+ * fake declares an https host that does not resolve. The orchestrator entry
+ * rewrites that host to the fakes service; `define` hands it the target.
+ */
+function withFakeRecordingDownload(config, environment) {
+  const baseUrl = environment.CLOUDFLARE_API_BASE_URL?.trim()
+
+  if (!fakesOn(environment) || !baseUrl) {
+    return config
+  }
+
+  return {
+    ...config,
+    main: fakesEntryFromOrchestrator,
+    define: {
+      ...config.define,
+      FAKES_DOWNLOAD_TARGET: JSON.stringify(new URL(baseUrl).origin),
+    },
+  }
+}
+
 export function buildOrchestratorConfig(config, environment = {}) {
   const { ai: _ai, ...rest } = config
 
@@ -82,7 +127,7 @@ export function buildOrchestratorConfig(config, environment = {}) {
     return withApiBaseUrl(rest, environment)
   }
 
-  return withFakeGateway(withApiBaseUrl({
+  return withFakeRecordingDownload(withFakeGateway(withApiBaseUrl({
     ...rest,
     services: [
       ...(rest.services ?? []),
@@ -91,7 +136,8 @@ export function buildOrchestratorConfig(config, environment = {}) {
   }, environment), environment, {
     CLOUDFLARE_ACCOUNT_ID: localPlaceholder,
     CLOUDFLARE_API_TOKEN: localPlaceholder,
-  })
+    CLOUDFLARE_REALTIMEKIT_APP_ID: localPlaceholder,
+  }), environment)
 }
 
 export function buildFakeAiWorkerConfig(orchestratorConfig) {
@@ -103,7 +149,7 @@ export function buildFakeAiWorkerConfig(orchestratorConfig) {
 }
 
 export function buildBackendConfig(config, environment = {}) {
-  return withFakeGateway(withStripeApiBaseUrl(withApiBaseUrl({
+  return withFakeWebhookKey(withFakeGateway(withStripeApiBaseUrl(withApiBaseUrl({
     ...config,
     main: bridgeEntryFromBackend,
     compatibility_flags: [
@@ -113,7 +159,7 @@ export function buildBackendConfig(config, environment = {}) {
       ...(config.services ?? []),
       ...Object.values(cronBindings),
     ],
-  }, environment), environment), environment)
+  }, environment), environment), environment), environment)
 }
 
 export async function writeWorkersConfigs(rootDirectory) {
