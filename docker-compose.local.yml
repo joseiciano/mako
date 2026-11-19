@@ -92,6 +92,19 @@ services:
       - mako-local-node-modules-shared-frontend:/app/packages/shared-frontend/node_modules
       - mako-local-workers-state:/state
 
+  seed:
+    image: mako-local-base
+    working_dir: /app/packages/shared-backend
+    command: ['node', '../../scripts/local-stack/seed.mjs']
+    environment:
+      DATABASE_URL: ${LOCAL_DATABASE_URL:?set by scripts/local-stack}
+      SEED_WORKERS_URL: http://workers:8787
+    depends_on:
+      workers:
+        condition: service_healthy
+    restart: 'no'
+    volumes: *node-modules-volumes
+
   frontend:
     image: mako-local-base
     working_dir: /app
