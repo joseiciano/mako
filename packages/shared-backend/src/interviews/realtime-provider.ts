@@ -1,3 +1,5 @@
+import { buildCloudflareApiUrl } from '../cloudflare-api-url'
+
 export type CreateRealtimeSessionInput = {
   interviewId: string
 }
@@ -31,6 +33,7 @@ export type RealtimeKitBindings = {
   CLOUDFLARE_ACCOUNT_ID?: string
   CLOUDFLARE_API_TOKEN?: string
   CLOUDFLARE_REALTIMEKIT_APP_ID?: string
+  CLOUDFLARE_API_BASE_URL?: string
 }
 
 const REALTIMEKIT_FETCH_TIMEOUT_MS = 10_000
@@ -62,7 +65,10 @@ export function createRealtimeKitProvider(bindings: RealtimeKitBindings): Realti
     )
   }
 
-  const baseUrl = `https://api.cloudflare.com/client/v4/accounts/${accountId}/realtime/kit/${appId}`
+  const baseUrl = buildCloudflareApiUrl(
+    bindings.CLOUDFLARE_API_BASE_URL,
+    `/accounts/${accountId}/realtime/kit/${appId}`,
+  )
 
   return {
     async createSession(input) {

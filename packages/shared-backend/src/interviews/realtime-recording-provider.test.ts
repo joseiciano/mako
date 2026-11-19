@@ -136,3 +136,26 @@ describe('RealtimeKit recording provider', function suite() {
     expect(error).toMatchObject({ code: 'recording_failed', ambiguous: false })
   })
 })
+
+describe('RealtimeKit recording provider CLOUDFLARE_API_BASE_URL', function suite() {
+  it('sends calls to the override base', async function run() {
+    const fetchImpl = vi.fn(async () =>
+      jsonResponse({ success: true, data: { id: 'rec-1', status: 'INVOKED' } }),
+    )
+    const provider = createRealtimeKitRecordingProvider(
+      { ...bindings, CLOUDFLARE_API_BASE_URL: 'http://fakes:9000/client/v4/' },
+      fetchImpl as unknown as typeof fetch,
+    )
+
+    await provider.startCompositeRecording({ meetingId: 'm-1' })
+
+    const [url] = fetchImpl.mock.calls[0] as unknown as [string]
+    expect(url).toBe('http://fakes:9000/client/v4/accounts/acct/realtime/kit/app/recordings')
+  })
+
+  it('throws for an invalid override base', function run() {
+    expect(() =>
+      createRealtimeKitRecordingProvider({ ...bindings, CLOUDFLARE_API_BASE_URL: 'nope' }),
+    ).toThrow('CLOUDFLARE_API_BASE_URL')
+  })
+})

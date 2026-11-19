@@ -129,6 +129,8 @@ export type WorkerBindings = Partial<
   // until `cf-typegen` regenerates types with the committed Wrangler var.
   AUTH_EMAIL_VERIFICATION_ENFORCED?: string
   AI_GATEWAY_BASE_URL?: string
+  // Optional Cloudflare API base override (local fakes); unset uses api.cloudflare.com.
+  CLOUDFLARE_API_BASE_URL?: string
   STRIPE_SECRET_KEY?: string
   STRIPE_WEBHOOK_SECRET?: string
   // Raw media retention window in days (Story 5.15); production default is 30.
@@ -619,6 +621,7 @@ function createWorkerAiChatResponder(bindings: WorkerBindings): AiChatServicePor
     accountId: bindings.CLOUDFLARE_ACCOUNT_ID,
     apiToken: bindings.CLOUDFLARE_API_TOKEN,
     gatewayId: extractAiGatewayId(bindings.AI_GATEWAY_BASE_URL),
+    apiBaseUrl: bindings.CLOUDFLARE_API_BASE_URL,
     fetch: globalThis.fetch,
   })
 }

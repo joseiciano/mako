@@ -493,6 +493,7 @@ export class InterviewFeedbackWorkflow extends WorkflowEntrypoint<
               accountId: env.CLOUDFLARE_ACCOUNT_ID,
               apiToken: env.CLOUDFLARE_API_TOKEN,
               gatewayId: extractAiGatewayId(env.AI_GATEWAY_BASE_URL),
+              apiBaseUrl: env.CLOUDFLARE_API_BASE_URL,
             })
             const analysisService = new FeedbackAnalysisService(
               analysisRepository,

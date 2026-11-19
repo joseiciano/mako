@@ -56,6 +56,8 @@ export type WorkerBindings = {
   CLOUDFLARE_ACCOUNT_ID?: string
   CLOUDFLARE_API_TOKEN?: string
   CLOUDFLARE_REALTIMEKIT_APP_ID?: string
+  /** Optional Cloudflare API base override (local fakes); unset uses api.cloudflare.com. */
+  CLOUDFLARE_API_BASE_URL?: string
   /** Workers AI binding used by Story 5.16 transcription and Story 5.17 analysis. */
   AI?: Ai
   /**

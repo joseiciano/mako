@@ -99,6 +99,8 @@ export function createSqlQuery(
   return { text, values }
 }
 
+export { CLOUDFLARE_API_DEFAULT_BASE_URL, buildCloudflareApiUrl } from './cloudflare-api-url'
+
 export const backendRuntime = 'cloudflare-workers'
 
 export function toBackendHealth(service: string): HealthResponse {

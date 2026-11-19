@@ -1,3 +1,4 @@
+import { buildCloudflareApiUrl } from '../cloudflare-api-url'
 import type { RealtimeKitBindings } from './realtime-provider'
 
 export const RECORDING_MAX_SECONDS = 3600
@@ -65,7 +66,10 @@ export function createRealtimeKitRecordingProvider(
     )
   }
 
-  const baseUrl = `https://api.cloudflare.com/client/v4/accounts/${accountId}/realtime/kit/${appId}/recordings`
+  const baseUrl = buildCloudflareApiUrl(
+    bindings.CLOUDFLARE_API_BASE_URL,
+    `/accounts/${accountId}/realtime/kit/${appId}/recordings`,
+  )
 
   async function call(path: string, method: string, body?: unknown): Promise<unknown> {
     let response: Response

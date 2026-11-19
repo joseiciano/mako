@@ -11,6 +11,7 @@ type RecordingStopBindings = {
   CLOUDFLARE_ACCOUNT_ID?: string
   CLOUDFLARE_API_TOKEN?: string
   CLOUDFLARE_REALTIMEKIT_APP_ID?: string
+  CLOUDFLARE_API_BASE_URL?: string
 }
 
 export type RecordingStopHandoffProcessor = Pick<
