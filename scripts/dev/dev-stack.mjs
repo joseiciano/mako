@@ -3,11 +3,8 @@ import { constants } from 'node:fs'
 import { access, copyFile, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import process from 'node:process'
-import { createRequire } from 'node:module'
 import { fileURLToPath } from 'node:url'
-
-const require = createRequire(import.meta.url)
-const ts = require('typescript')
+import { readJsoncConfig } from './orchestrator-dev-config.mjs'
 
 const rootDirectory = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
@@ -227,18 +224,7 @@ async function writeDevVars(environment) {
 async function writeOrchestratorDevConfig() {
   const sourcePath = path.join(orchestratorDirectory, 'wrangler.jsonc')
   const generatedName = 'wrangler.dev.generated.jsonc'
-  const parsedConfig = ts.parseConfigFileTextToJson(
-    sourcePath,
-    await readFile(sourcePath, 'utf8'),
-  )
-
-  if (parsedConfig.error) {
-    throw new Error(
-      `Cannot parse ${sourcePath}: ${ts.flattenDiagnosticMessageText(parsedConfig.error.messageText, '\n')}`,
-    )
-  }
-
-  const config = parsedConfig.config
+  const config = await readJsoncConfig(sourcePath)
 
   delete config.ai
 
