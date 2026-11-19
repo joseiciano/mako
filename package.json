@@ -15,6 +15,7 @@
     "local:up": "node ./scripts/local-stack/index.mjs up",
     "local:down": "node ./scripts/local-stack/index.mjs down",
     "local:reset": "node ./scripts/local-stack/index.mjs reset",
+    "local:seed": "node ./scripts/local-stack/index.mjs seed",
     "build": "pnpm -r --if-present run build",
     "typecheck": "pnpm -r --if-present run typecheck",
     "test": "pnpm -r --if-present run test",

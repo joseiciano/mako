@@ -57,8 +57,22 @@ async function startAndMigrate(environment) {
   await runCompose(['up', '-d', '--no-deps', '--wait', 'frontend'], environment)
 }
 
+async function runSeed(environment) {
+  await runCompose(['up', '--no-deps', '--exit-code-from', 'seed', 'seed'], environment)
+}
+
+async function seed() {
+  const environment = buildEnvironment()
+
+  await runCompose(['up', '-d', '--wait', 'postgres', 'workers'], environment)
+  await runSeed(environment)
+}
+
 async function up() {
-  await startAndMigrate(buildEnvironment())
+  const environment = buildEnvironment()
+
+  await startAndMigrate(environment)
+  await runSeed(environment)
   process.stdout.write(
     `Local stack up: Postgres on localhost:${postgresHostPort}, migrations applied, workers on http://localhost:${workersHostPort}, app on http://localhost:3000.\n`,
   )
@@ -73,9 +87,10 @@ async function reset() {
 
   await runCompose(['down', '--volumes', '--remove-orphans'], environment)
   await startAndMigrate(environment)
+  await runSeed(environment)
 }
 
-const commands = { up, down, reset }
+const commands = { up, down, reset, seed }
 
 async function main() {
   const handler = Object.hasOwn(commands, process.argv[2] ?? 'up')
@@ -85,7 +100,7 @@ async function main() {
   if (!handler) {
     process.exitCode = 1
     process.stderr.write(
-      'Usage: pnpm local:up | pnpm local:down | pnpm local:reset\n  up     start Postgres, run migrations, start workers and frontend\n  down   stop the local stack\n  reset  wipe all local data and start clean\n',
+      'Usage: pnpm local:up | pnpm local:down | pnpm local:reset | pnpm local:seed\n  up     start Postgres, run migrations, start workers and frontend, seed users\n  down   stop the local stack\n  reset  wipe all local data and start clean\n  seed   create the four role users and premium slots (safe to repeat)\n',
     )
     return
   }
