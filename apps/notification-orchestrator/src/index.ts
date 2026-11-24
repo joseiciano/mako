@@ -9,6 +9,7 @@ import {
   type NotificationTransport,
   type NotificationTransportMessage,
   processWorkDue,
+  sendWorkDue,
   workDueTransportMessageSchema,
   RECORDING_MAX_AGE_SECONDS,
   interviewCreatedEventSchema,
@@ -43,7 +44,7 @@ import {
   type RecordingStopHandoffProcessor,
 } from './recording-stop'
 import { sweepRecordingFinalizations } from './workflows/recording-finalization-sweep'
-import { sweepStaleFeedbackProcessing } from './workflows/feedback-stale-processing-sweep'
+import { recoverStaleFeedbackForInterview, sweepStaleFeedbackProcessing } from './workflows/feedback-stale-processing-sweep'
 
 export { InterviewFeedbackWorkflow, feedbackWorkflowPayloadSchema }
 export { RecordingFinalizationWorkflow, recordingFinalizationPayloadSchema }
@@ -182,6 +183,11 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
             )
           },
         }
+        const workDueLogger = {
+          error(event: string, context: Record<string, unknown>) {
+            consoleLike.error(`notification_orchestrator.${event}`, context)
+          },
+        }
         const consumerService = new NotificationConsumerService(
           notificationService,
           undefined,
@@ -222,6 +228,16 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
               // Afterwards feedback proceeds anyway: it must not depend on
               // provider availability, and the scheduled sweep finishes the stop.
               const stopProcessor = buildRecordingStopProcessor(env, queryExecutor as SqlQueryExecutor)
+              if (stopProcessor && message.attempts === 1) {
+                // Backup for a failed feedback trigger; the hourly sweep covers a lost message.
+                const sentAtMs = Date.now()
+                await sendWorkDue(reminderTransport, workDueLogger, {
+                  duty: 'feedback_deadline',
+                  entityId: event.interview.id,
+                  dueAtMs: sentAtMs + FEEDBACK_UNPROCESSED_AFTER_MS,
+                  nowMs: sentAtMs,
+                })
+              }
               if (stopProcessor) {
                 let stopFailed = false
                 try {
@@ -291,12 +307,18 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
                 await processWorkDue(workDueMessage, {
                   recordingStop: stopProcessor,
                   recordingStart: startService,
-                  transport: reminderTransport,
-                  logger: {
-                    error(event, context) {
-                      consoleLike.error(`notification_orchestrator.${event}`, context)
+                  feedback: {
+                    isFeedbackTriggered: (interviewId) => stopProcessor.isFeedbackTriggered(interviewId),
+                    async triggerFeedback(interviewId) {
+                      if (await triggerFeedbackWorkflow(env, interviewId)) {
+                        await stopProcessor.markFeedbackTriggered(interviewId)
+                      }
                     },
+                    recoverStaleFeedback: (interviewId) =>
+                      recoverStaleFeedbackForInterview(env, queryExecutor as SqlQueryExecutor, interviewId),
                   },
+                  transport: reminderTransport,
+                  logger: workDueLogger,
                   now: () => Date.now(),
                   maxAgeSeconds: RECORDING_MAX_AGE_SECONDS,
                 })

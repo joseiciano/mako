@@ -22,6 +22,7 @@ import {
   FeedbackWorkflowRepository,
   InterviewRepository,
   logFeedbackWorkflowEvent,
+  sendWorkDue,
   TranscriptionChunkRepository,
   TranscriptionRepository,
   TranscriptionService,
@@ -105,6 +106,30 @@ const TRANSCRIPTION_STEP_CONFIG: WorkflowStepConfig = {
  * budget instead of a hand-maintained number that can silently drift.
  */
 export const TRANSCRIPTION_STEP_MAX_DURATION_MINUTES = 3 * 10 + (10 + 20) / 60
+
+/**
+ * Safety margin, in minutes, added on top of the longest-running step's
+ * worst-case budget (currently `STEP_TRANSCRIPTION`) before a heartbeat is
+ * considered stale. Covers runtime scheduling jitter and the other, smaller
+ * per-step wait/retry budgets (artifact/screenshot readiness, analysis)
+ * that can still be outstanding around it.
+ */
+const STALE_HEARTBEAT_SAFETY_MARGIN_MINUTES = 15
+
+/**
+ * A `processing` feedback row whose heartbeat is older than this is treated
+ * as a zombie attempt: the Workflow instance that owns it crashed, was
+ * evicted, or otherwise stopped heartbeating without ever reaching a
+ * terminal status. Derived from (and kept comfortably above)
+ * `TRANSCRIPTION_STEP_MAX_DURATION_MINUTES` -- the worst-case retry/timeout
+ * budget of the longest-running step this workflow runs between heartbeat
+ * refreshes -- plus `STALE_HEARTBEAT_SAFETY_MARGIN_MINUTES`, so an attempt
+ * that is still legitimately running its transcription step is never
+ * fenced out from under itself.
+ */
+export const STALE_HEARTBEAT_THRESHOLD_MINUTES = Math.ceil(
+  TRANSCRIPTION_STEP_MAX_DURATION_MINUTES + STALE_HEARTBEAT_SAFETY_MARGIN_MINUTES,
+)
 
 const ANALYSIS_STEP_CONFIG: WorkflowStepConfig = {
   retries: { limit: 2, delay: '10 seconds', backoff: 'exponential' },
@@ -305,6 +330,9 @@ export class InterviewFeedbackWorkflow extends WorkflowEntrypoint<
         const attemptId = crypto.randomUUID()
         const now = new Date().toISOString()
         const claimed = await workflowRepository.claimProcessing(payload.interview_id, attemptId, now)
+        if (claimed) {
+          await sendFeedbackStaleDeadline(env, payload.interview_id)
+        }
 
         return { claimed, attempt_id: claimed ? attemptId : null }
       })
@@ -400,6 +428,7 @@ export class InterviewFeedbackWorkflow extends WorkflowEntrypoint<
           await refreshHeartbeatOrStale(
             step,
             STEP_HEARTBEAT_PRE_TRANSCRIPTION,
+            env,
             workflowRepository,
             payload.interview_id,
             attemptId,
@@ -454,6 +483,7 @@ export class InterviewFeedbackWorkflow extends WorkflowEntrypoint<
         await refreshHeartbeatOrStale(
           step,
           STEP_HEARTBEAT_PRE_ANALYSIS,
+          env,
           workflowRepository,
           payload.interview_id,
           attemptId,
@@ -631,6 +661,7 @@ async function waitForScreenshotFinalization(
 async function refreshHeartbeatOrStale(
   step: WorkflowStep,
   stepName: string,
+  env: WorkerBindings,
   workflowRepository: FeedbackWorkflowRepository,
   interviewId: string,
   attemptId: string,
@@ -641,7 +672,40 @@ async function refreshHeartbeatOrStale(
     if (!refreshed) {
       throwStaleSignal()
     }
+
+    await sendFeedbackStaleDeadline(env, interviewId)
   })
+}
+
+/**
+ * Sends the delayed message that retries stale processing at heartbeat time
+ * plus the stale threshold. A refreshed heartbeat sends a new message; the
+ * older one arrives early and is re-sent by the consumer. Never throws: the
+ * hourly sweep recovers a lost message.
+ */
+async function sendFeedbackStaleDeadline(env: WorkerBindings, interviewId: string): Promise<void> {
+  const nowMs = Date.now()
+  await sendWorkDue(
+    {
+      async send(message, options) {
+        await env.NOTIFICATION_QUEUE.send(
+          message,
+          options ? { delaySeconds: options.delaySeconds } : undefined,
+        )
+      },
+    },
+    {
+      error(event, context) {
+        console.error({ event, component: 'FeedbackWorkflow', ...context })
+      },
+    },
+    {
+      duty: 'feedback_stale',
+      entityId: interviewId,
+      dueAtMs: nowMs + STALE_HEARTBEAT_THRESHOLD_MINUTES * 60_000,
+      nowMs,
+    },
+  )
 }
 
 function createWorkflowQueryExecutor(env: WorkerBindings): {

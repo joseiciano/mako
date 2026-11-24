@@ -232,6 +232,11 @@ export class RecordingStopService {
     await this.repository.markFeedbackTriggered(interviewId, this.now())
   }
 
+  /** True when the feedback start is recorded, or when no handoff row exists (nothing to start from). */
+  async isFeedbackTriggered(interviewId: string): Promise<boolean> {
+    return this.repository.isFeedbackTriggered(interviewId)
+  }
+
   /** Call when a sweep feedback start failed; logs every failure past the fast attempts. */
   async recordFeedbackFailure(interviewId: string): Promise<void> {
     const attempts = await this.repository.recordFeedbackFailure(interviewId, this.now())

@@ -28,6 +28,8 @@ const workDueBase = {
 export const workDueTransportMessageSchema = z.discriminatedUnion('duty', [
   z.object({ ...workDueBase, duty: z.literal('recording_overdue') }),
   z.object({ ...workDueBase, duty: z.literal('start_claim_stale') }),
+  z.object({ ...workDueBase, duty: z.literal('feedback_deadline') }),
+  z.object({ ...workDueBase, duty: z.literal('feedback_stale') }),
 ])
 
 export type WorkDueTransportMessage = z.infer<typeof workDueTransportMessageSchema>

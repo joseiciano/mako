@@ -23,7 +23,19 @@ export type CloseOverdueOutcome =
   | { outcome: 'failed' }
   | { outcome: 'early'; dueAtMs: number }
 
+export type FeedbackStaleOutcome =
+  | { outcome: 'resolved' }
+  | { outcome: 'recovered' }
+  | { outcome: 'early'; dueAtMs: number }
+
 export type WorkDueDependencies = {
+  feedback: {
+    isFeedbackTriggered(interviewId: string): Promise<boolean>
+    /** Starts the feedback workflow and sets the marker; throws on failure. */
+    triggerFeedback(interviewId: string): Promise<void>
+    /** Fences and restarts stale processing; throws on failure. */
+    recoverStaleFeedback(interviewId: string): Promise<FeedbackStaleOutcome>
+  }
   recordingStop: {
     closeOverdueRecordingsForInterview(input: {
       interviewId: string
@@ -92,6 +104,35 @@ export async function processWorkDue(
       maxAgeSeconds: deps.maxAgeSeconds,
     })
     if (result.outcome === 'failed') throw new Error('recording_overdue_stop_failed')
+    if (result.outcome === 'early') {
+      await sendWorkDueOrThrow(deps.transport, {
+        duty: parsed.duty,
+        entityId: parsed.entity_id,
+        dueAtMs: result.dueAtMs,
+        nowMs,
+      })
+    }
+    return
+  }
+
+  if (parsed.duty === 'feedback_deadline') {
+    if (await deps.feedback.isFeedbackTriggered(parsed.entity_id)) return
+    const deadlineMs = Date.parse(parsed.due_at)
+    if (nowMs < deadlineMs) {
+      await sendWorkDueOrThrow(deps.transport, {
+        duty: parsed.duty,
+        entityId: parsed.entity_id,
+        dueAtMs: deadlineMs,
+        nowMs,
+      })
+      return
+    }
+    await deps.feedback.triggerFeedback(parsed.entity_id)
+    return
+  }
+
+  if (parsed.duty === 'feedback_stale') {
+    const result = await deps.feedback.recoverStaleFeedback(parsed.entity_id)
     if (result.outcome === 'early') {
       await sendWorkDueOrThrow(deps.transport, {
         duty: parsed.duty,

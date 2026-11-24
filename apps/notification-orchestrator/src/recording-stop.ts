@@ -24,6 +24,7 @@ export type RecordingStopHandoffProcessor = Pick<
   | 'closeOverdueRecordingsForInterview'
   | 'listHandoffsAwaitingFeedback'
   | 'markFeedbackTriggered'
+  | 'isFeedbackTriggered'
   | 'recordFeedbackFailure'
 >
 
