@@ -27,6 +27,15 @@ vi.mock(
   },
 )
 
+vi.mock('@tanstack/react-router', function mockRouter() {
+  return {
+    Link: function Link(props: { to: string; params?: Record<string, string>; className?: string; children: unknown }) {
+      const href = props.to.replace('$id', props.params?.id ?? '')
+      return <a href={href} className={props.className}>{props.children as never}</a>
+    },
+  }
+})
+
 describe('dashboard-smart query state orchestration', function dashboardSmartSuite() {
   beforeEach(function resetMocks() {
     useAccountMock.mockReset()
@@ -61,14 +70,10 @@ describe('dashboard-smart query state orchestration', function dashboardSmartSui
 
     const html = renderToString(<DashboardSmart />)
 
-    expect(html).toContain('No upcoming interviews scheduled.')
-    expect(html).toContain('Quick stats')
-    expect(html).toContain('Credits')
-    expect(html).toContain('Free Standard Interviews')
-    expect(html).toContain('Free AI Interviews')
-    expect(html).toMatch(/Credits<\/dt>\s*<dd[^>]*>\s*89\s*<\/dd>/)
-    expect(html).toMatch(/Free Standard Interviews<\/dt>\s*<dd[^>]*>\s*34\s*<\/dd>/)
-    expect(html).toMatch(/Free AI Interviews<\/dt>\s*<dd[^>]*>\s*21\s*<\/dd>/)
+    expect(html).toContain('No upcoming interviews.')
+    expect(html).toMatch(/rp-n">89<\/div><div class="mute">Credits/)
+    expect(html).toMatch(/rp-n">34<\/div><div class="mute">Free peer left/)
+    expect(html).toMatch(/rp-n">21<\/div><div class="mute">Free AI left/)
   })
 
   it('renders populated state from successful query results', function run() {
@@ -94,14 +99,8 @@ describe('dashboard-smart query state orchestration', function dashboardSmartSui
 
     const html = renderToString(<DashboardSmart />)
 
-    expect(html).toContain('You have ')
-    expect(html).toContain('upcoming interviews.')
-    expect(html).toContain('Credits')
-    expect(html).toContain('Free Standard Interviews')
-    expect(html).toContain('Free AI Interviews')
-    expect(html).toContain('System Design')
+    expect(html).toMatch(/rp-n">2<\/div><div class="mute">Upcoming/)
     expect(html).toContain('Peer to Peer')
-    expect(html).toContain('Scheduled')
     const expectedLocalTime = new Date('2026-04-10T10:30:00.000Z').toLocaleString('en-US', {
       month: 'short',
       day: 'numeric',
@@ -114,7 +113,7 @@ describe('dashboard-smart query state orchestration', function dashboardSmartSui
     expect(html).toContain('Scheduler-Orange')
   })
 
-  it('renders details links when interview details route is available', function run() {
+  it('renders open links for each interview', function run() {
     mockAccountQuery({
       data: createAccountFixture(),
     })
@@ -124,9 +123,8 @@ describe('dashboard-smart query state orchestration', function dashboardSmartSui
 
     const html = renderToString(<DashboardSmart />)
 
-    expect(html).toContain('View details')
-    expect(html).toContain('/interviews/11111111-1111-4111-8111-111111111111')
-    expect(html).not.toContain('Details coming soon')
+    expect(html).toContain('href="/interviews/11111111-1111-4111-8111-111111111111"')
+    expect(html).toContain('>Open</a>')
   })
 
   it('renders error state when account query fails', function run() {

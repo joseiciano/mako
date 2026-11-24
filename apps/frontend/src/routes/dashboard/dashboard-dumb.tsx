@@ -13,7 +13,7 @@ export type DashboardDumbProps = {
 
 export function DashboardDumb(props: DashboardDumbProps) {
   return (
-    <main className="mx-auto flex w-full max-w-6xl flex-col gap-6">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-6">
       <header className="rounded-xl border border-slate-800 bg-slate-900/60 p-6 shadow-xl shadow-black/20">
         <h1 className="text-2xl font-semibold text-white">Dashboard</h1>
         <p className="mt-2 text-sm text-slate-300">
@@ -22,7 +22,7 @@ export function DashboardDumb(props: DashboardDumbProps) {
       </header>
 
       {renderDashboardContent(props)}
-    </main>
+    </div>
   )
 }
 
