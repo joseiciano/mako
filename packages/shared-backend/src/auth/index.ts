@@ -9,6 +9,11 @@ export {
   type SendVerificationEmail,
 } from './auth-config'
 export {
+  createAuthRateLimitMiddleware,
+  type AuthRateLimiter,
+  type AuthRateLimiters,
+} from './auth-rate-limit'
+export {
   registerAuthController,
   type AuthControllerOptions,
 } from './auth-controller'

@@ -101,9 +101,9 @@ export function createBetterAuth(options: CreateBetterAuthOptions): BetterAuthLi
       sendOnSignIn: true,
       autoSignInAfterVerification: false,
     },
+    // Throttling is done by Cloudflare Rate Limiting bindings (see auth-rate-limit.ts).
     rateLimit: {
-      enabled: true,
-      storage: 'database',
+      enabled: false,
     },
     advanced: {
       database: {

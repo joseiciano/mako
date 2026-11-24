@@ -130,8 +130,7 @@ describe('createBetterAuth', function () {
           requireEmailVerification: true,
         },
         rateLimit: {
-          enabled: true,
-          storage: 'database',
+          enabled: false,
         },
         advanced: expect.objectContaining({
           ipAddress: {

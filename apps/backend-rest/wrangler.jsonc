@@ -43,6 +43,22 @@
         "limit": 60,
         "period": 60
       }
+    },
+    {
+      "name": "AUTH_CREDENTIALS_RATE_LIMITER",
+      "namespace_id": "1002",
+      "simple": {
+        "limit": 3,
+        "period": 10
+      }
+    },
+    {
+      "name": "AUTH_EMAIL_RATE_LIMITER",
+      "namespace_id": "1003",
+      "simple": {
+        "limit": 3,
+        "period": 60
+      }
     }
   ],
   "vars": {
