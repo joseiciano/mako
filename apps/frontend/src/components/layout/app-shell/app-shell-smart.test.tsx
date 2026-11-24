@@ -21,6 +21,9 @@ vi.mock('@tanstack/react-query', function mockReactQuery() {
 
 vi.mock('@tanstack/react-router', function mockTanstackRouter() {
   return {
+    Link: function Link(props: { to: string; children: unknown }) {
+      return <a href={props.to}>{props.children as never}</a>
+    },
     useNavigate: function useNavigate() {
       return vi.fn()
     },
@@ -57,16 +60,15 @@ vi.mock('#/lib/auth-client', function mockAuthClient() {
 })
 
 describe('app-shell-smart', function () {
-  it('renders desktop sidebar, header controls, and content', function () {
+  it('renders sidebar navigation, sign out control, and content', function () {
     const html = renderToString(
       <AppShellSmart>
         <p>Shell content</p>
       </AppShellSmart>,
     )
 
-    expect(html).toContain('Desktop navigation')
-    expect(html).toContain('aria-label="Open navigation menu"')
-    expect(html).toContain('aria-controls="mobile-navigation-drawer"')
+    expect(html).toContain('aria-label="Primary"')
+    expect(html).toContain('Sign out')
     expect(html).toContain('Alex Candidate')
     expect(html).toContain('Shell content')
     expect(html).toContain('href="/dashboard"')

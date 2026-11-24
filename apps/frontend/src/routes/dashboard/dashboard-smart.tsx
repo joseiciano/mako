@@ -1,7 +1,7 @@
 import { useAccount } from '#/hooks/use-account'
 import { useScheduledInterviews } from '#/hooks/use-scheduled-interviews'
-import { isInterviewDetailsRouteAvailable } from './dashboard-route-capabilities'
 import { DashboardDumb } from './dashboard-dumb'
+import { DashboardRedesign } from './dashboard-redesign'
 
 export function DashboardSmart() {
   const accountQuery = useAccount()
@@ -31,22 +31,5 @@ export function DashboardSmart() {
     return <DashboardDumb state="error" errorMessage="Unable to load dashboard." />
   }
 
-  if (upcomingInterviews.length === 0) {
-    return (
-      <DashboardDumb
-        state="empty"
-        account={account}
-        isInterviewDetailsRouteAvailable={isInterviewDetailsRouteAvailable}
-      />
-    )
-  }
-
-  return (
-    <DashboardDumb
-      state="populated"
-      account={account}
-      upcomingInterviews={upcomingInterviews}
-      isInterviewDetailsRouteAvailable={isInterviewDetailsRouteAvailable}
-    />
-  )
+  return <DashboardRedesign account={account} interviews={upcomingInterviews} />
 }

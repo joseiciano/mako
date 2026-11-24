@@ -1,8 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useRouterState } from '@tanstack/react-router'
 import type { ReactNode } from 'react'
-import { useEffect, useState } from 'react'
-import { Header, getRouteHeaderContent } from '#/components/layout/header'
+
 import { useAuth } from '#/hooks/use-auth'
 import { authClient } from '#/lib/auth-client'
 import {
@@ -10,13 +9,8 @@ import {
   handleSignOutSuccess,
   throwIfAuthResultHasError,
 } from '#/routes/auth/shared/auth-flow'
-import { AppShellDumb } from './app-shell-dumb'
-import { MobileNavDumb } from '../mobile-nav/mobile-nav-dumb'
-import {
-  getNavigationItems,
-  isCoreNavigationItemActive,
-} from '../navigation/nav-items'
-import { SidebarDumb } from '../sidebar/sidebar-dumb'
+import { getNavigationItems } from '../navigation/nav-items'
+import { RedesignShell } from './redesign-shell'
 
 export type AppShellProps = {
   children: ReactNode
@@ -47,7 +41,6 @@ function resolveUserName(user: unknown, fallbackUserName?: string): string {
 }
 
 export function AppShell(props: AppShellProps) {
-  const [isMobileNavOpen, setIsMobileNavOpen] = useState(false)
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const { user } = useAuth()
@@ -71,61 +64,22 @@ export function AppShell(props: AppShellProps) {
     },
   })
 
-  useEffect(
-    function closeMobileNavigationOnRouteChange() {
-      setIsMobileNavOpen(false)
-    },
-    [pathname],
-  )
-
-  function openMobileNav() {
-    setIsMobileNavOpen(true)
-  }
-
-  function closeMobileNav() {
-    setIsMobileNavOpen(false)
-  }
-
-  const headerContent = getRouteHeaderContent(pathname)
   const resolvedUserName = resolveUserName(user, props.userName)
   const navigationItems = getNavigationItems(user?.isAdmin === true)
 
   return (
     <>
-      <AppShellDumb
-        sidebar={
-          <SidebarDumb
-            navigationItems={navigationItems}
-            pathname={pathname}
-            isItemActive={isCoreNavigationItemActive}
-          />
-        }
-        header={
-          <Header
-            pathname={pathname}
-            userName={resolvedUserName}
-            navigation={null}
-            isMobileNavOpen={isMobileNavOpen}
-            onOpenMobileNav={openMobileNav}
-            isSigningOut={signOutMutation.isPending}
-            onSignOut={function onSignOut() {
-              signOutMutation.mutate()
-            }}
-          />
-        }
-        mobileNavigation={
-          <MobileNavDumb
-            isOpen={isMobileNavOpen}
-            navigationItems={navigationItems}
-            onClose={closeMobileNav}
-            title={headerContent.title}
-            pathname={pathname}
-            isItemActive={isCoreNavigationItemActive}
-          />
-        }
+      <RedesignShell
+        navigationItems={navigationItems}
+        pathname={pathname}
+        userName={resolvedUserName}
+        isSigningOut={signOutMutation.isPending}
+        onSignOut={function onSignOut() {
+          signOutMutation.mutate()
+        }}
       >
         {props.children}
-      </AppShellDumb>
+      </RedesignShell>
 
       {signOutMutation.error ? (
         <p className="fixed bottom-6 right-6 rounded-lg border border-rose-900 bg-rose-950/90 px-4 py-2 text-sm text-rose-200 shadow-xl shadow-slate-950/40">

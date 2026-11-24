@@ -19,6 +19,9 @@ vi.mock('@tanstack/react-query', function mockReactQuery() {
 
 vi.mock('@tanstack/react-router', function mockTanstackRouter() {
   return {
+    Link: function Link(props: { to: string; children: unknown }) {
+      return <a href={props.to}>{props.children as never}</a>
+    },
     useNavigate: function useNavigate() {
       return vi.fn()
     },
