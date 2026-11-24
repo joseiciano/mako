@@ -120,7 +120,7 @@ Feedback processing is triggered by the first successful `ongoing -> completed` 
 ### Stale-Processing Recovery
 
 - A `processing` interview whose `feedback_processing_heartbeat_at` has not advanced in 46 minutes (derived from the transcription step's worst-case budget plus a safety margin; see `docs/infrastructure/backend.md`) is treated as a crashed/evicted Workflow instance, not a genuine failure.
-- An automatic scheduled sweep (notification-orchestrator, `*/5 * * * *`) fences the prior attempt (clears `feedback_attempt_id` so any write it still makes is a safe no-op), resets the row to `pending`, and starts one new, uniquely suffixed workflow instance.
+- An automatic scheduled sweep (notification-orchestrator, hourly `0 * * * *`, plus a delayed `work.due` message at the stale deadline) fences the prior attempt (clears `feedback_attempt_id` so any write it still makes is a safe no-op), resets the row to `pending`, and starts one new, uniquely suffixed workflow instance.
 - This is fully automatic infrastructure self-healing, distinct from operator-triggered replay below, and never reclassifies the row as `failed`.
 
 ### Operational Replay
