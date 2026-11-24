@@ -6,6 +6,7 @@ import type {
   InterviewMatchCreatedEvent,
   InterviewPremiumBookedEvent,
 } from '../notification-queue-event-contract'
+import type { DelayedSendOptions } from './delayed-send'
 
 export const reminderDueTransportMessageSchema = z.object({
   message_type: z.literal('reminder.due'),
@@ -26,5 +27,5 @@ export type NotificationTransportMessage =
   | ReminderDueTransportMessage
 
 export type NotificationTransport = {
-  send(message: NotificationTransportMessage): Promise<void>
+  send(message: NotificationTransportMessage, options?: DelayedSendOptions): Promise<void>
 }
