@@ -1,35 +1,95 @@
 import { createSqlQuery, type SqlQueryExecutor } from '@mako/shared-backend'
 import type { WorkerBindings } from '../index'
-import { TRANSCRIPTION_STEP_MAX_DURATION_MINUTES } from './feedback-workflow'
+import { STALE_HEARTBEAT_THRESHOLD_MINUTES } from './feedback-workflow'
+import type { FeedbackStaleOutcome } from '@mako/shared-backend'
 
-/**
- * Safety margin, in minutes, added on top of the longest-running step's
- * worst-case budget (currently `STEP_TRANSCRIPTION`) before a heartbeat is
- * considered stale. Covers runtime scheduling jitter and the other, smaller
- * per-step wait/retry budgets (artifact/screenshot readiness, analysis)
- * that can still be outstanding around it.
- */
-const STALE_HEARTBEAT_SAFETY_MARGIN_MINUTES = 15
-
-/**
- * A `processing` feedback row whose heartbeat is older than this is treated
- * as a zombie attempt: the Workflow instance that owns it crashed, was
- * evicted, or otherwise stopped heartbeating without ever reaching a
- * terminal status. Derived from (and kept comfortably above)
- * `TRANSCRIPTION_STEP_MAX_DURATION_MINUTES` -- the worst-case retry/timeout
- * budget of the longest-running step this workflow runs between heartbeat
- * refreshes -- plus `STALE_HEARTBEAT_SAFETY_MARGIN_MINUTES`, so an attempt
- * that is still legitimately running its transcription step is never
- * fenced out from under itself.
- */
-const STALE_HEARTBEAT_THRESHOLD_MINUTES = Math.ceil(
-  TRANSCRIPTION_STEP_MAX_DURATION_MINUTES + STALE_HEARTBEAT_SAFETY_MARGIN_MINUTES,
-)
 const SWEEP_LIMIT = 20
 
 type RecoveredRow = {
   id: string
   prior_attempt_id: string | null
+}
+
+/** Fences stale `processing` rows back to `pending`; limited to one interview when an id is given. */
+async function fenceStaleRows(
+  queryExecutor: SqlQueryExecutor,
+  interviewId?: string,
+): Promise<RecoveredRow[]> {
+  const result = await queryExecutor.query<RecoveredRow>(
+    createSqlQuery(
+      `
+        WITH stale AS (
+          SELECT id, feedback_attempt_id AS prior_attempt_id
+          FROM interviews
+          WHERE feedback_status = 'processing'
+            AND feedback_processing_heartbeat_at < NOW() - ($1 || ' minutes')::interval
+            ${interviewId ? 'AND id = $3' : ''}
+          ORDER BY feedback_processing_heartbeat_at ASC
+          LIMIT $2
+          FOR UPDATE SKIP LOCKED
+        )
+        UPDATE interviews i
+        SET feedback_status = 'pending',
+            feedback_attempt_id = NULL,
+            feedback_processing_started_at = NULL,
+            feedback_processing_heartbeat_at = NULL,
+            feedback_prompt_version = NULL,
+            updated_at = NOW()
+        FROM stale
+        WHERE i.id = stale.id
+        RETURNING i.id, stale.prior_attempt_id;
+      `,
+      interviewId
+        ? [String(STALE_HEARTBEAT_THRESHOLD_MINUTES), SWEEP_LIMIT, interviewId]
+        : [String(STALE_HEARTBEAT_THRESHOLD_MINUTES), SWEEP_LIMIT],
+    ),
+  )
+  return result.rows
+}
+
+/**
+ * By-id variant run from a delayed work.due message. Throws on failure so the
+ * queue retries. Resolved when the row is no longer processing; early (with
+ * the new deadline) when the heartbeat was refreshed.
+ */
+export async function recoverStaleFeedbackForInterview(
+  env: WorkerBindings,
+  queryExecutor: SqlQueryExecutor,
+  interviewId: string,
+  nowMs: number = Date.now(),
+): Promise<FeedbackStaleOutcome> {
+  const workflow = env.FEEDBACK_WORKFLOW
+  if (!workflow) return { outcome: 'resolved' }
+
+  const rows = await fenceStaleRows(queryExecutor, interviewId)
+  if (rows.length > 0) {
+    const instanceId = `feedback-v1-${interviewId}-recovered-${nowMs}`
+    await workflow.create({
+      id: instanceId,
+      params: { interview_id: interviewId, schema_version: 1 },
+    })
+    return { outcome: 'recovered' }
+  }
+
+  const state = await queryExecutor.query<{
+    feedback_status: string
+    feedback_processing_heartbeat_at: string | Date | null
+  }>(
+    createSqlQuery(
+      `SELECT feedback_status, feedback_processing_heartbeat_at FROM interviews WHERE id = $1;`,
+      [interviewId],
+    ),
+  )
+  const row = state.rows[0]
+  if (!row || row.feedback_status !== 'processing' || !row.feedback_processing_heartbeat_at) {
+    return { outcome: 'resolved' }
+  }
+  return {
+    outcome: 'early',
+    dueAtMs:
+      new Date(row.feedback_processing_heartbeat_at).getTime() +
+      STALE_HEARTBEAT_THRESHOLD_MINUTES * 60_000,
+  }
 }
 
 /**
@@ -51,33 +111,7 @@ export async function sweepStaleFeedbackProcessing(
 
   let rows: RecoveredRow[]
   try {
-    const result = await queryExecutor.query<RecoveredRow>(
-      createSqlQuery(
-        `
-          WITH stale AS (
-            SELECT id, feedback_attempt_id AS prior_attempt_id
-            FROM interviews
-            WHERE feedback_status = 'processing'
-              AND feedback_processing_heartbeat_at < NOW() - ($1 || ' minutes')::interval
-            ORDER BY feedback_processing_heartbeat_at ASC
-            LIMIT $2
-            FOR UPDATE SKIP LOCKED
-          )
-          UPDATE interviews i
-          SET feedback_status = 'pending',
-              feedback_attempt_id = NULL,
-              feedback_processing_started_at = NULL,
-              feedback_processing_heartbeat_at = NULL,
-              feedback_prompt_version = NULL,
-              updated_at = NOW()
-          FROM stale
-          WHERE i.id = stale.id
-          RETURNING i.id, stale.prior_attempt_id;
-        `,
-        [String(STALE_HEARTBEAT_THRESHOLD_MINUTES), SWEEP_LIMIT],
-      ),
-    )
-    rows = result.rows
+    rows = await fenceStaleRows(queryExecutor)
   } catch (err) {
     consoleLike.error('feedback_stale_processing_sweep_query_failed', {
       error_message: err instanceof Error ? err.message : String(err),

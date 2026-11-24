@@ -53,6 +53,7 @@ export {
   processWorkDue,
   sendWorkDue,
   type CloseOverdueOutcome,
+  type FeedbackStaleOutcome,
   type SendWorkDueInput,
   type WorkDueDependencies,
   type WorkDueLogger,

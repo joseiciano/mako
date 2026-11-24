@@ -263,6 +263,22 @@ export class RecordingStopRepository {
     )
   }
 
+  /** A missing handoff row counts as triggered: there is nothing to mark or start from. */
+  async isFeedbackTriggered(interviewId: string): Promise<boolean> {
+    const result = await this.queryExecutor.query<{ feedback_triggered_at: string | null }>(
+      createSqlQuery(
+        `
+          SELECT feedback_triggered_at
+          FROM interview_recording_stop_handoffs
+          WHERE interview_id = $1;
+        `,
+        [interviewId],
+      ),
+    )
+    const row = result.rows[0]
+    return row ? row.feedback_triggered_at !== null : true
+  }
+
   /** Returns the new feedback attempt count. */
   async recordFeedbackFailure(interviewId: string, now: string): Promise<number> {
     const result = await this.queryExecutor.query<{ feedback_attempt_count: number }>(

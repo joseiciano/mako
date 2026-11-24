@@ -576,6 +576,83 @@ describe('notification-orchestrator queue handler', function queueHandlerSuite()
       expect(feedbackWorkflow.createBatch).toHaveBeenCalledTimes(1)
     })
 
+    it('sends one delayed feedback_deadline message on the first attempt, before any retry throw', async function run() {
+      const sent: Array<{ message: unknown; options: unknown }> = []
+      const recordingStop = {
+        processStopHandoff: vi.fn(async () => 'retry' as const),
+        sweepStopHandoffs: vi.fn(async () => [] as string[]),
+        sweepOverdueRecordings: vi.fn(async () => 0),
+      }
+      const { worker } = createTestWorker({ recordingStop })
+      const batch = createMockBatch([createMockMessage('msg-1', completedEventBody, 1)])
+      const env = {
+        ...createMockEnvWithFeedback(createMockFeedbackWorkflow()),
+        NOTIFICATION_QUEUE: {
+          async send(message: unknown, options: unknown) {
+            sent.push({ message, options })
+          },
+        } as unknown as Queue<NotificationTransportMessage>,
+      }
+
+      await worker.queue(batch, env)
+
+      expect(batch.retried).toContain('msg-1')
+      expect(sent).toHaveLength(1)
+      expect(sent[0]!.message).toMatchObject({
+        message_type: 'work.due',
+        duty: 'feedback_deadline',
+        entity_id: completedEventBody.interview.id,
+      })
+      expect(sent[0]!.options).toEqual({ delaySeconds: 15 * 60 })
+    })
+
+    it('does not send a feedback_deadline message on later attempts', async function run() {
+      const sent: unknown[] = []
+      const recordingStop = {
+        processStopHandoff: vi.fn(async () => 'processed' as const),
+        sweepStopHandoffs: vi.fn(async () => [] as string[]),
+        sweepOverdueRecordings: vi.fn(async () => 0),
+      }
+      const { worker } = createTestWorker({ recordingStop })
+      const batch = createMockBatch([createMockMessage('msg-1', completedEventBody, 2)])
+      const env = {
+        ...createMockEnvWithFeedback(createMockFeedbackWorkflow()),
+        NOTIFICATION_QUEUE: {
+          async send(message: unknown) {
+            sent.push(message)
+          },
+        } as unknown as Queue<NotificationTransportMessage>,
+      }
+
+      await worker.queue(batch, env)
+
+      expect(sent).toHaveLength(0)
+    })
+
+    it('still processes the completed event when the deadline send fails', async function run() {
+      const recordingStop = {
+        processStopHandoff: vi.fn(async () => 'processed' as const),
+        sweepStopHandoffs: vi.fn(async () => [] as string[]),
+        sweepOverdueRecordings: vi.fn(async () => 0),
+      }
+      const { worker } = createTestWorker({ recordingStop })
+      const feedbackWorkflow = createMockFeedbackWorkflow()
+      const batch = createMockBatch([createMockMessage('msg-1', completedEventBody, 1)])
+      const env = {
+        ...createMockEnvWithFeedback(feedbackWorkflow),
+        NOTIFICATION_QUEUE: {
+          async send() {
+            throw new Error('queue down')
+          },
+        } as unknown as Queue<NotificationTransportMessage>,
+      }
+
+      await worker.queue(batch, env)
+
+      expect(batch.acked).toContain('msg-1')
+      expect(feedbackWorkflow.createBatch).toHaveBeenCalledTimes(1)
+    })
+
     it('interview.completed idempotency - duplicate events trigger same workflow instance', async function run() {
       const { worker } = createTestWorker()
       const feedbackWorkflow = createMockFeedbackWorkflow()
@@ -830,6 +907,34 @@ describe('notification-orchestrator scheduled handler', function scheduledHandle
       },
     ])
     expect(recordingStop.markFeedbackTriggered).toHaveBeenCalledWith(completedEventBody.interview.id)
+  })
+
+  it('sweep still starts feedback when every delayed send fails', async function run() {
+    const markFeedbackTriggered = vi.fn(async () => {})
+    const recordingStop = {
+      processStopHandoff: vi.fn(async () => 'processed' as const),
+      sweepStopHandoffs: vi.fn(async () => [] as string[]),
+      sweepOverdueRecordings: vi.fn(async () => 0),
+      listHandoffsAwaitingFeedback: vi.fn(async () => ['int-lost']),
+      markFeedbackTriggered,
+    }
+    const { worker } = createTestWorker({ recordingStop })
+    const feedbackWorkflow = createMockFeedbackWorkflow()
+    const env = {
+      ...createMockEnvWithFeedback(feedbackWorkflow),
+      NOTIFICATION_QUEUE: {
+        async send() {
+          throw new Error('queue down')
+        },
+      } as unknown as Queue<NotificationTransportMessage>,
+    }
+
+    await worker.scheduled({ scheduledTime: Date.now(), cron: '0 * * * *', noRetry() {} } as never, env)
+
+    expect(feedbackWorkflow.createBatch).toHaveBeenCalledWith([
+      { id: 'feedback-v1-int-lost', params: { interview_id: 'int-lost', schema_version: 1 } },
+    ])
+    expect(markFeedbackTriggered).toHaveBeenCalledWith('int-lost')
   })
 
   it('records a feedback failure in the sweep and still runs the overdue sweep', async function run() {
@@ -1457,6 +1562,7 @@ function createTestWorker(options?: {
       limit: number
     }) => Promise<string[]>
     markFeedbackTriggered?: (interviewId: string) => Promise<void>
+    isFeedbackTriggered?: (interviewId: string) => Promise<boolean>
     recordFeedbackFailure?: (interviewId: string) => Promise<void>
   }
   recordingStart?: {
@@ -1737,6 +1843,127 @@ describe('work.due messages', function workDueSuite() {
     const batch = createMockBatch([createMockMessage('msg-1', workDue('recording_overdue'))])
     await worker.queue(batch, createMockEnv())
     expect(batch.retried).toContain('msg-1')
+  })
+
+  describe('feedback duties', function feedbackDutySuite() {
+    const dueNow = new Date(Date.now() - 1000).toISOString()
+
+    it('feedback_deadline with the marker set is a no-op', async function run() {
+      const markFeedbackTriggered = vi.fn(async () => {})
+      const feedbackWorkflow = createMockFeedbackWorkflow()
+      const { worker } = createTestWorker({
+        recordingStop: { ...baseStop, isFeedbackTriggered: async () => true, markFeedbackTriggered },
+        recordingStart: {},
+      })
+      const batch = createMockBatch([createMockMessage('msg-1', workDue('feedback_deadline', dueNow))])
+      await worker.queue(batch, createMockEnvWithFeedback(feedbackWorkflow))
+      expect(feedbackWorkflow.createBatch).not.toHaveBeenCalled()
+      expect(markFeedbackTriggered).not.toHaveBeenCalled()
+      expect(batch.acked).toContain('msg-1')
+    })
+
+    it('feedback_deadline with the marker unset starts feedback once and sets the marker', async function run() {
+      const markFeedbackTriggered = vi.fn(async () => {})
+      const feedbackWorkflow = createMockFeedbackWorkflow()
+      const { worker } = createTestWorker({
+        recordingStop: { ...baseStop, isFeedbackTriggered: async () => false, markFeedbackTriggered },
+        recordingStart: {},
+      })
+      const batch = createMockBatch([createMockMessage('msg-1', workDue('feedback_deadline', dueNow))])
+      await worker.queue(batch, createMockEnvWithFeedback(feedbackWorkflow))
+      expect(feedbackWorkflow.createBatch).toHaveBeenCalledTimes(1)
+      expect(markFeedbackTriggered).toHaveBeenCalledWith(interviewId)
+      expect(batch.acked).toContain('msg-1')
+    })
+
+    it('feedback_deadline retries the message when starting feedback fails', async function run() {
+      const feedbackWorkflow = createMockFeedbackWorkflow()
+      vi.mocked(feedbackWorkflow.createBatch).mockRejectedValueOnce(new Error('workflows down'))
+      const { worker } = createTestWorker({
+        recordingStop: {
+          ...baseStop,
+          isFeedbackTriggered: async () => false,
+          markFeedbackTriggered: vi.fn(async () => {}),
+        },
+        recordingStart: {},
+      })
+      const batch = createMockBatch([createMockMessage('msg-1', workDue('feedback_deadline', dueNow))])
+      await worker.queue(batch, createMockEnvWithFeedback(feedbackWorkflow))
+      expect(batch.retried).toContain('msg-1')
+    })
+
+    it('feedback_deadline re-sends an early message with the remaining delay', async function run() {
+      const sent: Array<{ message: unknown; options: unknown }> = []
+      const feedbackWorkflow = createMockFeedbackWorkflow()
+      const { worker } = createTestWorker({
+        recordingStop: { ...baseStop, isFeedbackTriggered: async () => false },
+        recordingStart: {},
+      })
+      const early = new Date(Date.now() + 300_000).toISOString()
+      const batch = createMockBatch([createMockMessage('msg-1', workDue('feedback_deadline', early))])
+      await worker.queue(batch, { ...recordingQueue(sent), FEEDBACK_WORKFLOW: feedbackWorkflow })
+      expect(feedbackWorkflow.createBatch).not.toHaveBeenCalled()
+      expect(sent).toHaveLength(1)
+      expect((sent[0]!.options as { delaySeconds: number }).delaySeconds).toBeGreaterThan(290)
+    })
+
+    it('feedback_deadline retries the message when the early re-send fails', async function run() {
+      const { worker } = createTestWorker({
+        recordingStop: { ...baseStop, isFeedbackTriggered: async () => false },
+        recordingStart: {},
+      })
+      const early = new Date(Date.now() + 300_000).toISOString()
+      const batch = createMockBatch([createMockMessage('msg-1', workDue('feedback_deadline', early))])
+      await worker.queue(batch, {
+        ...createMockEnv(),
+        NOTIFICATION_QUEUE: {
+          async send() {
+            throw new Error('queue down')
+          },
+        } as unknown as Queue<NotificationTransportMessage>,
+      })
+      expect(batch.retried).toContain('msg-1')
+      expect(batch.acked).toHaveLength(0)
+    })
+
+    it('feedback_stale fences stale processing by id and restarts the workflow', async function run() {
+      const create = vi.fn(async () => ({}))
+      const { worker, queries } = createTestWorker({
+        recordingStop: baseStop,
+        recordingStart: {},
+        queryRowsBySqlIncludes: { 'AND id = $3': [{ id: interviewId, prior_attempt_id: 'a' }] },
+      })
+      const batch = createMockBatch([createMockMessage('msg-1', workDue('feedback_stale', dueNow))])
+      await worker.queue(batch, {
+        ...createMockEnv(),
+        FEEDBACK_WORKFLOW: { create } as unknown as Workflow<FeedbackWorkflowPayload>,
+      })
+      expect(create).toHaveBeenCalledTimes(1)
+      expect(queries.some((q) => q.text.includes('AND id = $3'))).toBe(true)
+      expect(batch.acked).toContain('msg-1')
+    })
+
+    it('feedback_stale re-sends with the remaining delay when the heartbeat was refreshed', async function run() {
+      const sent: Array<{ message: unknown; options: unknown }> = []
+      const heartbeat = new Date(Date.now() - 60_000).toISOString()
+      const { worker } = createTestWorker({
+        recordingStop: baseStop,
+        recordingStart: {},
+        queryRowsBySqlIncludes: {
+          'SELECT feedback_status, feedback_processing_heartbeat_at': [
+            { feedback_status: 'processing', feedback_processing_heartbeat_at: heartbeat },
+          ],
+        },
+      })
+      const batch = createMockBatch([createMockMessage('msg-1', workDue('feedback_stale', dueNow))])
+      await worker.queue(batch, {
+        ...recordingQueue(sent),
+        FEEDBACK_WORKFLOW: { create: vi.fn() } as unknown as Workflow<FeedbackWorkflowPayload>,
+      })
+      expect(sent).toHaveLength(1)
+      expect(sent[0]!.message).toMatchObject({ duty: 'feedback_stale', entity_id: interviewId })
+      expect((sent[0]!.options as { delaySeconds: number }).delaySeconds).toBeGreaterThan(0)
+    })
   })
 
   it('acks an unknown duty as an invalid schema', async function run() {

@@ -80,3 +80,19 @@ describe('RecordingStopService.closeOverdueRecordingsForInterview', () => {
     expect(t.confirmed).toEqual([])
   })
 })
+
+describe('RecordingStopService.isFeedbackTriggered', () => {
+  function serviceWith(value: boolean) {
+    const repository = {
+      async isFeedbackTriggered() {
+        return value
+      },
+    } as unknown as RecordingStopRepository
+    return new RecordingStopService(repository, {} as RealtimeRecordingProvider, () => now)
+  }
+
+  it('reports the repository marker state', async () => {
+    expect(await serviceWith(true).isFeedbackTriggered(interviewId)).toBe(true)
+    expect(await serviceWith(false).isFeedbackTriggered(interviewId)).toBe(false)
+  })
+})

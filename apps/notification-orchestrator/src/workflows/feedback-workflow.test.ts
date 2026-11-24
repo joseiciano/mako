@@ -8,6 +8,7 @@ import {
   STEP_SCREENSHOT_READINESS,
   STEP_TERMINAL_FAILURE,
   STEP_TERMINAL_UNAVAILABLE,
+  STALE_HEARTBEAT_THRESHOLD_MINUTES,
   STEP_TRANSCRIPTION,
   feedbackWorkflowPayloadSchema,
 } from './feedback-workflow'
@@ -735,6 +736,57 @@ describe('InterviewFeedbackWorkflow', function () {
       expect(result).toEqual({ status: 'skipped', interview_id: MOCKED_INTERVIEW_ID, reason: 'stale' })
       expect(transcriptionService.transcribeAndPersist).not.toHaveBeenCalled()
       expect(workflowRepository.markFailed).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('stale-deadline messages', function () {
+    type Send = (message: { duty?: string }, options?: { delaySeconds: number }) => Promise<void>
+    function queueEnv(send: ReturnType<typeof vi.fn<Send>>) {
+      return createMockEnv({ NOTIFICATION_QUEUE: { send } as never })
+    }
+
+    it('sends a delayed feedback_stale message at the claim and at each heartbeat refresh', async function () {
+      mockHappyPath()
+      const send = vi.fn<Send>(async () => {})
+      const workflow = createWorkflow(queueEnv(send))
+      const { step } = createTrackingStep()
+
+      await workflow.run(createMockEvent(VALID_PAYLOAD), step)
+
+      const stale = send.mock.calls.filter((call) => call[0].duty === 'feedback_stale')
+      expect(stale).toHaveLength(3)
+      for (const call of stale) {
+        expect(call[0]).toMatchObject({ message_type: 'work.due', entity_id: MOCKED_INTERVIEW_ID })
+        expect(call[1]).toEqual({
+          delaySeconds: STALE_HEARTBEAT_THRESHOLD_MINUTES * 60,
+        })
+      }
+    })
+
+    it('does not send when the claim fails', async function () {
+      mockInterviewState(buildInterviewState({ feedback_status: 'pending' }))
+      mockWorkflowRepository({ claimProcessing: vi.fn().mockResolvedValue(false) })
+      const send = vi.fn<Send>(async () => {})
+      const workflow = createWorkflow(queueEnv(send))
+      const { step } = createTrackingStep()
+
+      await workflow.run(createMockEvent(VALID_PAYLOAD), step)
+
+      expect(send).not.toHaveBeenCalled()
+    })
+
+    it('does not fail the workflow when the send fails', async function () {
+      mockHappyPath()
+      const send = vi.fn<Send>(async () => {
+        throw new Error('queue down')
+      })
+      const workflow = createWorkflow(queueEnv(send))
+      const { step } = createTrackingStep()
+
+      const result = await workflow.run(createMockEvent(VALID_PAYLOAD), step)
+
+      expect(result).toMatchObject({ status: 'ready' })
+      expect(send).toHaveBeenCalled()
     })
   })
 
