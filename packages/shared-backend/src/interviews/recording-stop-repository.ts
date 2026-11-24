@@ -8,7 +8,7 @@ type StopHandoff = {
   start_in_flight: boolean
 }
 
-type OverdueRecordingRow = {
+export type OverdueRecordingRow = {
   id: string
   interview_id: string
   provider_recording_id: string
@@ -109,6 +109,24 @@ export class RecordingStopRepository {
           input.retry.created_after,
           input.retry.slow_retry_before,
         ],
+      ),
+    )
+    return result.rows
+  }
+
+  async listOpenRecordingsForInterview(
+    interviewId: string,
+  ): Promise<(OverdueRecordingRow & { created_at: string })[]> {
+    const result = await this.queryExecutor.query<OverdueRecordingRow & { created_at: string }>(
+      createSqlQuery(
+        `
+          SELECT id, interview_id, provider_recording_id, created_at
+          FROM interview_recordings
+          WHERE interview_id = $1
+            AND stop_confirmed_at IS NULL
+          ORDER BY created_at, id;
+        `,
+        [interviewId],
       ),
     )
     return result.rows

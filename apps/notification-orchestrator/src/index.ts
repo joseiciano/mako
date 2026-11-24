@@ -8,6 +8,9 @@ import {
   type NotificationDispatchServiceLogger,
   type NotificationTransport,
   type NotificationTransportMessage,
+  processWorkDue,
+  workDueTransportMessageSchema,
+  RECORDING_MAX_AGE_SECONDS,
   interviewCreatedEventSchema,
   interviewCancelledEventSchema,
   interviewMatchCreatedEventSchema,
@@ -95,11 +98,6 @@ export type NotificationWorkerDependencies = {
 // The queue allows 3 retries; after this many failed attempts the consumer
 // stops waiting on the provider and hands off to feedback anyway.
 const STOP_RETRY_ATTEMPTS_BEFORE_FEEDBACK = 3
-// Safety net only: the overdue sweep must never stop a live session. A session
-// lasts 60 minutes, so the threshold equals the 3,600 s ticket bound and is not
-// shortened. The sweep runs every 5 minutes, so a recording can overrun the
-// bound by up to one cron interval plus the created_at lag.
-const RECORDING_MAX_AGE_SECONDS = 3600
 // Unprocessed stop handoffs older than this still start feedback so feedback
 // does not depend on provider availability.
 const FEEDBACK_UNPROCESSED_AFTER_MS = 15 * 60_000
@@ -280,6 +278,29 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
             } else if (normalizedBody.message_type === 'reminder.due') {
               const reminderMessage = reminderDueTransportMessageSchema.parse(normalizedBody)
               await consumerService.processReminderDue(reminderMessage)
+            } else if (normalizedBody.message_type === 'work.due') {
+              const workDueMessage = workDueTransportMessageSchema.parse(normalizedBody)
+              const stopProcessor = buildRecordingStopProcessor(env, queryExecutor as SqlQueryExecutor)
+              const startService = buildRecordingStartSweeper(env, queryExecutor as SqlQueryExecutor)
+              if (!stopProcessor || !startService) {
+                consoleLike.error('notification_orchestrator.work_due_not_configured', {
+                  message_id: message.id,
+                  duty: workDueMessage.duty,
+                })
+              } else {
+                await processWorkDue(workDueMessage, {
+                  recordingStop: stopProcessor,
+                  recordingStart: startService,
+                  transport: reminderTransport,
+                  logger: {
+                    error(event, context) {
+                      consoleLike.error(`notification_orchestrator.${event}`, context)
+                    },
+                  },
+                  now: () => Date.now(),
+                  maxAgeSeconds: RECORDING_MAX_AGE_SECONDS,
+                })
+              }
             } else {
               consoleLike.error('notification_orchestrator.invalid_message', {
                 message_id: message.id,

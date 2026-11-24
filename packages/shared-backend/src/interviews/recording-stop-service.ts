@@ -1,10 +1,23 @@
-import { RecordingStopRepository, type SweepRetryWindow } from './recording-stop-repository'
+import {
+  RecordingStopRepository,
+  type OverdueRecordingRow,
+  type SweepRetryWindow,
+} from './recording-stop-repository'
 import {
   RealtimeRecordingError,
   type RealtimeRecordingProvider,
 } from './realtime-recording-provider'
 
 const START_CLAIM_FRESH_MS = 60_000
+
+/** A session lasts 60 minutes; recordings still open after this are closed. */
+export const RECORDING_MAX_AGE_SECONDS = 3600
+
+export type CloseOverdueResult =
+  | { outcome: 'resolved' }
+  | { outcome: 'closed' }
+  | { outcome: 'failed' }
+  | { outcome: 'early'; dueAtMs: number }
 
 /**
  * After this many failed attempts a sweep row is retried only every
@@ -143,24 +156,57 @@ export class RecordingStopService {
     })
     let stopped = 0
     for (const row of rows) {
-      await this.repository.markStopRequested(row.id, this.now())
-      const code = await this.stopProviderRecording(row.provider_recording_id)
-      if (code) {
-        const attempts = await this.repository.recordStopFailure(row.id, code, this.now())
-        if (attempts >= SWEEP_FAST_ATTEMPTS) {
-          await this.logSafely('recording_overdue_stop_attempts_exhausted', {
-            interview_id: row.interview_id,
-            recording_id: row.id,
-            error_code: code,
-            attempts,
-          })
-        }
-        continue
-      }
-      await this.repository.markStopConfirmed(row.id, this.now())
-      stopped += 1
+      if (await this.stopOverdueRow(row)) stopped += 1
     }
     return stopped
+  }
+
+  /**
+   * By-id variant of the overdue sweep, run from a delayed work.due message.
+   * Reads current state: nothing open is resolved, open work younger than the
+   * bound is early (the caller re-sends), otherwise overdue rows are stopped
+   * with the same checks and failure bookkeeping as the sweep.
+   */
+  async closeOverdueRecordingsForInterview(input: {
+    interviewId: string
+    maxAgeSeconds: number
+  }): Promise<CloseOverdueResult> {
+    const rows = await this.repository.listOpenRecordingsForInterview(input.interviewId)
+    if (rows.length === 0) return { outcome: 'resolved' }
+
+    const nowMs = new Date(this.now()).getTime()
+    const overdue = rows.filter(
+      (row) => new Date(row.created_at).getTime() + input.maxAgeSeconds * 1000 <= nowMs,
+    )
+    if (overdue.length === 0) {
+      const oldest = Math.min(...rows.map((row) => new Date(row.created_at).getTime()))
+      return { outcome: 'early', dueAtMs: oldest + input.maxAgeSeconds * 1000 }
+    }
+
+    let allStopped = true
+    for (const row of overdue) {
+      if (!(await this.stopOverdueRow(row))) allStopped = false
+    }
+    return { outcome: allStopped ? 'closed' : 'failed' }
+  }
+
+  private async stopOverdueRow(row: OverdueRecordingRow): Promise<boolean> {
+    await this.repository.markStopRequested(row.id, this.now())
+    const code = await this.stopProviderRecording(row.provider_recording_id)
+    if (code) {
+      const attempts = await this.repository.recordStopFailure(row.id, code, this.now())
+      if (attempts >= SWEEP_FAST_ATTEMPTS) {
+        await this.logSafely('recording_overdue_stop_attempts_exhausted', {
+          interview_id: row.interview_id,
+          recording_id: row.id,
+          error_code: code,
+          attempts,
+        })
+      }
+      return false
+    }
+    await this.repository.markStopConfirmed(row.id, this.now())
+    return true
   }
 
   /**

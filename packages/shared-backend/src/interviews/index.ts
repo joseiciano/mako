@@ -38,7 +38,11 @@ export {
   type RecordingStarter,
 } from './recording-control-service'
 export { RecordingStopRepository } from './recording-stop-repository'
-export { RecordingStopService } from './recording-stop-service'
+export {
+  RecordingStopService,
+  RECORDING_MAX_AGE_SECONDS,
+  type CloseOverdueResult,
+} from './recording-stop-service'
 export {
   createInMemoryTimerOrchestration,
   createWorkflowTimerOrchestration,

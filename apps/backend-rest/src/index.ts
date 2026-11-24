@@ -694,6 +694,18 @@ function createWorkerRecordingControl(
         console.error({ event, component: 'RecordingControl', ...context })
       },
     },
+    undefined,
+    undefined,
+    bindings.NOTIFICATION_QUEUE
+      ? {
+          async send(message, options) {
+            await bindings.NOTIFICATION_QUEUE!.send(
+              message,
+              options ? { delaySeconds: options.delaySeconds } : undefined,
+            )
+          },
+        }
+      : undefined,
   )
 }
 

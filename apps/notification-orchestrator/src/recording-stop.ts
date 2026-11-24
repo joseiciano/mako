@@ -4,6 +4,7 @@ import {
   RecordingControlService,
   RecordingStopRepository,
   RecordingStopService,
+  type NotificationTransportMessage,
   type SqlQueryExecutor,
 } from '@mako/shared-backend'
 
@@ -12,6 +13,7 @@ type RecordingStopBindings = {
   CLOUDFLARE_API_TOKEN?: string
   CLOUDFLARE_REALTIMEKIT_APP_ID?: string
   CLOUDFLARE_API_BASE_URL?: string
+  NOTIFICATION_QUEUE?: Pick<Queue<NotificationTransportMessage>, 'send'>
 }
 
 export type RecordingStopHandoffProcessor = Pick<
@@ -19,12 +21,13 @@ export type RecordingStopHandoffProcessor = Pick<
   | 'processStopHandoff'
   | 'sweepStopHandoffs'
   | 'sweepOverdueRecordings'
+  | 'closeOverdueRecordingsForInterview'
   | 'listHandoffsAwaitingFeedback'
   | 'markFeedbackTriggered'
   | 'recordFeedbackFailure'
 >
 
-export type RecordingStartSweeper = Pick<RecordingControlService, 'sweepStalePendingClaims'>
+export type RecordingStartSweeper = Pick<RecordingControlService, 'sweepStalePendingClaims' | 'ensureRecordingStarted'>
 
 function hasRealtimeKitCredentials(env: RecordingStopBindings): boolean {
   return Boolean(
@@ -46,6 +49,18 @@ export function createRecordingStartSweeper(
         console.error({ event, component: 'RecordingControl', ...context })
       },
     },
+    undefined,
+    undefined,
+    env.NOTIFICATION_QUEUE
+      ? {
+          async send(message, options) {
+            await env.NOTIFICATION_QUEUE!.send(
+              message,
+              options ? { delaySeconds: options.delaySeconds } : undefined,
+            )
+          },
+        }
+      : undefined,
   )
 }
 

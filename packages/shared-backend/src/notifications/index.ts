@@ -15,6 +15,9 @@ export {
 export {
   reminderDueTransportMessageSchema,
   type ReminderDueTransportMessage,
+  workDueTransportMessageSchema,
+  type WorkDueTransportMessage,
+  type WorkDueDuty,
   type NotificationTransportMessage,
   type NotificationTransport,
 } from './notification-transport-message'
@@ -45,3 +48,12 @@ export {
   remainingDelaySeconds,
   type DelayedSendOptions,
 } from './delayed-send'
+
+export {
+  processWorkDue,
+  sendWorkDue,
+  type CloseOverdueOutcome,
+  type SendWorkDueInput,
+  type WorkDueDependencies,
+  type WorkDueLogger,
+} from './work-due'
