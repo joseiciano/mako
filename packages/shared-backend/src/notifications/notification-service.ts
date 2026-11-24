@@ -81,7 +81,7 @@ export class NotificationService {
     interviewId: string
     idempotencyKey: string
     reminderDueAt: string
-  }): Promise<void> {
+  }): Promise<string> {
     const schedule: NotificationReminderScheduleRow = {
       id: this.createId(),
       interview_id: input.interviewId,
@@ -93,6 +93,7 @@ export class NotificationService {
     }
 
     await this.repository.createReminderSchedule(schedule)
+    return schedule.id
   }
 
   async listDueReminderSchedules(

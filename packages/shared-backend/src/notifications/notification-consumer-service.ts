@@ -4,7 +4,11 @@ import type {
   InterviewMatchCreatedEvent,
   InterviewPremiumBookedEvent,
 } from '../notification-queue-event-contract'
-import type { ReminderDueTransportMessage } from './notification-transport-message'
+import { remainingDelaySeconds } from './delayed-send'
+import type {
+  NotificationTransport,
+  ReminderDueTransportMessage,
+} from './notification-transport-message'
 import type { NotificationService } from './notification-service'
 
 export type NotificationDeliveryPort = {
@@ -39,6 +43,7 @@ export class NotificationConsumerService {
     private readonly now: () => string = defaultNow,
     private readonly logger: NotificationConsumerServiceLogger = noOpLogger,
     private readonly deliveryPort: NotificationDeliveryPort = noOpDeliveryPort,
+    private readonly reminderTransport?: NotificationTransport,
   ) {}
 
   async processInterviewCreated(event: InterviewCreatedEvent): Promise<void> {
@@ -90,10 +95,11 @@ export class NotificationConsumerService {
       return
     }
 
-    await this.notificationService.createReminderSchedule({
+    await this.createReminderScheduleAndSend({
       interviewId: event.interview.id,
       idempotencyKey: event.idempotency_key,
-      reminderDueAt: new Date(reminderDueAt).toISOString(),
+      scheduledAt: event.interview.scheduled_at,
+      reminderDueAtMs: reminderDueAt,
     })
     await this.notificationService.recordCheckpoint(event.idempotency_key, reminderKey)
   }
@@ -167,10 +173,11 @@ export class NotificationConsumerService {
       return
     }
 
-    await this.notificationService.createReminderSchedule({
+    await this.createReminderScheduleAndSend({
       interviewId: event.interview.id,
       idempotencyKey: event.idempotency_key,
-      reminderDueAt: new Date(reminderDueAt).toISOString(),
+      scheduledAt: event.interview.scheduled_at,
+      reminderDueAtMs: reminderDueAt,
     })
     await this.notificationService.recordCheckpoint(event.idempotency_key, reminderKey)
   }
@@ -228,10 +235,11 @@ export class NotificationConsumerService {
       return
     }
 
-    await this.notificationService.createReminderSchedule({
+    await this.createReminderScheduleAndSend({
       interviewId: event.interview.id,
       idempotencyKey: event.idempotency_key,
-      reminderDueAt: new Date(reminderDueAt).toISOString(),
+      scheduledAt: event.interview.scheduled_at,
+      reminderDueAtMs: reminderDueAt,
     })
     await this.notificationService.recordCheckpoint(event.idempotency_key, reminderKey)
   }
@@ -288,6 +296,11 @@ export class NotificationConsumerService {
       return
     }
 
+    if (nowMs < messageReminderDueAtMs) {
+      await this.resendEarlyReminder(message, messageReminderDueAtMs - nowMs)
+      return
+    }
+
     const recipientUserIds = [interviewState.scheduler_id]
     if (interviewState.mode === 'peer_to_peer' && interviewState.interviewer_id) {
       recipientUserIds.push(interviewState.interviewer_id)
@@ -301,6 +314,52 @@ export class NotificationConsumerService {
       idempotencyKey: `${message.idempotency_key}/delivery`,
     })
     await this.notificationService.recordCheckpoint(message.idempotency_key, checkpointKey)
+  }
+
+  private async createReminderScheduleAndSend(input: {
+    interviewId: string
+    idempotencyKey: string
+    scheduledAt: string
+    reminderDueAtMs: number
+  }): Promise<void> {
+    const reminderDueAt = new Date(input.reminderDueAtMs).toISOString()
+    const scheduleId = await this.notificationService.createReminderSchedule({
+      interviewId: input.interviewId,
+      idempotencyKey: input.idempotencyKey,
+      reminderDueAt,
+    })
+
+    if (!this.reminderTransport) return
+
+    try {
+      await this.reminderTransport.send(
+        {
+          message_type: 'reminder.due',
+          idempotency_key: input.idempotencyKey,
+          interview_id: input.interviewId,
+          scheduled_at: new Date(input.scheduledAt).toISOString(),
+          reminder_due_at: reminderDueAt,
+        },
+        { delaySeconds: remainingDelaySeconds(input.reminderDueAtMs, new Date(this.now()).getTime()) },
+      )
+      await this.notificationService.markReminderDispatched(scheduleId)
+    } catch (error) {
+      await this.logger.warn('notification.consumer.reminder_delayed_send_failed', {
+        interview_id: input.interviewId,
+        error_message: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+
+  private async resendEarlyReminder(
+    message: ReminderDueTransportMessage,
+    remainingMs: number,
+  ): Promise<void> {
+    if (!this.reminderTransport) return
+
+    await this.reminderTransport.send(message, {
+      delaySeconds: remainingDelaySeconds(remainingMs, 0),
+    })
   }
 }
 
