@@ -18,6 +18,21 @@ export const reminderDueTransportMessageSchema = z.object({
 
 export type ReminderDueTransportMessage = z.infer<typeof reminderDueTransportMessageSchema>
 
+const workDueBase = {
+  message_type: z.literal('work.due'),
+  idempotency_key: z.string().min(1),
+  entity_id: z.string().uuid(),
+  due_at: z.string().datetime({ offset: true }),
+}
+
+export const workDueTransportMessageSchema = z.discriminatedUnion('duty', [
+  z.object({ ...workDueBase, duty: z.literal('recording_overdue') }),
+  z.object({ ...workDueBase, duty: z.literal('start_claim_stale') }),
+])
+
+export type WorkDueTransportMessage = z.infer<typeof workDueTransportMessageSchema>
+export type WorkDueDuty = WorkDueTransportMessage['duty']
+
 export type NotificationTransportMessage =
   | InterviewCreatedEvent
   | InterviewCancelledEvent
@@ -25,6 +40,7 @@ export type NotificationTransportMessage =
   | InterviewPremiumBookedEvent
   | AccountPrivacyCleanupRequestedEvent
   | ReminderDueTransportMessage
+  | WorkDueTransportMessage
 
 export type NotificationTransport = {
   send(message: NotificationTransportMessage, options?: DelayedSendOptions): Promise<void>

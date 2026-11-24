@@ -1447,6 +1447,10 @@ function createTestWorker(options?: {
     processStopHandoff: (interviewId: string) => Promise<'processed' | 'no_handoff' | 'retry'>
     sweepStopHandoffs: (input: { olderThan: string; limit: number }) => Promise<string[]>
     sweepOverdueRecordings: (input: { maxAgeSeconds: number; limit: number }) => Promise<number>
+    closeOverdueRecordingsForInterview?: (input: {
+      interviewId: string
+      maxAgeSeconds: number
+    }) => Promise<unknown>
     listHandoffsAwaitingFeedback?: (input: {
       processedBefore: string
       unprocessedBefore: string
@@ -1456,7 +1460,8 @@ function createTestWorker(options?: {
     recordFeedbackFailure?: (interviewId: string) => Promise<void>
   }
   recordingStart?: {
-    sweepStalePendingClaims: (input: { limit: number }) => Promise<number>
+    sweepStalePendingClaims?: (input: { limit: number }) => Promise<number>
+    ensureRecordingStarted?: (interviewId: string) => Promise<string>
   }
 }) {
   const queueSentMessages: NotificationTransportMessage[] = []
@@ -1530,7 +1535,7 @@ function createTestWorker(options?: {
           }) as never
       : undefined,
     createRecordingStartSweeper: options?.recordingStart
-      ? () => options.recordingStart
+      ? () => options.recordingStart as never
       : undefined,
   })
 
@@ -1649,3 +1654,96 @@ function createMockEnvWithFeedback(
     FEEDBACK_WORKFLOW: feedbackWorkflow,
   }
 }
+
+describe('work.due messages', function workDueSuite() {
+  const interviewId = '33333333-3333-4333-8333-333333333333'
+  const dueAt = new Date(Date.now() - 1000).toISOString()
+
+  function workDue(duty: string, due = dueAt) {
+    return {
+      message_type: 'work.due',
+      idempotency_key: `${duty}:${interviewId}`,
+      duty,
+      entity_id: interviewId,
+      due_at: due,
+    }
+  }
+
+  function recordingQueue(sent: Array<{ message: unknown; options: unknown }>) {
+    return {
+      ...createMockEnv(),
+      NOTIFICATION_QUEUE: {
+        async send(message: unknown, options: unknown) {
+          sent.push({ message, options })
+        },
+      } as unknown as Queue<NotificationTransportMessage>,
+    }
+  }
+
+  const baseStop = {
+    processStopHandoff: vi.fn(async () => 'no_handoff' as const),
+    sweepStopHandoffs: vi.fn(async () => [] as string[]),
+    sweepOverdueRecordings: vi.fn(async () => 0),
+  }
+
+  it('closes the overdue recording for the interview and acks', async function run() {
+    const close = vi.fn(async () => ({ outcome: 'closed' }))
+    const { worker } = createTestWorker({
+      recordingStop: { ...baseStop, closeOverdueRecordingsForInterview: close },
+      recordingStart: {},
+    })
+    const batch = createMockBatch([createMockMessage('msg-1', workDue('recording_overdue'))])
+    await worker.queue(batch, createMockEnv())
+    expect(close).toHaveBeenCalledWith({ interviewId, maxAgeSeconds: 3600 })
+    expect(batch.acked).toContain('msg-1')
+  })
+
+  it('re-sends an early overdue message with the remaining delay', async function run() {
+    const sent: Array<{ message: unknown; options: unknown }> = []
+    const close = vi.fn(async () => ({ outcome: 'early', dueAtMs: Date.now() + 120_000 }))
+    const { worker } = createTestWorker({
+      recordingStop: { ...baseStop, closeOverdueRecordingsForInterview: close },
+      recordingStart: {},
+    })
+    const batch = createMockBatch([createMockMessage('msg-1', workDue('recording_overdue'))])
+    await worker.queue(batch, recordingQueue(sent))
+    expect(sent).toHaveLength(1)
+    expect(sent[0]!.message).toMatchObject({ duty: 'recording_overdue', entity_id: interviewId })
+    expect(sent[0]!.options).toMatchObject({ delaySeconds: expect.any(Number) })
+    expect((sent[0]!.options as { delaySeconds: number }).delaySeconds).toBeGreaterThan(100)
+    expect(batch.acked).toContain('msg-1')
+  })
+
+  it('releases a stale start claim through ensureRecordingStarted', async function run() {
+    const ensure = vi.fn(async () => 'started')
+    const { worker } = createTestWorker({
+      recordingStop: baseStop,
+      recordingStart: { ensureRecordingStarted: ensure },
+    })
+    const batch = createMockBatch([createMockMessage('msg-1', workDue('start_claim_stale'))])
+    await worker.queue(batch, createMockEnv())
+    expect(ensure).toHaveBeenCalledWith(interviewId)
+    expect(batch.acked).toContain('msg-1')
+  })
+
+  it('retries the message when closing the recording failed', async function run() {
+    const { worker } = createTestWorker({
+      recordingStop: {
+        ...baseStop,
+        closeOverdueRecordingsForInterview: vi.fn(async () => ({ outcome: 'failed' })),
+      },
+      recordingStart: {},
+    })
+    const batch = createMockBatch([createMockMessage('msg-1', workDue('recording_overdue'))])
+    await worker.queue(batch, createMockEnv())
+    expect(batch.retried).toContain('msg-1')
+  })
+
+  it('acks an unknown duty as an invalid schema', async function run() {
+    const { worker, logs } = createTestWorker()
+    const batch = createMockBatch([createMockMessage('msg-1', workDue('unknown_duty'))])
+    await worker.queue(batch, createMockEnv())
+    expect(batch.acked).toContain('msg-1')
+    expect(logs.errors[0]?.event).toBe('notification_orchestrator.invalid_schema')
+  })
+})

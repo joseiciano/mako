@@ -3,6 +3,9 @@ import {
   type RecordingRow,
   type RecordingStartContext,
 } from './recording-control-repository'
+import { RECORDING_MAX_AGE_SECONDS } from './recording-stop-service'
+import { sendWorkDue } from '../notifications/work-due'
+import type { NotificationTransport } from '../notifications/notification-transport-message'
 import {
   RealtimeRecordingError,
   type ProviderRecording,
@@ -34,7 +37,7 @@ type RecordingSpec = {
   participantUserIds: string[]
 }
 
-const STALE_CLAIM_MS = 60_000
+export const STALE_CLAIM_MS = 60_000
 
 const noopLogger: RecordingControlLogger = { error() {} }
 
@@ -45,6 +48,7 @@ export class RecordingControlService implements RecordingStarter {
     private readonly logger: RecordingControlLogger = noopLogger,
     private readonly now: () => string = () => new Date().toISOString(),
     private readonly createId: () => string = () => crypto.randomUUID(),
+    private readonly dueSender?: Pick<NotificationTransport, 'send'>,
   ) {}
 
   /**
@@ -67,6 +71,7 @@ export class RecordingControlService implements RecordingStarter {
         return claim.outcome
       }
 
+      await this.sendDue('start_claim_stale', interviewId, STALE_CLAIM_MS)
       return await this.runStart(claim.context)
     } catch (error) {
       await this.logSafely('recording.ensure_started_failed', interviewId, error)
@@ -126,7 +131,22 @@ export class RecordingControlService implements RecordingStarter {
       status: 'recording',
       now: this.now(),
     })
+    await this.sendDue('recording_overdue', ctx.interview_id, RECORDING_MAX_AGE_SECONDS * 1000)
     return 'started'
+  }
+
+  private sendDue(
+    duty: 'recording_overdue' | 'start_claim_stale',
+    interviewId: string,
+    afterMs: number,
+  ): Promise<void> {
+    const nowMs = new Date(this.now()).getTime()
+    return sendWorkDue(this.dueSender, this.logger, {
+      duty,
+      entityId: interviewId,
+      dueAtMs: nowMs + afterMs,
+      nowMs,
+    })
   }
 
   /** Stops provider recordings and checkpoints them. Returns false if any stop failed. */

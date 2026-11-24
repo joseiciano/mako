@@ -4,6 +4,8 @@ import type {
   RecordingControlRepository,
   RecordingRow,
 } from './recording-control-repository'
+import type { DelayedSendOptions } from '../notifications/delayed-send'
+import type { NotificationTransportMessage } from '../notifications/notification-transport-message'
 import { RecordingControlService } from './recording-control-service'
 import {
   RealtimeRecordingError,
@@ -142,6 +144,7 @@ function build(initial: Partial<FakeState> = {}, overrides: Partial<RealtimeReco
   const fakeRepo = createFakeRepository(initial)
   const fakeProvider = createFakeProvider(overrides)
   const errors: Array<{ event: string; context: Record<string, unknown> }> = []
+  const sent: Array<{ message: NotificationTransportMessage; options?: DelayedSendOptions }> = []
   let tick = 0
   let ids = 0
   const service = new RecordingControlService(
@@ -150,8 +153,9 @@ function build(initial: Partial<FakeState> = {}, overrides: Partial<RealtimeReco
     { error: (event, context) => void errors.push({ event, context }) },
     () => new Date(Date.UTC(2026, 0, 1, 0, 0, tick)).toISOString(),
     () => `id-${++ids}`,
+    { send: async (message, options) => void sent.push({ message, options }) },
   )
-  return { ...fakeRepo, ...fakeProvider, service, errors, advance: (s: number) => (tick += s) }
+  return { ...fakeRepo, ...fakeProvider, service, errors, sent, advance: (s: number) => (tick += s) }
 }
 
 describe('RecordingControlService.ensureRecordingStarted', function suite() {
@@ -357,6 +361,65 @@ describe('RecordingControlService.ensureRecordingStarted', function suite() {
     expect(await t.service.ensureRecordingStarted(interviewId)).toBe('started')
     expect(stopCalls).toEqual(['rec-c-1', 'rec-t-late'])
     expect(t.state.stopped).toEqual(['rec-c-1', 'rec-t-late'])
+  })
+})
+
+describe('RecordingControlService delayed work.due messages', function dueSuite() {
+  it('sends a stale-claim message at claim time plus 60s and an overdue message at start plus 3600s', async function run() {
+    const t = build()
+    expect(await t.service.ensureRecordingStarted(interviewId)).toBe('started')
+    const claimAt = Date.UTC(2026, 0, 1, 0, 0, 0)
+    expect(t.sent.map((s) => [(s.message as { duty: string }).duty, s.options])).toEqual([
+      ['start_claim_stale', { delaySeconds: 60 }],
+      ['recording_overdue', { delaySeconds: 3600 }],
+    ])
+    expect(t.sent.map((s) => (s.message as { due_at: string }).due_at)).toEqual([
+      new Date(claimAt + 60_000).toISOString(),
+      new Date(claimAt + 3_600_000).toISOString(),
+    ])
+    expect(t.sent.every((s) => (s.message as { entity_id: string }).entity_id === interviewId)).toBe(true)
+  })
+
+  it('sends only the stale-claim message when the start stays pending', async function run() {
+    const t = build({}, {
+      async startCompositeRecording() {
+        throw new RealtimeRecordingError('provider_unavailable', true, 'timeout')
+      },
+    })
+    expect(await t.service.ensureRecordingStarted(interviewId)).toBe('pending_retry')
+    expect(t.sent.map((s) => (s.message as { duty: string }).duty)).toEqual(['start_claim_stale'])
+  })
+
+  it('sends nothing when no claim is made', async function run() {
+    const t = build({ status: 'scheduled' })
+    await t.service.ensureRecordingStarted(interviewId)
+    expect(t.sent).toEqual([])
+  })
+
+  it('sweep still releases a stale claim when no message was ever sent', async function run() {
+    const t = build({ recording_status: 'pending', claimed_at: '2025-12-31T00:00:00.000Z' })
+    const noSender = new RecordingControlService(
+      t.repository,
+      t.provider,
+      undefined,
+      () => new Date(Date.UTC(2026, 0, 1)).toISOString(),
+      () => 'id-x',
+    )
+    expect(await noSender.sweepStalePendingClaims({ limit: 5 })).toBe(1)
+    expect(t.sent).toEqual([])
+  })
+
+  it('still starts the recording when a send fails', async function run() {
+    const t = build()
+    const failing = new RecordingControlService(
+      t.repository,
+      t.provider,
+      undefined,
+      () => new Date(Date.UTC(2026, 0, 1)).toISOString(),
+      () => 'id-x',
+      { send: async () => { throw new Error('queue down') } },
+    )
+    expect(await failing.ensureRecordingStarted(interviewId)).toBe('started')
   })
 })
 
