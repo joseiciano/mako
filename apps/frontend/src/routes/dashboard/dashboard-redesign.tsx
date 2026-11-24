@@ -1,3 +1,4 @@
+import { Link } from '@tanstack/react-router'
 import type { AccountProfile, InterviewListItem } from '@mako/shared'
 import { formatScheduledTime } from '#/lib/format-scheduled-time'
 import '../../components/layout/redesign.css'
@@ -28,7 +29,7 @@ export function DashboardRedesign(props: DashboardRedesignProps) {
         <Stat n={interviews.length} label="Upcoming" />
       </div>
       <div className="rp-card flush">
-        <table>
+        <table className="rp-table">
           <thead>
             <tr><th>When</th><th>Mode</th><th>With</th><th /></tr>
           </thead>
@@ -38,7 +39,7 @@ export function DashboardRedesign(props: DashboardRedesignProps) {
                 <td>{formatScheduledTime(i.scheduled_at)}</td>
                 <td>{formatInterviewMode(i.mode)}</td>
                 <td>{selectCounterpartAlias(account.id, i)}</td>
-                <td><a className="rp-btn g" href={`/interviews/${i.id}`}>Open</a></td>
+                <td><Link className="rp-btn g" to="/interviews/$id" params={{ id: i.id }}>Open</Link></td>
               </tr>
             ))}
             {interviews.length === 0 ? (
@@ -47,7 +48,7 @@ export function DashboardRedesign(props: DashboardRedesignProps) {
           </tbody>
         </table>
       </div>
-      <a className="rp-btn rp-cta" href="/interviews/new">Schedule an interview</a>
+      <Link className="rp-btn rp-cta" to="/interviews/new">Schedule an interview</Link>
     </>
   )
 }

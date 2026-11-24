@@ -27,6 +27,15 @@ vi.mock(
   },
 )
 
+vi.mock('@tanstack/react-router', function mockRouter() {
+  return {
+    Link: function Link(props: { to: string; params?: Record<string, string>; className?: string; children: unknown }) {
+      const href = props.to.replace('$id', props.params?.id ?? '')
+      return <a href={href} className={props.className}>{props.children as never}</a>
+    },
+  }
+})
+
 describe('dashboard-smart query state orchestration', function dashboardSmartSuite() {
   beforeEach(function resetMocks() {
     useAccountMock.mockReset()
