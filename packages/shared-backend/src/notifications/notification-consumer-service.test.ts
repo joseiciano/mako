@@ -13,7 +13,14 @@ import type {
 } from './notification-types'
 import type { NotificationRepositoryDataSource } from './notification-repository'
 import { NotificationService } from './notification-service'
+import { NotificationDispatchService } from './notification-dispatch-service'
 import type { NotificationDeliveryPort } from './notification-consumer-service'
+import type {
+  NotificationTransport,
+  NotificationTransportMessage,
+  ReminderDueTransportMessage,
+} from './notification-transport-message'
+import type { DelayedSendOptions } from './delayed-send'
 
 describe('NotificationConsumerService', function notificationConsumerServiceSuite() {
   it('processes interview.created by recording confirmation checkpoint and scheduling reminder', async function run() {
@@ -44,7 +51,7 @@ describe('NotificationConsumerService', function notificationConsumerServiceSuit
     })
     expect(dataSource.reminderSchedules).toHaveLength(1)
     expect(dataSource.reminderSchedules[0]?.interview_id).toBe('interview-id')
-    expect(dataSource.reminderSchedules[0]?.status).toBe('pending')
+    expect(dataSource.reminderSchedules[0]?.status).toBe('dispatched')
   })
 
   it('does not duplicate side effects on repeated interview.created delivery', async function run() {
@@ -466,7 +473,7 @@ describe('NotificationConsumerService', function notificationConsumerServiceSuit
     })
     expect(dataSource.reminderSchedules).toHaveLength(1)
     expect(dataSource.reminderSchedules[0]?.interview_id).toBe('interview-id')
-    expect(dataSource.reminderSchedules[0]?.status).toBe('pending')
+    expect(dataSource.reminderSchedules[0]?.status).toBe('dispatched')
   })
 
   it('sends confirmation for interview.premium_booked to scheduler and interviewer exactly once', async function run() {
@@ -733,6 +740,146 @@ describe('NotificationConsumerService', function notificationConsumerServiceSuit
     expect(dataSource.reminderSchedules).toHaveLength(1)
   })
 
+  it('sends one delayed reminder.due message and marks the row dispatched when a schedule row is created', async function run() {
+    const { consumer, dataSource, transportCalls } = createConsumerService()
+    setScheduledInterview(dataSource)
+
+    await consumer.processInterviewCreated(createInterviewCreatedEvent())
+
+    expect(transportCalls).toEqual([
+      {
+        message: {
+          message_type: 'reminder.due',
+          idempotency_key: 'interview.created:interview-id',
+          interview_id: 'interview-id',
+          scheduled_at: '2026-05-22T14:00:00.000Z',
+          reminder_due_at: '2026-05-22T13:30:00.000Z',
+        },
+        options: { delaySeconds: 210 * 60 },
+      },
+    ])
+    expect(dataSource.reminderSchedules[0]?.status).toBe('dispatched')
+  })
+
+  it('sends the exact remaining delay when the reminder is due within 12 hours', async function run() {
+    const { consumer, dataSource, transportCalls } = createConsumerService()
+    setScheduledInterview(dataSource, '2026-05-22T12:00:00.000Z')
+
+    await consumer.processInterviewCreated(createInterviewCreatedEvent('2026-05-22T12:00:00.000Z'))
+
+    expect(transportCalls[0]?.options).toEqual({ delaySeconds: 90 * 60 })
+  })
+
+  it('leaves the row pending for the sweep when the first delayed send fails', async function run() {
+    const { consumer, dataSource, transportCalls } = createConsumerService({ failSends: true })
+    setScheduledInterview(dataSource)
+
+    await consumer.processInterviewCreated(createInterviewCreatedEvent())
+
+    expect(transportCalls).toHaveLength(0)
+    expect(dataSource.reminderSchedules[0]?.status).toBe('pending')
+    expect(dataSource.checkpoints).toContainEqual({
+      idempotency_key: 'interview.created:interview-id',
+      checkpoint_key: 'interview.created:reminder',
+    })
+  })
+
+  it('sends a delayed reminder for match and premium bookings too', async function run() {
+    const match = createConsumerService()
+    setScheduledInterview(match.dataSource)
+    await match.consumer.processInterviewMatchCreated(createInterviewMatchCreatedEvent())
+    expect(match.transportCalls).toHaveLength(1)
+
+    const premium = createConsumerService()
+    setScheduledInterview(premium.dataSource)
+    await premium.consumer.processInterviewPremiumBooked(createInterviewPremiumBookedEvent())
+    expect(premium.transportCalls).toHaveLength(1)
+  })
+
+  it('re-sends an early reminder.due message with the remaining delay and records no checkpoint', async function run() {
+    const { consumer, dataSource, transportCalls, deliveryCalls } = createConsumerService({
+      now: () => '2026-05-22T12:00:00.000Z',
+    })
+    setScheduledInterview(dataSource)
+    const message = createReminderDueMessage()
+
+    await consumer.processReminderDue(message)
+
+    expect(deliveryCalls).toHaveLength(0)
+    expect(dataSource.checkpoints).toHaveLength(0)
+    expect(transportCalls).toEqual([{ message, options: { delaySeconds: 90 * 60 } }])
+  })
+
+  it('caps the early re-send delay at 12 hours', async function run() {
+    const { consumer, dataSource, transportCalls } = createConsumerService({
+      now: () => '2026-05-21T10:00:00.000Z',
+    })
+    setScheduledInterview(dataSource)
+
+    await consumer.processReminderDue(createReminderDueMessage())
+
+    expect(transportCalls[0]?.options).toEqual({ delaySeconds: 12 * 3600 })
+  })
+
+  it('sends a due reminder once and treats a duplicate as a no-op', async function run() {
+    const { consumer, dataSource, transportCalls, deliveryCalls } = createConsumerService({
+      now: () => '2026-05-22T13:30:00.000Z',
+    })
+    setScheduledInterview(dataSource)
+    const message = createReminderDueMessage()
+
+    await consumer.processReminderDue(message)
+    await consumer.processReminderDue(message)
+
+    expect(deliveryCalls).toHaveLength(1)
+    expect(transportCalls).toHaveLength(0)
+  })
+
+  it('throws when the early re-send fails so the queue retries', async function run() {
+    const { consumer, dataSource } = createConsumerService({
+      now: () => '2026-05-22T12:00:00.000Z',
+      failSends: true,
+    })
+    setScheduledInterview(dataSource)
+
+    await expect(consumer.processReminderDue(createReminderDueMessage())).rejects.toThrow('queue unavailable')
+    expect(dataSource.checkpoints).toHaveLength(0)
+  })
+
+  it('does not re-send an early message for a cancelled interview', async function run() {
+    const { consumer, dataSource, transportCalls } = createConsumerService({
+      now: () => '2026-05-22T12:00:00.000Z',
+    })
+    setScheduledInterview(dataSource, '2026-05-22T14:00:00.000Z', 'cancelled')
+
+    await consumer.processReminderDue(createReminderDueMessage())
+
+    expect(transportCalls).toHaveLength(0)
+    expect(dataSource.checkpoints).toHaveLength(1)
+  })
+
+  it('lets the sweep send a reminder whose delayed send failed', async function run() {
+    const { consumer, dataSource, notificationService } = createConsumerService({ failSends: true })
+    setScheduledInterview(dataSource)
+    await consumer.processInterviewCreated(createInterviewCreatedEvent())
+    expect(dataSource.reminderSchedules[0]?.status).toBe('pending')
+
+    const sweepMessages: NotificationTransportMessage[] = []
+    const dispatchService = new NotificationDispatchService(notificationService)
+    await dispatchService.enqueueDueReminders(
+      {
+        async send(message) {
+          sweepMessages.push(message)
+        },
+      },
+      '2026-05-22T13:30:00.000Z',
+    )
+
+    expect(sweepMessages).toHaveLength(1)
+    expect(sweepMessages[0]).toMatchObject({ message_type: 'reminder.due', interview_id: 'interview-id' })
+    expect(dataSource.reminderSchedules[0]?.status).toBe('dispatched')
+  })
+
   it('processes interview.cancelled by suppressing reminders and recording suppression checkpoint', async function run() {
     const { consumer, dataSource } = createConsumerService()
     dataSource.reminderSchedules.push(
@@ -875,7 +1022,7 @@ describe('NotificationConsumerService', function notificationConsumerServiceSuit
   })
 
   it('processes reminder.due with checkpoint and state guard', async function run() {
-    const { consumer, dataSource } = createConsumerService()
+    const { consumer, dataSource } = createConsumerService({ now: () => '2026-05-22T13:30:00.000Z' })
     dataSource.interviews.set('interview-id', {
       id: 'interview-id',
       scheduler_id: 'scheduler-id',
@@ -905,7 +1052,7 @@ describe('NotificationConsumerService', function notificationConsumerServiceSuit
   })
 
   it('reminder-due processing is restart-safe via durable checkpoint state', async function run() {
-    const { consumer, dataSource } = createConsumerService()
+    const { consumer, dataSource } = createConsumerService({ now: () => '2026-05-22T13:30:00.000Z' })
     dataSource.interviews.set('interview-id', {
       id: 'interview-id',
       scheduler_id: 'scheduler-id',
@@ -1051,7 +1198,7 @@ describe('NotificationConsumerService', function notificationConsumerServiceSuit
   })
 
   it('sends reminder for reminder.due with correct recipients based on interview mode', async function run() {
-    const { consumer, dataSource, deliveryCalls } = createConsumerService()
+    const { consumer, dataSource, deliveryCalls } = createConsumerService({ now: () => '2026-05-22T13:30:00.000Z' })
     dataSource.interviews.set('interview-id', {
       id: 'interview-id',
       scheduler_id: 'scheduler-id',
@@ -1084,7 +1231,7 @@ describe('NotificationConsumerService', function notificationConsumerServiceSuit
   })
 
   it('sends reminder for reminder.due with scheduler-only recipients for ai_led mode', async function run() {
-    const { consumer, dataSource, deliveryCalls } = createConsumerService()
+    const { consumer, dataSource, deliveryCalls } = createConsumerService({ now: () => '2026-05-22T13:30:00.000Z' })
     dataSource.interviews.set('interview-id', {
       id: 'interview-id',
       scheduler_id: 'scheduler-id',
@@ -1152,6 +1299,7 @@ describe('NotificationConsumerService', function notificationConsumerServiceSuit
       },
     }
     const { consumer, dataSource } = createConsumerService({
+      now: () => '2026-05-22T13:30:00.000Z',
       deliveryPort: errorDeliveryPort,
     })
     dataSource.interviews.set('interview-id', {
@@ -1304,8 +1452,10 @@ type InMemoryNotificationDataSource = {
 function createConsumerService(options: {
   now?: () => string
   deliveryPort?: NotificationDeliveryPort
+  failSends?: boolean
 } = {}): {
   consumer: NotificationConsumerService
+  transportCalls: Array<{ message: NotificationTransportMessage; options?: DelayedSendOptions }>
   dataSource: InMemoryNotificationDataSource
   notificationService: NotificationService
   deliveryCalls: Array<{
@@ -1362,8 +1512,10 @@ function createConsumerService(options: {
       }
     },
 
-    async listDueReminderSchedules(): Promise<NotificationReminderScheduleRow[]> {
-      return []
+    async listDueReminderSchedules(before: string): Promise<NotificationReminderScheduleRow[]> {
+      return dataSource.reminderSchedules.filter(
+        (s) => s.status === 'pending' && s.reminder_due_at <= before,
+      )
     },
 
     async suppressReminderSchedulesForInterview(interviewId: string): Promise<number> {
@@ -1377,10 +1529,29 @@ function createConsumerService(options: {
       return count
     },
 
-    async markReminderDispatched(): Promise<void> {},
+    async markReminderDispatched(id: string): Promise<void> {
+      for (const schedule of dataSource.reminderSchedules) {
+        if (schedule.id === id && schedule.status === 'pending') {
+          schedule.status = 'dispatched'
+        }
+      }
+    },
+
+    async markReminderDispatchedBatch(ids: string[]): Promise<void> {
+      for (const id of ids) await repository.markReminderDispatched(id)
+    },
 
     async getInterviewState(id: string): Promise<InterviewState | null> {
       return dataSource.interviews.get(id) ?? null
+    },
+
+    async getInterviewStates(ids: string[]): Promise<Map<string, InterviewState>> {
+      return new Map(
+        ids.flatMap((id) => {
+          const interview = dataSource.interviews.get(id)
+          return interview ? [[id, interview] as const] : []
+        }),
+      )
     },
   }
 
@@ -1404,14 +1575,23 @@ function createConsumerService(options: {
     },
   }
 
+  const transportCalls: Array<{ message: NotificationTransportMessage; options?: DelayedSendOptions }> = []
+  const transport: NotificationTransport = {
+    async send(message, sendOptions): Promise<void> {
+      if (options.failSends) throw new Error('queue unavailable')
+      transportCalls.push({ message, options: sendOptions })
+    },
+  }
+
   const consumer = new NotificationConsumerService(
     service,
     options.now ?? (() => '2026-05-22T10:00:00.000Z'),
     undefined,
     options.deliveryPort ?? defaultDeliveryPort,
+    transport,
   )
 
-  return { consumer, dataSource, notificationService: service, deliveryCalls }
+  return { consumer, dataSource, notificationService: service, deliveryCalls, transportCalls }
 }
 
 function createInterviewCreatedEvent(
@@ -1533,5 +1713,34 @@ function createReminderScheduleRow(
     created_at: '2026-05-22T10:00:00.000Z',
     updated_at: '2026-05-22T10:00:00.000Z',
     ...overrides,
+  }
+}
+
+function setScheduledInterview(
+  dataSource: InMemoryNotificationDataSource,
+  scheduledAt: string = '2026-05-22T14:00:00.000Z',
+  status: InterviewState['status'] = 'scheduled',
+): void {
+  dataSource.interviews.set('interview-id', {
+    id: 'interview-id',
+    scheduler_id: 'scheduler-id',
+    interviewer_id: 'interviewer-id',
+    type: 'system_design',
+    mode: 'peer_to_peer',
+    tier: 'standard',
+    status,
+    scheduled_at: scheduledAt,
+    created_at: '2026-05-22T10:00:00.000Z',
+    updated_at: '2026-05-22T10:00:00.000Z',
+  })
+}
+
+function createReminderDueMessage(): ReminderDueTransportMessage {
+  return {
+    message_type: 'reminder.due',
+    idempotency_key: 'interview.created:interview-id',
+    interview_id: 'interview-id',
+    scheduled_at: '2026-05-22T14:00:00.000Z',
+    reminder_due_at: '2026-05-22T13:30:00.000Z',
   }
 }

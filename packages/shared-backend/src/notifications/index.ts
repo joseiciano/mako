@@ -39,3 +39,9 @@ export {
   NotificationDispatchService,
   type NotificationDispatchServiceLogger,
 } from './notification-dispatch-service'
+
+export {
+  MAX_DELAY_SECONDS,
+  remainingDelaySeconds,
+  type DelayedSendOptions,
+} from './delayed-send'

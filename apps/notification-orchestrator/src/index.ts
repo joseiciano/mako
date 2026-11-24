@@ -6,6 +6,7 @@ import {
   type NotificationDeliveryPort,
   NotificationDispatchService,
   type NotificationDispatchServiceLogger,
+  type NotificationTransport,
   type NotificationTransportMessage,
   interviewCreatedEventSchema,
   interviewCancelledEventSchema,
@@ -175,11 +176,20 @@ export function createNotificationWorker(dependencies: NotificationWorkerDepende
             })
           },
         }
+        const reminderTransport: NotificationTransport = {
+          async send(message, options) {
+            await env.NOTIFICATION_QUEUE.send(
+              message,
+              options ? { delaySeconds: options.delaySeconds } : undefined,
+            )
+          },
+        }
         const consumerService = new NotificationConsumerService(
           notificationService,
           undefined,
           consumerLogger,
           deliveryPort,
+          reminderTransport,
         )
 
         for (const message of batch.messages) {
