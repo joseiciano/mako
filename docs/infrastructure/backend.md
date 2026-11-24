@@ -111,6 +111,8 @@ Cloudflare Rate Limiting bindings configured in `apps/backend-rest/wrangler.json
 | Binding | Limit | Period (seconds) | Used by |
 |---|---|---|---|
 | `PREMIUM_MARKETPLACE_RATE_LIMITER` | 60 | 60 | `GET /api/premium/marketplace` public listing (Story 7.15). Requests over the limit receive `429 { error: 'RATE_LIMITED' }`. The limiter key is the raw `CF-Connecting-IP` plus a route key; the raw IP is **never** written to logs. When the binding is missing or the limiter rejects, the route passes through and emits a PII-safe `premium.marketplace.rate_limiter_fallback` log containing only a derived location hash, route key, and outcome. |
+| `AUTH_CREDENTIALS_RATE_LIMITER` | 3 | 10 | `POST /api/auth/sign-in*`, `sign-up*`, `change-password*`, `change-email*`. Key is `CF-Connecting-IP` plus path. Over the limit returns `429`. A missing binding or IP passes through and logs `auth.rate_limit.skipped` (no IP). Replaces Better Auth's database-backed limiter, so the `rateLimit` table is unused. |
+| `AUTH_EMAIL_RATE_LIMITER` | 3 | 60 | `POST /api/auth/request-password-reset`, `send-verification-email`, `forget-password*`. Same key and behavior. |
 
 ### AI Gateway
 

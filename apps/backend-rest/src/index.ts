@@ -42,6 +42,7 @@ import {
   createAiGatewayResponder,
   createInMemoryAvailabilityDataSource,
   createInMemoryInterviewerApplicationDataSource,
+  createAuthRateLimitMiddleware,
   createAuthSessionMiddleware,
   createBetterAuth,
   createDemoRealtimeProvider,
@@ -246,6 +247,15 @@ export function createApp(): Hono<{ Bindings: WorkerBindings }> {
   registerRealtimeKitWebhookController(app, realtimeKitWebhookVerifierCache)
 
   app.use('/api/*', applyCorsHeaders)
+
+  app.use('/api/auth/*', createAuthRateLimitMiddleware<WorkerBindings>({
+    getLimiters: function getLimiters(context) {
+      return {
+        credentials: context.env?.AUTH_CREDENTIALS_RATE_LIMITER,
+        email: context.env?.AUTH_EMAIL_RATE_LIMITER,
+      }
+    },
+  }))
 
   const authSessionMiddleware = createAuthSessionMiddleware({
     getAuth: function getAuth(context) {
