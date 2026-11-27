@@ -177,7 +177,6 @@ jobs:
           BETTER_AUTH_TRUSTED_ORIGINS: ${{ secrets.BETTER_AUTH_TRUSTED_ORIGINS }}
           STRIPE_SECRET_KEY: ${{ secrets.STRIPE_SECRET_KEY }}
           STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_WEBHOOK_SECRET }}
-          AUTH_EMAIL_VERIFICATION_ENFORCED: ${{ vars.AUTH_EMAIL_VERIFICATION_ENFORCED }}
         run: |
           test -n "$CLOUDFLARE_API_TOKEN" || (echo "Missing CLOUDFLARE_API_TOKEN" && exit 1)
           test -n "$CLOUDFLARE_RUNTIME_API_TOKEN" || (echo "Missing CLOUDFLARE_RUNTIME_API_TOKEN" && exit 1)
@@ -192,10 +191,6 @@ jobs:
           else
             echo "Stripe secrets are optional in staging; payment routes remain disabled when absent."
           fi
-          case "$AUTH_EMAIL_VERIFICATION_ENFORCED" in
-            true|false) ;;
-            *) echo "AUTH_EMAIL_VERIFICATION_ENFORCED must be exactly true or false" >&2; exit 1 ;;
-          esac
 
       - name: Run backend cf-typegen and typecheck against committed Wrangler config
         working-directory: apps/backend-rest
@@ -208,7 +203,6 @@ jobs:
         env:
           HYPERDRIVE_ID: ${{ secrets.HYPERDRIVE_ID }}
           EMAIL_SENDING_DOMAIN: ${{ vars.EMAIL_SENDING_DOMAIN }}
-          AUTH_EMAIL_VERIFICATION_ENFORCED: ${{ vars.AUTH_EMAIL_VERIFICATION_ENFORCED }}
         run: |
           node -e "
             const fs = require('node:fs');
@@ -221,14 +215,9 @@ jobs:
             if (!domain) {
               throw new Error('Missing EMAIL_SENDING_DOMAIN environment variable');
             }
-            const enforcement = process.env.AUTH_EMAIL_VERIFICATION_ENFORCED;
-            if (enforcement !== 'true' && enforcement !== 'false') {
-              throw new Error('AUTH_EMAIL_VERIFICATION_ENFORCED must be exactly true or false');
-            }
             const sender = 'noreply@' + domain;
             const senderPlaceholder = 'noreply@example.invalid';
             const hyperdrivePlaceholder = '__HYPERDRIVE_ID__';
-            const varsAnchor = '    \"AUTH_EMAIL_FROM\": \"noreply@example.invalid\",';
             const current = fs.readFileSync(filePath, 'utf8');
             if (!current.includes(hyperdrivePlaceholder)) {
               throw new Error('Hyperdrive placeholder not found in wrangler.jsonc');
@@ -237,24 +226,7 @@ jobs:
             if (senderPlaceholderCount !== 2) {
               throw new Error('Expected exactly 2 ' + senderPlaceholder + ' occurrences in wrangler.jsonc, found ' + senderPlaceholderCount);
             }
-            const varsAnchorCount = current.split(varsAnchor).length - 1;
-            if (varsAnchorCount !== 1) {
-              throw new Error('Expected exactly one AUTH_EMAIL_FROM vars anchor in wrangler.jsonc, found ' + varsAnchorCount);
-            }
-            const enforcementPattern = /(\"AUTH_EMAIL_VERIFICATION_ENFORCED\"\\s*:\\s*)\"false\"/g;
-            const committedMatches = [...current.matchAll(enforcementPattern)];
-            let rendered;
-            if (committedMatches.length === 1) {
-              // Committed string \"false\" present: revalue it in place.
-              rendered = current.replace(enforcementPattern, (_, prefix) => prefix + JSON.stringify(enforcement));
-            } else if (committedMatches.length === 0 && !current.includes('\"AUTH_EMAIL_VERIFICATION_ENFORCED\"')) {
-              // Key not committed yet: inject a string value at the vars anchor.
-              const enforcementLine = '    \"AUTH_EMAIL_VERIFICATION_ENFORCED\": ' + JSON.stringify(enforcement) + ',';
-              rendered = current.replace(varsAnchor, varsAnchor + '\n' + enforcementLine);
-            } else {
-              throw new Error('Expected exactly one committed AUTH_EMAIL_VERIFICATION_ENFORCED value of \"false\" or no enforcement key at all');
-            }
-            rendered = rendered
+            const rendered = current
               .replaceAll(hyperdrivePlaceholder, hyperdriveId)
               .replaceAll(senderPlaceholder, sender);
             const renderedSenderCount = rendered.split(sender).length - 1;

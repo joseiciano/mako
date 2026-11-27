@@ -11,7 +11,6 @@ make envs-staging .env.staging
 
 Use the corresponding `production` template/targets for production. The
 `bootstrap-*` target exports the file into `scripts/bootstrap.sh`; `envs-*`
-uploads the canonical secret inventory plus `EMAIL_SENDING_ZONE_ID`,
-`EMAIL_SENDING_DOMAIN`, and `AUTH_EMAIL_VERIFICATION_ENFORCED` as GitHub
-Environment variables. Filled `.env.staging` / `.env.production` files are
+uploads the canonical secret inventory plus `EMAIL_SENDING_ZONE_ID` and
+`EMAIL_SENDING_DOMAIN` as GitHub Environment variables. Filled `.env.staging` / `.env.production` files are
 gitignored and must never be committed.

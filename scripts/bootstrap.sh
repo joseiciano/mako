@@ -342,8 +342,8 @@ Next steps (manual; secrets never pass through this script — SEC-004):
      gitignored file:
        make envs-$ENVIRONMENT .env.$ENVIRONMENT
 
-     This sets the Worker/CI secrets plus EMAIL_SENDING_ZONE_ID,
-     EMAIL_SENDING_DOMAIN, and AUTH_EMAIL_VERIFICATION_ENFORCED.
+     This sets the Worker/CI secrets plus EMAIL_SENDING_ZONE_ID and
+     EMAIL_SENDING_DOMAIN.
 
   4. Before the first deploy, run migrations:
        pnpm db:migrate  (with DATABASE_URL set to this environment's value)

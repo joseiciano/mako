@@ -58,7 +58,6 @@ services:
       BETTER_AUTH_SECRET: local-dev-only-secret-change-me-0123456789
       BETTER_AUTH_URL: http://localhost:3000
       BETTER_AUTH_TRUSTED_ORIGINS: http://localhost:3000
-      AUTH_EMAIL_VERIFICATION_ENFORCED: 'false'
       CLOUDFLARE_ACCOUNT_ID: local-placeholder
       CLOUDFLARE_API_TOKEN: local-placeholder
       CLOUDFLARE_REALTIMEKIT_APP_ID: local-placeholder

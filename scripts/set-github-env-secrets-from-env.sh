@@ -38,12 +38,11 @@ KNOWN_SECRETS=(
 )
 
 # Values deliberately present in the shared env file but not uploaded as
-# GitHub Secrets. The Makefile sends the three variables through
+# GitHub Secrets. The Makefile sends the two variables through
 # set-github-env-vars-from-env.sh; the connection string is bootstrap-only.
 NON_SECRET_KEYS=(
   "EMAIL_SENDING_ZONE_ID"
   "EMAIL_SENDING_DOMAIN"
-  "AUTH_EMAIL_VERIFICATION_ENFORCED"
 )
 
 usage() {

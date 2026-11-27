@@ -81,12 +81,11 @@ Application and runtime values:
 |---|---|---|
 | `EMAIL_SENDING_ZONE_ID` | Cloudflare zone containing the environment's sending domain | 32-character zone ID |
 | `EMAIL_SENDING_DOMAIN` | Environment-specific sending domain, created by `scripts/bootstrap.sh` in that zone | `mail.staging.example.com` |
-| `AUTH_EMAIL_VERIFICATION_ENFORCED` | Controls both backend Better Auth enforcement and the frontend signup flow for the selected environment | Exact string `true` or `false` |
 
 The committed Wrangler config derives `AUTH_EMAIL_FROM` as `noreply@${EMAIL_SENDING_DOMAIN}` (CI renders it into the committed `noreply@example.invalid` placeholder), exposes it to `backend-rest` as a non-secret plain-text binding, and restricts the `EMAIL` binding's sender allowlist to that address. `AUTH_EMAIL_FROM` is not stored in GitHub.
 
 
-The committed local Wrangler default for `AUTH_EMAIL_VERIFICATION_ENFORCED` is `false`. The application workflow renders the same validated value into the backend binding and maps it to the frontend build as `VITE_AUTH_EMAIL_VERIFICATION_ENFORCED`; both consumers accept only exact lowercase `true` or `false`. When false, the frontend retains the existing immediate-authentication signup behavior. Deployment A keeps the GitHub Environment variable at `false` while infrastructure, binding parity, controlled delivery, and redaction preservation are proven. Deployment B changes the variable to `true` in staging first so backend enforcement and frontend verification navigation switch together, completes staging verification, and only then changes production to `true`.
+The backend always requires email verification before an email-and-password sign-in. No environment setting turns it off.
 
 Operator prerequisites that GitHub cannot establish are: the zone is authoritative in Cloudflare DNS and contains the sending domain, `CLOUDFLARE_API_TOKEN` has Email Sending edit permission, and the account plan permits the intended recipients.
 
@@ -100,19 +99,19 @@ Pre-deploy synchronization is part of the bootstrap contract, not a post-deploy 
 
 1. Create both required GitHub Environments and apply their branch restrictions.
 2. Copy the matching template (`cp .env.staging.example .env.staging` or `cp .env.production.example .env.production`), fill it, then run `make bootstrap-staging .env.staging` or `make bootstrap-production .env.production`. The target exports the file into the one-time idempotent bootstrap, which creates/verifies the Neon project, Hyperdrive config, queues, R2 buckets with lifecycle rules, and Email Sending domain.
-3. On a fresh Neon project, paste the `DATABASE_URL` the bootstrap prints back into the same gitignored file, re-run bootstrap (it creates the Hyperdrive config from that direct URI — Hyperdrive itself provides pooling, so no separate pooled URI is needed), set `HYPERDRIVE_ID` from the summary, then run `make envs-staging .env.staging` or `make envs-production .env.production`. That uploads every known GitHub secret and the three non-secret environment variables.
+3. On a fresh Neon project, paste the `DATABASE_URL` the bootstrap prints back into the same gitignored file, re-run bootstrap (it creates the Hyperdrive config from that direct URI — Hyperdrive itself provides pooling, so no separate pooled URI is needed), set `HYPERDRIVE_ID` from the summary, then run `make envs-staging .env.staging` or `make envs-production .env.production`. That uploads every known GitHub secret and the two non-secret environment variables.
 4. Grant the single `CLOUDFLARE_API_TOKEN` only the account and zone permissions needed by the bootstrap script and Wrangler. Keep `CLOUDFLARE_RUNTIME_API_TOKEN` least-privileged for runtime calls.
-5. Set `AUTH_EMAIL_VERIFICATION_ENFORCED=false` until Email Service delivery is verified.
-6. Run migrations once per fresh environment (`pnpm db:migrate` with the environment's `DATABASE_URL`).
-7. Merge to `staging` or `main`, or dispatch `.github/workflows/deploy.yml` from the matching branch and environment. Do not dispatch the reusable workflows directly.
-8. Observe one run in this order: environment guard → migrations → notification-orchestrator → backend-rest (+ redaction reassert) → greedy-matcher → frontend.
+5. Run migrations once per fresh environment (`pnpm db:migrate` with the environment's `DATABASE_URL`).
+6. Merge to `staging` or `main`, or dispatch `.github/workflows/deploy.yml` from the matching branch and environment. Do not dispatch the reusable workflows directly.
+7. Observe one run in this order: environment guard → migrations → notification-orchestrator → backend-rest (+ redaction reassert) → greedy-matcher → frontend.
 
-### Email Verification Deployment Gate
+### Email Verification Readiness
 
-- **Deployment A (`AUTH_EMAIL_VERIFICATION_ENFORCED=false`)**: run `scripts/bootstrap.sh` (provisions Email Service and verifies readiness), then deploy the bindings, verify `preview_enabled=false` and `drop_suppressed_recipients=false`, validate Cloudflare-managed DNS and sender restrictions, perform a controlled staging send, and confirm the post-deploy redaction reassert ran.
-- **Deployment B (`AUTH_EMAIL_VERIFICATION_ENFORCED=true`)**: the same application workflow enables backend enforcement and builds the frontend verification flow from the same validated value, then verifies the complete signup/verification/login flow in staging before promoting the contract to production and running the controlled canary.
+The backend always requires email verification, so new users cannot finish sign-up until the environment's Email Sending domain delivers mail. Before the first deploy to an environment:
 
-The application pipeline is not independently ordered by an operator: `.github/workflows/deploy.yml` establishes the job ordering. The operator controls only the false-to-true environment-variable promotion after Deployment A evidence passes. Rollback changes `AUTH_EMAIL_VERIFICATION_ENFORCED` back to `false` and redeploys both backend and frontend behavior together while leaving proven Email Service infrastructure in place.
+- Run `scripts/bootstrap.sh`. It provisions the Email Sending domain and polls until the domain reports enabled.
+- Verify `preview_enabled=false` and `drop_suppressed_recipients=false`, the Cloudflare-managed DNS records, and the sender allowlist.
+- After the deploy, sign up with a controlled inbox, open the verification link, and sign in. Confirm the post-deploy redaction reassert ran.
 
 ### Terraform Retirement
 
@@ -120,12 +119,12 @@ The Terraform stack was removed from the repository; `scripts/bootstrap.sh` plus
 
 ### Troubleshooting
 
-- **Missing configuration**: confirm the value exists in the selected GitHub Environment, including required `NEON_API_KEY`, `HYPERDRIVE_ID`, `VITE_AUTH_BASE_URL`, and all three non-secret variables.
+- **Missing configuration**: confirm the value exists in the selected GitHub Environment, including required `NEON_API_KEY`, `HYPERDRIVE_ID`, `VITE_AUTH_BASE_URL`, and both non-secret variables.
 - **Manual deployment rejected**: dispatch from `staging` with `staging`, or from `main` with `production`.
 - **Email Sending not ready**: inspect Email Sending domain/DNS state; re-run `scripts/bootstrap.sh` (its readiness poll is part of every run). Do not start the backend deployment until the domain reports enabled.
 - **Wrangler authentication failure**: verify `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` belong to the same selected environment.
 - **Worker runtime authentication failure**: verify pre-deploy synchronization used `CLOUDFLARE_RUNTIME_API_TOKEN` for the Worker secret named `CLOUDFLARE_API_TOKEN`.
-- **Backend runtime configuration failure**: verify Hyperdrive rendering and the required Better Auth, Stripe, Email, and enforcement bindings.
+- **Backend runtime configuration failure**: verify Hyperdrive rendering and the required Better Auth, Stripe, and Email bindings.
 - **Frontend auth failure**: verify `VITE_AUTH_BASE_URL` points to the selected environment's deployed backend.
 - **Redaction reassert failure**: `scripts/ensure-redact-query-string.sh` failed to set/verify `redact_query_string`; stop promotion, inspect the script error, and rerun the backend deploy job. Do not bypass the redaction step.
 

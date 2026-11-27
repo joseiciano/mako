@@ -37,23 +37,14 @@ Everything else is owned by committed Wrangler configs: Workers (`mako-backend-r
 
 > **Operational Note**: Queues and other persistent resources are created by `scripts/bootstrap.sh`, never by ad-hoc `wrangler create` commands in application deploy workflows. If a resource is missing, run the bootstrap instead of creating it inline.
 
-## Email Verification Deployment Gate
+## Email Verification Readiness
 
-Email verification is promoted in two separately approved deployments. Independent infrastructure and application workflow triggers do not establish ordering; the operator, not GitHub Actions, must enforce this gate.
-
-### Deployment A: infrastructure readiness
-
-Run `scripts/bootstrap.sh` to provision/verify the Email Service domain and deploy the backend bindings while verification enforcement remains disabled. For staging and production, approver-visible evidence must show:
+The backend always requires email verification, so new users cannot finish sign-up until the environment's Email Service domain delivers mail. Run `scripts/bootstrap.sh` to provision and verify the Email Service domain before the first deploy. For staging and production, evidence must show:
 
 - email sending domain reports `enabled=true` in the bootstrap readiness poll (domain readiness only, never mailbox-delivery proof)
 - `preview_enabled=false` and `drop_suppressed_recipients=false`
 - valid Cloudflare-managed MX, SPF, DKIM, DMARC, and return-path state
 - backend-only `EMAIL` and `AUTH_EMAIL_FROM` bindings with the exact derived sender allowlist
-- backend Worker query-string redaction enabled before and after the staging Wrangler deployment
-- one controlled staging send accepted by Email Service, with no recipient, verification URL, token, body, or raw provider message in application logs
+- backend Worker query-string redaction enabled after every Wrangler deployment (`scripts/ensure-redact-query-string.sh`)
+- one controlled sign-up whose verification email arrives, with no recipient, verification URL, token, body, or raw provider message in application logs
 
-Deployment B is blocked until all Deployment A readiness evidence passes. In particular, the post-deploy redaction step (`scripts/ensure-redact-query-string.sh`) must confirm `observability.redact_query_string` remains enabled after every staging Wrangler deployment. Deployment A's rollback boundary is bootstrap and binding configuration only; do not enable verification behavior, and revert the failed configuration before retrying.
-
-### Deployment B: verification enforcement
-
-Promote coordinated backend and frontend verification behavior only after Deployment A approval. Record the staging end-to-end results and production controlled-inbox canary required by the feature plan. If enforcement fails, roll back the backend and frontend application releases together while leaving the proven Email Service infrastructure in place; do not let the old frontend receive enforced unverified-signup responses.

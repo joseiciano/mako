@@ -126,9 +126,6 @@ export type WorkerBindings = Partial<
 > & {
   DB?: DatabaseBinding
   HYPERDRIVE?: HyperdriveBinding
-  // Provisioned outside the Wrangler config contract; this entry is needed
-  // until `cf-typegen` regenerates types with the committed Wrangler var.
-  AUTH_EMAIL_VERIFICATION_ENFORCED?: string
   AI_GATEWAY_BASE_URL?: string
   // Optional Cloudflare API base override (local fakes); unset uses api.cloudflare.com.
   CLOUDFLARE_API_BASE_URL?: string
@@ -1133,28 +1130,7 @@ function createWorkerAuth(
   const bindings = context.env ?? {}
   const databaseUrl = bindings.HYPERDRIVE?.connectionString
   const secret = bindings.BETTER_AUTH_SECRET
-  const enforcedBinding = parseEnforcedBinding(
-    bindings.AUTH_EMAIL_VERIFICATION_ENFORCED,
-  )
 
-  if ('missing' in enforcedBinding || 'invalid' in enforcedBinding) {
-    console.error(
-      'missing' in enforcedBinding
-        ? {
-            event: 'auth.config.enforced_missing',
-            level: 'error',
-            binding: 'AUTH_EMAIL_VERIFICATION_ENFORCED',
-            message: 'Auth enforcement binding is required.',
-          }
-        : {
-            event: 'auth.config.enforced_invalid',
-            level: 'error',
-            binding: 'AUTH_EMAIL_VERIFICATION_ENFORCED',
-            message: 'Auth enforcement binding must be exactly true or false.',
-          },
-    )
-    return null
-  }
   if (!databaseUrl || !secret) {
     return null
   }
@@ -1164,7 +1140,7 @@ function createWorkerAuth(
     connectionString: databaseUrl,
     secret,
     baseURL,
-    requireEmailVerification: enforcedBinding.enforced,
+    requireEmailVerification: true,
     trustedOrigins: parseConfiguredOrigins(
       bindings.BETTER_AUTH_TRUSTED_ORIGINS,
       baseURL,
@@ -1217,35 +1193,6 @@ function parseConfiguredOrigins(
   return Array.from(origins)
 }
 
-type EnforcedBindingParse =
-  | { enforced: boolean }
-  | { missing: true }
-  | { invalid: true }
-
-/**
- * Parses the enforcement binding into a boolean. Only the exact lowercase
- * strings "true" and "false" are accepted; any other or missing value is
- * runtime misconfiguration so auth fails closed before Better Auth exists.
- */
-function parseEnforcedBinding(
-  value: string | undefined,
-): EnforcedBindingParse {
-  if (value === undefined) {
-    return { missing: true }
-  }
-
-  if (value === 'true') {
-    return { enforced: true }
-  }
-
-  if (value === 'false') {
-    return { enforced: false }
-  }
-
-  return { invalid: true }
-}
-
-
 /**
  * Builds a request-scoped Better Auth instance whose verification-email
  * callback delivers on the originating request's execution context.
@@ -1262,15 +1209,11 @@ function createRequestScopedAuth(
   const secret = bindings.BETTER_AUTH_SECRET
   const email = bindings.EMAIL
   const authEmailFrom = bindings.AUTH_EMAIL_FROM?.trim()
-  const enforcedBinding = parseEnforcedBinding(
-    bindings.AUTH_EMAIL_VERIFICATION_ENFORCED,
-  )
   const missingBindings = [
     ...(databaseUrl ? [] : ['HYPERDRIVE']),
     ...(secret ? [] : ['BETTER_AUTH_SECRET']),
     ...(email ? [] : ['EMAIL']),
     ...(authEmailFrom ? [] : ['AUTH_EMAIL_FROM']),
-    ...('missing' in enforcedBinding ? ['AUTH_EMAIL_VERIFICATION_ENFORCED'] : []),
   ]
 
   if (missingBindings.length > 0) {
@@ -1280,18 +1223,6 @@ function createRequestScopedAuth(
       message: 'Auth runtime configuration is incomplete.',
       missing: missingBindings,
     })
-    return null
-  }
-  if ('invalid' in enforcedBinding) {
-    console.error({
-      event: 'auth.config.enforced_invalid',
-      level: 'error',
-      binding: 'AUTH_EMAIL_VERIFICATION_ENFORCED',
-      message: 'Auth enforcement binding must be exactly true or false.',
-    })
-    return null
-  }
-  if ('missing' in enforcedBinding) {
     return null
   }
   if (!databaseUrl || !secret || !email || !authEmailFrom) {
@@ -1313,7 +1244,7 @@ function createRequestScopedAuth(
     connectionString: databaseUrl,
     secret,
     baseURL,
-    requireEmailVerification: enforcedBinding.enforced,
+    requireEmailVerification: true,
     trustedOrigins: parseConfiguredOrigins(
       bindings.BETTER_AUTH_TRUSTED_ORIGINS,
       baseURL,
