@@ -36,16 +36,7 @@ set +a
 VARIABLES=(
   "EMAIL_SENDING_ZONE_ID"
   "EMAIL_SENDING_DOMAIN"
-  "AUTH_EMAIL_VERIFICATION_ENFORCED"
 )
-
-case "${AUTH_EMAIL_VERIFICATION_ENFORCED:-}" in
-  true|false) ;;
-  *)
-    echo "AUTH_EMAIL_VERIFICATION_ENFORCED must be exactly true or false" >&2
-    exit 1
-    ;;
-esac
 
 # Validate the full file before mutating GitHub so a missing later value cannot
 # leave the environment partially updated.

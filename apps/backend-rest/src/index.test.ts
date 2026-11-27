@@ -953,7 +953,6 @@ describe('backend-rest smoke tests', function () {
         connectionString: 'postgres://hyperdrive.local/mako',
       },
       BETTER_AUTH_SECRET: 'test-secret',
-      AUTH_EMAIL_VERIFICATION_ENFORCED: 'false',
     }
 
     const accountResponse = await getAccount(app, hyperdriveEnv)
@@ -1103,7 +1102,6 @@ describe('backend-rest smoke tests', function () {
         connectionString: 'postgres://hyperdrive.local/mako',
       },
       BETTER_AUTH_SECRET: 'test-secret',
-      AUTH_EMAIL_VERIFICATION_ENFORCED: 'false',
     }
 
     const response = await createAvailability(app, {}, hyperdriveEnv)
@@ -1174,7 +1172,6 @@ describe('backend-rest smoke tests', function () {
         connectionString: 'postgres://hyperdrive.local/mako',
       },
       BETTER_AUTH_SECRET: 'test-secret',
-      AUTH_EMAIL_VERIFICATION_ENFORCED: 'false',
     }
 
     const response = await createAvailability(
@@ -2275,7 +2272,6 @@ describe('auth request boundary', function () {
       BETTER_AUTH_SECRET: 'test-secret',
       EMAIL: createSendEmailFake().email,
       AUTH_EMAIL_FROM: 'noreply@mako.test',
-      AUTH_EMAIL_VERIFICATION_ENFORCED: 'false',
       ...overrides,
     }
     return env as WorkerBindings
@@ -2348,6 +2344,34 @@ describe('auth request boundary', function () {
     expect(createBetterAuthSpy).toHaveBeenCalledTimes(1)
   })
 
+  it('requires email verification on the request-scoped auth used by /api/auth/*', async function () {
+    const app = createApp()
+    const createBetterAuthSpy = vi.spyOn(sharedBackend, 'createBetterAuth')
+    mockRequestScopedAuth(createBetterAuthSpy)
+    const { executionCtx } = createExecutionContextFake()
+
+    await postSignUp(app, createAuthEnv(), executionCtx)
+
+    expect(createBetterAuthSpy).toHaveBeenCalledTimes(1)
+    expect(createBetterAuthSpy.mock.calls[0]?.[0]).toMatchObject({
+      requireEmailVerification: true,
+    })
+  })
+
+  it('requires email verification on the session auth used by the /api/* middleware', async function () {
+    const app = createApp()
+    const createBetterAuthSpy = vi.spyOn(sharedBackend, 'createBetterAuth')
+    mockRequestScopedAuth(createBetterAuthSpy)
+    const { executionCtx } = createExecutionContextFake()
+
+    await app.request('/api/account', {}, createAuthEnv(), executionCtx)
+
+    expect(createBetterAuthSpy).toHaveBeenCalledTimes(1)
+    expect(createBetterAuthSpy.mock.calls[0]?.[0]).toMatchObject({
+      requireEmailVerification: true,
+    })
+  })
+
   it.each([
     {
       name: 'missing EMAIL binding',
@@ -2368,22 +2392,6 @@ describe('auth request boundary', function () {
       name: 'missing HYPERDRIVE',
       overrides: { HYPERDRIVE: undefined },
       expectedLog: undefined,
-    },
-    {
-      name: 'missing AUTH_EMAIL_VERIFICATION_ENFORCED',
-      overrides: { AUTH_EMAIL_VERIFICATION_ENFORCED: undefined },
-      expectedLog: {
-        event: 'auth.config.missing',
-        missing: ['AUTH_EMAIL_VERIFICATION_ENFORCED'],
-      },
-    },
-    {
-      name: 'invalid AUTH_EMAIL_VERIFICATION_ENFORCED',
-      overrides: { AUTH_EMAIL_VERIFICATION_ENFORCED: 'TRUE' },
-      expectedLog: {
-        event: 'auth.config.enforced_invalid',
-        binding: 'AUTH_EMAIL_VERIFICATION_ENFORCED',
-      },
     },
   ])(
     'returns 503 before Better Auth when runtime configuration has $name',
